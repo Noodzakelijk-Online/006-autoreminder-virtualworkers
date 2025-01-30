@@ -1,0 +1,7 @@
+runtime: nodejs18  # Use the latest supported Node.js version
+service: default  # Change if using multiple services
+
+handlers:
+  - url: /.*
+    script: auto
+    secure: always
