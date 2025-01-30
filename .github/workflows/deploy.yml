@@ -1,0 +1,25 @@
+name: Deploy to Google App Engine
+
+on:
+  push:
+    branches:
+      - main  # Change to your deployment branch if needed
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          service_account_key: ${{ secrets.GOOGLE_CLOUD_CREDENTIALS }}
+          project_id: automated-reminders-448014
+
+      - name: Authenticate Google Cloud
+        run: gcloud auth activate-service-account --key-file=<(echo "${{ secrets.GOOGLE_CLOUD_CREDENTIALS }}")
+
+      - name: Deploy to Google App Engine
+        run: gcloud app deploy --quiet
