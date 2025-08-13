@@ -1,0 +1,51 @@
+{
+  "build": {
+    "appId": "com.autoreminder.app",
+    "productName": "AutoReminder",
+    "copyright": "Copyright © 2025",
+    "files": [
+      "build/**/*",
+      "node_modules/**/*",
+      "package.json",
+      "main.js",
+      "preload.js",
+      "ipc-handler.js",
+      "assets/**/*",
+      "src/services/**/*"
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icons/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AutoReminder"
+    },
+    "portable": {
+      "artifactName": "AutoReminder-Portable-${version}.exe"
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    }
+  }
+}

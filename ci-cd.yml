@@ -1,0 +1,109 @@
+name: AutoReminder CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run backend tests
+      run: npm test
+    
+    - name: Install client dependencies
+      working-directory: ./client
+      run: npm ci
+    
+    - name: Run client tests
+      working-directory: ./client
+      run: npm test -- --watchAll=false
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
+      with:
+        project_id: ${{ secrets.GCP_PROJECT_ID }}
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+        export_default_credentials: true
+    
+    - name: Authorize Docker push
+      run: gcloud auth configure-docker
+    
+    # Build and push backend
+    - name: Build backend image
+      run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/autoreminder-api .
+    
+    - name: Push backend image
+      run: docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/autoreminder-api
+    
+    - name: Deploy backend to Cloud Run
+      run: |
+        gcloud run deploy autoreminder-api \
+          --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/autoreminder-api \
+          --platform managed \
+          --region us-central1 \
+          --allow-unauthenticated \
+          --set-env-vars="NODE_ENV=production,PORT=8080,JWT_SECRET=${{ secrets.JWT_SECRET }},MONGODB_URI=${{ secrets.MONGODB_URI }},TRELLO_API_KEY=${{ secrets.TRELLO_API_KEY }},TRELLO_TOKEN=${{ secrets.TRELLO_TOKEN }},SMTP_HOST=${{ secrets.SMTP_HOST }},SMTP_PORT=${{ secrets.SMTP_PORT }},SMTP_USER=${{ secrets.SMTP_USER }},SMTP_PASS=${{ secrets.SMTP_PASS }},EMAIL_FROM=${{ secrets.EMAIL_FROM }},TIMEZONE=${{ secrets.TIMEZONE }}"
+    
+    # Get backend URL for frontend configuration
+    - name: Get backend URL
+      id: backend-url
+      run: |
+        BACKEND_URL=$(gcloud run services describe autoreminder-api --platform managed --region us-central1 --format 'value(status.url)')
+        echo "::set-output name=url::$BACKEND_URL"
+    
+    # Configure frontend with backend URL
+    - name: Configure frontend
+      working-directory: ./client
+      run: |
+        echo "REACT_APP_API_URL=${{ steps.backend-url.outputs.url }}" > .env
+    
+    # Build and push frontend
+    - name: Build frontend image
+      working-directory: ./client
+      run: docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/autoreminder-client .
+    
+    - name: Push frontend image
+      run: docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/autoreminder-client
+    
+    - name: Deploy frontend to Cloud Run
+      run: |
+        gcloud run deploy autoreminder-client \
+          --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/autoreminder-client \
+          --platform managed \
+          --region us-central1 \
+          --allow-unauthenticated
+    
+    # Get frontend URL for output
+    - name: Get frontend URL
+      id: frontend-url
+      run: |
+        FRONTEND_URL=$(gcloud run services describe autoreminder-client --platform managed --region us-central1 --format 'value(status.url)')
+        echo "::set-output name=url::$FRONTEND_URL"
+    
+    - name: Output deployment URLs
+      run: |
+        echo "Backend deployed to: ${{ steps.backend-url.outputs.url }}"
+        echo "Frontend deployed to: ${{ steps.frontend-url.outputs.url }}"

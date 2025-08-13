@@ -1,0 +1,125 @@
+Phase 1: Assessment and Setup Verification
+
+Task: Gain Access & Review Existing Assets
+
+Obtain necessary access credentials from Noodzakelijk Online for:
+
+The relevant GitHub repository.
+
+The Google Cloud Platform (GCP) project intended for this tool (confirm the current project ID). Ensure you have sufficient permissions (e.g., Editor role, potentially temporary Owner role if absolutely needed for specific setups, clarifying the need first).
+
+The Trello API (likely needs new keys generated/shared).
+
+The Twilio account.
+
+The SendGrid account (clarify if separate or linked via Twilio).
+
+Thoroughly review the existing codebase in GitHub (if any). Assess its completeness, quality, adherence to requirements, and efficiency.
+
+Review the current GCP project setup, focusing on existing services, configurations, and any remaining deployment artifacts.
+
+Review Twilio and SendGrid account setups, noting any existing configurations, verifications (sender, domain), and API keys.
+
+Outcome: Olu has full access and a clear understanding of the existing code's state, the infrastructure setup, and any immediate issues (e.g., incomplete features, configuration errors, inefficient code). Provide a brief assessment report to Noodzakelijk Online.
+
+Phase 2: Code Development & Refinement
+
+Task: Ensure Code Functionality & Efficiency
+
+Based on the assessment, either complete, refactor, or rewrite the codebase (using Python or Node.js as specified) to fully implement all features outlined in the "Scope of Work" section of the original description.
+
+Crucially: Prioritize lightweight design and minimal resource consumption to align with the strict budget ($15/month) and Chromebook compatibility (implying efficient cloud service usage).
+
+Implement robust error handling and logging for all operations (API calls, message sending, scheduling).
+
+Ensure all configurable settings (notification times, max duration, weekend pause, message templates) are easily manageable (e.g., via environment variables or a configuration file).
+
+Commit code changes to the GitHub repository regularly with clear messages.
+
+Outcome: A complete, functional, efficient, and well-commented codebase resides in GitHub, meeting all original requirements.
+
+Phase 3: Infrastructure & API Integration
+
+Task: Configure and Verify Integrations
+
+GCP: Configure the appropriate lightweight GCP service (e.g., Cloud Functions, Cloud Run) triggered by Cloud Scheduler to run the automation logic at the specified times (Amsterdam Time). Ensure billing alerts are set up for the project.
+
+Trello API: Ensure seamless integration for fetching card details, user emails (handle missing emails gracefully), detecting activity/responses, and posting comments.
+
+Email (SendGrid): Properly configure SendGrid. Ensure sender verification/domain authentication is complete (coordinate with Noodzakelijk Online if actions are needed on their end). Implement email sending using customizable templates.
+
+SMS/WhatsApp (Twilio):
+
+Confirm with Noodzakelijk Online if SMS is sufficient, given the previous issues with WhatsApp setup.
+
+If SMS: Configure Twilio for SMS sending.
+
+If WhatsApp: Re-evaluate the WhatsApp setup process via Twilio, ensuring all steps (Facebook Business Manager, number registration/verification) are understood and feasible. Coordinate closely with Noodzakelijk Online.
+
+Implement message sending via the chosen channel using customizable templates.
+
+Credentials: Securely manage all API keys/secrets using GCP Secret Manager or GitHub Secrets integrated with the deployment process.
+
+Outcome: All APIs (Trello, SendGrid, Twilio) are correctly integrated and verified. Cloud infrastructure (GCP Function/Run + Scheduler) is configured but not necessarily running the final code yet. Credentials are secure.
+
+Phase 4: Deployment, Testing, and Optimization
+
+Task: Deploy to GCP and Test End-to-End
+
+Deploy the finalized code from GitHub to the configured GCP environment.
+
+Conduct thorough testing:
+
+Assign users to test Trello cards.
+
+Verify Trello comments are posted at the correct time (Day 0).
+
+Verify emails are sent (Day 1).
+
+Verify SMS/WhatsApp messages are sent (Day 2).
+
+Verify reminders stop when a response (comment/activity) is detected on the card.
+
+Verify reminders stop after the configured duration (e.g., 7 days).
+
+Verify the weekend pause functionality.
+
+Check the generated logs for accuracy and completeness.
+
+Monitor GCP resource consumption and cost during testing. Optimize the deployment configuration (e.g., memory allocation for Cloud Functions) if necessary to stay within budget.
+
+Outcome: The automation tool is successfully deployed on GCP, running reliably, tested thoroughly, and operating within the expected cost limits.
+
+Phase 5: Local Execution Capability
+
+Task: Enable Local Execution on Windows 11
+
+Ensure the script can be run standalone outside the GCP environment.
+
+Document the steps required to set up the development environment (Python/Node.js version, dependencies installation via requirements.txt or package.json) on a Windows 11 machine.
+
+Document how to configure local execution (e.g., loading API keys/settings, potentially via environment variables or a local config file).
+
+Provide instructions on how to run the script manually or potentially set it up with Windows Task Scheduler if continuous local running is desired (clarify this specific use case with Noodzakelijk Online regarding the "reverse hybrid cloud" idea).
+
+Outcome: The tool can be successfully set up and executed on a standard Windows 11 environment. Clear documentation for local setup and execution is provided.
+
+Phase 6: Documentation and Handover
+
+Task: Finalize Documentation and Deliver
+
+Create comprehensive documentation covering:
+
+Tool configuration (API keys, notification templates, schedule settings, weekend days).
+
+Deployment instructions for GCP.
+
+Local setup and execution instructions (Windows 11).
+
+Overview of the logging and reporting features.
+
+Ensure the final, working code is fully pushed to the GitHub repository with appropriate comments.
+
+Conduct a brief handover session with Noodzakelijk Online to walk through the setup, configuration, and usage.
+
+Outcome: Fully functional tool delivered, along with comprehensive documentation and commented code in GitHub. Noodzakelijk Online understands how to configure, run, and maintain the tool.

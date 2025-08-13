@@ -1,0 +1,65 @@
+version: '3'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: autoreminder-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    networks:
+      - autoreminder-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autoreminder-backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mongodb
+    environment:
+      - PORT=8080
+      - NODE_ENV=development
+      - JWT_SECRET=dev_secret_key
+      - JWT_EXPIRATION=24h
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/autoreminder?authSource=admin
+      - TRELLO_API_KEY=your_trello_api_key
+      - TRELLO_TOKEN=your_trello_token
+      - SMTP_HOST=smtp.example.com
+      - SMTP_PORT=587
+      - SMTP_USER=your_smtp_username
+      - SMTP_PASS=your_smtp_password
+      - EMAIL_FROM=noreply@autoreminder.example.com
+      - TIMEZONE=Europe/Amsterdam
+    networks:
+      - autoreminder-network
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    container_name: autoreminder-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - REACT_APP_API_URL=http://localhost:8080
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    networks:
+      - autoreminder-network
+
+networks:
+  autoreminder-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
