@@ -1,24 +1,24 @@
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Container, 
   Box, 
   Typography, 
   TextField, 
   Button, 
-  Paper, 
+ 
   Avatar, 
   Alert,
   CircularProgress
 } from '@mui/material';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import { AuthContext } from '../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [formErrors, setFormErrors] = useState({});
-  const { login, isAuthenticated, error, loading, clearError } = useContext(AuthContext);
+  const { login, isAuthenticated, error, loading, clearError } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -55,7 +55,7 @@ const Login = () => {
     e.preventDefault();
     
     if (validateForm()) {
-      await login(email, password);
+      await login({ email, password });
     }
   };
 
@@ -78,7 +78,7 @@ const Login = () => {
         
         {error && (
           <Alert severity="error" sx={{ width: '100%', mt: 2 }}>
-            {error}
+            {error.message || error.title || 'An error occurred'}
           </Alert>
         )}
         

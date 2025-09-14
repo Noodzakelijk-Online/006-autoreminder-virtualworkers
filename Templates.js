@@ -26,7 +26,7 @@ import {
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
-import axios from 'axios';
+import { api } from '../utils/api';
 
 const Templates = () => {
   const [templates, setTemplates] = useState([]);
@@ -49,10 +49,11 @@ const Templates = () => {
   const fetchTemplates = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/templates');
+      const response = await api.templates.getAll();
       setTemplates(response.data);
       setError(null);
     } catch (err) {
+      console.error('Template fetch error:', err);
       setError(err.response?.data?.message || 'Error fetching templates');
     } finally {
       setLoading(false);
@@ -101,15 +102,17 @@ const Templates = () => {
       setLoading(true);
       
       if (editMode) {
-        await axios.put(`/api/templates/${currentTemplate._id}`, currentTemplate);
+        await api.templates.update(currentTemplate._id, currentTemplate);
       } else {
-        await axios.post('/api/templates', currentTemplate);
+        await api.templates.create(currentTemplate);
       }
       
       fetchTemplates();
       handleCloseDialog();
     } catch (err) {
-      setError(err.response?.data?.message || 'Error saving template');
+      console.error('Template save error:', err);
+      setError(err.message || 'Error saving template');
+    } finally {
       setLoading(false);
     }
   };
@@ -118,10 +121,12 @@ const Templates = () => {
     if (window.confirm('Are you sure you want to delete this template?')) {
       try {
         setLoading(true);
-        await axios.delete(`/api/templates/${id}`);
+        await api.templates.delete(id);
         fetchTemplates();
       } catch (err) {
-        setError(err.response?.data?.message || 'Error deleting template');
+        console.error('Template delete error:', err);
+        setError(err.message || 'Error deleting template');
+      } finally {
         setLoading(false);
       }
     }

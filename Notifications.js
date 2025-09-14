@@ -28,7 +28,13 @@ import {
   DialogActions,
   FormGroup,
   FormControlLabel,
-  Checkbox
+  Checkbox,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -36,7 +42,7 @@ import EmailIcon from '@mui/icons-material/Email';
 import SmsIcon from '@mui/icons-material/Sms';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import CommentIcon from '@mui/icons-material/Comment';
-import axios from 'axios';
+import api from '../utils/api';
 
 const Notifications = () => {
   const [cards, setCards] = useState([]);
@@ -79,10 +85,15 @@ const Notifications = () => {
 
   const fetchNotificationStatus = async () => {
     try {
-      const response = await axios.get('/api/notifications/status');
-      setStats(response.data);
+      const response = await api.notifications.getStatus();
+      if (response.success && response.data) {
+        setStats(response.data);
+      } else {
+        setStats(response);
+      }
     } catch (err) {
       console.error('Error fetching notification status:', err);
+      setStats(null);
     }
   };
 
@@ -130,26 +141,53 @@ const Notifications = () => {
 
   const handleSendNotification = async () => {
     if (!selectedCard || !notificationForm.message.trim() || notificationForm.channels.length === 0) return;
-    
+
     try {
       setSending(true);
-      await axios.post('/api/notifications/send', {
-        cardId: selectedCard,
-        channels: notificationForm.channels,
-        message: notificationForm.message
+
+      // Send notification for each selected channel
+      const promises = notificationForm.channels.map(async (channel) => {
+        const selectedCardData = cards.find(card => card.id === selectedCard);
+
+        // Determine recipient based on channel
+        let recipient;
+        switch (channel) {
+          case 'email':
+            recipient = 'test@example.com'; // In real app, get from user profile
+            break;
+          case 'sms':
+            recipient = '+1234567890'; // In real app, get from user profile
+            break;
+          case 'whatsapp':
+            recipient = '+1234567890'; // In real app, get from user profile
+            break;
+          default:
+            throw new Error(`Unsupported channel: ${channel}`);
+        }
+
+        return await api.notifications.sendNotification({
+          type: channel,
+          recipient: recipient,
+          subject: `Reminder: ${selectedCardData?.name || 'Card Update'}`,
+          message: notificationForm.message,
+          cardId: selectedCard
+        });
       });
-      setSuccess('Notification sent successfully');
+
+      await Promise.all(promises);
+
+      setSuccess(`Notification sent successfully via ${notificationForm.channels.join(', ')}`);
       handleCloseDialog();
-      
+
       // Refresh notification status
       fetchNotificationStatus();
-      
+
       // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccess(false);
       }, 3000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Error sending notification');
+      setError(err.message || 'Error sending notification');
     } finally {
       setSending(false);
     }
@@ -227,36 +265,36 @@ const Notifications = () => {
                   <ListItemIcon>
                     <CommentIcon />
                   </ListItemIcon>
-                  <ListItemText 
-                    primary="Trello Comments" 
-                    secondary={`${stats?.metrics?.notificationsSent?.trello || 0} sent`} 
+                  <ListItemText
+                    primary="Trello Comments"
+                    secondary={`${stats?.byType?.trello || 0} sent`}
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemIcon>
                     <EmailIcon />
                   </ListItemIcon>
-                  <ListItemText 
-                    primary="Email Notifications" 
-                    secondary={`${stats?.metrics?.notificationsSent?.email || 0} sent`} 
+                  <ListItemText
+                    primary="Email Notifications"
+                    secondary={`${stats?.byType?.email || 0} sent`}
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemIcon>
                     <SmsIcon />
                   </ListItemIcon>
-                  <ListItemText 
-                    primary="SMS Messages" 
-                    secondary={`${stats?.metrics?.notificationsSent?.sms || 0} sent`} 
+                  <ListItemText
+                    primary="SMS Messages"
+                    secondary={`${stats?.byType?.sms || 0} sent`}
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemIcon>
                     <WhatsAppIcon />
                   </ListItemIcon>
-                  <ListItemText 
-                    primary="WhatsApp Messages" 
-                    secondary={`${stats?.metrics?.notificationsSent?.whatsapp || 0} sent`} 
+                  <ListItemText
+                    primary="WhatsApp Messages"
+                    secondary={`${stats?.byType?.whatsapp || 0} sent`}
                   />
                 </ListItem>
               </List>
@@ -280,46 +318,58 @@ const Notifications = () => {
               <Grid container spacing={3}>
                 <Grid item xs={12} sm={6} md={3}>
                   <Paper sx={{ p: 2, textAlign: 'center' }}>
-                    <Typography variant="h4">{stats.totalCards}</Typography>
-                    <Typography variant="body2" color="text.secondary">Total Cards</Typography>
+                    <Typography variant="h4">{stats.total || 0}</Typography>
+                    <Typography variant="body2" color="text.secondary">Total Notifications</Typography>
                   </Paper>
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
                   <Paper sx={{ p: 2, textAlign: 'center' }}>
-                    <Typography variant="h4">{stats.cardsWithReminders}</Typography>
-                    <Typography variant="body2" color="text.secondary">With Reminders</Typography>
+                    <Typography variant="h4">{stats.byStatus?.sent || 0}</Typography>
+                    <Typography variant="body2" color="text.secondary">Successfully Sent</Typography>
                   </Paper>
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
                   <Paper sx={{ p: 2, textAlign: 'center' }}>
-                    <Typography variant="h4">{stats.cardsWithResponses}</Typography>
-                    <Typography variant="body2" color="text.secondary">With Responses</Typography>
+                    <Typography variant="h4">{stats.byStatus?.failed || 0}</Typography>
+                    <Typography variant="body2" color="text.secondary">Failed</Typography>
                   </Paper>
                 </Grid>
                 <Grid item xs={12} sm={6} md={3}>
                   <Paper sx={{ p: 2, textAlign: 'center' }}>
-                    <Typography variant="h4">{Math.round(stats.responseRate * 100)}%</Typography>
-                    <Typography variant="body2" color="text.secondary">Response Rate</Typography>
+                    <Typography variant="h4">{stats.serviceHealth?.enabledChannels?.length || 0}</Typography>
+                    <Typography variant="body2" color="text.secondary">Active Channels</Typography>
                   </Paper>
                 </Grid>
                 
                 <Grid item xs={12}>
                   <Typography variant="subtitle1" gutterBottom>
-                    Reminder Distribution
+                    Service Health Status
                   </Typography>
                   <TableContainer component={Paper}>
                     <Table size="small">
                       <TableHead>
                         <TableRow>
-                          <TableCell>Reminder Count</TableCell>
-                          <TableCell align="right">Number of Cards</TableCell>
+                          <TableCell>Service</TableCell>
+                          <TableCell align="center">Status</TableCell>
+                          <TableCell align="center">Provider</TableCell>
+                          <TableCell align="right">Notifications Sent</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {stats.reminderCounts.map((item) => (
-                          <TableRow key={item._id}>
-                            <TableCell>{item._id === 0 ? 'No reminders' : `${item._id} reminder(s)`}</TableCell>
-                            <TableCell align="right">{item.count}</TableCell>
+                        {stats.serviceHealth?.services && Object.entries(stats.serviceHealth.services).map(([service, config]) => (
+                          <TableRow key={service}>
+                            <TableCell sx={{ textTransform: 'capitalize' }}>{service}</TableCell>
+                            <TableCell align="center">
+                              <Chip
+                                label={config.enabled ? 'Enabled' : 'Disabled'}
+                                color={config.enabled ? 'success' : 'default'}
+                                size="small"
+                              />
+                            </TableCell>
+                            <TableCell align="center" sx={{ textTransform: 'capitalize' }}>
+                              {config.provider || 'N/A'}
+                            </TableCell>
+                            <TableCell align="right">{stats.byType?.[service] || 0}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>

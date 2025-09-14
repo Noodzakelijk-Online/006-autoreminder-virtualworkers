@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
   Grid,
-  Paper,
   TextField,
   Button,
   Switch,
@@ -11,10 +10,6 @@ import {
   Alert,
   Snackbar,
   CircularProgress,
-  Divider,
-  Card,
-  CardContent,
-  CardHeader,
   Accordion,
   AccordionSummary,
   AccordionDetails,
@@ -31,7 +26,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import { api } from '../utils/api';
-import { errorHandler, showError } from '../utils/errorHandler';
+import { errorHandler } from '../utils/errorHandler';
 
 const Settings = () => {
   // State management
@@ -49,11 +44,11 @@ const Settings = () => {
   /**
    * Load configuration with error handling
    */
-  const loadConfiguration = async () => {
+  const loadConfiguration = useCallback(async () => {
     try {
       setLoading(true);
       const response = await api.config.get();
-      const configData = response.data.config;
+      const configData = response.data;
       
       setConfig(configData);
       setOriginalConfig(JSON.parse(JSON.stringify(configData))); // Deep copy
@@ -81,7 +76,7 @@ const Settings = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   /**
    * Save configuration with validation and error handling
@@ -247,8 +242,8 @@ const Settings = () => {
       }
     }
 
-    // Validate monitoring intervals
-    if (configData.monitoring.intervalMinutes < 5 || configData.monitoring.intervalMinutes > 1440) {
+  // Validate monitoring intervals
+    if (configData.monitoring && (configData.monitoring.intervalMinutes < 5 || configData.monitoring.intervalMinutes > 1440)) {
       errors['monitoring.intervalMinutes'] = 'Monitoring interval must be between 5 and 1440 minutes';
       isValid = false;
     }
@@ -338,7 +333,7 @@ const Settings = () => {
   // Load configuration on component mount
   useEffect(() => {
     loadConfiguration();
-  }, []);
+  }, [loadConfiguration]);
 
   // Show loading state
   if (loading) {
@@ -675,7 +670,7 @@ const Settings = () => {
                     fullWidth
                     label="Monitoring Interval (minutes)"
                     type="number"
-                    value={config.monitoring.intervalMinutes || 30}
+                    value={config.monitoring?.intervalMinutes || 30}
                     onChange={(e) => handleConfigChange('monitoring.intervalMinutes', parseInt(e.target.value))}
                     error={!!validationErrors['monitoring.intervalMinutes']}
                     helperText={validationErrors['monitoring.intervalMinutes'] || 'How often to check for updates (5-1440 minutes)'}
@@ -686,7 +681,7 @@ const Settings = () => {
                   <FormControlLabel
                     control={
                       <Switch
-                        checked={config.monitoring.autoStart}
+                        checked={config.monitoring?.autoStart || false}
                         onChange={(e) => handleConfigChange('monitoring.autoStart', e.target.checked)}
                       />
                     }

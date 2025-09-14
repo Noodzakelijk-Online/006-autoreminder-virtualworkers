@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -20,7 +20,7 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Chip,
+
   IconButton,
   Dialog,
   DialogTitle,
@@ -34,7 +34,9 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import PersonIcon from '@mui/icons-material/Person';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import LinkIcon from '@mui/icons-material/Link';
-import axios from 'axios';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import WarningIcon from '@mui/icons-material/Warning';
+import api from '../utils/api';
 
 const TrelloIntegration = () => {
   const [boards, setBoards] = useState([]);
@@ -49,70 +51,122 @@ const TrelloIntegration = () => {
   const [selectedCard, setSelectedCard] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [sendingComment, setSendingComment] = useState(false);
+  const [credentialsValid, setCredentialsValid] = useState(null);
+  const [validatingCredentials, setValidatingCredentials] = useState(false);
+  const [warning, setWarning] = useState(null);
 
-  useEffect(() => {
-    fetchBoards();
+  const validateCredentials = useCallback(async () => {
+    try {
+      setValidatingCredentials(true);
+      setError(null);
+      setWarning(null);
+
+      const response = await api.trello.validateCredentials();
+      if (response.success && response.data.valid) {
+        setCredentialsValid(true);
+        setWarning(null);
+      } else if (response.success && !response.data.valid) {
+        setCredentialsValid(false);
+        setWarning('Trello API credentials are invalid. Using mock data for development.');
+      } else {
+        setCredentialsValid(false);
+        setWarning('Failed to validate Trello credentials. Using mock data for development.');
+      }
+
+      // Always fetch boards (will get mock data if credentials are invalid)
+      fetchBoards();
+
+    } catch (err) {
+      setCredentialsValid(false);
+      setWarning('Failed to validate Trello credentials. Using mock data for development.');
+      console.error('Credentials validation error:', err);
+
+      // Still try to fetch boards (will get mock data)
+      fetchBoards();
+    } finally {
+      setValidatingCredentials(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (selectedBoard) {
-      fetchCards();
-    }
-  }, [selectedBoard, listNames]);
-
-  const fetchBoards = async () => {
+  const fetchBoards = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/trello/boards');
-      setBoards(response.data);
-      setError(null);
-      
-      // Select first board by default if available
-      if (response.data.length > 0 && !selectedBoard) {
-        setSelectedBoard(response.data[0].id);
+      const response = await api.trello.getBoards();
+
+      if (response.success && response.data.boards) {
+        setBoards(response.data.boards);
+        setError(null);
+        setWarning(response.warning || null);
+
+        // Select first board by default if available
+        if (response.data.boards.length > 0 && !selectedBoard) {
+          setSelectedBoard(response.data.boards[0].id);
+        }
+      } else {
+        setBoards([]);
+        setError('No boards found or invalid response format');
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'Error fetching Trello boards');
+      setError(err.message || 'Error fetching Trello boards');
+      setBoards([]);
+      setWarning(null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedBoard]);
 
-  const fetchCards = async () => {
+  const fetchCards = useCallback(async () => {
+    if (!selectedBoard) return;
+
     try {
       setLoading(true);
       const lists = listNames.split(',').map(name => name.trim());
-      const response = await axios.get('/api/trello/cards', {
-        params: {
-          boardId: selectedBoard,
-          listNames: lists.join(',')
-        }
+      const response = await api.trello.getCards({
+        boardId: selectedBoard,
+        listNames: lists.join(',')
       });
-      setCards(response.data);
-      setError(null);
+
+      if (response.success && response.data.cards) {
+        setCards(response.data.cards);
+        setError(null);
+        if (response.warning) {
+          setWarning(response.warning);
+        }
+      } else {
+        setCards([]);
+        setError('No cards found or invalid response format');
+      }
     } catch (err) {
-      setError(err.response?.data?.message || 'Error fetching Trello cards');
+      setError(err.message || 'Error fetching Trello cards');
+      setCards([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedBoard, listNames]);
 
   const handleSyncCards = async () => {
     try {
       setSyncing(true);
-      const response = await axios.post('/api/trello/sync');
-      setSuccess(`Successfully synced ${response.data.cards.length} cards from Trello`);
-      setError(null);
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        setSuccess(false);
-      }, 3000);
-      
-      // Refresh cards
-      fetchCards();
+      const response = await api.trello.syncCards();
+
+      if (response.success && response.data.syncResults) {
+        const { totalCards, newCards, updatedCards } = response.data.syncResults;
+        setSuccess(`Successfully synced ${totalCards} cards (${newCards} new, ${updatedCards} updated)`);
+        setError(null);
+
+        // Clear success message after 3 seconds
+        setTimeout(() => {
+          setSuccess(false);
+        }, 3000);
+
+        // Refresh cards
+        fetchCards();
+      } else {
+        setError('Sync completed but no results returned');
+      }
     } catch (err) {
-      setError(err.response?.data?.message || 'Error syncing Trello cards');
+      setError(err.message || 'Error syncing Trello cards');
       setSuccess(false);
     } finally {
       setSyncing(false);
@@ -144,20 +198,30 @@ const TrelloIntegration = () => {
 
   const handleSendComment = async () => {
     if (!commentText.trim()) return;
-    
+
     try {
       setSendingComment(true);
-      await axios.post(`/api/trello/comment/${selectedCard.id}`, {
-        message: commentText
+      await api.trello.postComment(selectedCard.id, {
+        text: commentText
       });
       setSuccess('Comment posted successfully');
       handleCloseCardDialog();
     } catch (err) {
-      setError(err.response?.data?.message || 'Error posting comment');
+      setError(err.message || 'Error posting comment');
     } finally {
       setSendingComment(false);
     }
   };
+
+  useEffect(() => {
+    validateCredentials();
+  }, [validateCredentials]);
+
+  useEffect(() => {
+    if (selectedBoard) {
+      fetchCards();
+    }
+  }, [selectedBoard, listNames, fetchCards]);
 
   const getCardStatusColor = (card) => {
     if (card.due && new Date(card.due) < new Date()) {
@@ -177,6 +241,23 @@ const TrelloIntegration = () => {
     );
   }
 
+  // Show loading screen while validating credentials
+  if (validatingCredentials) {
+    return (
+      <Box>
+        <Typography variant="h4" sx={{ mb: 3 }}>Trello Integration</Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
+          <CircularProgress />
+          <Typography variant="body1" sx={{ ml: 2 }}>
+            Validating Trello credentials...
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
+
+
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -192,7 +273,7 @@ const TrelloIntegration = () => {
           >
             {syncing ? <CircularProgress size={24} /> : 'Sync Cards'}
           </Button>
-          <IconButton onClick={fetchBoards}>
+          <IconButton onClick={validateCredentials} title="Refresh & Validate">
             <RefreshIcon />
           </IconButton>
         </Box>
@@ -203,7 +284,13 @@ const TrelloIntegration = () => {
           {error}
         </Alert>
       )}
-      
+
+      {warning && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          {warning}
+        </Alert>
+      )}
+
       {success && (
         <Alert severity="success" sx={{ mb: 3 }}>
           {success}
@@ -260,20 +347,33 @@ const TrelloIntegration = () => {
               <List>
                 <ListItem>
                   <ListItemIcon>
+                    {credentialsValid ? (
+                      <CheckCircleIcon sx={{ color: 'success.main' }} />
+                    ) : (
+                      <WarningIcon sx={{ color: 'warning.main' }} />
+                    )}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary="API Credentials"
+                    secondary={credentialsValid ? 'Valid' : 'Invalid (using mock data)'}
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
                     <ViewListIcon />
                   </ListItemIcon>
-                  <ListItemText 
-                    primary="Boards Available" 
-                    secondary={boards.length} 
+                  <ListItemText
+                    primary="Boards Available"
+                    secondary={boards.length}
                   />
                 </ListItem>
                 <ListItem>
                   <ListItemIcon>
                     <DashboardIcon />
                   </ListItemIcon>
-                  <ListItemText 
-                    primary="Cards Loaded" 
-                    secondary={cards.length} 
+                  <ListItemText
+                    primary="Cards Loaded"
+                    secondary={cards.length}
                   />
                 </ListItem>
                 <ListItem>

@@ -28,11 +28,16 @@ class ApiClient {
     // Request interceptor for authentication
     this.addRequestInterceptor((config) => {
       const token = localStorage.getItem('token');
+      console.log('Token from localStorage:', token ? 'exists' : 'not found');
+      
       if (token) {
         config.headers = {
           ...config.headers,
           'Authorization': `Bearer ${token}`
         };
+        console.log('Added Authorization header:', `Bearer ${token.substring(0, 10)}...`);
+      } else {
+        console.warn('No token found in localStorage');
       }
       
       // Add request ID for tracking
@@ -480,6 +485,17 @@ export const api = {
       }
     },
 
+
+
+    postComment: async (cardId, commentData) => {
+      try {
+        const response = await apiClient.postOnce(`/trello/cards/${cardId}/comments`, commentData);
+        return response.data;
+      } catch (error) {
+        throw errorHandler.processError(error, { action: 'post_comment', cardId });
+      }
+    },
+
     getMonitoringStatus: async () => {
       try {
         const response = await apiClient.get('/trello/monitoring/status');
@@ -581,6 +597,15 @@ export const api = {
       }
     },
 
+    getById: async (reportId) => {
+      try {
+        const response = await apiClient.get(`/reports/${reportId}`);
+        return response.data;
+      } catch (error) {
+        throw errorHandler.processError(error, { action: 'get_report', reportId });
+      }
+    },
+
     download: async (reportId) => {
       try {
         const response = await apiClient.get(`/reports/${reportId}/download`);
@@ -601,6 +626,17 @@ export const api = {
         return response.data;
       } catch (error) {
         throw errorHandler.processError(error, { action: 'get_logs', filters });
+      }
+    },
+
+    getStats: async (filters = {}) => {
+      try {
+        const queryParams = new URLSearchParams(filters).toString();
+        const url = `/logs/stats${queryParams ? '?' + queryParams : ''}`;
+        const response = await apiClient.get(url);
+        return response.data;
+      } catch (error) {
+        throw errorHandler.processError(error, { action: 'get_log_stats', filters });
       }
     }
   },
@@ -628,10 +664,20 @@ export const api = {
 
     getStatus: async () => {
       try {
-        const response = await apiClient.get('/notifications/status');
+        // Use stats endpoint since status doesn't exist
+        const response = await apiClient.get('/notifications/stats');
         return response.data;
       } catch (error) {
         throw errorHandler.processError(error, { action: 'get_notification_status' });
+      }
+    },
+
+    sendNotification: async (notificationData) => {
+      try {
+        const response = await apiClient.postOnce('/notifications/send', notificationData);
+        return response.data;
+      } catch (error) {
+        throw errorHandler.processError(error, { action: 'send_notification', notificationData });
       }
     }
   }

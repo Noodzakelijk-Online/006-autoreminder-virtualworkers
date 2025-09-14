@@ -40,7 +40,7 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import axios from 'axios';
+import { api } from '../utils/api';
 
 const Reports = () => {
   const [reports, setReports] = useState([]);
@@ -64,11 +64,17 @@ const Reports = () => {
   const fetchReports = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/reports');
-      setReports(response.data.reports);
+      const response = await api.reports.getAll();
+      setReports(response.data.reports || []);
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.message || 'Error fetching reports');
+      if (err.message?.includes('token') || err.response?.status === 401) {
+        // Token expired - redirect to login
+        localStorage.clear();
+        window.location.href = '/login';
+        return;
+      }
+      setError(err.message || 'Error fetching reports');
     } finally {
       setLoading(false);
     }
@@ -85,7 +91,7 @@ const Reports = () => {
   const handleGenerateReport = async () => {
     try {
       setGenerating(true);
-      const response = await axios.post('/api/reports/generate', formData);
+      const response = await api.reports.generate(formData);
       setReports([response.data, ...reports]);
       setSuccess(true);
       setError(null);
@@ -105,11 +111,11 @@ const Reports = () => {
   const handleViewReport = async (reportId) => {
     try {
       setLoading(true);
-      const response = await axios.get(`/api/reports/${reportId}`);
+      const response = await api.reports.getById(reportId);
       setSelectedReport(response.data);
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.message || 'Error fetching report details');
+      setError(err.message || 'Error fetching report details');
     } finally {
       setLoading(false);
     }

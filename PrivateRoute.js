@@ -1,32 +1,13 @@
-import React, { useContext, useState } from 'react';
+import React from 'react';
 import { Navigate } from 'react-router-dom';
-import { AuthContext } from '../../context/AuthContext';
-import { 
-  Box, 
-  CircularProgress, 
-  Typography 
-} from '@mui/material';
+import { useAuth } from '../../context/AuthContext';
+import LoadingScreen from '../common/LoadingScreen';
 
 const PrivateRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useContext(AuthContext);
+  const { isAuthenticated, loading } = useAuth();
 
   if (loading) {
-    return (
-      <Box 
-        sx={{ 
-          display: 'flex', 
-          flexDirection: 'column',
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          height: '100vh' 
-        }}
-      >
-        <CircularProgress size={60} />
-        <Typography variant="h6" sx={{ mt: 2 }}>
-          Loading...
-        </Typography>
-      </Box>
-    );
+    return <LoadingScreen message="Checking authentication..." />;
   }
 
   return isAuthenticated ? children : <Navigate to="/login" />;
