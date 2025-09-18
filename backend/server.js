@@ -42,7 +42,7 @@ app.use(cors({
   origin: [
     'http://localhost:3000', 
     'http://localhost:3001',
-    'https://006-autoreminder-virtualworkers.vercel.app/login',
+    'https://006-autoreminder-virtualworkers.vercel.app',
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -140,7 +140,7 @@ app.use(cors({
       'http://localhost:3000', 
       'http://127.0.0.1:3000', 
       'http://localhost:3001',
-      'https://006-autoreminder-virtualworkers.vercel.app/login',
+      'https://006-autoreminder-virtualworkers.vercel.app',
     ];
     
     // Add environment variable if set
