@@ -37,18 +37,36 @@ const PORT = process.env.PORT || 3001;
 // Trust proxy for Vercel deployment (required for rate limiting)
 app.set('trust proxy', 1);
 
-// CORS configuration
-app.use(cors({
-  origin: [
-    'http://localhost:3000', 
-    'http://localhost:3001',
-    'https://006-autoreminder-virtualworkers.vercel.app',
-  ],
+// Enhanced CORS configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://006-autoreminder-virtualworkers.vercel.app'
+    ];
+
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
-  exposedHeaders: ['x-request-id']
-}));
+  exposedHeaders: ['x-request-id'],
+  optionsSuccessStatus: 204
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
 
 // Request ID middleware for tracking
 app.use((req, res, next) => {
@@ -132,44 +150,16 @@ app.use('/api/auth/register', createRateLimit(60 * 60 * 1000, 3, 'Too many regis
 app.use('/api/notifications', createRateLimit(5 * 60 * 1000, 10, 'Too many notification requests. Please try again in 5 minutes.'));
 app.use('/api/', createRateLimit(15 * 60 * 1000, 100, 'Too many requests. Please try again in 15 minutes.'));
 
-// CORS configuration with enhanced error handling
-app.use(cors({
-  origin: (origin, callback) => {
-    // Always allow these origins
-    const alwaysAllowed = [
-      'http://localhost:3000', 
-      'http://127.0.0.1:3000', 
-      'http://localhost:3001',
-      'https://006-autoreminder-virtualworkers.vercel.app',
-    ];
-    
-    // Add environment variable if set
-    const envFrontendUrl = process.env.FRONTEND_URL;
-    if (envFrontendUrl) {
-      alwaysAllowed.push(envFrontendUrl);
-    }
-    
-    // Log for debugging
-    console.log('CORS check - Origin:', origin);
-    console.log('CORS check - Allowed origins:', alwaysAllowed);
-    console.log('CORS check - NODE_ENV:', process.env.NODE_ENV);
-    console.log('CORS check - FRONTEND_URL:', process.env.FRONTEND_URL);
-    
-    // Allow requests with no origin (mobile apps, etc.)
-    if (!origin) return callback(null, true);
-    
-    if (alwaysAllowed.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('CORS REJECTED - Origin not in allowed list:', origin);
-      callback(new ValidationError(`CORS policy violation: Origin ${origin} not allowed`));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
-  exposedHeaders: ['X-Request-ID']
-}));
+// Add CORS debug logging middleware
+app.use((req, res, next) => {
+  console.log('CORS Debug - Request Origin:', req.get('origin'));
+  console.log('CORS Debug - Request Method:', req.method);
+  console.log('CORS Debug - Request Headers:', req.headers);
+  next();
+});
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 
 // Body parsing middleware with size limits
 app.use(express.json({ 
