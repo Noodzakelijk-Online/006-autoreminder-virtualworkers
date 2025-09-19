@@ -37,21 +37,49 @@ const PORT = process.env.PORT || 3001;
 // Trust proxy for Vercel deployment (required for rate limiting)
 app.set('trust proxy', 1);
 
+// Set security headers for Vercel environment
+app.use((req, res, next) => {
+  // Allow Vercel preview URLs and production URLs
+  const vercelUrl = process.env.VERCEL_URL;
+  if (vercelUrl) {
+    res.setHeader('Access-Control-Allow-Origin', `https://${vercelUrl}`);
+  }
+  
+  // Handle Vercel's internal requests
+  if (req.headers['x-vercel-internal-bot-check'] === 'pass') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE');
+    res.setHeader('Access-Control-Allow-Headers', '*');
+  }
+  
+  next();
+});
+
 // Enhanced CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:3001',
-      'https://006-autoreminder-virtualworkers.vercel.app'
+      'https://006-autoreminder-virtualworkers.vercel.app',
+      'https://reminde-backend-eulsm5e2e-noodzakelijk-onlines-projects.vercel.app'
     ];
 
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) {
+    // Add Vercel preview URLs if present
+    if (process.env.VERCEL_URL) {
+      allowedOrigins.push(`https://${process.env.VERCEL_URL}`);
+    }
+
+    // Always allow Vercel internal requests and requests with no origin
+    if (!origin || 
+        origin.includes('vercel.app') || 
+        origin.includes('localhost') ||
+        // Check if it's a Vercel internal request
+        (req.headers['x-vercel-internal-bot-check'] === 'pass')) {
       return callback(null, true);
     }
 
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (allowedOrigins.some(allowed => origin.includes(allowed))) {
       callback(null, true);
     } else {
       console.log('CORS blocked origin:', origin);
@@ -60,9 +88,17 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'x-request-id',
+    'x-vercel-internal-bot-check',
+    'x-vercel-deployment-url',
+    'x-vercel-forwarded-for'
+  ],
   exposedHeaders: ['x-request-id'],
-  optionsSuccessStatus: 204
+  optionsSuccessStatus: 204,
+  maxAge: 86400 // 24 hours
 };
 
 // Apply CORS middleware
@@ -152,14 +188,27 @@ app.use('/api/', createRateLimit(15 * 60 * 1000, 100, 'Too many requests. Please
 
 // Add CORS debug logging middleware
 app.use((req, res, next) => {
+  // Log request details
   console.log('CORS Debug - Request Origin:', req.get('origin'));
   console.log('CORS Debug - Request Method:', req.method);
-  console.log('CORS Debug - Request Headers:', req.headers);
+  console.log('CORS Debug - Is Vercel Internal:', req.headers['x-vercel-internal-bot-check'] === 'pass');
+  console.log('CORS Debug - Deployment URL:', req.headers['x-vercel-deployment-url']);
+  
+  // Set CORS headers for Vercel internal requests
+  if (req.headers['x-vercel-internal-bot-check'] === 'pass') {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE');
+    res.header('Access-Control-Allow-Headers', '*');
+  }
+
   next();
 });
 
 // Handle preflight requests
 app.options('*', cors(corsOptions));
+
+// Apply CORS middleware again after options
+app.use(cors(corsOptions));
 
 // Body parsing middleware with size limits
 app.use(express.json({ 
