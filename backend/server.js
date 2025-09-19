@@ -437,9 +437,33 @@ const startServer = async () => {
 if (require.main === module) {
   startServer();
 } else if (process.env.VERCEL) {
-  // For Vercel serverless, just ensure connection without starting server
-  connectToDatabase().catch(console.error);
+  // For Vercel serverless, ensure connection is established before exporting
+  (async () => {
+    try {
+      await connectToDatabase();
+      console.log('Database connection established for serverless environment');
+    } catch (error) {
+      console.error('Failed to establish database connection:', error);
+      // Don't throw here, let Vercel handle the error
+    }
+  })();
 }
+
+// Initialize database connection before handling any requests
+app.use(async (req, res, next) => {
+  if (!mongoose.connection.readyState) {
+    try {
+      await connectToDatabase();
+    } catch (error) {
+      console.error('Database connection failed:', error);
+      return res.status(500).json({
+        error: 'Database connection failed',
+        message: 'Unable to establish database connection'
+      });
+    }
+  }
+  next();
+});
 
 module.exports = app;
 

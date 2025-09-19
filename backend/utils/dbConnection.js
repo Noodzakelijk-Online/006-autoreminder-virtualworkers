@@ -38,8 +38,8 @@ const connectToDatabase = async () => {
       socketTimeoutMS: 45000, // 45 seconds for socket operations
       connectTimeoutMS: 30000, // 30 seconds for initial connection
       
-      // Buffering settings (bufferMaxEntries is deprecated and removed)
-      bufferCommands: false, // Disable buffering for serverless to avoid hanging
+      // Buffering settings
+      bufferCommands: true, // Enable buffering for more reliable operation
       
       // Heartbeat settings
       heartbeatFrequencyMS: 10000, // Check connection every 10 seconds
