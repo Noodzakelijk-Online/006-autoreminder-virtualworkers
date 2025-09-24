@@ -4,7 +4,7 @@ import { errorHandler, handleAuthError, retryOperation } from './errorHandler';
 
 // API configuration
 const API_CONFIG = {
-  baseURL: process.env.REACT_APP_API_URL || 'https://auto-reminder-backend.vercel.app',
+  baseURL: process.env.REACT_APP_API_URL || 'https://backend-auto-reminder.vercel.app',
   timeout: 30000, // 30 seconds
   retryAttempts: 3,
   retryDelay: 1000,

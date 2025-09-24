@@ -140,7 +140,7 @@ app.use(cors({
       'http://localhost:3001',
       'https://frontend-auto-rem.vercel.app',
       'https://frontend-auto-9ru8u63b3-talalahmad786s-projects.vercel.app',
-      'https://auto-reminder-mu.vercel.app'
+      'https://frontend-auto-reminder.vercel.app'
     ];
     
     // Add environment variable if set
