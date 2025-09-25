@@ -126,44 +126,41 @@ app.use('/api/', createRateLimit(15 * 60 * 1000, 100, 'Too many requests. Please
 
 // CORS configuration with enhanced error handling
 app.use(cors({
-  origin: (origin, callback) => {
-    // Always allow these origins
-    const alwaysAllowed = [
-      'http://localhost:3000', 
-      'http://localhost:3001',
-      'https://frontend-auto-rem.vercel.app',
-      'https://frontend-auto-9ru8u63b3-talalahmad786s-projects.vercel.app',
-      'https://frontend-auto-reminder.vercel.app',
-      'https://frontend-auto-reminder-git-57c658-noodzakelijk-onlines-projects.vercel.app'
-    ];
-    
-    // Add environment variable if set
-    const envFrontendUrl = process.env.FRONTEND_URL;
-    if (envFrontendUrl) {
-      alwaysAllowed.push(envFrontendUrl);
-    }
-    
-    // Log for debugging
-    console.log('CORS check - Origin:', origin);
-    console.log('CORS check - Allowed origins:', alwaysAllowed);
-    console.log('CORS check - NODE_ENV:', process.env.NODE_ENV);
-    console.log('CORS check - FRONTEND_URL:', process.env.FRONTEND_URL);
-    
-    // Allow requests with no origin (mobile apps, etc.)
-    if (!origin) return callback(null, true);
-    
-    if (alwaysAllowed.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('CORS REJECTED - Origin not in allowed list:', origin);
-      callback(new ValidationError(`CORS policy violation: Origin ${origin} not allowed`));
-    }
-  },
+  origin: [
+    'http://localhost:3000', 
+    'http://localhost:3001',
+    'https://frontend-auto-rem.vercel.app',
+    'https://frontend-auto-9ru8u63b3-talalahmad786s-projects.vercel.app',
+    'https://frontend-auto-reminder.vercel.app',
+    'https://frontend-auto-reminder-git-57c658-noodzakelijk-onlines-projects.vercel.app'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
-  exposedHeaders: ['X-Request-ID']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'Origin', 'Accept'],
+  exposedHeaders: ['X-Request-ID'],
+  optionsSuccessStatus: 200
 }));
+
+// Additional CORS debugging middleware
+app.use((req, res, next) => {
+  console.log('=== CORS DEBUG ===');
+  console.log('Origin:', req.headers.origin);
+  console.log('Method:', req.method);
+  console.log('Path:', req.path);
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('==================');
+  next();
+});
+
+// Handle OPTIONS preflight requests explicitly
+app.options('*', (req, res) => {
+  console.log('OPTIONS preflight request:', req.headers.origin);
+  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID, Origin, Accept');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
+});
 
 // Body parsing middleware with size limits
 app.use(express.json({ 
