@@ -189,7 +189,8 @@ class ApiClient {
         method: config.method,
         headers: config.headers,
         body: config.data ? JSON.stringify(config.data) : undefined,
-        signal: controller.signal
+        signal: controller.signal,
+        credentials: 'include'
       });
 
       clearTimeout(timeoutId);

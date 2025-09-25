@@ -37,14 +37,7 @@ const PORT = process.env.PORT || 3001;
 // Trust proxy for Vercel deployment (required for rate limiting)
 app.set('trust proxy', 1);
 
-// CORS configuration
-app.use(cors({
-  origin: true, // Allow all origins
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id', 'Origin', 'Accept'],
-  exposedHeaders: ['x-request-id']
-}));
+// CORS will be configured later with specific origin validation
 
 // CORS debugging middleware
 app.use((req, res, next) => {
