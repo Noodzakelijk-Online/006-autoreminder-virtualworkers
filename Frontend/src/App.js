@@ -14,6 +14,7 @@ import Notifications from './components/Notifications';
 import NotFound from './components/common/NotFound';
 import LoadingScreen from './components/common/LoadingScreen';
 import PrivateRoute from './components/auth/PrivateRoute';
+import InstallPWA from './components/InstallPWA';
 
 function App() {
   const { user, loading } = useAuth();
@@ -46,6 +47,9 @@ function App() {
         {/* Catch all route */}
         <Route path="*" element={<NotFound />} />
       </Routes>
+      
+      {/* PWA Install Prompt */}
+      <InstallPWA />
     </Box>
   );
 }

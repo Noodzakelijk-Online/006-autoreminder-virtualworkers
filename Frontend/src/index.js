@@ -5,6 +5,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import App from './App';
 import { AuthProvider } from './context/AuthContext';
+import * as serviceWorkerRegistration from './serviceWorkerRegistration';
 import './index.css';
 
 // Create Modern Material-UI theme with beautiful design system
@@ -242,3 +243,18 @@ root.render(
     </BrowserRouter>
   </React.StrictMode>
 );
+
+// Register service worker for PWA functionality
+serviceWorkerRegistration.register({
+  onSuccess: () => console.log('[PWA] Content cached for offline use'),
+  onUpdate: (registration) => {
+    console.log('[PWA] New version available! Please refresh.');
+    // Optionally show a notification to the user
+    if (window.confirm('New version available! Reload to update?')) {
+      if (registration && registration.waiting) {
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+      window.location.reload();
+    }
+  },
+});
