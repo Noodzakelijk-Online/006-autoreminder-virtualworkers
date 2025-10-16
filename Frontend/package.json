@@ -1,5 +1,4 @@
 {
-    "homepage": ".",
     "name": "autoreminder-frontend",
     "version": "1.0.0",
     "description": "AutoReminder Frontend - React application for Trello reminder management",
