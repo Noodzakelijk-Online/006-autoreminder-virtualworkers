@@ -132,7 +132,8 @@ app.use(cors({
     'https://frontend-auto-rem.vercel.app',
     'https://frontend-auto-9ru8u63b3-talalahmad786s-projects.vercel.app',
     'https://frontend-auto-reminder.vercel.app',
-    'https://frontend-auto-reminder-git-57c658-noodzakelijk-onlines-projects.vercel.app'
+    'https://frontend-auto-reminder-git-57c658-noodzakelijk-onlines-projects.vercel.app',
+    'https://006-autoreminder-virtualworkers.vercel.app'
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
