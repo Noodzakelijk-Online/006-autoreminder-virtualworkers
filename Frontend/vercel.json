@@ -56,30 +56,10 @@
       ]
     }
   ],
-  "routes": [
+  "rewrites": [
     {
-      "src": "/service-worker.js",
-      "dest": "/service-worker.js"
-    },
-    {
-      "src": "/manifest.json",
-      "dest": "/manifest.json"
-    },
-    {
-      "src": "/(icon-.*\\.(svg|png))",
-      "dest": "/$1"
-    },
-    {
-      "src": "/static/(.*)",
-      "dest": "/static/$1"
-    },
-    {
-      "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|svg|ico))",
-      "dest": "/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "source": "/((?!service-worker\\.js|manifest\\.json|icon-.*\\.svg|icon-.*\\.png|static/|.*\\.(js|css|png|jpg|jpeg|gif|svg|ico|json)).*)",
+      "destination": "/index.html"
     }
   ]
 }
