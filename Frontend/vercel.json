@@ -1,6 +1,4 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "build",
   "headers": [
     {
       "source": "/service-worker.js",
@@ -29,24 +27,6 @@
       ]
     },
     {
-      "source": "/(.*).svg",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
-      ]
-    },
-    {
-      "source": "/(.*).png",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "public, max-age=31536000, immutable"
-        }
-      ]
-    },
-    {
       "source": "/static/(.*)",
       "headers": [
         {
@@ -54,12 +34,15 @@
           "value": "public, max-age=31536000, immutable"
         }
       ]
-    }
-  ],
-  "rewrites": [
+    },
     {
-      "source": "/((?!service-worker\\.js|manifest\\.json|icon-.*\\.svg|icon-.*\\.png|static/|.*\\.(js|css|png|jpg|jpeg|gif|svg|ico|json)).*)",
-      "destination": "/index.html"
+      "source": "/(icon-.*\\.(svg|png))",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     }
   ]
 }
