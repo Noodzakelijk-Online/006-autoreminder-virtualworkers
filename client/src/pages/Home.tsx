@@ -1,8 +1,12 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Timeline } from "@/components/Timeline";
 import { StatsPanel } from "@/components/StatsPanel";
+import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
 import { Task, WeeklyStats } from "@/types";
-import { CalendarDays, Bell, Search } from "lucide-react";
+import { CalendarDays, Bell, Search, RefreshCw } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -11,7 +15,21 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import tasksData from "../data/tasks.json";
 
 export default function Home() {
+  // The userAuth hooks provides authentication state
+  // To implement login/logout functionality, simply call logout() or redirect to getLoginUrl()
+  let { user, loading, error, isAuthenticated, logout } = useAuth();
+
   const [tasks, setTasks] = useState<Task[]>([]);
+  const rescheduleMutation = trpc.trello.reschedule.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Rescheduling complete! ${data.tasksCount} tasks updated.`);
+      // Reload tasks
+      window.location.reload();
+    },
+    onError: (error) => {
+      toast.error(`Rescheduling failed: ${error.message}`);
+    },
+  });
   const [stats, setStats] = useState<WeeklyStats>({
     totalTasks: 0,
     completedTasks: 0,
@@ -96,11 +114,30 @@ export default function Home() {
                   You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining. 
                   Your focus block starts at 14:00.
                 </p>
-                <Button className="w-full">View Weekly Schedule</Button>
+                <div className="flex gap-2">
+                  <Button className="flex-1">View Weekly Schedule</Button>
+                  <Button 
+                    variant="outline" 
+                    className="flex-1"
+                    onClick={() => rescheduleMutation.mutate()}
+                    disabled={rescheduleMutation.isPending}
+                  >
+                    {rescheduleMutation.isPending ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    <span className="ml-2">Reschedule</span>
+                  </Button>
+                </div>
               </div>
             </div>
             
             <StatsPanel stats={stats} />
+            
+            <div className="bg-card rounded-xl p-4 border">
+              <WorkloadHeatmap tasks={tasks} />
+            </div>
             
             <div className="bg-card rounded-xl p-4 border">
               <h3 className="font-medium mb-4 flex items-center gap-2">

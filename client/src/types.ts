@@ -6,6 +6,7 @@ export interface Task {
   durationHours: number;
   startTime: string;
   endTime: string;
+  date: string;
   isCompleted: boolean;
   isBlocker: boolean;
   isPriority: boolean;
