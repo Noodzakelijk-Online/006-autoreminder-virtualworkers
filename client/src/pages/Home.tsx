@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Timeline } from "@/components/Timeline";
 import { StatsPanel } from "@/components/StatsPanel";
 import { Task, WeeklyStats } from "@/types";
@@ -7,82 +7,44 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-// Dummy Data
-const initialTasks: Task[] = [
-  {
-    id: "1",
-    cardName: "Business Plan",
-    stepIndex: 1,
-    description: "Review initial draft and identify missing sections based on the template.",
-    durationHours: 1.5,
-    startTime: "08:00",
-    endTime: "09:30",
-    isCompleted: true,
-    isBlocker: false,
-    isPriority: true,
-    priorityLevel: "HIGH",
-    hasDutch: false,
-    attachments: []
-  },
-  {
-    id: "2",
-    cardName: "Email Correspondence",
-    stepIndex: 1,
-    description: "Draft response to the municipality regarding the registration delay.",
-    durationHours: 1.0,
-    startTime: "09:30",
-    endTime: "10:30",
-    isCompleted: false,
-    isBlocker: true,
-    isPriority: true,
-    priorityLevel: "CRITICAL",
-    hasDutch: true,
-    dutchPercentage: 45,
-    attachments: [{ name: "Brief.pdf", url: "#", type: "pdf" }]
-  },
-  {
-    id: "3",
-    cardName: "Tax Office Registration",
-    stepIndex: 2,
-    description: "Fill out form 283-B for VAT registration.",
-    durationHours: 2.0,
-    startTime: "10:45",
-    endTime: "12:45",
-    isCompleted: false,
-    isBlocker: false,
-    isPriority: false,
-    priorityLevel: "NORMAL",
-    hasDutch: true,
-    dutchPercentage: 85,
-    attachments: [{ name: "Formulier.pdf", url: "#", type: "pdf" }]
-  },
-  {
-    id: "4",
-    cardName: "Website Content",
-    stepIndex: 5,
-    description: "Write 'About Us' section for the new website.",
-    durationHours: 2.5,
-    startTime: "14:00",
-    endTime: "16:30",
-    isCompleted: false,
-    isBlocker: false,
-    isPriority: false,
-    priorityLevel: "NORMAL",
-    hasDutch: false,
-    attachments: []
-  }
-];
-
-const weeklyStats: WeeklyStats = {
-  totalTasks: 24,
-  completedTasks: 14,
-  totalHours: 42,
-  completedHours: 26,
-  accuracy: 105
-};
+// Import generated data
+import tasksData from "../data/tasks.json";
 
 export default function Home() {
-  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [stats, setStats] = useState<WeeklyStats>({
+    totalTasks: 0,
+    completedTasks: 0,
+    totalHours: 0,
+    completedHours: 0,
+    accuracy: 100
+  });
+
+  useEffect(() => {
+    // Load tasks from JSON
+    // In a real app, this would be an API call
+    // For now, we use the imported JSON
+    
+    // Filter for "today" (simulated as Dec 5, 2025 for demo)
+    // Or just show all for now
+    const loadedTasks = tasksData as Task[];
+    setTasks(loadedTasks);
+    
+    // Calculate stats
+    const totalTasks = loadedTasks.length;
+    const completedTasks = loadedTasks.filter(t => t.isCompleted).length;
+    const totalHours = loadedTasks.reduce((acc, t) => acc + t.durationHours, 0);
+    const completedHours = loadedTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
+    
+    setStats({
+      totalTasks,
+      completedTasks,
+      totalHours,
+      completedHours,
+      accuracy: 100 // Placeholder
+    });
+    
+  }, []);
 
   const handleToggleTask = (id: string) => {
     setTasks(tasks.map(t => 
@@ -101,7 +63,7 @@ export default function Home() {
             </div>
             <div>
               <h1 className="font-bold text-lg">Task Dashboard</h1>
-              <p className="text-xs text-muted-foreground">Tuesday, Dec 3, 2025</p>
+              <p className="text-xs text-muted-foreground">Friday, Dec 5, 2025</p>
             </div>
           </div>
           
@@ -131,14 +93,14 @@ export default function Home() {
               <div className="relative z-10">
                 <h2 className="text-2xl font-bold mb-2">Good Morning, Joyce! ☀️</h2>
                 <p className="text-muted-foreground mb-6">
-                  You have <span className="font-bold text-primary">3 tasks</span> remaining today. 
+                  You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining. 
                   Your focus block starts at 14:00.
                 </p>
                 <Button className="w-full">View Weekly Schedule</Button>
               </div>
             </div>
             
-            <StatsPanel stats={weeklyStats} />
+            <StatsPanel stats={stats} />
             
             <div className="bg-card rounded-xl p-4 border">
               <h3 className="font-medium mb-4 flex items-center gap-2">
@@ -148,22 +110,22 @@ export default function Home() {
               <div className="space-y-3">
                 <div className="flex items-center gap-3 text-sm">
                   <div className="w-12 text-center bg-secondary rounded p-1">
-                    <div className="text-xs uppercase text-muted-foreground">Wed</div>
-                    <div className="font-bold">04</div>
+                    <div className="text-xs uppercase text-muted-foreground">Mon</div>
+                    <div className="font-bold">08</div>
                   </div>
                   <div>
-                    <p className="font-medium">Client Meeting</p>
-                    <p className="text-xs text-muted-foreground">10:00 - 11:00</p>
+                    <p className="font-medium">Weekly Planning</p>
+                    <p className="text-xs text-muted-foreground">09:00 - 10:00</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 text-sm">
                   <div className="w-12 text-center bg-secondary rounded p-1">
-                    <div className="text-xs uppercase text-muted-foreground">Thu</div>
-                    <div className="font-bold">05</div>
+                    <div className="text-xs uppercase text-muted-foreground">Tue</div>
+                    <div className="font-bold">09</div>
                   </div>
                   <div>
-                    <p className="font-medium">Quarterly Review</p>
-                    <p className="text-xs text-muted-foreground">14:00 - 15:30</p>
+                    <p className="font-medium">Team Sync</p>
+                    <p className="text-xs text-muted-foreground">14:00 - 15:00</p>
                   </div>
                 </div>
               </div>
@@ -176,7 +138,7 @@ export default function Home() {
               <div className="absolute top-0 left-0 right-0 h-32 bg-[url('/images/hero-bg.png')] bg-cover opacity-20" />
               <div className="relative z-10 p-6">
                 <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold">Today's Timeline</h2>
+                  <h2 className="text-xl font-bold">Workload Timeline</h2>
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm">Day</Button>
                     <Button variant="ghost" size="sm">Week</Button>
