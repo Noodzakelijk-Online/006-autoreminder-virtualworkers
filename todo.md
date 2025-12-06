@@ -12,3 +12,7 @@
 - [x] Implement fast card fetching (skip KB)
 - [x] Implement card list caching
 - [x] Test and verify 50%+ speedup
+
+- [x] Create nuclear reset script to wipe all dates
+- [x] Execute nuclear reset and reschedule from scratch
+- [x] Verify clean schedule (limited by API access)
