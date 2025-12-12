@@ -4,7 +4,8 @@ import { Timeline } from "@/components/Timeline";
 import { StatsPanel } from "@/components/StatsPanel";
 import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
 import { Task, WeeklyStats } from "@/types";
-import { CalendarDays, Bell, Search, RefreshCw } from "lucide-react";
+import { CalendarDays, Bell, Search, RefreshCw, Settings } from "lucide-react";
+import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -90,6 +91,11 @@ export default function Home() {
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Search tasks..." className="pl-9 w-64 bg-secondary/50 border-none" />
             </div>
+            <Link href="/aptlss">
+              <Button variant="ghost" size="icon" title="APTLSS Management">
+                <Settings className="h-5 w-5" />
+              </Button>
+            </Link>
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="h-5 w-5" />
               <span className="absolute top-2 right-2 h-2 w-2 bg-destructive rounded-full" />
