@@ -72,11 +72,12 @@ router.get('/trello/workspaces', async (req: Request, res: Response) => {
           `https://api.trello.com/1/organizations/${workspace.id}/boards?key=${apiKey}&token=${token}`
         );
         const boards = await boardsResponse.json();
+        const boardsArray = Array.isArray(boards) ? boards : [];
         return {
           id: workspace.id,
           name: workspace.displayName,
-          boardCount: boards.length,
-          boards: boards.map((b: any) => ({ id: b.id, name: b.name }))
+          boardCount: boardsArray.length,
+          boards: boardsArray.map((b: any) => ({ id: b.id, name: b.name }))
         };
       })
     );

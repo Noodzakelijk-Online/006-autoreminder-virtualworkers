@@ -42,7 +42,7 @@ export function StatsPanel({ stats }: StatsPanelProps) {
                 <Clock className="h-4 w-4" />
                 Hours
               </div>
-              <p className="text-2xl font-bold">{stats.completedHours}/{stats.totalHours}</p>
+              <p className="text-2xl font-bold">{Math.ceil(stats.completedHours)}/{Math.ceil(stats.totalHours)}</p>
             </div>
           </div>
           
