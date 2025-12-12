@@ -77,12 +77,63 @@ export default function APTLSSManagement() {
     autoReminder: false,
     batchSize: 10
   });
+  const [history, setHistory] = useState<any[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [jobDetails, setJobDetails] = useState<any>(null);
 
   // Load workspaces and boards
   useEffect(() => {
     loadWorkspaces();
     loadBoards();
+    loadHistory();
   }, []);
+
+  const loadHistory = async () => {
+    try {
+      const response = await fetch('/api/aptlss/history');
+      const data = await response.json();
+      setHistory(data);
+    } catch (error) {
+      console.error('Error loading history:', error);
+      toast.error('Failed to load history');
+    }
+  };
+
+  const toggleJobDetails = async (jobId: string) => {
+    if (selectedJobId === jobId) {
+      setSelectedJobId(null);
+      setJobDetails(null);
+    } else {
+      try {
+        const response = await fetch(`/api/aptlss/history/${jobId}`);
+        const data = await response.json();
+        setJobDetails(data);
+        setSelectedJobId(jobId);
+      } catch (error) {
+        console.error('Error loading job details:', error);
+        toast.error('Failed to load job details');
+      }
+    }
+  };
+
+  const retryFailedItems = async (jobId: string) => {
+    try {
+      const response = await fetch(`/api/aptlss/history/${jobId}/retry`, {
+        method: 'POST'
+      });
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success(`Retrying ${result.itemsToRetry} failed items`);
+        loadHistory();
+      } else {
+        toast.info(result.message || 'No items to retry');
+      }
+    } catch (error) {
+      console.error('Error retrying items:', error);
+      toast.error('Failed to retry items');
+    }
+  };
 
   // Filter cards based on search and board filter
   useEffect(() => {
@@ -375,10 +426,11 @@ export default function APTLSSManagement() {
       <Tabs defaultValue="workspaces" className="flex-1">
         <Card>
           <CardHeader>
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="workspaces">Workspaces</TabsTrigger>
               <TabsTrigger value="boards">Boards</TabsTrigger>
               <TabsTrigger value="cards">Cards</TabsTrigger>
+              <TabsTrigger value="history">History</TabsTrigger>
               <TabsTrigger value="settings">Settings</TabsTrigger>
             </TabsList>
           </CardHeader>
@@ -549,6 +601,141 @@ export default function APTLSSManagement() {
                 </CardContent>
               </Card>
             ))}
+          </div>
+        </TabsContent>
+
+        {/* History Tab */}
+        <TabsContent value="history" className="space-y-4">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-muted-foreground">
+              View past generation jobs and retry failed items
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadHistory}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
+
+          <div className="space-y-4">
+            {history.map((job: any) => (
+              <Card key={job.id}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-base">
+                        Job {job.id}
+                      </CardTitle>
+                      <CardDescription>
+                        {new Date(job.createdAt).toLocaleString()}
+                      </CardDescription>
+                    </div>
+                    <Badge
+                      variant={
+                        job.status === 'completed'
+                          ? 'default'
+                          : job.status === 'running'
+                          ? 'secondary'
+                          : 'destructive'
+                      }
+                    >
+                      {job.status}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div>
+                        <p className="text-muted-foreground">Total Cards</p>
+                        <p className="font-medium">{job.totalCards}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Completed</p>
+                        <p className="font-medium text-green-600">
+                          {job.completedCards}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">Failed</p>
+                        <p className="font-medium text-red-600">
+                          {job.failedCards}
+                        </p>
+                      </div>
+                    </div>
+
+                    {job.failedCards > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => retryFailedItems(job.id)}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Retry {job.failedCards} Failed Items
+                      </Button>
+                    )}
+
+                    {selectedJobId === job.id && jobDetails && (
+                      <div className="mt-4 space-y-2">
+                        <p className="text-sm font-medium">Item Details:</p>
+                        <div className="max-h-[300px] overflow-y-auto space-y-2">
+                          {jobDetails.items.map((item: any) => (
+                            <div
+                              key={item.id}
+                              className="flex items-center justify-between p-3 border rounded text-sm"
+                            >
+                              <div className="flex-1">
+                                <p className="font-medium">{item.cardName}</p>
+                                {item.boardName && (
+                                  <p className="text-xs text-muted-foreground">
+                                    {item.boardName}
+                                  </p>
+                                )}
+                                {item.error && (
+                                  <p className="text-xs text-red-600 mt-1">
+                                    Error: {item.error}
+                                  </p>
+                                )}
+                              </div>
+                              <Badge
+                                variant={
+                                  item.status === 'completed'
+                                    ? 'default'
+                                    : item.status === 'failed'
+                                    ? 'destructive'
+                                    : 'secondary'
+                                }
+                              >
+                                {item.status}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleJobDetails(job.id)}
+                    >
+                      {selectedJobId === job.id ? 'Hide' : 'Show'} Details
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+
+            {history.length === 0 && (
+              <Card>
+                <CardContent className="py-8 text-center text-muted-foreground">
+                  No generation history yet. Start a batch generation to see results here.
+                </CardContent>
+              </Card>
+            )}
           </div>
         </TabsContent>
 

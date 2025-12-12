@@ -8,6 +8,13 @@
       "when": 1764978012672,
       "tag": "0000_long_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1765569841081,
+      "tag": "0001_colorful_toad",
+      "breakpoints": true
     }
   ]
 }

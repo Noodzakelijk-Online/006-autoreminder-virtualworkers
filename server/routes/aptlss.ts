@@ -4,6 +4,9 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getDb } from '../db';
+import { generationJobs, generationItems } from '../../drizzle/schema';
+import { eq, desc } from 'drizzle-orm';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -234,6 +237,95 @@ router.post('/aptlss/generate', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error generating APTLSS:', error);
     res.status(500).json({ error: 'Failed to generate APTLSS' });
+  }
+});
+
+// Get generation history
+router.get('/aptlss/history', async (req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    const jobs = await db.select().from(generationJobs).orderBy(desc(generationJobs.createdAt));
+    res.json(jobs);
+  } catch (error) {
+    console.error('Error fetching history:', error);
+    res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
+// Get job details with items
+router.get('/aptlss/history/:jobId', async (req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    
+    const { jobId } = req.params;
+    
+    const job = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId)).limit(1);
+    
+    if (!job || job.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+    
+    const items = await db.select().from(generationItems).where(eq(generationItems.jobId, jobId));
+    
+    res.json({
+      ...job[0],
+      items
+    });
+  } catch (error) {
+    console.error('Error fetching job details:', error);
+    res.status(500).json({ error: 'Failed to fetch job details' });
+  }
+});
+
+// Retry failed items
+router.post('/aptlss/history/:jobId/retry', async (req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    
+    const { jobId } = req.params;
+    
+    // Get failed items
+    const failedItems = await db.select()
+      .from(generationItems)
+      .where(eq(generationItems.jobId, jobId));
+    
+    const failed = failedItems.filter((item: any) => item.status === 'failed');
+    
+    if (failed.length === 0) {
+      return res.json({ message: 'No failed items to retry' });
+    }
+    
+    // Create new job for retries
+    const newJobId = `retry_${jobId}_${Date.now()}`;
+    
+    await db.insert(generationJobs).values({
+      id: newJobId,
+      totalCards: failed.length,
+      completedCards: 0,
+      failedCards: 0,
+      status: 'running',
+      settings: '{}',
+      createdBy: 'system',
+      createdAt: new Date()
+    });
+    
+    res.json({
+      success: true,
+      jobId: newJobId,
+      itemsToRetry: failed.length
+    });
+  } catch (error) {
+    console.error('Error retrying failed items:', error);
+    res.status(500).json({ error: 'Failed to retry items' });
   }
 });
 
