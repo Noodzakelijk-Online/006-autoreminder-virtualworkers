@@ -41,6 +41,14 @@ interface TrelloBoard {
   selected: boolean;
 }
 
+interface TrelloWorkspace {
+  id: string;
+  name: string;
+  boardCount: number;
+  boards: { id: string; name: string }[];
+  selected: boolean;
+}
+
 interface GenerationProgress {
   total: number;
   completed: number;
@@ -50,6 +58,7 @@ interface GenerationProgress {
 }
 
 export default function APTLSSManagement() {
+  const [workspaces, setWorkspaces] = useState<TrelloWorkspace[]>([]);
   const [boards, setBoards] = useState<TrelloBoard[]>([]);
   const [cards, setCards] = useState<TrelloCard[]>([]);
   const [filteredCards, setFilteredCards] = useState<TrelloCard[]>([]);
@@ -69,8 +78,9 @@ export default function APTLSSManagement() {
     batchSize: 10
   });
 
-  // Load boards and cards
+  // Load workspaces and boards
   useEffect(() => {
+    loadWorkspaces();
     loadBoards();
   }, []);
 
@@ -91,6 +101,29 @@ export default function APTLSSManagement() {
 
     setFilteredCards(filtered);
   }, [cards, searchTerm, filterBoard]);
+
+  const loadWorkspaces = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/trello/workspaces');
+      const data = await response.json();
+      
+      setWorkspaces(data.map((workspace: any) => ({
+        id: workspace.id,
+        name: workspace.name,
+        boardCount: workspace.boardCount || 0,
+        boards: workspace.boards || [],
+        selected: false
+      })));
+      
+      toast.success('Workspaces loaded successfully');
+    } catch (error) {
+      toast.error('Failed to load workspaces');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadBoards = async () => {
     setLoading(true);
@@ -138,6 +171,46 @@ export default function APTLSSManagement() {
       toast.success(`Loaded ${newCards.length} cards from board`);
     } catch (error) {
       toast.error('Failed to load cards');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const toggleWorkspaceSelection = (workspaceId: string) => {
+    setWorkspaces(workspaces.map(ws => 
+      ws.id === workspaceId ? { ...ws, selected: !ws.selected } : ws
+    ));
+  };
+
+  const loadWorkspaceBoards = async (workspaceId: string) => {
+    const workspace = workspaces.find(ws => ws.id === workspaceId);
+    if (!workspace) return;
+
+    setLoading(true);
+    try {
+      // Load all cards from all boards in this workspace
+      const allCards: TrelloCard[] = [];
+      
+      for (const board of workspace.boards) {
+        const response = await fetch(`/api/trello/boards/${board.id}/cards`);
+        const boardCards = await response.json();
+        allCards.push(...boardCards.map((card: any) => ({
+          id: card.id,
+          name: card.name,
+          desc: card.desc,
+          boardId: card.idBoard,
+          boardName: board.name,
+          listName: card.listName || '',
+          hasAPTLSS: card.checklists?.some((cl: any) => cl.name === 'APTLSS'),
+          selected: false
+        })));
+      }
+      
+      setCards(allCards);
+      toast.success(`Loaded ${allCards.length} cards from workspace "${workspace.name}"`);
+    } catch (error) {
+      toast.error('Failed to load workspace cards');
       console.error(error);
     } finally {
       setLoading(false);
@@ -299,15 +372,58 @@ export default function APTLSSManagement() {
       )}
 
       {/* Main Content */}
-      <Tabs defaultValue="cards" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="cards">Cards</TabsTrigger>
-          <TabsTrigger value="boards">Boards</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="workspaces" className="flex-1">
+        <Card>
+          <CardHeader>
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="workspaces">Workspaces</TabsTrigger>
+              <TabsTrigger value="boards">Boards</TabsTrigger>
+              <TabsTrigger value="cards">Cards</TabsTrigger>
+              <TabsTrigger value="settings">Settings</TabsTrigger>
+            </TabsList>
+          </CardHeader>
+          <CardContent>
 
-        {/* Cards Tab */}
-        <TabsContent value="cards" className="space-y-4">
+            {/* Workspaces Tab */}
+            <TabsContent value="workspaces" className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  {workspaces.length} workspaces available
+                </p>
+              </div>
+
+              <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                {workspaces.map((workspace) => (
+                  <div
+                    key={workspace.id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      <Checkbox
+                        checked={workspace.selected}
+                        onCheckedChange={() => toggleWorkspaceSelection(workspace.id)}
+                      />
+                      <div>
+                        <p className="font-medium">{workspace.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {workspace.boardCount} boards
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadWorkspaceBoards(workspace.id)}
+                    >
+                      Load Cards
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </TabsContent>
+
+            {/* Cards Tab */}
+            <TabsContent value="cards" className="space-y-4">
           {/* Filters and Actions */}
           <Card>
             <CardContent className="pt-6">
@@ -503,6 +619,8 @@ export default function APTLSSManagement() {
             </CardContent>
           </Card>
         </TabsContent>
+          </CardContent>
+        </Card>
       </Tabs>
     </div>
   );

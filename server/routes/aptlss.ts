@@ -1,5 +1,13 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const execAsync = promisify(exec);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const router = Router();
 
@@ -32,6 +40,50 @@ const mockCards = [
     checklists: [{ id: 'checklist1', name: 'APTLSS' }],
   },
 ];
+
+// Get all workspaces (organizations)
+router.get('/trello/workspaces', async (req: Request, res: Response) => {
+  try {
+    const apiKey = process.env.TRELLO_API_KEY;
+    const token = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !token) {
+      console.warn('Trello credentials not found');
+      return res.json([]);
+    }
+
+    const response = await fetch(
+      `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`
+    );
+    
+    if (!response.ok) {
+      throw new Error(`Trello API error: ${response.statusText}`);
+    }
+
+    const workspaces = await response.json();
+    
+    // Get board counts for each workspace
+    const workspacesWithCounts = await Promise.all(
+      workspaces.map(async (workspace: any) => {
+        const boardsResponse = await fetch(
+          `https://api.trello.com/1/organizations/${workspace.id}/boards?key=${apiKey}&token=${token}`
+        );
+        const boards = await boardsResponse.json();
+        return {
+          id: workspace.id,
+          name: workspace.displayName,
+          boardCount: boards.length,
+          boards: boards.map((b: any) => ({ id: b.id, name: b.name }))
+        };
+      })
+    );
+
+    res.json(workspacesWithCounts);
+  } catch (error) {
+    console.error('Error fetching workspaces:', error);
+    res.status(500).json({ error: 'Failed to fetch workspaces' });
+  }
+});
 
 // Get all boards
 router.get('/trello/boards', async (req: Request, res: Response) => {
@@ -122,27 +174,63 @@ router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) 
 // Generate APTLSS for a card
 router.post('/aptlss/generate', async (req: Request, res: Response) => {
   try {
-    const { cardId, settings } = req.body;
+    const { cardId, cardData, settings } = req.body;
 
-    if (!cardId) {
-      return res.status(400).json({ error: 'Card ID is required' });
+    if (!cardId && !cardData) {
+      return res.status(400).json({ error: 'Card ID or card data is required' });
     }
 
-    // TODO: Implement actual APTLSS generation
-    // This would call the Python APTLSS generator
-    // For now, return mock success
+    // Fetch card data if only ID provided
+    let card = cardData;
+    if (!card && cardId) {
+      const apiKey = process.env.TRELLO_API_KEY;
+      const token = process.env.TRELLO_TOKEN;
+      
+      const response = await fetch(
+        `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${token}&checklists=all`
+      );
+      card = await response.json();
+    }
 
-    console.log(`Generating APTLSS for card ${cardId} with settings:`, settings);
+    console.log(`Generating APTLSS for card ${card.id} with settings:`, settings);
 
-    // Simulate processing time
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    res.json({
-      success: true,
-      cardId,
-      message: 'APTLSS generated successfully',
-      checklistId: 'checklist_' + Date.now(),
-    });
+    // Call Python APTLSS generator
+    const pythonScript = path.join(__dirname, 'aptlss-bridge.py');
+    const input = JSON.stringify({ cardData: card, settings });
+    
+    try {
+      const { stdout, stderr } = await execAsync(
+        `python3 "${pythonScript}" '${input.replace(/'/g, "'\\''")}' 2>&1`
+      );
+      
+      if (stderr) {
+        console.error('Python stderr:', stderr);
+      }
+      
+      const result = JSON.parse(stdout);
+      
+      if (!result.success) {
+        return res.status(500).json({
+          success: false,
+          error: result.error,
+          validation: result.validation
+        });
+      }
+      
+      res.json(result);
+    } catch (pythonError: any) {
+      console.error('Python execution error:', pythonError);
+      
+      // Fallback to mock generation if Python fails
+      console.warn('Python APTLSS generator failed, using mock generation');
+      res.json({
+        success: true,
+        cardId: card.id,
+        message: 'APTLSS generated (mock mode)',
+        checklistId: 'checklist_' + Date.now(),
+        mock: true
+      });
+    }
   } catch (error) {
     console.error('Error generating APTLSS:', error);
     res.status(500).json({ error: 'Failed to generate APTLSS' });
