@@ -36,13 +36,40 @@ const mockCards = [
 // Get all boards
 router.get('/trello/boards', async (req: Request, res: Response) => {
   try {
-    // TODO: Replace with actual Trello API call
-    // const apiKey = process.env.TRELLO_API_KEY;
-    // const token = process.env.TRELLO_TOKEN;
-    // const response = await fetch(`https://api.trello.com/1/members/me/boards?key=${apiKey}&token=${token}`);
-    // const boards = await response.json();
+    const apiKey = process.env.TRELLO_API_KEY;
+    const token = process.env.TRELLO_TOKEN;
 
-    res.json(mockBoards);
+    if (!apiKey || !token) {
+      console.warn('Trello credentials not found, using mock data');
+      return res.json(mockBoards);
+    }
+
+    const response = await fetch(
+      `https://api.trello.com/1/members/me/boards?key=${apiKey}&token=${token}`
+    );
+    
+    if (!response.ok) {
+      throw new Error(`Trello API error: ${response.statusText}`);
+    }
+
+    const boards = await response.json();
+    
+    // Get card counts for each board
+    const boardsWithCounts = await Promise.all(
+      boards.map(async (board: any) => {
+        const cardsResponse = await fetch(
+          `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`
+        );
+        const cards = await cardsResponse.json();
+        return {
+          id: board.id,
+          name: board.name,
+          cardCount: cards.length
+        };
+      })
+    );
+
+    res.json(boardsWithCounts);
   } catch (error) {
     console.error('Error fetching boards:', error);
     res.status(500).json({ error: 'Failed to fetch boards' });
@@ -53,17 +80,39 @@ router.get('/trello/boards', async (req: Request, res: Response) => {
 router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) => {
   try {
     const { boardId } = req.params;
+    const apiKey = process.env.TRELLO_API_KEY;
+    const token = process.env.TRELLO_TOKEN;
 
-    // TODO: Replace with actual Trello API call
-    // const apiKey = process.env.TRELLO_API_KEY;
-    // const token = process.env.TRELLO_TOKEN;
-    // const response = await fetch(
-    //   `https://api.trello.com/1/boards/${boardId}/cards?key=${apiKey}&token=${token}&checklists=all`
-    // );
-    // const cards = await response.json();
+    if (!apiKey || !token) {
+      console.warn('Trello credentials not found, using mock data');
+      const cards = mockCards.filter(card => card.idBoard === boardId);
+      return res.json(cards);
+    }
 
-    const cards = mockCards.filter(card => card.idBoard === boardId);
-    res.json(cards);
+    // Fetch cards with checklists and board/list info
+    const response = await fetch(
+      `https://api.trello.com/1/boards/${boardId}/cards?key=${apiKey}&token=${token}&checklists=all&list=true&board=true`
+    );
+    
+    if (!response.ok) {
+      throw new Error(`Trello API error: ${response.statusText}`);
+    }
+
+    const cards = await response.json();
+    
+    // Transform to our format
+    const formattedCards = cards.map((card: any) => ({
+      id: card.id,
+      name: card.name,
+      desc: card.desc,
+      idBoard: card.idBoard,
+      idList: card.idList,
+      boardName: card.board?.name,
+      listName: card.list?.name,
+      checklists: card.checklists || []
+    }));
+
+    res.json(formattedCards);
   } catch (error) {
     console.error('Error fetching cards:', error);
     res.status(500).json({ error: 'Failed to fetch cards' });
