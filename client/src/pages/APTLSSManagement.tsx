@@ -393,30 +393,36 @@ export default function APTLSSManagement() {
               </div>
 
               <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                {workspaces.map((workspace) => (
+                    {filteredCards.map((card) => (
                   <div
-                    key={workspace.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                    key={card.id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors group"
                   >
                     <div className="flex items-center gap-3 flex-1">
                       <Checkbox
-                        checked={workspace.selected}
-                        onCheckedChange={() => toggleWorkspaceSelection(workspace.id)}
+                        checked={card.selected}
+                        onCheckedChange={() => toggleCardSelection(card.id)}
                       />
-                      <div>
-                        <p className="font-medium">{workspace.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {workspace.boardCount} boards
-                        </p>
-                      </div>
+                      <a
+                        href={`https://trello.com/c/${card.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div>
+                          <p className="font-medium group-hover:text-primary transition-colors">{card.name}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {card.boardName} • {card.listName}
+                          </p>
+                        </div>
+                      </a>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => loadWorkspaceBoards(workspace.id)}
-                    >
-                      Load Cards
-                    </Button>
+                    {card.hasAPTLSS ? (
+                      <span className="text-xs text-green-600 font-medium">✓ Has APTLSS</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">No APTLSS</span>
+                    )}
                   </div>
                 ))}
               </div>
