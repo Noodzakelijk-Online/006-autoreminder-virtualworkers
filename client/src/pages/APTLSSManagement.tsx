@@ -444,39 +444,84 @@ export default function APTLSSManagement() {
                 </p>
               </div>
 
-              <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                    {filteredCards.map((card) => (
-                  <div
-                    key={card.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors group"
-                  >
-                    <div className="flex items-center gap-3 flex-1">
-                      <Checkbox
-                        checked={card.selected}
-                        onCheckedChange={() => toggleCardSelection(card.id)}
-                      />
-                      <a
-                        href={`https://trello.com/c/${card.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex-1 hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div>
-                          <p className="font-medium group-hover:text-primary transition-colors">{card.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {card.boardName} • {card.listName}
-                          </p>
+              <div className="grid gap-4">
+                {workspaces.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-12 text-center text-muted-foreground">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+                      Loading workspaces...
+                    </CardContent>
+                  </Card>
+                ) : (
+                  workspaces.map(workspace => (
+                    <Card key={workspace.id}>
+                      <CardHeader>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <CardTitle className="text-lg">{workspace.name}</CardTitle>
+                            <CardDescription>
+                              {workspace.boardCount} boards • {workspace.boards?.reduce((sum, b: any) => sum + (b.cardCount || 0), 0) || 0} total cards
+                            </CardDescription>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => loadWorkspaceBoards(workspace.id)}
+                          >
+                            Load All Boards
+                          </Button>
                         </div>
-                      </a>
-                    </div>
-                    {card.hasAPTLSS ? (
-                      <span className="text-xs text-green-600 font-medium">✓ Has APTLSS</span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">No APTLSS</span>
-                    )}
-                  </div>
-                ))}
+                      </CardHeader>
+                      {workspace.boards && workspace.boards.length > 0 && (
+                        <CardContent>
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium text-muted-foreground mb-2">Boards:</p>
+                            <div className="grid gap-2">
+                              {workspace.boards.map((board: any) => (
+                                <div
+                                  key={board.id}
+                                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
+                                >
+                                  <div>
+                                    <p className="font-medium">{board.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {board.cardCount || 0} cards
+                                    </p>
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      // Load this specific board's cards
+                                      fetch(`/api/trello/boards/${board.id}/cards`)
+                                        .then(res => res.json())
+                                        .then(cardData => {
+                                          const newCards = cardData.map((c: any) => ({
+                                            ...c,
+                                            boardName: board.name,
+                                            selected: false,
+                                            hasAPTLSS: false
+                                          }));
+                                          setCards(prev => [...prev, ...newCards]);
+                                          toast.success(`Loaded ${newCards.length} cards from ${board.name}`);
+                                        })
+                                        .catch(err => {
+                                          console.error('Error loading cards:', err);
+                                          toast.error('Failed to load cards');
+                                        });
+                                    }}
+                                  >
+                                    Load Cards
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </CardContent>
+                      )}
+                    </Card>
+                  ))
+                )}
               </div>
             </TabsContent>
 
@@ -541,7 +586,15 @@ export default function APTLSSManagement() {
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-medium truncate">{card.name}</h3>
+                          <a
+                            href={`https://trello.com/c/${card.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium truncate hover:text-primary hover:underline transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {card.name}
+                          </a>
                           {card.hasAPTLSS && (
                             <Badge variant="secondary" className="shrink-0">
                               <CheckCircle2 className="h-3 w-3 mr-1" />
