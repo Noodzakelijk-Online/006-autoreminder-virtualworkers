@@ -32,6 +32,10 @@ interface TrelloCard {
   listName?: string;
   hasAPTLSS: boolean;
   selected: boolean;
+  due?: string;
+  badges?: {
+    attachments: number;
+  };
 }
 
 interface TrelloBoard {
@@ -629,12 +633,55 @@ export default function APTLSSManagement() {
                     />
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
                   <Button onClick={selectAllCards} variant="outline" size="sm">
                     Select All
                   </Button>
                   <Button onClick={deselectAllCards} variant="outline" size="sm">
                     Deselect All
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      setCards(prev => prev.map(c => ({
+                        ...c,
+                        selected: !c.hasAPTLSS
+                      })));
+                      toast.success('Selected cards without APTLSS');
+                    }}
+                    variant="outline" 
+                    size="sm"
+                  >
+                    Without APTLSS
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      const now = new Date();
+                      setCards(prev => prev.map(c => {
+                        const dueDate = c.due ? new Date(c.due) : null;
+                        return {
+                          ...c,
+                          selected: dueDate ? dueDate < now : false
+                        };
+                      }));
+                      toast.success('Selected overdue cards');
+                    }}
+                    variant="outline" 
+                    size="sm"
+                  >
+                    Overdue
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      setCards(prev => prev.map(c => ({
+                        ...c,
+                        selected: (c.badges?.attachments ?? 0) > 0
+                      })));
+                      toast.success('Selected cards with attachments');
+                    }}
+                    variant="outline" 
+                    size="sm"
+                  >
+                    With Attachments
                   </Button>
                   <Button 
                     onClick={startGeneration} 
