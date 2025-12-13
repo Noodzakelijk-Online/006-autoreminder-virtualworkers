@@ -24,11 +24,27 @@
 - [x] Fix overview button functionality
 
 ## Backend Fixes (Dec 13, 2025)
-- [ ] Filter archived cards from backend API responses
-- [ ] Ensure Trello API calls exclude closed/archived cards
+- [x] Filter archived cards from backend API responses
+- [x] Ensure Trello API calls exclude closed/archived cards
 
 ## Replace Mock Data with Real Trello API (Dec 13, 2025)
 - [x] Create backend endpoint to fetch tasks from Trello with APTLSS checklists
 - [x] Update Home page to fetch from Trello API instead of tasks.json
 - [x] Filter archived/closed cards in backend
 - [x] Parse APTLSS checklists into task format
+
+## Task Time Scheduling (Dec 13, 2025)
+- [x] Design scheduling algorithm that assigns start/end times based on task duration
+- [x] Handle task dependencies and sequencing
+- [x] Respect working hours (e.g., 9:00 AM - 6:00 PM)
+- [x] Implement backend scheduling logic
+- [x] Update frontend to display scheduled times in timeline
+- [x] Add visual indicators for scheduled vs unscheduled tasks
+
+## Task Status Sync to Trello (Dec 13, 2025)
+- [x] Create backend API endpoint to update Trello checklist items
+- [x] Implement checkbox state sync when user completes tasks
+- [x] Handle API errors and retry logic
+- [x] Show sync status feedback in UI (loading, success, error)
+- [x] Update task completion state in real-time
+- [x] Test bidirectional sync (Trello → Dashboard → Trello)

@@ -2,6 +2,8 @@ export interface Task {
   id: string;
   cardId: string;
   cardName: string;
+  checklistId?: string;
+  checkItemId?: string;
   stepIndex: number;
   description: string;
   durationHours: number;

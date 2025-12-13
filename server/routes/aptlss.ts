@@ -14,6 +14,96 @@ const __dirname = path.dirname(__filename);
 
 const router = Router();
 
+// Task scheduling algorithm
+function scheduleTasksByTime(tasks: any[]) {
+  // Working hours: 9:00 AM - 6:00 PM (9 hours per day)
+  const WORK_START_HOUR = 9;
+  const WORK_END_HOUR = 18;
+  const MAX_HOURS_PER_DAY = WORK_END_HOUR - WORK_START_HOUR;
+
+  // Group tasks by date and card
+  const tasksByDate = new Map<string, any[]>();
+  
+  for (const task of tasks) {
+    if (!tasksByDate.has(task.date)) {
+      tasksByDate.set(task.date, []);
+    }
+    tasksByDate.get(task.date)!.push(task);
+  }
+
+  // Schedule each day's tasks
+  const scheduledTasks: any[] = [];
+  
+  for (const [date, dayTasks] of Array.from(tasksByDate.entries())) {
+    // Sort by priority and step index
+    const sortedTasks = dayTasks.sort((a: any, b: any) => {
+      // Priority order: CRITICAL > URGENT > HIGH > NORMAL
+      const priorityOrder = { CRITICAL: 0, URGENT: 1, HIGH: 2, NORMAL: 3 };
+      const priorityDiff = priorityOrder[a.priorityLevel as keyof typeof priorityOrder] - 
+                          priorityOrder[b.priorityLevel as keyof typeof priorityOrder];
+      if (priorityDiff !== 0) return priorityDiff;
+      
+      // If same priority, sort by card name then step index (to keep steps together)
+      if (a.cardName !== b.cardName) return a.cardName.localeCompare(b.cardName);
+      return a.stepIndex - b.stepIndex;
+    });
+
+    let currentHour = WORK_START_HOUR;
+    let currentMinute = 0;
+
+    for (const task of sortedTasks) {
+      // Skip if already completed
+      if (task.isCompleted) {
+        scheduledTasks.push({
+          ...task,
+          startTime: '--:--',
+          endTime: '--:--'
+        });
+        continue;
+      }
+
+      // Calculate end time
+      const durationMinutes = Math.ceil(task.durationHours * 60);
+      let endHour = currentHour;
+      let endMinute = currentMinute + durationMinutes;
+
+      // Handle minute overflow
+      if (endMinute >= 60) {
+        endHour += Math.floor(endMinute / 60);
+        endMinute = endMinute % 60;
+      }
+
+      // Check if task fits in working hours
+      if (endHour > WORK_END_HOUR || (endHour === WORK_END_HOUR && endMinute > 0)) {
+        // Task doesn't fit, mark as unscheduled
+        scheduledTasks.push({
+          ...task,
+          startTime: 'TBD',
+          endTime: 'TBD',
+          overbooked: true
+        });
+        continue;
+      }
+
+      // Format times
+      const startTime = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
+      const endTime = `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
+
+      scheduledTasks.push({
+        ...task,
+        startTime,
+        endTime
+      });
+
+      // Move to next time slot
+      currentHour = endHour;
+      currentMinute = endMinute;
+    }
+  }
+
+  return scheduledTasks;
+}
+
 // Mock data for development
 const mockBoards = [
   { id: 'board1', name: 'VA Tasks - Operations', cardCount: 45 },
@@ -501,6 +591,8 @@ router.get('/trello/tasks', async (req: Request, res: Response) => {
               id: `${card.id}_${item.id}`,
               cardId: card.id,
               cardName: card.name,
+              checklistId: aptlssChecklist.id,
+              checkItemId: item.id,
               stepIndex: index,
               description: item.name,
               durationHours,
@@ -522,10 +614,58 @@ router.get('/trello/tasks', async (req: Request, res: Response) => {
       }
     }
 
-    res.json(tasks);
+    // Schedule tasks with proper time slots
+    const scheduledTasks = scheduleTasksByTime(tasks);
+    
+    res.json(scheduledTasks);
   } catch (error) {
     console.error('Error fetching Trello tasks:', error);
     res.status(500).json({ error: 'Failed to fetch tasks from Trello' });
+  }
+});
+
+// Update task completion status in Trello
+router.put('/trello/tasks/:taskId/complete', async (req: Request, res: Response) => {
+  try {
+    const { taskId } = req.params;
+    const { isCompleted, cardId, checklistId, checkItemId } = req.body;
+
+    const apiKey = process.env.TRELLO_API_KEY;
+    const apiToken = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !apiToken) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    if (!cardId || !checklistId || !checkItemId) {
+      return res.status(400).json({ error: 'Missing required fields: cardId, checklistId, checkItemId' });
+    }
+
+    // Update checklist item state in Trello
+    const state = isCompleted ? 'complete' : 'incomplete';
+    const updateUrl = `https://api.trello.com/1/cards/${cardId}/checkItem/${checkItemId}?state=${state}&key=${apiKey}&token=${apiToken}`;
+    
+    const response = await fetch(updateUrl, {
+      method: 'PUT'
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Trello API error:', errorText);
+      return res.status(response.status).json({ error: 'Failed to update task in Trello', details: errorText });
+    }
+
+    const result = await response.json();
+    
+    res.json({ 
+      success: true, 
+      taskId,
+      isCompleted,
+      trelloResponse: result
+    });
+  } catch (error) {
+    console.error('Error updating task status:', error);
+    res.status(500).json({ error: 'Failed to update task status' });
   }
 });
 

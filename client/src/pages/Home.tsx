@@ -73,10 +73,45 @@ export default function Home() {
     fetchTasks();
   }, []);
 
-  const handleToggleTask = (id: string) => {
+  const handleToggleTask = async (id: string) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+
+    const newCompletedState = !task.isCompleted;
+
+    // Optimistically update UI
     setTasks(tasks.map(t => 
-      t.id === id ? { ...t, isCompleted: !t.isCompleted } : t
+      t.id === id ? { ...t, isCompleted: newCompletedState } : t
     ));
+
+    try {
+      // Sync to Trello
+      const response = await fetch(`/api/trello/tasks/${id}/complete`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          isCompleted: newCompletedState,
+          cardId: task.cardId,
+          checklistId: task.checklistId,
+          checkItemId: task.checkItemId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update task in Trello');
+      }
+
+      toast.success(newCompletedState ? 'Task completed!' : 'Task marked incomplete');
+    } catch (error) {
+      console.error('Error syncing task status:', error);
+      // Revert on error
+      setTasks(tasks.map(t => 
+        t.id === id ? { ...t, isCompleted: !newCompletedState } : t
+      ));
+      toast.error('Failed to sync with Trello. Please try again.');
+    }
   };
 
   return (
