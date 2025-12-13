@@ -5,7 +5,7 @@ import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb } from '../db';
-import { generationJobs, generationItems, scheduledJobs } from '../../drizzle/schema';
+import { generationJobs, generationItems, scheduledJobs, userWorkingHours } from '../../drizzle/schema';
 import { eq, desc, and } from 'drizzle-orm';
 
 const execAsync = promisify(exec);
@@ -15,10 +15,10 @@ const __dirname = path.dirname(__filename);
 const router = Router();
 
 // Task scheduling algorithm
-function scheduleTasksByTime(tasks: any[]) {
-  // Working hours: 9:00 AM - 6:00 PM (9 hours per day)
-  const WORK_START_HOUR = 9;
-  const WORK_END_HOUR = 18;
+function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHour: number = 18) {
+  // Working hours configurable per user
+  const WORK_START_HOUR = workStartHour;
+  const WORK_END_HOUR = workEndHour;
   const MAX_HOURS_PER_DAY = WORK_END_HOUR - WORK_START_HOUR;
 
   // Group tasks by date and card
@@ -541,7 +541,7 @@ router.get('/aptlss/status/:jobId', async (req: Request, res: Response) => {
 });
 
 // Get tasks from Trello cards with APTLSS checklists
-router.get('/trello/tasks', async (req: Request, res: Response) => {
+router.get('/trello/tasks', async (req: any, res: Response) => {
   try {
     const apiKey = process.env.TRELLO_API_KEY;
     const apiToken = process.env.TRELLO_TOKEN;
@@ -614,8 +614,30 @@ router.get('/trello/tasks', async (req: Request, res: Response) => {
       }
     }
 
+    // Get user's working hours settings
+    let workStartHour = 9;
+    let workEndHour = 18;
+    
+    if (req.user) {
+      try {
+        const db = await getDb();
+        if (db) {
+          const settings = await db.select().from(userWorkingHours)
+            .where(eq(userWorkingHours.userOpenId, req.user.openId))
+            .limit(1);
+          
+          if (settings.length > 0) {
+            workStartHour = settings[0].workStartHour;
+            workEndHour = settings[0].workEndHour;
+          }
+        }
+      } catch (error) {
+        console.warn('Could not fetch user working hours, using defaults:', error);
+      }
+    }
+    
     // Schedule tasks with proper time slots
-    const scheduledTasks = scheduleTasksByTime(tasks);
+    const scheduledTasks = scheduleTasksByTime(tasks, workStartHour, workEndHour);
     
     res.json(scheduledTasks);
   } catch (error) {

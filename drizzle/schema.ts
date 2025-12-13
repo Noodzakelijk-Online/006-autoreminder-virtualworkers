@@ -73,3 +73,30 @@ export const scheduledJobs = mysqlTable('scheduled_jobs', {
 
 export type ScheduledJob = typeof scheduledJobs.$inferSelect;
 export type InsertScheduledJob = typeof scheduledJobs.$inferInsert;
+
+// User working hours settings table
+export const userWorkingHours = mysqlTable('user_working_hours', {
+  id: int('id').autoincrement().primaryKey(),
+  userId: int('userId').notNull(), // References users.id
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(), // References users.openId for easier lookup
+  workStartHour: int('workStartHour').notNull().default(9), // 0-23
+  workStartMinute: int('workStartMinute').notNull().default(0), // 0-59
+  workEndHour: int('workEndHour').notNull().default(18), // 0-23
+  workEndMinute: int('workEndMinute').notNull().default(0), // 0-59
+  breakfastTime: varchar('breakfastTime', { length: 5 }).default('09:00'), // HH:MM format
+  breakfastDuration: int('breakfastDuration').notNull().default(45), // minutes
+  lunchTime: varchar('lunchTime', { length: 5 }).default('15:00'), // HH:MM format
+  lunchDuration: int('lunchDuration').notNull().default(45), // minutes
+  dinnerTime: varchar('dinnerTime', { length: 5 }).default('20:00'), // HH:MM format
+  dinnerDuration: int('dinnerDuration').notNull().default(120), // minutes
+  enableBreaks: int('enableBreaks').notNull().default(1), // 0=false, 1=true (MySQL doesn't have boolean)
+  shortBreakInterval: int('shortBreakInterval').notNull().default(120), // minutes of work before short break
+  shortBreakDuration: int('shortBreakDuration').notNull().default(10), // minutes
+  longBreakInterval: int('longBreakInterval').notNull().default(240), // minutes of work before long break
+  longBreakDuration: int('longBreakDuration').notNull().default(30), // minutes
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserWorkingHours = typeof userWorkingHours.$inferSelect;
+export type InsertUserWorkingHours = typeof userWorkingHours.$inferInsert;

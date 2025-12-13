@@ -139,6 +139,11 @@ export default function Home() {
                 <Settings className="h-5 w-5" />
               </Button>
             </Link>
+            <Link href="/settings">
+              <Button variant="ghost" size="icon" title="Settings">
+                <Settings className="h-5 w-5" />
+              </Button>
+            </Link>
             <Button variant="ghost" size="icon" className="relative">
               <Bell className="h-5 w-5" />
               <span className="absolute top-2 right-2 h-2 w-2 bg-destructive rounded-full" />

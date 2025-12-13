@@ -48,3 +48,11 @@
 - [x] Show sync status feedback in UI (loading, success, error)
 - [x] Update task completion state in real-time
 - [x] Test bidirectional sync (Trello → Dashboard → Trello)
+
+## User-Configurable Working Hours (Dec 13, 2025)
+- [x] Analyze Joyce's actual working hours from Trello task data
+- [x] Create database schema for storing user working hours preferences
+- [x] Build settings UI for configuring start time, end time, break times
+- [x] Update scheduling algorithm to use user-specific working hours
+- [x] Add default working hours detection from historical task data
+- [x] Test scheduling with custom working hours

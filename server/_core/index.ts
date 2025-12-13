@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import aptlssRoutes from "../routes/aptlss.js";
+import workingHoursRoutes from "../routes/working-hours.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -38,6 +39,8 @@ async function startServer() {
   registerOAuthRoutes(app);
   // APTLSS Management API
   app.use("/api", aptlssRoutes);
+  // Working Hours Settings API
+  app.use("/api", workingHoursRoutes);
   // tRPC API
   app.use(
     "/api/trpc",
