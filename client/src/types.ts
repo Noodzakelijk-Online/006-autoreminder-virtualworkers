@@ -9,6 +9,7 @@ export interface Task {
   endTime: string;
   date: string;
   isCompleted: boolean;
+  isArchived?: boolean;
   isBlocker: boolean;
   isPriority: boolean;
   priorityLevel: 'CRITICAL' | 'URGENT' | 'HIGH' | 'NORMAL';

@@ -45,8 +45,8 @@ export default function Home() {
     // For now, we use the imported JSON
     
     // Filter for "today" (simulated as Dec 5, 2025 for demo)
-    // Or just show all for now
-    const loadedTasks = tasksData as Task[];
+    // Filter out archived cards
+    const loadedTasks = (tasksData as Task[]).filter(t => !t.isArchived);
     setTasks(loadedTasks);
     
     // Calculate stats
@@ -121,7 +121,12 @@ export default function Home() {
                   Your focus block starts at 14:00.
                 </p>
                 <div className="flex gap-2">
-                  <Button className="flex-1">View Weekly Schedule</Button>
+                  <Button 
+                    className="flex-1"
+                    onClick={() => window.scrollTo({ top: document.querySelector('.timeline-section')?.getBoundingClientRect().top! + window.scrollY - 100, behavior: 'smooth' })}
+                  >
+                    View Weekly Schedule
+                  </Button>
                   <Button 
                     variant="outline" 
                     className="flex-1"
@@ -177,7 +182,7 @@ export default function Home() {
 
           {/* Main Content - Timeline */}
           <div className="lg:col-span-8">
-            <div className="bg-card rounded-2xl shadow-sm border min-h-[600px] relative overflow-hidden">
+            <div className="timeline-section bg-card rounded-2xl shadow-sm border min-h-[600px] relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-32 bg-[url('/images/hero-bg.png')] bg-cover opacity-20" />
               <div className="relative z-10 p-6">
                 <div className="flex items-center justify-between mb-6">

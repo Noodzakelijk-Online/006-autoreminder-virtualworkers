@@ -16,3 +16,9 @@
 - [x] Create nuclear reset script to wipe all dates
 - [x] Execute nuclear reset and reschedule from scratch
 - [x] Verify clean schedule (limited by API access)
+
+## Dashboard Fixes (Dec 13, 2025)
+- [x] Filter out archived cards from dashboard
+- [x] Remove redundant task count from StatsPanel
+- [x] Make Weekly Progress panel collapsible
+- [x] Fix overview button functionality

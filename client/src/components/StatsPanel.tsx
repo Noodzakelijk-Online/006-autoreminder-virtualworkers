@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { WeeklyStats } from "@/types";
@@ -8,17 +9,25 @@ interface StatsPanelProps {
 }
 
 export function StatsPanel({ stats }: StatsPanelProps) {
+  const [isExpanded, setIsExpanded] = useState(true);
   const completionRate = Math.round((stats.completedTasks / stats.totalTasks) * 100) || 0;
   
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader>
-          <CardTitle className="text-lg font-medium flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-primary" />
-            Weekly Progress
+        <CardHeader 
+          className="cursor-pointer hover:bg-muted/50 transition-colors"
+          onClick={() => setIsExpanded(!isExpanded)}
+        >
+          <CardTitle className="text-lg font-medium flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-primary" />
+              Weekly Progress
+            </div>
+            <span className="text-sm text-muted-foreground">{isExpanded ? '▼' : '▶'}</span>
           </CardTitle>
         </CardHeader>
+        {isExpanded && (
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
@@ -28,22 +37,12 @@ export function StatsPanel({ stats }: StatsPanelProps) {
             <Progress value={completionRate} className="h-2" />
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-4 w-4" />
-                Tasks
-              </div>
-              <p className="text-2xl font-bold">{stats.completedTasks}/{stats.totalTasks}</p>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Clock className="h-4 w-4" />
+              Hours
             </div>
-            
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Clock className="h-4 w-4" />
-                Hours
-              </div>
-              <p className="text-2xl font-bold">{Math.ceil(stats.completedHours)}/{Math.ceil(stats.totalHours)}</p>
-            </div>
+            <p className="text-2xl font-bold">{Math.ceil(stats.completedHours)}/{Math.ceil(stats.totalHours)}</p>
           </div>
           
           <div className="pt-4 border-t">
@@ -67,6 +66,7 @@ export function StatsPanel({ stats }: StatsPanelProps) {
             </p>
           </div>
         </CardContent>
+        )}
       </Card>
       
       <Card className="bg-primary/5 border-none">
