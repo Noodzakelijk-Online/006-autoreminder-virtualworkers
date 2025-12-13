@@ -9,6 +9,8 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import aptlssRoutes from "../routes/aptlss.js";
 import workingHoursRoutes from "../routes/working-hours.js";
+import holidaysRoutes from "../routes/holidays.js";
+import rescheduleRoutes from "../routes/reschedule.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -41,6 +43,10 @@ async function startServer() {
   app.use("/api", aptlssRoutes);
   // Working Hours Settings API
   app.use("/api", workingHoursRoutes);
+  // Holidays API
+  app.use("/api/holidays", holidaysRoutes);
+  // Reschedule API
+  app.use("/api/reschedule", rescheduleRoutes);
   // tRPC API
   app.use(
     "/api/trpc",

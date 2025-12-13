@@ -71,3 +71,21 @@
 - [x] Convert display times to user's timezone in frontend
 - [x] Update API to handle timezone conversions
 - [x] Test timezone conversion accuracy
+
+## Holiday Calendar Integration (Dec 13, 2025)
+- [x] Create database table for storing holidays
+- [x] Integrate with public holiday API (Nager.Date API for country-specific holidays)
+- [x] Add country selector in settings
+- [x] Fetch and store holidays for selected country/year
+- [x] Update scheduling algorithm to check holidays
+- [x] Add UI to view and manage holidays
+- [x] Test holiday filtering in task scheduling
+
+## Bulk Task Rescheduling (Dec 13, 2025)
+- [x] Create API endpoint for bulk rescheduling
+- [x] Implement rescheduling logic to redistribute tasks
+- [x] Add confirmation dialog when settings change
+- [x] Show preview of rescheduling impact
+- [x] Handle conflicts and overbooked days
+- [x] Add loading state during rescheduling
+- [x] Test bulk rescheduling with various scenarios

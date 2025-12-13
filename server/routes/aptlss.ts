@@ -5,7 +5,7 @@ import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb } from '../db';
-import { generationJobs, generationItems, scheduledJobs, userWorkingHours } from '../../drizzle/schema';
+import { generationJobs, generationItems, scheduledJobs, userWorkingHours, holidays } from '../../drizzle/schema';
 import { eq, desc, and } from 'drizzle-orm';
 
 const execAsync = promisify(exec);
@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 const router = Router();
 
 // Task scheduling algorithm
-function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHour: number = 18, workingDays: number[] = [1, 2, 3, 4, 5]) {
+function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHour: number = 18, workingDays: number[] = [1, 2, 3, 4, 5], userHolidays: string[] = []) {
   // Working hours configurable per user
   const WORK_START_HOUR = workStartHour;
   const WORK_END_HOUR = workEndHour;
@@ -40,14 +40,18 @@ function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHou
     const taskDate = new Date(date);
     const dayOfWeek = taskDate.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
     
-    // If this is not a working day, mark all tasks as TBD
-    if (!WORKING_DAYS.has(dayOfWeek)) {
+    // Check if this is a holiday
+    const isHoliday = userHolidays.includes(date);
+    
+    // If this is not a working day or is a holiday, mark all tasks as TBD
+    if (!WORKING_DAYS.has(dayOfWeek) || isHoliday) {
+      const reason = isHoliday ? 'Holiday' : 'Non-working day';
       for (const task of dayTasks) {
         scheduledTasks.push({
           ...task,
           startTime: 'TBD',
           endTime: 'TBD',
-          note: 'Non-working day'
+          note: reason
         });
       }
       continue;
@@ -631,10 +635,11 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
       }
     }
 
-    // Get user's working hours settings
+    // Get user's working hours settings and holidays
     let workStartHour = 9;
     let workEndHour = 18;
     let workingDays = [1, 2, 3, 4, 5]; // Default: Mon-Fri
+    let userHolidays: string[] = [];
     
     if (req.user) {
       try {
@@ -653,6 +658,16 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
               .filter(d => d)
               .map(d => parseInt(d));
           }
+
+          // Fetch active holidays
+          const holidayRecords = await db.select()
+            .from(holidays)
+            .where(and(
+              eq(holidays.userOpenId, req.user.openId),
+              eq(holidays.isActive, 1)
+            ));
+          
+          userHolidays = holidayRecords.map(h => h.date);
         }
       } catch (error) {
         console.warn('Could not fetch user working hours, using defaults:', error);
@@ -660,7 +675,7 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     }
     
     // Schedule tasks with proper time slots
-    const scheduledTasks = scheduleTasksByTime(tasks, workStartHour, workEndHour, workingDays);
+    const scheduledTasks = scheduleTasksByTime(tasks, workStartHour, workEndHour, workingDays, userHolidays);
     
     // Get user's timezone for client-side conversion
     let userTimezone = 'UTC';

@@ -98,9 +98,26 @@ export const userWorkingHours = mysqlTable('user_working_hours', {
   workingDays: varchar('workingDays', { length: 50 }).notNull().default('1,2,3,4,5'), // Comma-separated: 0=Sun, 1=Mon, ..., 6=Sat
   // Timezone support
   timezone: varchar('timezone', { length: 50 }).notNull().default('UTC'), // IANA timezone (e.g., 'America/New_York', 'Europe/Amsterdam')
+  // Holiday integration
+  country: varchar('country', { length: 2 }).notNull().default('US'), // ISO 3166-1 alpha-2 country code for holidays
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
 });
 
 export type UserWorkingHours = typeof userWorkingHours.$inferSelect;
 export type InsertUserWorkingHours = typeof userWorkingHours.$inferInsert;
+
+// Holidays table for country-specific holidays
+export const holidays = mysqlTable('holidays', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 255 }).notNull(),
+  date: varchar('date', { length: 10 }).notNull(), // YYYY-MM-DD format
+  name: varchar('name', { length: 255 }).notNull(),
+  country: varchar('country', { length: 2 }).notNull(), // ISO 3166-1 alpha-2 country code
+  isActive: int('isActive').notNull().default(1), // 0=disabled, 1=enabled
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+export type Holiday = typeof holidays.$inferSelect;
+export type InsertHoliday = typeof holidays.$inferInsert;

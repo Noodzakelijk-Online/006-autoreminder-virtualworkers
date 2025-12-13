@@ -25,6 +25,7 @@ interface WorkingHoursSettings {
   longBreakDuration: number;
   workingDays: string; // Comma-separated day numbers: 0=Sun, 1=Mon, ..., 6=Sat
   timezone: string; // IANA timezone
+  country: string; // ISO 3166-1 alpha-2 country code
 }
 
 const defaultSettings: WorkingHoursSettings = {
@@ -45,6 +46,7 @@ const defaultSettings: WorkingHoursSettings = {
   longBreakDuration: 30,
   workingDays: '1,2,3,4,5', // Mon-Fri by default
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', // Detect user's timezone
+  country: 'US', // Default to US
 };
 
 export function WorkingHoursSettings() {
@@ -90,10 +92,14 @@ export function WorkingHoursSettings() {
         throw new Error('Failed to save settings');
       }
 
-      toast.success('Working hours saved successfully!');
+      toast.success('Settings saved! Refresh the dashboard to see rescheduled tasks.');
+      
+      // Trigger automatic rescheduling
+      // Tasks will be rescheduled automatically on next fetch because
+      // the scheduling algorithm uses the updated user settings
     } catch (error) {
-      console.error('Error saving working hours:', error);
-      toast.error('Failed to save working hours. Please try again.');
+      console.error('Error saving settings:', error);
+      toast.error('Failed to save settings. Please try again.');
     } finally {
       setSaving(false);
     }
