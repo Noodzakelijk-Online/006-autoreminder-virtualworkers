@@ -78,11 +78,35 @@ router.get('/trello/workspaces', async (req: Request, res: Response) => {
           }
           const boards = await boardsResponse.json();
           const boardsArray = Array.isArray(boards) ? boards : [];
+          
+          // Get card counts for each board
+          const boardsWithCards = await Promise.all(
+            boardsArray.map(async (board: any) => {
+              try {
+                const cardsResponse = await fetch(
+                  `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`
+                );
+                if (!cardsResponse.ok) return { id: board.id, name: board.name, cardCount: 0 };
+                const cards = await cardsResponse.json();
+                return {
+                  id: board.id,
+                  name: board.name,
+                  cardCount: Array.isArray(cards) ? cards.length : 0
+                };
+              } catch (error) {
+                return { id: board.id, name: board.name, cardCount: 0 };
+              }
+            })
+          );
+          
+          const totalCards = boardsWithCards.reduce((sum, b) => sum + b.cardCount, 0);
+          
           return {
             id: workspace.id,
             name: workspace.displayName,
             boardCount: boardsArray.length,
-            boards: boardsArray.map((b: any) => ({ id: b.id, name: b.name }))
+            cardCount: totalCards,
+            boards: boardsWithCards
           };
         } catch (error) {
           console.warn(`Error fetching boards for workspace ${workspace.displayName}:`, error);
