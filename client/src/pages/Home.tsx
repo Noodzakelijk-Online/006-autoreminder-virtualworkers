@@ -12,8 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-// Import generated data
-import tasksData from "../data/tasks.json";
+// No longer using mock data - fetch from Trello API
 
 export default function Home() {
   // The userAuth hooks provides authentication state
@@ -40,29 +39,38 @@ export default function Home() {
   });
 
   useEffect(() => {
-    // Load tasks from JSON
-    // In a real app, this would be an API call
-    // For now, we use the imported JSON
+    // Fetch tasks from Trello API
+    const fetchTasks = async () => {
+      try {
+        const response = await fetch('/api/trello/tasks');
+        if (!response.ok) {
+          throw new Error('Failed to fetch tasks');
+        }
+        const data = await response.json();
+        const loadedTasks = (data as Task[]).filter(t => !t.isArchived);
+        setTasks(loadedTasks);
     
-    // Filter for "today" (simulated as Dec 5, 2025 for demo)
-    // Filter out archived cards
-    const loadedTasks = (tasksData as Task[]).filter(t => !t.isArchived);
-    setTasks(loadedTasks);
+        // Calculate stats
+        const totalTasks = loadedTasks.length;
+        const completedTasks = loadedTasks.filter(t => t.isCompleted).length;
+        const totalHours = loadedTasks.reduce((acc, t) => acc + t.durationHours, 0);
+        const completedHours = loadedTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
+        
+        setStats({
+          totalTasks,
+          completedTasks,
+          totalHours,
+          completedHours,
+          accuracy: 100 // Placeholder
+        });
+      } catch (error) {
+        console.error('Error fetching tasks:', error);
+        // Fallback to empty state on error
+        setTasks([]);
+      }
+    };
     
-    // Calculate stats
-    const totalTasks = loadedTasks.length;
-    const completedTasks = loadedTasks.filter(t => t.isCompleted).length;
-    const totalHours = loadedTasks.reduce((acc, t) => acc + t.durationHours, 0);
-    const completedHours = loadedTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
-    
-    setStats({
-      totalTasks,
-      completedTasks,
-      totalHours,
-      completedHours,
-      accuracy: 100 // Placeholder
-    });
-    
+    fetchTasks();
   }, []);
 
   const handleToggleTask = (id: string) => {

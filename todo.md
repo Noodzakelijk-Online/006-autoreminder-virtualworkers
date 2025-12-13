@@ -22,3 +22,13 @@
 - [x] Remove redundant task count from StatsPanel
 - [x] Make Weekly Progress panel collapsible
 - [x] Fix overview button functionality
+
+## Backend Fixes (Dec 13, 2025)
+- [ ] Filter archived cards from backend API responses
+- [ ] Ensure Trello API calls exclude closed/archived cards
+
+## Replace Mock Data with Real Trello API (Dec 13, 2025)
+- [x] Create backend endpoint to fetch tasks from Trello with APTLSS checklists
+- [x] Update Home page to fetch from Trello API instead of tasks.json
+- [x] Filter archived/closed cards in backend
+- [x] Parse APTLSS checklists into task format

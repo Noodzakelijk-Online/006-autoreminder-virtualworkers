@@ -450,6 +450,85 @@ router.get('/aptlss/status/:jobId', async (req: Request, res: Response) => {
   }
 });
 
+// Get tasks from Trello cards with APTLSS checklists
+router.get('/trello/tasks', async (req: Request, res: Response) => {
+  try {
+    const apiKey = process.env.TRELLO_API_KEY;
+    const apiToken = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !apiToken) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    // Fetch all boards
+    const boardsResponse = await fetch(
+      `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${apiToken}`
+    );
+    const boards = await boardsResponse.json();
+
+    const tasks: any[] = [];
+
+    // For each board, get cards with checklists
+    for (const board of boards) {
+      const cardsResponse = await fetch(
+        `https://api.trello.com/1/boards/${board.id}/cards?checklists=all&key=${apiKey}&token=${apiToken}`
+      );
+      const cards = await cardsResponse.json();
+
+      // Process each card
+      for (const card of cards.filter((c: any) => !c.closed)) {
+        // Find APTLSS checklist
+        const aptlssChecklist = card.checklists?.find((cl: any) => 
+          cl.name.toLowerCase().includes('aptlss') || 
+          cl.name.toLowerCase().includes('action plan')
+        );
+
+        if (aptlssChecklist && aptlssChecklist.checkItems) {
+          // Convert checklist items to tasks
+          aptlssChecklist.checkItems.forEach((item: any, index: number) => {
+            // Parse step description for time and date
+            const timeMatch = item.name.match(/(\d+)\s*(mins?|hours?)/i);
+            const durationHours = timeMatch 
+              ? (timeMatch[2].toLowerCase().startsWith('min') 
+                ? parseInt(timeMatch[1]) / 60 
+                : parseInt(timeMatch[1]))
+              : 1;
+
+            const dateMatch = item.name.match(/due:\s*([^|]+)/i);
+            const dueDate = dateMatch ? dateMatch[1].trim() : new Date().toLocaleDateString();
+
+            tasks.push({
+              id: `${card.id}_${item.id}`,
+              cardId: card.id,
+              cardName: card.name,
+              stepIndex: index,
+              description: item.name,
+              durationHours,
+              startTime: '09:00',
+              endTime: '10:00',
+              date: dueDate,
+              isCompleted: item.state === 'complete',
+              isArchived: false,
+              isBlocker: item.name.toLowerCase().includes('blocker'),
+              isPriority: card.labels?.some((l: any) => l.name.toLowerCase().includes('priority')),
+              priorityLevel: card.labels?.some((l: any) => l.name.toLowerCase().includes('critical')) ? 'CRITICAL' :
+                           card.labels?.some((l: any) => l.name.toLowerCase().includes('urgent')) ? 'URGENT' :
+                           card.labels?.some((l: any) => l.name.toLowerCase().includes('high')) ? 'HIGH' : 'NORMAL',
+              hasDutch: item.name.toLowerCase().includes('dutch') || item.name.toLowerCase().includes('nederlands'),
+              attachments: []
+            });
+          });
+        }
+      }
+    }
+
+    res.json(tasks);
+  } catch (error) {
+    console.error('Error fetching Trello tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks from Trello' });
+  }
+});
+
 // Schedule generation endpoint
 router.post('/aptlss/schedule', async (req: any, res: Response) => {
   try {
