@@ -56,3 +56,18 @@
 - [x] Update scheduling algorithm to use user-specific working hours
 - [x] Add default working hours detection from historical task data
 - [x] Test scheduling with custom working hours
+
+## Working Days Configuration (Dec 13, 2025)
+- [x] Extend database schema to store working days (Mon-Fri, custom, holidays)
+- [x] Add UI for selecting working days in settings
+- [x] Update scheduling algorithm to skip non-working days
+- [ ] Add holiday calendar support (future enhancement)
+- [x] Test task scheduling respects working days
+
+## Timezone Support (Dec 13, 2025)
+- [x] Add timezone field to user settings database schema
+- [x] Add timezone selector in settings UI
+- [x] Store all times in UTC in database
+- [x] Convert display times to user's timezone in frontend
+- [x] Update API to handle timezone conversions
+- [x] Test timezone conversion accuracy

@@ -47,7 +47,9 @@ export default function Home() {
           throw new Error('Failed to fetch tasks');
         }
         const data = await response.json();
-        const loadedTasks = (data as Task[]).filter(t => !t.isArchived);
+        // Handle both old format (array) and new format (object with tasks and timezone)
+        const tasksArray = Array.isArray(data) ? data : (data.tasks || []);
+        const loadedTasks = (tasksArray as Task[]).filter(t => !t.isArchived);
         setTasks(loadedTasks);
     
         // Calculate stats

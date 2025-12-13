@@ -23,6 +23,8 @@ interface WorkingHoursSettings {
   shortBreakDuration: number;
   longBreakInterval: number;
   longBreakDuration: number;
+  workingDays: string; // Comma-separated day numbers: 0=Sun, 1=Mon, ..., 6=Sat
+  timezone: string; // IANA timezone
 }
 
 const defaultSettings: WorkingHoursSettings = {
@@ -41,6 +43,8 @@ const defaultSettings: WorkingHoursSettings = {
   shortBreakDuration: 10,
   longBreakInterval: 240,
   longBreakDuration: 30,
+  workingDays: '1,2,3,4,5', // Mon-Fri by default
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', // Detect user's timezone
 };
 
 export function WorkingHoursSettings() {
@@ -342,6 +346,87 @@ export function WorkingHoursSettings() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5" />
+            Working Days & Timezone
+          </CardTitle>
+          <CardDescription>
+            Select which days you work and your timezone for accurate scheduling.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Working Days</Label>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { value: '0', label: 'Sun' },
+                { value: '1', label: 'Mon' },
+                { value: '2', label: 'Tue' },
+                { value: '3', label: 'Wed' },
+                { value: '4', label: 'Thu' },
+                { value: '5', label: 'Fri' },
+                { value: '6', label: 'Sat' },
+              ].map((day) => {
+                const isSelected = settings.workingDays.split(',').includes(day.value);
+                return (
+                  <Button
+                    key={day.value}
+                    variant={isSelected ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      const days = settings.workingDays.split(',').filter(d => d);
+                      if (isSelected) {
+                        const newDays = days.filter(d => d !== day.value);
+                        setSettings({ ...settings, workingDays: newDays.join(',') });
+                      } else {
+                        const newDays = [...days, day.value].sort();
+                        setSettings({ ...settings, workingDays: newDays.join(',') });
+                      }
+                    }}
+                  >
+                    {day.label}
+                  </Button>
+                );
+              })}
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Selected: {settings.workingDays.split(',').filter(d => d).length} days per week
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="timezone">Timezone</Label>
+            <select
+              id="timezone"
+              value={settings.timezone}
+              onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md bg-background"
+            >
+              <optgroup label="Common Timezones">
+                <option value="UTC">UTC (Coordinated Universal Time)</option>
+                <option value="America/New_York">Eastern Time (US & Canada)</option>
+                <option value="America/Chicago">Central Time (US & Canada)</option>
+                <option value="America/Denver">Mountain Time (US & Canada)</option>
+                <option value="America/Los_Angeles">Pacific Time (US & Canada)</option>
+                <option value="Europe/London">London (GMT/BST)</option>
+                <option value="Europe/Paris">Paris (CET/CEST)</option>
+                <option value="Europe/Amsterdam">Amsterdam (CET/CEST)</option>
+                <option value="Europe/Berlin">Berlin (CET/CEST)</option>
+                <option value="Asia/Tokyo">Tokyo (JST)</option>
+                <option value="Asia/Shanghai">Shanghai (CST)</option>
+                <option value="Asia/Singapore">Singapore (SGT)</option>
+                <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
+              </optgroup>
+            </select>
+            <p className="text-sm text-muted-foreground">
+              Current time: {new Date().toLocaleTimeString('en-US', { timeZone: settings.timezone })}
+            </p>
+          </div>
         </CardContent>
       </Card>
 

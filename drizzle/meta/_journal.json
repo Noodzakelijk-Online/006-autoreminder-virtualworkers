@@ -29,6 +29,13 @@
       "when": 1765627088964,
       "tag": "0003_lazy_quasimodo",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1765627772958,
+      "tag": "0004_hot_thunderbolts",
+      "breakpoints": true
     }
   ]
 }

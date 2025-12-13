@@ -15,11 +15,12 @@ const __dirname = path.dirname(__filename);
 const router = Router();
 
 // Task scheduling algorithm
-function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHour: number = 18) {
+function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHour: number = 18, workingDays: number[] = [1, 2, 3, 4, 5]) {
   // Working hours configurable per user
   const WORK_START_HOUR = workStartHour;
   const WORK_END_HOUR = workEndHour;
   const MAX_HOURS_PER_DAY = WORK_END_HOUR - WORK_START_HOUR;
+  const WORKING_DAYS = new Set(workingDays); // Convert to Set for faster lookup
 
   // Group tasks by date and card
   const tasksByDate = new Map<string, any[]>();
@@ -35,6 +36,22 @@ function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHou
   const scheduledTasks: any[] = [];
   
   for (const [date, dayTasks] of Array.from(tasksByDate.entries())) {
+    // Parse date and check if it's a working day
+    const taskDate = new Date(date);
+    const dayOfWeek = taskDate.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    
+    // If this is not a working day, mark all tasks as TBD
+    if (!WORKING_DAYS.has(dayOfWeek)) {
+      for (const task of dayTasks) {
+        scheduledTasks.push({
+          ...task,
+          startTime: 'TBD',
+          endTime: 'TBD',
+          note: 'Non-working day'
+        });
+      }
+      continue;
+    }
     // Sort by priority and step index
     const sortedTasks = dayTasks.sort((a: any, b: any) => {
       // Priority order: CRITICAL > URGENT > HIGH > NORMAL
@@ -617,6 +634,7 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     // Get user's working hours settings
     let workStartHour = 9;
     let workEndHour = 18;
+    let workingDays = [1, 2, 3, 4, 5]; // Default: Mon-Fri
     
     if (req.user) {
       try {
@@ -629,6 +647,11 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
           if (settings.length > 0) {
             workStartHour = settings[0].workStartHour;
             workEndHour = settings[0].workEndHour;
+            // Parse working days from comma-separated string
+            workingDays = settings[0].workingDays
+              .split(',')
+              .filter(d => d)
+              .map(d => parseInt(d));
           }
         }
       } catch (error) {
@@ -637,9 +660,31 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     }
     
     // Schedule tasks with proper time slots
-    const scheduledTasks = scheduleTasksByTime(tasks, workStartHour, workEndHour);
+    const scheduledTasks = scheduleTasksByTime(tasks, workStartHour, workEndHour, workingDays);
     
-    res.json(scheduledTasks);
+    // Get user's timezone for client-side conversion
+    let userTimezone = 'UTC';
+    if (req.user) {
+      try {
+        const db = await getDb();
+        if (db) {
+          const settings = await db.select().from(userWorkingHours)
+            .where(eq(userWorkingHours.userOpenId, req.user.openId))
+            .limit(1);
+          
+          if (settings.length > 0 && settings[0].timezone) {
+            userTimezone = settings[0].timezone;
+          }
+        }
+      } catch (error) {
+        console.warn('Could not fetch user timezone:', error);
+      }
+    }
+    
+    res.json({
+      tasks: scheduledTasks,
+      timezone: userTimezone
+    });
   } catch (error) {
     console.error('Error fetching Trello tasks:', error);
     res.status(500).json({ error: 'Failed to fetch tasks from Trello' });

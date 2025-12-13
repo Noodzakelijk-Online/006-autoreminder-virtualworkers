@@ -94,6 +94,10 @@ export const userWorkingHours = mysqlTable('user_working_hours', {
   shortBreakDuration: int('shortBreakDuration').notNull().default(10), // minutes
   longBreakInterval: int('longBreakInterval').notNull().default(240), // minutes of work before long break
   longBreakDuration: int('longBreakDuration').notNull().default(30), // minutes
+  // Working days configuration
+  workingDays: varchar('workingDays', { length: 50 }).notNull().default('1,2,3,4,5'), // Comma-separated: 0=Sun, 1=Mon, ..., 6=Sat
+  // Timezone support
+  timezone: varchar('timezone', { length: 50 }).notNull().default('UTC'), // IANA timezone (e.g., 'America/New_York', 'Europe/Amsterdam')
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
 });

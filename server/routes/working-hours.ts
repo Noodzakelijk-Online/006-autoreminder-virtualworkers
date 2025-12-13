@@ -41,6 +41,8 @@ router.get('/working-hours/settings', async (req: any, res: Response) => {
         shortBreakDuration: 10,
         longBreakInterval: 240,
         longBreakDuration: 30,
+        workingDays: '1,2,3,4,5',
+        timezone: 'UTC',
       });
     }
 
@@ -80,6 +82,8 @@ router.post('/working-hours/settings', async (req: any, res: Response) => {
       shortBreakDuration,
       longBreakInterval,
       longBreakDuration,
+      workingDays,
+      timezone,
     } = req.body;
 
     // Check if settings exist
@@ -107,6 +111,8 @@ router.post('/working-hours/settings', async (req: any, res: Response) => {
         shortBreakDuration,
         longBreakInterval,
         longBreakDuration,
+        workingDays: workingDays || '1,2,3,4,5',
+        timezone: timezone || 'UTC',
       });
     } else {
       // Update existing settings
@@ -127,6 +133,8 @@ router.post('/working-hours/settings', async (req: any, res: Response) => {
           shortBreakDuration,
           longBreakInterval,
           longBreakDuration,
+          workingDays: workingDays || '1,2,3,4,5',
+          timezone: timezone || 'UTC',
         })
         .where(eq(userWorkingHours.userOpenId, user.openId));
     }
