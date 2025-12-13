@@ -45,7 +45,8 @@ interface TrelloWorkspace {
   id: string;
   name: string;
   boardCount: number;
-  boards: { id: string; name: string }[];
+  cardCount?: number;
+  boards: { id: string; name: string; cardCount?: number }[];
   selected: boolean;
 }
 
@@ -80,6 +81,7 @@ export default function APTLSSManagement() {
   const [history, setHistory] = useState<any[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobDetails, setJobDetails] = useState<any>(null);
+  const [loadingProgress, setLoadingProgress] = useState<{current: number; total: number; message: string} | null>(null);
 
   // Load workspaces and boards
   useEffect(() => {
@@ -155,6 +157,7 @@ export default function APTLSSManagement() {
 
   const loadWorkspaces = async () => {
     setLoading(true);
+    setLoadingProgress({ current: 0, total: 0, message: 'Fetching workspaces...' });
     try {
       const response = await fetch('/api/trello/workspaces');
       const data = await response.json();
@@ -163,16 +166,61 @@ export default function APTLSSManagement() {
         id: workspace.id,
         name: workspace.name,
         boardCount: workspace.boardCount || 0,
+        cardCount: workspace.cardCount || 0,
         boards: workspace.boards || [],
         selected: false
       })));
       
-      toast.success('Workspaces loaded successfully');
+      toast.success(`Loaded ${data.length} workspaces successfully`);
     } catch (error) {
       toast.error('Failed to load workspaces');
       console.error(error);
     } finally {
       setLoading(false);
+      setLoadingProgress(null);
+    }
+  };
+
+  const selectAllCardsInWorkspace = async (workspaceId: string) => {
+    const workspace = workspaces.find(w => w.id === workspaceId);
+    if (!workspace) return;
+    
+    setLoading(true);
+    setLoadingProgress({ current: 0, total: workspace.boards.length, message: 'Loading cards from boards...' });
+    
+    try {
+      const allCards: TrelloCard[] = [];
+      
+      for (let i = 0; i < workspace.boards.length; i++) {
+        const board = workspace.boards[i];
+        setLoadingProgress({ current: i + 1, total: workspace.boards.length, message: `Loading ${board.name}...` });
+        
+        const response = await fetch(`/api/trello/boards/${board.id}/cards`);
+        const boardCards = await response.json();
+        
+        allCards.push(...boardCards.map((card: any) => ({
+          ...card,
+          selected: true,
+          boardName: board.name
+        })));
+      }
+      
+      // Merge with existing cards
+      const existingCardIds = new Set(cards.map(c => c.id));
+      const newCards = allCards.filter(c => !existingCardIds.has(c.id));
+      const updatedCards = cards.map(c => {
+        const workspaceCard = allCards.find(wc => wc.id === c.id);
+        return workspaceCard ? { ...c, selected: true } : c;
+      });
+      
+      setCards([...updatedCards, ...newCards]);
+      toast.success(`Selected ${allCards.length} cards from ${workspace.name}`);
+    } catch (error) {
+      toast.error('Failed to load cards from workspace');
+      console.error(error);
+    } finally {
+      setLoading(false);
+      setLoadingProgress(null);
     }
   };
 
@@ -438,6 +486,35 @@ export default function APTLSSManagement() {
 
             {/* Workspaces Tab */}
             <TabsContent value="workspaces" className="space-y-4">
+              {loadingProgress && (
+                <Card className="bg-primary/5">
+                  <CardContent className="py-4">
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">{loadingProgress.message}</p>
+                        {loadingProgress.total > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {loadingProgress.current} of {loadingProgress.total} boards
+                          </p>
+                        )}
+                      </div>
+                      {loadingProgress.total > 0 && (
+                        <span className="text-sm font-medium">
+                          {Math.round((loadingProgress.current / loadingProgress.total) * 100)}%
+                        </span>
+                      )}
+                    </div>
+                    {loadingProgress.total > 0 && (
+                      <Progress 
+                        value={(loadingProgress.current / loadingProgress.total) * 100} 
+                        className="mt-2"
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+              
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
                   {workspaces.length} workspaces available
@@ -463,13 +540,23 @@ export default function APTLSSManagement() {
                               {workspace.boardCount} boards • {workspace.boards?.reduce((sum, b: any) => sum + (b.cardCount || 0), 0) || 0} total cards
                             </CardDescription>
                           </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => loadWorkspaceBoards(workspace.id)}
-                          >
-                            Load All Boards
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => selectAllCardsInWorkspace(workspace.id)}
+                              disabled={loading}
+                            >
+                              Select All Cards
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => loadWorkspaceBoards(workspace.id)}
+                            >
+                              Load All Boards
+                            </Button>
+                          </div>
                         </div>
                       </CardHeader>
                       {workspace.boards && workspace.boards.length > 0 && (
