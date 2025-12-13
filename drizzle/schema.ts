@@ -57,3 +57,19 @@ export type GenerationJob = typeof generationJobs.$inferSelect;
 export type InsertGenerationJob = typeof generationJobs.$inferInsert;
 export type GenerationItem = typeof generationItems.$inferSelect;
 export type InsertGenerationItem = typeof generationItems.$inferInsert;
+
+// Scheduled jobs table
+export const scheduledJobs = mysqlTable('scheduled_jobs', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  cardIds: text('cardIds').notNull(), // JSON string array
+  scheduledTime: timestamp('scheduledTime').notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('pending'), // pending, running, completed, failed, cancelled
+  settings: text('settings').notNull(), // JSON string
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  completedAt: timestamp('completedAt'),
+  error: text('error'),
+  createdBy: varchar('createdBy', { length: 64 }).notNull(),
+});
+
+export type ScheduledJob = typeof scheduledJobs.$inferSelect;
+export type InsertScheduledJob = typeof scheduledJobs.$inferInsert;

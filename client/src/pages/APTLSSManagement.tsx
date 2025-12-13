@@ -80,7 +80,9 @@ export default function APTLSSManagement() {
     skipExisting: true,
     validateBeforeGenerate: true,
     autoReminder: false,
-    batchSize: 10
+    batchSize: 10,
+    scheduledTime: '',
+    scheduledJobs: [] as any[]
   });
   const [history, setHistory] = useState<any[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -995,6 +997,142 @@ export default function APTLSSManagement() {
                 <p className="text-sm text-muted-foreground">
                   Number of cards to process simultaneously
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Schedule Generation</CardTitle>
+              <CardDescription>
+                Schedule bulk APTLSS generation for off-hours
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Schedule Date & Time</Label>
+                <Input
+                  type="datetime-local"
+                  onChange={(e) => {
+                    const scheduledTime = new Date(e.target.value);
+                    if (scheduledTime > new Date()) {
+                      setSettings(prev => ({ ...prev, scheduledTime: e.target.value }));
+                    } else {
+                      toast.error('Please select a future date and time');
+                    }
+                  }}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Selected cards will be processed at this time
+                </p>
+              </div>
+
+              <Button
+                onClick={() => {
+                  const selectedCards = cards.filter(c => c.selected);
+                  if (selectedCards.length === 0) {
+                    toast.error('Please select cards first');
+                    return;
+                  }
+                  if (!settings.scheduledTime) {
+                    toast.error('Please select a schedule time');
+                    return;
+                  }
+                  
+                  // Schedule the job
+                  fetch('/api/aptlss/schedule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      cardIds: selectedCards.map(c => c.id),
+                      scheduledTime: settings.scheduledTime,
+                      settings: {
+                        skipExisting: settings.skipExisting,
+                        validateBeforeGenerate: settings.validateBeforeGenerate,
+                        autoReminder: settings.autoReminder,
+                        batchSize: settings.batchSize
+                      }
+                    })
+                  })
+                    .then(res => res.json())
+                    .then(data => {
+                      toast.success(`Scheduled generation for ${selectedCards.length} cards at ${new Date(settings.scheduledTime).toLocaleString()}`);
+                    })
+                    .catch(error => {
+                      console.error('Error scheduling generation:', error);
+                      toast.error('Failed to schedule generation');
+                    });
+                }}
+                disabled={selectedCount === 0}
+                className="w-full"
+              >
+                Schedule Generation for {selectedCount} Selected Cards
+              </Button>
+
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium">Scheduled Jobs</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('/api/aptlss/scheduled');
+                        const jobs = await response.json();
+                        setSettings(prev => ({ ...prev, scheduledJobs: jobs }));
+                      } catch (error) {
+                        console.error('Error loading scheduled jobs:', error);
+                      }
+                    }}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  {settings.scheduledJobs && settings.scheduledJobs.length > 0 ? (
+                    settings.scheduledJobs.map((job: any) => (
+                      <div key={job.id} className="flex items-center justify-between p-3 border rounded">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">
+                            {JSON.parse(job.cardIds).length} cards
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(job.scheduledTime).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={job.status === 'pending' ? 'secondary' : 'default'}>
+                            {job.status}
+                          </Badge>
+                          {job.status === 'pending' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  await fetch(`/api/aptlss/scheduled/${job.id}`, {
+                                    method: 'DELETE'
+                                  });
+                                  toast.success('Scheduled job cancelled');
+                                  // Reload jobs
+                                  const response = await fetch('/api/aptlss/scheduled');
+                                  const jobs = await response.json();
+                                  setSettings(prev => ({ ...prev, scheduledJobs: jobs }));
+                                } catch (error) {
+                                  toast.error('Failed to cancel job');
+                                }
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No scheduled jobs</p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>

@@ -5,8 +5,8 @@ import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb } from '../db';
-import { generationJobs, generationItems } from '../../drizzle/schema';
-import { eq, desc } from 'drizzle-orm';
+import { generationJobs, generationItems, scheduledJobs } from '../../drizzle/schema';
+import { eq, desc, and } from 'drizzle-orm';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -447,6 +447,92 @@ router.get('/aptlss/status/:jobId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error fetching status:', error);
     res.status(500).json({ error: 'Failed to fetch status' });
+  }
+});
+
+// Schedule generation endpoint
+router.post('/aptlss/schedule', async (req: any, res: Response) => {
+  try {
+    const { cardIds, scheduledTime, settings } = req.body;
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const jobId = `sched_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    await db.insert(scheduledJobs).values({
+      id: jobId,
+      cardIds: JSON.stringify(cardIds),
+      scheduledTime: new Date(scheduledTime),
+      status: 'pending',
+      settings: JSON.stringify(settings),
+      createdBy: user.openId
+    });
+
+    res.json({ success: true, jobId });
+  } catch (error) {
+    console.error('Error scheduling generation:', error);
+    res.status(500).json({ error: 'Failed to schedule generation' });
+  }
+});
+
+// Get scheduled jobs endpoint
+router.get('/aptlss/scheduled', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const jobs = await db.select().from(scheduledJobs)
+      .where(eq(scheduledJobs.createdBy, user.openId))
+      .orderBy(desc(scheduledJobs.createdAt));
+
+    res.json(jobs);
+  } catch (error) {
+    console.error('Error fetching scheduled jobs:', error);
+    res.status(500).json({ error: 'Failed to fetch scheduled jobs' });
+  }
+});
+
+// Cancel scheduled job endpoint
+router.delete('/aptlss/scheduled/:id', async (req: any, res: Response) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    await db.update(scheduledJobs)
+      .set({ status: 'cancelled' })
+      .where(and(
+        eq(scheduledJobs.id, id),
+        eq(scheduledJobs.createdBy, user.openId)
+      ));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error cancelling scheduled job:', error);
+    res.status(500).json({ error: 'Failed to cancel scheduled job' });
   }
 });
 

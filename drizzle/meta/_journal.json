@@ -15,6 +15,13 @@
       "when": 1765569841081,
       "tag": "0001_colorful_toad",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1765613115881,
+      "tag": "0002_slippery_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }
