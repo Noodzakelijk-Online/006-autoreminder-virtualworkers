@@ -68,21 +68,33 @@ router.get('/trello/workspaces', async (req: Request, res: Response) => {
     // Get board counts for each workspace
     const workspacesWithCounts = await Promise.all(
       workspaces.map(async (workspace: any) => {
-        const boardsResponse = await fetch(
-          `https://api.trello.com/1/organizations/${workspace.id}/boards?key=${apiKey}&token=${token}`
-        );
-        const boards = await boardsResponse.json();
-        const boardsArray = Array.isArray(boards) ? boards : [];
-        return {
-          id: workspace.id,
-          name: workspace.displayName,
-          boardCount: boardsArray.length,
-          boards: boardsArray.map((b: any) => ({ id: b.id, name: b.name }))
-        };
+        try {
+          const boardsResponse = await fetch(
+            `https://api.trello.com/1/organizations/${workspace.id}/boards?filter=open&key=${apiKey}&token=${token}`
+          );
+          if (!boardsResponse.ok) {
+            console.warn(`Failed to fetch boards for workspace ${workspace.displayName}`);
+            return null;
+          }
+          const boards = await boardsResponse.json();
+          const boardsArray = Array.isArray(boards) ? boards : [];
+          return {
+            id: workspace.id,
+            name: workspace.displayName,
+            boardCount: boardsArray.length,
+            boards: boardsArray.map((b: any) => ({ id: b.id, name: b.name }))
+          };
+        } catch (error) {
+          console.warn(`Error fetching boards for workspace ${workspace.displayName}:`, error);
+          return null;
+        }
       })
     );
+    
+    // Filter out null results (failed workspace fetches)
+    const validWorkspaces = workspacesWithCounts.filter(w => w !== null);
 
-    res.json(workspacesWithCounts);
+    res.json(validWorkspaces);
   } catch (error) {
     console.error('Error fetching workspaces:', error);
     res.status(500).json({ error: 'Failed to fetch workspaces' });
@@ -101,7 +113,7 @@ router.get('/trello/boards', async (req: Request, res: Response) => {
     }
 
     const response = await fetch(
-      `https://api.trello.com/1/members/me/boards?key=${apiKey}&token=${token}`
+      `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${token}`
     );
     
     if (!response.ok) {
@@ -110,22 +122,34 @@ router.get('/trello/boards', async (req: Request, res: Response) => {
 
     const boards = await response.json();
     
-    // Get card counts for each board
+    // Get card counts for each board with error handling
     const boardsWithCounts = await Promise.all(
       boards.map(async (board: any) => {
-        const cardsResponse = await fetch(
-          `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`
-        );
-        const cards = await cardsResponse.json();
-        return {
-          id: board.id,
-          name: board.name,
-          cardCount: cards.length
-        };
+        try {
+          const cardsResponse = await fetch(
+            `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`
+          );
+          if (!cardsResponse.ok) {
+            console.warn(`Failed to fetch cards for board ${board.name}`);
+            return null;
+          }
+          const cards = await cardsResponse.json();
+          return {
+            id: board.id,
+            name: board.name,
+            cardCount: Array.isArray(cards) ? cards.length : 0
+          };
+        } catch (error) {
+          console.warn(`Error fetching cards for board ${board.name}:`, error);
+          return null;
+        }
       })
     );
+    
+    // Filter out null results (failed board fetches)
+    const validBoards = boardsWithCounts.filter(b => b !== null);
 
-    res.json(boardsWithCounts);
+    res.json(validBoards);
   } catch (error) {
     console.error('Error fetching boards:', error);
     res.status(500).json({ error: 'Failed to fetch boards' });
