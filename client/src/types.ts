@@ -1,5 +1,6 @@
 export interface Task {
   id: string;
+  cardId: string;
   cardName: string;
   stepIndex: number;
   description: string;

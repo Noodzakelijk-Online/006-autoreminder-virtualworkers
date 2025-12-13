@@ -18,14 +18,26 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
     NORMAL: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
   };
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Don't trigger if clicking checkbox
+    if ((e.target as HTMLElement).closest('[role="checkbox"]')) {
+      return;
+    }
+    // Open Trello card in new tab
+    window.open(`https://trello.com/c/${task.cardId}`, '_blank');
+  };
+
   return (
-    <Card className={cn(
-      "mb-4 transition-all duration-300 hover:shadow-md border-l-4",
-      task.isCompleted ? "opacity-60 border-l-green-500" : 
-      task.priorityLevel === 'CRITICAL' ? "border-l-destructive" :
-      task.priorityLevel === 'URGENT' ? "border-l-orange-500" :
-      "border-l-primary"
-    )}>
+    <Card 
+      className={cn(
+        "mb-4 transition-all duration-300 hover:shadow-md border-l-4 cursor-pointer",
+        task.isCompleted ? "opacity-60 border-l-green-500" : 
+        task.priorityLevel === 'CRITICAL' ? "border-l-destructive" :
+        task.priorityLevel === 'URGENT' ? "border-l-orange-500" :
+        "border-l-primary"
+      )}
+      onClick={handleCardClick}
+    >
       <CardHeader className="pb-2 flex flex-row items-start justify-between space-y-0">
         <div className="flex items-center gap-3">
           <Checkbox 
