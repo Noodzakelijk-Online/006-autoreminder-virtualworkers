@@ -12,6 +12,7 @@ import workingHoursRoutes from "../routes/working-hours.js";
 import holidaysRoutes from "../routes/holidays.js";
 import rescheduleRoutes from "../routes/reschedule.js";
 import cacheRoutes from "../routes/cache.js";
+import queueRoutes from "../routes/queue.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -50,6 +51,8 @@ async function startServer() {
   app.use("/api/reschedule", rescheduleRoutes);
   // Cache Management API
   app.use("/api", cacheRoutes);
+  // Queue Metrics API
+  app.use("/api", queueRoutes);
   // tRPC API
   app.use(
     "/api/trpc",

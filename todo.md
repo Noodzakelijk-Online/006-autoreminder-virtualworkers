@@ -116,3 +116,13 @@
 - [x] Add cache statistics and monitoring
 - [x] Test cache hit/miss rates and performance improvements
 - [ ] Add cache management UI in settings (future enhancement)
+
+## Request Queue with Batching (Dec 15, 2025)
+- [x] Design request queue architecture with deduplication
+- [x] Implement queue service with pending request tracking
+- [x] Add request coalescing for identical simultaneous requests
+- [x] Integrate queue into tasks API endpoint
+- [x] Add queue metrics (batched requests, deduplicated calls)
+- [x] Add queue timeout and error handling
+- [x] Test with multiple simultaneous requests
+- [x] Verify single API call for duplicate requests

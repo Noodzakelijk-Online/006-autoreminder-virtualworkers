@@ -9,6 +9,7 @@ import { generationJobs, generationItems, scheduledJobs, userWorkingHours, holid
 import { eq, desc, and } from 'drizzle-orm';
 import { fetchWithRetry } from '../utils/retry';
 import { getCachedTasks, setCachedTasks, invalidateCache } from '../services/trello-cache';
+import { requestQueue } from '../services/request-queue';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -594,7 +595,10 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
       return res.status(500).json({ error: 'Trello credentials not configured' });
     }
 
-    // Fetch all boards with retry
+    // Use request queue to deduplicate simultaneous requests
+    const queueKey = `trello-tasks-${user.openId}`;
+    const responseData = await requestQueue.execute(queueKey, async () => {
+      // Fetch all boards with retry
     const boardsResponse = await fetchWithRetry(
       `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${apiToken}`,
       undefined,
@@ -766,14 +770,17 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
       }
     }
     
-    const responseData = {
-      tasks: scheduledTasks,
-      timezone: userTimezone
-    };
+      const responseData = {
+        tasks: scheduledTasks,
+        timezone: userTimezone
+      };
 
-    // Save to cache
-    await setCachedTasks(user.id, user.openId, responseData, cacheTTL);
-    console.log(`Cached ${scheduledTasks.length} tasks for ${cacheTTL} seconds`);
+      // Save to cache
+      await setCachedTasks(user.id, user.openId, responseData, cacheTTL);
+      console.log(`Cached ${scheduledTasks.length} tasks for ${cacheTTL} seconds`);
+
+      return responseData;
+    }); // End of requestQueue.execute
 
     res.json(responseData);
   } catch (error) {
