@@ -89,3 +89,9 @@
 - [x] Handle conflicts and overbooked days
 - [x] Add loading state during rescheduling
 - [x] Test bulk rescheduling with various scenarios
+
+## Bug Fixes (Dec 15, 2025)
+- [x] Fix "data.map is not a function" error in APTLSSManagement loadBoards
+- [x] Fix "data.map is not a function" error in APTLSSManagement loadWorkspaces
+- [x] Fix "Failed to fetch tasks" error in Home page fetchTasks
+- [x] Add proper error handling and response validation for all API calls

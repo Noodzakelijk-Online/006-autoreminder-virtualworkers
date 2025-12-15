@@ -44,11 +44,30 @@ export default function Home() {
       try {
         const response = await fetch('/api/trello/tasks');
         if (!response.ok) {
-          throw new Error('Failed to fetch tasks');
+          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+          console.error('Error fetching tasks:', errorData);
+          toast.error(`Failed to load tasks: ${errorData.error || response.statusText}`);
+          return;
         }
         const data = await response.json();
+        
+        // Validate response
+        if (data.error) {
+          console.error('Error fetching tasks:', data.error);
+          toast.error(`Failed to load tasks: ${data.error}`);
+          return;
+        }
+        
         // Handle both old format (array) and new format (object with tasks and timezone)
         const tasksArray = Array.isArray(data) ? data : (data.tasks || []);
+        
+        // Validate tasksArray is actually an array
+        if (!Array.isArray(tasksArray)) {
+          console.error('Invalid tasks data:', data);
+          toast.error('Invalid tasks data received from server');
+          return;
+        }
+        
         const loadedTasks = (tasksArray as Task[]).filter(t => !t.isArchived);
         setTasks(loadedTasks);
     

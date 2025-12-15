@@ -166,7 +166,19 @@ export default function APTLSSManagement() {
     setLoadingProgress({ current: 0, total: 0, message: 'Fetching workspaces...' });
     try {
       const response = await fetch('/api/trello/workspaces');
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || response.statusText);
+      }
+      
       const data = await response.json();
+      
+      // Validate data is an array
+      if (!Array.isArray(data)) {
+        console.error('Invalid workspaces data:', data);
+        throw new Error(data.error || 'Invalid response format');
+      }
       
       setWorkspaces(data.map((workspace: any) => ({
         id: workspace.id,
@@ -233,9 +245,20 @@ export default function APTLSSManagement() {
   const loadBoards = async () => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API call
       const response = await fetch('/api/trello/boards');
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || response.statusText);
+      }
+      
       const data = await response.json();
+      
+      // Validate data is an array
+      if (!Array.isArray(data)) {
+        console.error('Invalid boards data:', data);
+        throw new Error(data.error || 'Invalid response format');
+      }
       
       setBoards(data.map((board: any) => ({
         id: board.id,

@@ -575,7 +575,26 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     const boardsResponse = await fetch(
       `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${apiToken}`
     );
+    
+    if (!boardsResponse.ok) {
+      const errorText = await boardsResponse.text();
+      console.error('Trello API error fetching boards:', errorText);
+      return res.status(boardsResponse.status).json({ 
+        error: 'Failed to fetch boards from Trello',
+        details: errorText 
+      });
+    }
+    
     const boards = await boardsResponse.json();
+    
+    // Validate boards is an array
+    if (!Array.isArray(boards)) {
+      console.error('Trello API returned non-array for boards:', boards);
+      return res.status(500).json({ 
+        error: 'Invalid response from Trello API',
+        details: 'Expected array of boards' 
+      });
+    }
 
     const tasks: any[] = [];
 
@@ -584,7 +603,19 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
       const cardsResponse = await fetch(
         `https://api.trello.com/1/boards/${board.id}/cards?checklists=all&key=${apiKey}&token=${apiToken}`
       );
+      
+      if (!cardsResponse.ok) {
+        console.error(`Trello API error fetching cards for board ${board.id}:`, cardsResponse.statusText);
+        continue; // Skip this board and continue with others
+      }
+      
       const cards = await cardsResponse.json();
+      
+      // Validate cards is an array
+      if (!Array.isArray(cards)) {
+        console.error(`Trello API returned non-array for cards in board ${board.id}:`, cards);
+        continue; // Skip this board
+      }
 
       // Process each card
       for (const card of cards.filter((c: any) => !c.closed)) {
