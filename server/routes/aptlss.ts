@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { getDb } from '../db';
 import { generationJobs, generationItems, scheduledJobs, userWorkingHours, holidays } from '../../drizzle/schema';
 import { eq, desc, and } from 'drizzle-orm';
+import { fetchWithRetry } from '../utils/retry';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -571,9 +572,17 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
       return res.status(500).json({ error: 'Trello credentials not configured' });
     }
 
-    // Fetch all boards
-    const boardsResponse = await fetch(
-      `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${apiToken}`
+    // Fetch all boards with retry
+    const boardsResponse = await fetchWithRetry(
+      `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${apiToken}`,
+      undefined,
+      {
+        maxRetries: 3,
+        initialDelayMs: 1000,
+        onRetry: (attempt, error, delayMs) => {
+          console.log(`Retrying boards fetch (attempt ${attempt}) after ${delayMs}ms due to:`, error.message);
+        }
+      }
     );
     
     if (!boardsResponse.ok) {
@@ -600,8 +609,16 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
 
     // For each board, get cards with checklists
     for (const board of boards) {
-      const cardsResponse = await fetch(
-        `https://api.trello.com/1/boards/${board.id}/cards?checklists=all&key=${apiKey}&token=${apiToken}`
+      const cardsResponse = await fetchWithRetry(
+        `https://api.trello.com/1/boards/${board.id}/cards?checklists=all&key=${apiKey}&token=${apiToken}`,
+        undefined,
+        {
+          maxRetries: 3,
+          initialDelayMs: 1000,
+          onRetry: (attempt, error, delayMs) => {
+            console.log(`Retrying cards fetch for board ${board.id} (attempt ${attempt}) after ${delayMs}ms due to:`, error.message);
+          }
+        }
       );
       
       if (!cardsResponse.ok) {
