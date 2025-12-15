@@ -13,6 +13,7 @@ import holidaysRoutes from "../routes/holidays.js";
 import rescheduleRoutes from "../routes/reschedule.js";
 import cacheRoutes from "../routes/cache.js";
 import queueRoutes from "../routes/queue.js";
+import metricsRoutes from "../routes/metrics.js";
 import { websocketService } from "../services/websocket.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -54,6 +55,8 @@ async function startServer() {
   app.use("/api", cacheRoutes);
   // Queue Metrics API
   app.use("/api", queueRoutes);
+  // Performance Metrics API
+  app.use("/api", metricsRoutes);
   // tRPC API
   app.use(
     "/api/trpc",

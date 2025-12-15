@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
 import { WorkingHoursSettings } from '@/components/WorkingHoursSettings';
 import { HolidayManagement } from '@/components/HolidayManagement';
+import { PerformanceMetrics } from '@/components/PerformanceMetrics';
 
 export default function Settings() {
   const [country, setCountry] = useState('US');
@@ -25,6 +26,7 @@ export default function Settings() {
       </header>
 
       <main className="container py-8 max-w-4xl space-y-6">
+        <PerformanceMetrics />
         <WorkingHoursSettings />
         <HolidayManagement country={country} onCountryChange={setCountry} />
       </main>

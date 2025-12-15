@@ -139,3 +139,18 @@
 - [x] Broadcast task reschedule events to all clients
 - [x] Add automatic reconnection on connection loss
 - [x] Test with multiple simultaneous clients
+
+## Performance Metrics Dashboard (Dec 15, 2025)
+- [x] Design metrics data structure and aggregation logic
+- [x] Create backend API endpoint for cache statistics
+- [x] Create backend API endpoint for queue statistics
+- [x] Create backend API endpoint for WebSocket connection stats
+- [x] Build metrics visualization components (charts, gauges)
+- [x] Create PerformanceMetrics component for settings page
+- [x] Display cache hit rate and miss rate with trend
+- [x] Display API call reduction percentage
+- [x] Display WebSocket connection health and client count
+- [x] Display request queue deduplication rate
+- [x] Add real-time metrics updates via auto-refresh (30s)
+- [x] Add historical metrics tracking (last 24h)
+- [x] Test metrics accuracy and calculations
