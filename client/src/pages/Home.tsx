@@ -4,7 +4,7 @@ import { Timeline } from "@/components/Timeline";
 import { StatsPanel } from "@/components/StatsPanel";
 import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
 import { Task, WeeklyStats } from "@/types";
-import { CalendarDays, Bell, Search, RefreshCw, Settings } from "lucide-react";
+import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo } from "lucide-react";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -179,7 +179,7 @@ export default function Home() {
             </div>
             <Link href="/aptlss">
               <Button variant="ghost" size="icon" title="APTLSS Management">
-                <Settings className="h-5 w-5" />
+                <ListTodo className="h-5 w-5" />
               </Button>
             </Link>
             <Link href="/settings">
