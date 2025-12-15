@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useWebSocket } from "@/hooks/useWebSocket";
 
 // No longer using mock data - fetch from Trello API
 
@@ -36,6 +37,27 @@ export default function Home() {
     totalHours: 0,
     completedHours: 0,
     accuracy: 100
+  });
+
+  // WebSocket connection for real-time updates
+  const { status: wsStatus } = useWebSocket({
+    onTaskCompleted: (data) => {
+      console.log('Received task completion from WebSocket:', data);
+      // Update task in local state
+      setTasks(prevTasks => 
+        prevTasks.map(task => 
+          task.id === data.taskId 
+            ? { ...task, isCompleted: data.isCompleted }
+            : task
+        )
+      );
+      toast.info(`Task ${data.isCompleted ? 'completed' : 'uncompleted'} by another client`);
+    },
+    onCacheInvalidated: () => {
+      console.log('Cache invalidated, reloading tasks');
+      toast.info('Tasks updated, reloading...');
+      window.location.reload();
+    },
   });
 
   useEffect(() => {
@@ -165,9 +187,9 @@ export default function Home() {
                 <Settings className="h-5 w-5" />
               </Button>
             </Link>
-            <Button variant="ghost" size="icon" className="relative">
+            <Button variant="ghost" size="icon" className="relative" title={wsStatus.connected ? 'Real-time updates connected' : 'Real-time updates disconnected'}>
               <Bell className="h-5 w-5" />
-              <span className="absolute top-2 right-2 h-2 w-2 bg-destructive rounded-full" />
+              <span className={`absolute top-2 right-2 h-2 w-2 rounded-full ${wsStatus.connected ? 'bg-green-500' : 'bg-gray-400'}`} />
             </Button>
             <Avatar>
               <AvatarImage src="https://github.com/shadcn.png" />

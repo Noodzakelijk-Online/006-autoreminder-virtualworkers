@@ -13,6 +13,7 @@ import holidaysRoutes from "../routes/holidays.js";
 import rescheduleRoutes from "../routes/reschedule.js";
 import cacheRoutes from "../routes/cache.js";
 import queueRoutes from "../routes/queue.js";
+import { websocketService } from "../services/websocket.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -74,6 +75,9 @@ async function startServer() {
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
+
+  // Initialize WebSocket server
+  websocketService.initialize(server);
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);

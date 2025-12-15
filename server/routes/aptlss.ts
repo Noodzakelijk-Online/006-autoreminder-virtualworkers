@@ -10,6 +10,7 @@ import { eq, desc, and } from 'drizzle-orm';
 import { fetchWithRetry } from '../utils/retry';
 import { getCachedTasks, setCachedTasks, invalidateCache } from '../services/trello-cache';
 import { requestQueue } from '../services/request-queue';
+import { websocketService } from '../services/websocket';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -821,6 +822,19 @@ router.put('/trello/tasks/:taskId/complete', async (req: Request, res: Response)
     }
 
     const result = await response.json();
+    
+    // Broadcast task completion to all connected clients
+    const user = (req as any).user;
+    if (user) {
+      websocketService.emitToUser(user.openId, 'task:completed', {
+        taskId,
+        isCompleted,
+        cardId,
+        checklistId,
+        checkItemId,
+        timestamp: new Date().toISOString()
+      });
+    }
     
     res.json({ 
       success: true, 
