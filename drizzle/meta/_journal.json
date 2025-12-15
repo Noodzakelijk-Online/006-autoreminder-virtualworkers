@@ -43,6 +43,13 @@
       "when": 1765644533700,
       "tag": "0005_nebulous_inhumans",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1765779682129,
+      "tag": "0006_faulty_chameleon",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { getDb } from '../db';
 import { generationJobs, generationItems, scheduledJobs, userWorkingHours, holidays } from '../../drizzle/schema';
 import { eq, desc, and } from 'drizzle-orm';
 import { fetchWithRetry } from '../utils/retry';
+import { getCachedTasks, setCachedTasks, invalidateCache } from '../services/trello-cache';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -565,6 +566,27 @@ router.get('/aptlss/status/:jobId', async (req: Request, res: Response) => {
 // Get tasks from Trello cards with APTLSS checklists
 router.get('/trello/tasks', async (req: any, res: Response) => {
   try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const forceRefresh = req.query.refresh === 'true';
+    const cacheTTL = parseInt(req.query.ttl as string) || 300; // 5 minutes default
+
+    // Try to get from cache first
+    const cachedData = await getCachedTasks(user.id, user.openId, { 
+      ttlSeconds: cacheTTL, 
+      forceRefresh 
+    });
+
+    if (cachedData && !forceRefresh) {
+      console.log('Cache hit for tasks');
+      return res.json(cachedData);
+    }
+
+    console.log('Cache miss for tasks - fetching from Trello API');
+
     const apiKey = process.env.TRELLO_API_KEY;
     const apiToken = process.env.TRELLO_TOKEN;
 
@@ -744,10 +766,16 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
       }
     }
     
-    res.json({
+    const responseData = {
       tasks: scheduledTasks,
       timezone: userTimezone
-    });
+    };
+
+    // Save to cache
+    await setCachedTasks(user.id, user.openId, responseData, cacheTTL);
+    console.log(`Cached ${scheduledTasks.length} tasks for ${cacheTTL} seconds`);
+
+    res.json(responseData);
   } catch (error) {
     console.error('Error fetching Trello tasks:', error);
     res.status(500).json({ error: 'Failed to fetch tasks from Trello' });

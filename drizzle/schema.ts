@@ -121,3 +121,57 @@ export const holidays = mysqlTable('holidays', {
 
 export type Holiday = typeof holidays.$inferSelect;
 export type InsertHoliday = typeof holidays.$inferInsert;
+
+// Trello data cache tables
+export const trelloCacheMetadata = mysqlTable('trello_cache_metadata', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  cacheKey: varchar('cacheKey', { length: 255 }).notNull(), // e.g., 'boards', 'tasks', 'cards:{boardId}'
+  lastFetched: timestamp('lastFetched').defaultNow().notNull(),
+  expiresAt: timestamp('expiresAt').notNull(),
+  ttlSeconds: int('ttlSeconds').notNull().default(300), // 5 minutes default
+  hitCount: int('hitCount').notNull().default(0),
+  missCount: int('missCount').notNull().default(0),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+export const trelloCachedTasks = mysqlTable('trello_cached_tasks', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  taskData: text('taskData').notNull(), // JSON serialized task data
+  cachedAt: timestamp('cachedAt').defaultNow().notNull(),
+  expiresAt: timestamp('expiresAt').notNull(),
+});
+
+export const trelloCachedBoards = mysqlTable('trello_cached_boards', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  boardId: varchar('boardId', { length: 64 }).notNull(),
+  boardData: text('boardData').notNull(), // JSON serialized board data
+  cachedAt: timestamp('cachedAt').defaultNow().notNull(),
+  expiresAt: timestamp('expiresAt').notNull(),
+});
+
+export const trelloCachedCards = mysqlTable('trello_cached_cards', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  boardId: varchar('boardId', { length: 64 }).notNull(),
+  cardId: varchar('cardId', { length: 64 }).notNull(),
+  cardData: text('cardData').notNull(), // JSON serialized card data
+  cachedAt: timestamp('cachedAt').defaultNow().notNull(),
+  expiresAt: timestamp('expiresAt').notNull(),
+});
+
+export type TrelloCacheMetadata = typeof trelloCacheMetadata.$inferSelect;
+export type InsertTrelloCacheMetadata = typeof trelloCacheMetadata.$inferInsert;
+export type TrelloCachedTask = typeof trelloCachedTasks.$inferSelect;
+export type InsertTrelloCachedTask = typeof trelloCachedTasks.$inferInsert;
+export type TrelloCachedBoard = typeof trelloCachedBoards.$inferSelect;
+export type InsertTrelloCachedBoard = typeof trelloCachedBoards.$inferInsert;
+export type TrelloCachedCard = typeof trelloCachedCards.$inferSelect;
+export type InsertTrelloCachedCard = typeof trelloCachedCards.$inferInsert;

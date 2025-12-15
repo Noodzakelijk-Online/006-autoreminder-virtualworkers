@@ -11,6 +11,7 @@ import aptlssRoutes from "../routes/aptlss.js";
 import workingHoursRoutes from "../routes/working-hours.js";
 import holidaysRoutes from "../routes/holidays.js";
 import rescheduleRoutes from "../routes/reschedule.js";
+import cacheRoutes from "../routes/cache.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -47,6 +48,8 @@ async function startServer() {
   app.use("/api/holidays", holidaysRoutes);
   // Reschedule API
   app.use("/api/reschedule", rescheduleRoutes);
+  // Cache Management API
+  app.use("/api", cacheRoutes);
   // tRPC API
   app.use(
     "/api/trpc",

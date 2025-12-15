@@ -104,3 +104,15 @@
 - [x] Show retry attempts in UI loading states (via server-side logging)
 - [x] Test with rate limiting scenarios
 - [x] Add retry metrics to error tracking
+
+## Trello Data Caching Layer (Dec 15, 2025)
+- [x] Design cache schema for boards, cards, checklists, and tasks
+- [x] Create database tables with TTL and metadata fields
+- [x] Implement cache service with get/set/invalidate operations
+- [x] Add TTL-based automatic expiration logic
+- [x] Integrate cache into tasks API endpoint
+- [ ] Add cache warming on server startup (future enhancement)
+- [x] Add manual cache refresh endpoint
+- [x] Add cache statistics and monitoring
+- [x] Test cache hit/miss rates and performance improvements
+- [ ] Add cache management UI in settings (future enhancement)
