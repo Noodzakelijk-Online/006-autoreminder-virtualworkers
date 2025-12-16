@@ -21,7 +21,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 
-interface VA {
+interface VirtualWorker {
   id: number;
   name: string;
   email: string | null;
@@ -32,11 +32,17 @@ interface VA {
   workStartHour: number;
   workEndHour: number;
   workingDays: string;
+  breakfastTime: number | null;
+  breakfastDuration: number | null;
+  lunchTime: number | null;
+  lunchDuration: number | null;
+  dinnerTime: number | null;
+  dinnerDuration: number | null;
   status: 'active' | 'inactive' | 'on_leave';
 }
 
 interface WorkloadItem {
-  va: VA;
+  worker: VirtualWorker;
   totalTasks: number;
   statusCounts: {
     assigned: number;
@@ -53,8 +59,8 @@ interface TaskAssignment {
   taskTitle: string;
   cardName: string;
   cardId: string;
-  vaId: number | null;
-  vaName: string | null;
+  workerId: number | null;
+  workerName: string | null;
   priority: 'critical' | 'urgent' | 'high' | 'normal';
   isPriorityOverride: boolean;
   status: 'assigned' | 'in_progress' | 'completed' | 'blocked' | 'ready_for_review';
@@ -70,8 +76,8 @@ interface ReviewItem {
   taskId: string;
   taskTitle: string;
   cardName: string;
-  vaId: number;
-  vaName: string;
+  workerId: number;
+  workerName: string;
   submittedAt: string;
   status: 'pending' | 'approved' | 'revision_requested';
   notes?: string;
@@ -80,8 +86,8 @@ interface ReviewItem {
 interface CommunicationEntry {
   id: number;
   taskId: string;
-  vaId: number;
-  vaName: string;
+  workerId: number;
+  workerName: string;
   type: 'note' | 'question' | 'update' | 'handoff';
   message: string;
   timestamp: string;
@@ -89,9 +95,9 @@ interface CommunicationEntry {
 }
 
 interface TimezoneOverlap {
-  vaId: number;
-  vaName: string;
-  vaTimezone: string;
+  workerId: number;
+  workerName: string;
+  workerTimezone: string;
   overlapHours: number;
   overlapStart: string;
   overlapEnd: string;
@@ -115,19 +121,26 @@ export default function FounderDashboard() {
   const [communications, setCommunications] = useState<CommunicationEntry[]>([]);
   const [timezoneOverlaps, setTimezoneOverlaps] = useState<TimezoneOverlap[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showAddVA, setShowAddVA] = useState(false);
-  const [newVA, setNewVA] = useState({
+  const [showAddWorker, setShowAddWorker] = useState(false);
+  const [newWorker, setNewWorker] = useState({
     name: '',
     email: '',
     timezone: 'Asia/Manila',
     hourlyRate: '',
     currency: 'USD',
+    workStartHour: '9',
+    workEndHour: '18',
+    workingDays: '1,2,3,4,5',
+    lunchTime: '12',
+    lunchDuration: '60',
   });
+  const [showEditWorker, setShowEditWorker] = useState(false);
+  const [editingWorker, setEditingWorker] = useState<VirtualWorker | null>(null);
   const [saving, setSaving] = useState(false);
   
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedVAFilter, setSelectedVAFilter] = useState<string>('all');
+  const [selectedWorkerFilter, setSelectedWorkerFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   
   // Briefing settings
@@ -233,8 +246,8 @@ export default function FounderDashboard() {
     }
   };
 
-  const handleAddVA = async () => {
-    if (!newVA.name.trim()) {
+  const handleAddWorker = async () => {
+    if (!newWorker.name.trim()) {
       toast.error('Please enter a name');
       return;
     }
@@ -246,29 +259,37 @@ export default function FounderDashboard() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          ...newVA,
-          hourlyRate: newVA.hourlyRate ? parseInt(newVA.hourlyRate) * 100 : null,
+          name: newWorker.name,
+          email: newWorker.email,
+          timezone: newWorker.timezone,
+          hourlyRate: newWorker.hourlyRate ? parseInt(newWorker.hourlyRate) * 100 : null,
+          currency: newWorker.currency,
+          workStartHour: parseInt(newWorker.workStartHour),
+          workEndHour: parseInt(newWorker.workEndHour),
+          workingDays: newWorker.workingDays,
+          lunchTime: parseInt(newWorker.lunchTime),
+          lunchDuration: parseInt(newWorker.lunchDuration),
         }),
       });
 
       if (res.ok) {
-        toast.success('VA added successfully');
-        setShowAddVA(false);
-        setNewVA({ name: '', email: '', timezone: 'Asia/Manila', hourlyRate: '', currency: 'USD' });
+        toast.success('Worker added successfully');
+        setShowAddWorker(false);
+        setNewWorker({ name: '', email: '', timezone: 'Asia/Manila', hourlyRate: '', currency: 'USD', workStartHour: '9', workEndHour: '18', workingDays: '1,2,3,4,5', lunchTime: '12', lunchDuration: '60' });
         fetchWorkload();
       } else {
-        toast.error('Failed to add VA');
+        toast.error('Failed to add worker');
       }
     } catch (error) {
-      toast.error('Failed to add VA');
+      toast.error('Failed to add worker');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleUpdateStatus = async (vaId: number, status: string) => {
+  const handleUpdateStatus = async (workerId: number, status: string) => {
     try {
-      const res = await fetch(`/api/va/vas/${vaId}`, {
+      const res = await fetch(`/api/va/vas/${workerId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -284,23 +305,23 @@ export default function FounderDashboard() {
     }
   };
 
-  const handleAssignTask = async (assignmentId: number, vaId: number) => {
+  const handleAssignTask = async (assignmentId: number, workerId: number) => {
     try {
       const res = await fetch(`/api/va/assignments/${assignmentId}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ vaId }),
+        body: JSON.stringify({ workerId }),
       });
 
       if (res.ok) {
-        const va = workload.find(w => w.va.id === vaId)?.va;
+        const worker = workload.find(w => w.worker.id === workerId)?.worker;
         setAssignments(assignments.map(a => 
           a.id === assignmentId 
-            ? { ...a, vaId, vaName: va?.name || null }
+            ? { ...a, workerId, workerName: worker?.name || null }
             : a
         ));
-        toast.success(`Task assigned to ${va?.name}`);
+        toast.success(`Task assigned to ${worker?.name}`);
         fetchWorkload();
       } else {
         toast.error('Failed to assign task');
@@ -400,12 +421,54 @@ export default function FounderDashboard() {
     }
   };
 
+  const handleSaveWorkerSettings = async () => {
+    if (!editingWorker) return;
+    
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/va/vas/${editingWorker.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: editingWorker.name,
+          email: editingWorker.email,
+          timezone: editingWorker.timezone,
+          hourlyRate: editingWorker.hourlyRate,
+          currency: editingWorker.currency,
+          workStartHour: editingWorker.workStartHour,
+          workEndHour: editingWorker.workEndHour,
+          workingDays: editingWorker.workingDays,
+          breakfastTime: editingWorker.breakfastTime,
+          breakfastDuration: editingWorker.breakfastDuration,
+          lunchTime: editingWorker.lunchTime,
+          lunchDuration: editingWorker.lunchDuration,
+          dinnerTime: editingWorker.dinnerTime,
+          dinnerDuration: editingWorker.dinnerDuration,
+        }),
+      });
+
+      if (res.ok) {
+        toast.success('Worker settings saved');
+        setShowEditWorker(false);
+        setEditingWorker(null);
+        fetchWorkload();
+      } else {
+        toast.error('Failed to save settings');
+      }
+    } catch (error) {
+      toast.error('Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Filter assignments
   const filteredAssignments = useMemo(() => {
     let filtered = assignments;
     
-    if (selectedVAFilter !== 'all') {
-      filtered = filtered.filter(a => a.vaId === parseInt(selectedVAFilter));
+    if (selectedWorkerFilter !== 'all') {
+      filtered = filtered.filter(a => a.workerId === parseInt(selectedWorkerFilter));
     }
     
     if (searchQuery) {
@@ -422,7 +485,7 @@ export default function FounderDashboard() {
     }
     
     return filtered;
-  }, [assignments, selectedVAFilter, searchQuery, priorityFilter]);
+  }, [assignments, selectedWorkerFilter, searchQuery, priorityFilter]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -487,9 +550,9 @@ export default function FounderDashboard() {
             <div>
               <h1 className="text-xl font-semibold flex items-center gap-2">
                 <Users className="h-5 w-5 text-primary" />
-                VA Management
+                Virtual Worker Management
               </h1>
-              <p className="text-sm text-muted-foreground">Manage your virtual assistants and workload</p>
+              <p className="text-sm text-muted-foreground">Manage your virtual workers and workload</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -497,23 +560,23 @@ export default function FounderDashboard() {
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
             </Button>
-            <Dialog open={showAddVA} onOpenChange={setShowAddVA}>
+            <Dialog open={showAddWorker} onOpenChange={setShowAddWorker}>
               <DialogTrigger asChild>
                 <Button>
                   <Plus className="h-4 w-4 mr-2" />
-                  Add VA
+                  Add Worker
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Add Virtual Assistant</DialogTitle>
+                  <DialogTitle>Add Virtual Worker</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
                     <Label>Name *</Label>
                     <Input
-                      value={newVA.name}
-                      onChange={(e) => setNewVA({ ...newVA, name: e.target.value })}
+                      value={newWorker.name}
+                      onChange={(e) => setNewWorker({ ...newWorker, name: e.target.value })}
                       placeholder="e.g., Joyce"
                     />
                   </div>
@@ -521,14 +584,14 @@ export default function FounderDashboard() {
                     <Label>Email</Label>
                     <Input
                       type="email"
-                      value={newVA.email}
-                      onChange={(e) => setNewVA({ ...newVA, email: e.target.value })}
+                      value={newWorker.email}
+                      onChange={(e) => setNewWorker({ ...newWorker, email: e.target.value })}
                       placeholder="va@example.com"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>Timezone</Label>
-                    <Select value={newVA.timezone} onValueChange={(v) => setNewVA({ ...newVA, timezone: v })}>
+                    <Select value={newWorker.timezone} onValueChange={(v) => setNewWorker({ ...newWorker, timezone: v })}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
@@ -544,14 +607,14 @@ export default function FounderDashboard() {
                       <Label>Hourly Rate</Label>
                       <Input
                         type="number"
-                        value={newVA.hourlyRate}
-                        onChange={(e) => setNewVA({ ...newVA, hourlyRate: e.target.value })}
+                        value={newWorker.hourlyRate}
+                        onChange={(e) => setNewWorker({ ...newWorker, hourlyRate: e.target.value })}
                         placeholder="15"
                       />
                     </div>
                     <div className="space-y-2">
                       <Label>Currency</Label>
-                      <Select value={newVA.currency} onValueChange={(v) => setNewVA({ ...newVA, currency: v })}>
+                      <Select value={newWorker.currency} onValueChange={(v) => setNewWorker({ ...newWorker, currency: v })}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
@@ -563,12 +626,85 @@ export default function FounderDashboard() {
                       </Select>
                     </div>
                   </div>
+
+                  {/* Working Hours Section */}
+                  <div className="border-t pt-4 mt-4">
+                    <h4 className="font-medium mb-3 flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      Working Hours
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Start Time</Label>
+                        <Select value={newWorker.workStartHour} onValueChange={(v) => setNewWorker({ ...newWorker, workStartHour: v })}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 24 }, (_, i) => (
+                              <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>End Time</Label>
+                        <Select value={newWorker.workEndHour} onValueChange={(v) => setNewWorker({ ...newWorker, workEndHour: v })}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 24 }, (_, i) => (
+                              <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Meal Times Section */}
+                  <div className="border-t pt-4 mt-4">
+                    <h4 className="font-medium mb-3 flex items-center gap-2">
+                      <Briefcase className="h-4 w-4" />
+                      Lunch Break
+                    </h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Lunch Time</Label>
+                        <Select value={newWorker.lunchTime} onValueChange={(v) => setNewWorker({ ...newWorker, lunchTime: v })}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {Array.from({ length: 24 }, (_, i) => (
+                              <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Duration (minutes)</Label>
+                        <Select value={newWorker.lunchDuration} onValueChange={(v) => setNewWorker({ ...newWorker, lunchDuration: v })}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="30">30 min</SelectItem>
+                            <SelectItem value="45">45 min</SelectItem>
+                            <SelectItem value="60">1 hour</SelectItem>
+                            <SelectItem value="90">1.5 hours</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setShowAddVA(false)}>Cancel</Button>
-                  <Button onClick={handleAddVA} disabled={saving}>
+                  <Button variant="outline" onClick={() => setShowAddWorker(false)}>Cancel</Button>
+                  <Button onClick={handleAddWorker} disabled={saving}>
                     {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    Add VA
+                    Add Worker
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -601,7 +737,7 @@ export default function FounderDashboard() {
                 <CardContent className="pt-6">
                   <div className="flex items-center gap-2">
                     <Users className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Total VAs</span>
+                    <span className="text-sm text-muted-foreground">Total Workers</span>
                   </div>
                   <p className="text-2xl font-bold mt-1">{workload.length}</p>
                 </CardContent>
@@ -664,11 +800,11 @@ export default function FounderDashboard() {
               <Card className="py-12">
                 <CardContent className="text-center">
                   <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No Virtual Assistants Yet</h3>
-                  <p className="text-muted-foreground mb-4">Add your first VA to start managing tasks and workload.</p>
-                  <Button onClick={() => setShowAddVA(true)}>
+                  <h3 className="text-lg font-semibold mb-2">No Virtual Workers Yet</h3>
+                  <p className="text-muted-foreground mb-4">Add your first virtual worker to start managing tasks and workload.</p>
+                  <Button onClick={() => setShowAddWorker(true)}>
                     <Plus className="h-4 w-4 mr-2" />
-                    Add Your First VA
+                    Add Your First Worker
                   </Button>
                 </CardContent>
               </Card>
@@ -676,22 +812,22 @@ export default function FounderDashboard() {
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {workload.map((item) => {
                   const workloadLevel = getWorkloadLevel(item);
-                  const skills = item.va.skills ? JSON.parse(item.va.skills) : [];
+                  const skills = item.worker.skills ? JSON.parse(item.worker.skills) : [];
                   
                   return (
-                    <Card key={item.va.id} className="relative hover:shadow-md transition-shadow">
+                    <Card key={item.worker.id} className="relative hover:shadow-md transition-shadow">
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between">
                           <div className="flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                               <span className="text-lg font-semibold text-primary">
-                                {item.va.name.charAt(0).toUpperCase()}
+                                {item.worker.name.charAt(0).toUpperCase()}
                               </span>
                             </div>
                             <div>
-                              <CardTitle className="text-lg">{item.va.name}</CardTitle>
-                              <Badge className={getStatusColor(item.va.status)}>
-                                {item.va.status.replace('_', ' ')}
+                              <CardTitle className="text-lg">{item.worker.name}</CardTitle>
+                              <Badge className={getStatusColor(item.worker.status)}>
+                                {item.worker.status.replace('_', ' ')}
                               </Badge>
                             </div>
                           </div>
@@ -703,19 +839,25 @@ export default function FounderDashboard() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
                               <DropdownMenuItem onClick={() => {
-                                setSelectedVAFilter(item.va.id.toString());
+                                setEditingWorker(item.worker);
+                                setShowEditWorker(true);
+                              }}>
+                                Edit Settings
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => {
+                                setSelectedWorkerFilter(item.worker.id.toString());
                                 setActiveTab('assignments');
                               }}>
                                 View Tasks
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => handleUpdateStatus(item.va.id, 'active')}>
+                              <DropdownMenuItem onClick={() => handleUpdateStatus(item.worker.id, 'active')}>
                                 Set Active
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleUpdateStatus(item.va.id, 'on_leave')}>
+                              <DropdownMenuItem onClick={() => handleUpdateStatus(item.worker.id, 'on_leave')}>
                                 Set On Leave
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleUpdateStatus(item.va.id, 'inactive')}>
+                              <DropdownMenuItem onClick={() => handleUpdateStatus(item.worker.id, 'inactive')}>
                                 Set Inactive
                               </DropdownMenuItem>
                             </DropdownMenuContent>
@@ -725,20 +867,20 @@ export default function FounderDashboard() {
                       <CardContent className="space-y-4">
                         {/* Contact & Location */}
                         <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
-                          {item.va.email && (
+                          {item.worker.email && (
                             <div className="flex items-center gap-1">
                               <Mail className="h-3 w-3" />
-                              <span className="truncate max-w-[150px]">{item.va.email}</span>
+                              <span className="truncate max-w-[150px]">{item.worker.email}</span>
                             </div>
                           )}
                           <div className="flex items-center gap-1">
                             <Globe className="h-3 w-3" />
-                            <span>{item.va.timezone.split('/')[1]?.replace('_', ' ') || item.va.timezone}</span>
+                            <span>{item.worker.timezone.split('/')[1]?.replace('_', ' ') || item.worker.timezone}</span>
                           </div>
-                          {item.va.hourlyRate && (
+                          {item.worker.hourlyRate && (
                             <div className="flex items-center gap-1">
                               <DollarSign className="h-3 w-3" />
-                              <span>{(item.va.hourlyRate / 100).toFixed(0)}/hr</span>
+                              <span>{(item.worker.hourlyRate / 100).toFixed(0)}/hr</span>
                             </div>
                           )}
                         </div>
@@ -797,7 +939,7 @@ export default function FounderDashboard() {
 
                         {/* Working Hours */}
                         <div className="text-xs text-muted-foreground">
-                          Working: {item.va.workStartHour}:00 - {item.va.workEndHour}:00 ({item.va.timezone.split('/')[1]?.replace('_', ' ')})
+                          Working: {item.worker.workStartHour}:00 - {item.worker.workEndHour}:00 ({item.worker.timezone.split('/')[1]?.replace('_', ' ')})
                         </div>
                       </CardContent>
                     </Card>
@@ -817,7 +959,7 @@ export default function FounderDashboard() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-muted-foreground">
-                    Some VAs are overloaded. Consider redistributing tasks to VAs with lower workload
+                    Some workers are overloaded. Consider redistributing tasks to workers with lower workload
                     or hiring additional help.
                   </p>
                   <div className="mt-4 flex gap-2">
@@ -841,14 +983,14 @@ export default function FounderDashboard() {
                   className="pl-10"
                 />
               </div>
-              <Select value={selectedVAFilter} onValueChange={setSelectedVAFilter}>
+              <Select value={selectedWorkerFilter} onValueChange={setSelectedWorkerFilter}>
                 <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="Filter by VA" />
+                  <SelectValue placeholder="Filter by Worker" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All VAs</SelectItem>
+                  <SelectItem value="all">All Workers</SelectItem>
                   {workload.map(w => (
-                    <SelectItem key={w.va.id} value={w.va.id.toString()}>{w.va.name}</SelectItem>
+                    <SelectItem key={w.worker.id} value={w.worker.id.toString()}>{w.worker.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -931,19 +1073,19 @@ export default function FounderDashboard() {
                         <div className="flex flex-col items-end gap-2">
                           {/* VA Assignment */}
                           <Select
-                            value={task.vaId?.toString() || 'unassigned'}
+                            value={task.workerId?.toString() || 'unassigned'}
                             onValueChange={(v) => v !== 'unassigned' && handleAssignTask(task.id, parseInt(v))}
                           >
                             <SelectTrigger className="w-[160px]">
-                              <SelectValue placeholder="Assign VA" />
+                              <SelectValue placeholder="Assign Worker" />
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="unassigned">Unassigned</SelectItem>
                               {workload.map(w => (
-                                <SelectItem key={w.va.id} value={w.va.id.toString()}>
+                                <SelectItem key={w.worker.id} value={w.worker.id.toString()}>
                                   <span className="flex items-center gap-2">
-                                    <span className={`h-2 w-2 rounded-full ${w.va.status === 'active' ? 'bg-green-500' : w.va.status === 'on_leave' ? 'bg-yellow-500' : 'bg-gray-400'}`} />
-                                    {w.va.name}
+                                    <span className={`h-2 w-2 rounded-full ${w.worker.status === 'active' ? 'bg-green-500' : w.worker.status === 'on_leave' ? 'bg-yellow-500' : 'bg-gray-400'}`} />
+                                    {w.worker.name}
                                   </span>
                                 </SelectItem>
                               ))}
@@ -1029,7 +1171,7 @@ export default function FounderDashboard() {
                           <div>
                             <h3 className="font-medium">{review.taskTitle}</h3>
                             <p className="text-sm text-muted-foreground">
-                              {review.cardName} • Submitted by {review.vaName}
+                              {review.cardName} • Submitted by {review.workerName}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
                               {new Date(review.submittedAt).toLocaleString()}
@@ -1083,7 +1225,7 @@ export default function FounderDashboard() {
                   <MessageSquare className="h-5 w-5 text-blue-500" />
                   Communication Log
                 </CardTitle>
-                <CardDescription>Messages, notes, and handoffs from VAs</CardDescription>
+                <CardDescription>Messages, notes, and handoffs from workers</CardDescription>
               </CardHeader>
               <CardContent>
                 {loading ? (
@@ -1104,11 +1246,11 @@ export default function FounderDashboard() {
                       <div key={comm.id} className={`border rounded-lg p-4 ${!comm.isRead ? 'bg-blue-50 border-blue-200' : ''}`}>
                         <div className="flex items-start gap-3">
                           <Avatar className="h-8 w-8">
-                            <AvatarFallback>{comm.vaName.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                            <AvatarFallback>{comm.workerName.split(' ').map(n => n[0]).join('')}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium">{comm.vaName}</span>
+                              <span className="font-medium">{comm.workerName}</span>
                               <Badge variant="outline" className="text-xs">{comm.type}</Badge>
                               <span className="text-xs text-muted-foreground">
                                 {new Date(comm.timestamp).toLocaleString()}
@@ -1133,7 +1275,7 @@ export default function FounderDashboard() {
                   <Globe className="h-5 w-5 text-green-500" />
                   Timezone Overlap Calculator
                 </CardTitle>
-                <CardDescription>See working hour overlaps with your VAs</CardDescription>
+                <CardDescription>See working hour overlaps with your workers</CardDescription>
               </CardHeader>
               <CardContent>
                 {loading ? (
@@ -1145,7 +1287,7 @@ export default function FounderDashboard() {
                 ) : workload.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <Globe className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No VAs configured to calculate timezone overlaps</p>
+                    <p>No workers configured to calculate timezone overlaps</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -1153,8 +1295,8 @@ export default function FounderDashboard() {
                       // Calculate overlap (simplified - assumes founder is in Europe/Amsterdam)
                       const founderStart = 9;
                       const founderEnd = 18;
-                      const vaStart = w.va.workStartHour;
-                      const vaEnd = w.va.workEndHour;
+                      const vaStart = w.worker.workStartHour;
+                      const vaEnd = w.worker.workEndHour;
                       
                       // Simple timezone offset calculation (approximate)
                       const tzOffsets: Record<string, number> = {
@@ -1168,7 +1310,7 @@ export default function FounderDashboard() {
                       };
                       
                       const founderOffset = tzOffsets['Europe/Amsterdam'] || 0;
-                      const vaOffset = tzOffsets[w.va.timezone] || 0;
+                      const vaOffset = tzOffsets[w.worker.timezone] || 0;
                       const diff = vaOffset - founderOffset;
                       
                       // Convert VA hours to founder's timezone
@@ -1181,13 +1323,13 @@ export default function FounderDashboard() {
                       const overlapHours = Math.max(0, overlapEnd - overlapStart);
                       
                       return (
-                        <div key={w.va.id} className="border rounded-lg p-4">
+                        <div key={w.worker.id} className="border rounded-lg p-4">
                           <div className="flex items-center justify-between">
                             <div>
-                              <h3 className="font-medium">{w.va.name}</h3>
-                              <p className="text-sm text-muted-foreground">{w.va.timezone}</p>
+                              <h3 className="font-medium">{w.worker.name}</h3>
+                              <p className="text-sm text-muted-foreground">{w.worker.timezone}</p>
                               <p className="text-xs text-muted-foreground">
-                                Works {w.va.workStartHour}:00 - {w.va.workEndHour}:00 local time
+                                Works {w.worker.workStartHour}:00 - {w.worker.workEndHour}:00 local time
                               </p>
                             </div>
                             <div className="text-right">
@@ -1307,8 +1449,8 @@ export default function FounderDashboard() {
                       <strong>VA Status:</strong>
                       <ul className="list-disc list-inside ml-2 mt-1">
                         {workload.slice(0, 3).map(w => (
-                          <li key={w.va.id}>
-                            {w.va.status === 'active' ? '✅' : w.va.status === 'on_leave' ? '🟡' : '⚪'} {w.va.name} - {w.statusCounts.in_progress} active tasks
+                          <li key={w.worker.id}>
+                            {w.worker.status === 'active' ? '✅' : w.worker.status === 'on_leave' ? '🟡' : '⚪'} {w.worker.name} - {w.statusCounts.in_progress} active tasks
                           </li>
                         ))}
                       </ul>
@@ -1323,6 +1465,235 @@ export default function FounderDashboard() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Edit Worker Dialog */}
+      <Dialog open={showEditWorker} onOpenChange={setShowEditWorker}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Worker Settings</DialogTitle>
+          </DialogHeader>
+          {editingWorker && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label>Name *</Label>
+                <Input
+                  value={editingWorker.name}
+                  onChange={(e) => setEditingWorker({ ...editingWorker, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={editingWorker.email || ''}
+                  onChange={(e) => setEditingWorker({ ...editingWorker, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Timezone</Label>
+                <Select value={editingWorker.timezone} onValueChange={(v) => setEditingWorker({ ...editingWorker, timezone: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIMEZONES.map((tz) => (
+                      <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Hourly Rate</Label>
+                  <Input
+                    type="number"
+                    value={editingWorker.hourlyRate ? editingWorker.hourlyRate / 100 : ''}
+                    onChange={(e) => setEditingWorker({ ...editingWorker, hourlyRate: e.target.value ? parseInt(e.target.value) * 100 : null })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Currency</Label>
+                  <Select value={editingWorker.currency || 'USD'} onValueChange={(v) => setEditingWorker({ ...editingWorker, currency: v })}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="USD">USD</SelectItem>
+                      <SelectItem value="EUR">EUR</SelectItem>
+                      <SelectItem value="PHP">PHP</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Working Hours Section */}
+              <div className="border-t pt-4 mt-4">
+                <h4 className="font-medium mb-3 flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Working Hours
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Start Time</Label>
+                    <Select value={editingWorker.workStartHour.toString()} onValueChange={(v) => setEditingWorker({ ...editingWorker, workStartHour: parseInt(v) })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 24 }, (_, i) => (
+                          <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>End Time</Label>
+                    <Select value={editingWorker.workEndHour.toString()} onValueChange={(v) => setEditingWorker({ ...editingWorker, workEndHour: parseInt(v) })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 24 }, (_, i) => (
+                          <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Lunch Break Section */}
+              <div className="border-t pt-4 mt-4">
+                <h4 className="font-medium mb-3 flex items-center gap-2">
+                  <Briefcase className="h-4 w-4" />
+                  Lunch Break
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Lunch Time</Label>
+                    <Select value={(editingWorker.lunchTime ?? 12).toString()} onValueChange={(v) => setEditingWorker({ ...editingWorker, lunchTime: parseInt(v) })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 24 }, (_, i) => (
+                          <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Duration</Label>
+                    <Select value={(editingWorker.lunchDuration ?? 60).toString()} onValueChange={(v) => setEditingWorker({ ...editingWorker, lunchDuration: parseInt(v) })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">No break</SelectItem>
+                        <SelectItem value="30">30 min</SelectItem>
+                        <SelectItem value="45">45 min</SelectItem>
+                        <SelectItem value="60">1 hour</SelectItem>
+                        <SelectItem value="90">1.5 hours</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Breakfast Break Section */}
+              <div className="border-t pt-4 mt-4">
+                <h4 className="font-medium mb-3 flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Breakfast Break (Optional)
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Breakfast Time</Label>
+                    <Select value={(editingWorker.breakfastTime ?? -1).toString()} onValueChange={(v) => setEditingWorker({ ...editingWorker, breakfastTime: v === '-1' ? null : parseInt(v) })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="No breakfast break" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="-1">No breakfast break</SelectItem>
+                        {Array.from({ length: 24 }, (_, i) => (
+                          <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Duration</Label>
+                    <Select 
+                      value={(editingWorker.breakfastDuration ?? 0).toString()} 
+                      onValueChange={(v) => setEditingWorker({ ...editingWorker, breakfastDuration: parseInt(v) })}
+                      disabled={editingWorker.breakfastTime === null}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">No break</SelectItem>
+                        <SelectItem value="15">15 min</SelectItem>
+                        <SelectItem value="30">30 min</SelectItem>
+                        <SelectItem value="45">45 min</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dinner Break Section */}
+              <div className="border-t pt-4 mt-4">
+                <h4 className="font-medium mb-3 flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Dinner Break (Optional)
+                </h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Dinner Time</Label>
+                    <Select value={(editingWorker.dinnerTime ?? -1).toString()} onValueChange={(v) => setEditingWorker({ ...editingWorker, dinnerTime: v === '-1' ? null : parseInt(v) })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="No dinner break" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="-1">No dinner break</SelectItem>
+                        {Array.from({ length: 24 }, (_, i) => (
+                          <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Duration</Label>
+                    <Select 
+                      value={(editingWorker.dinnerDuration ?? 0).toString()} 
+                      onValueChange={(v) => setEditingWorker({ ...editingWorker, dinnerDuration: parseInt(v) })}
+                      disabled={editingWorker.dinnerTime === null}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">No break</SelectItem>
+                        <SelectItem value="30">30 min</SelectItem>
+                        <SelectItem value="45">45 min</SelectItem>
+                        <SelectItem value="60">1 hour</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditWorker(false)}>Cancel</Button>
+            <Button onClick={handleSaveWorkerSettings} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save Settings
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

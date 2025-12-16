@@ -49,7 +49,13 @@ router.post('/vas', async (req: any, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { name, email, timezone, skills, hourlyRate, currency, workStartHour, workEndHour, workingDays } = req.body;
+    const { 
+      name, email, timezone, skills, hourlyRate, currency, 
+      workStartHour, workEndHour, workingDays,
+      breakfastTime, breakfastDuration,
+      lunchTime, lunchDuration,
+      dinnerTime, dinnerDuration
+    } = req.body;
 
     const db = await getDb();
     if (!db) {
@@ -57,16 +63,22 @@ router.post('/vas', async (req: any, res) => {
     }
     const result = await db.insert(vaProfiles).values({
       founderId: user.id,
-      userId: user.id, // Initially same as founder, can be updated when VA creates account
+      userId: user.id, // Initially same as founder, can be updated when worker creates account
       name,
       email,
       timezone: timezone || 'Asia/Manila',
       skills: skills ? JSON.stringify(skills) : null,
       hourlyRate,
       currency: currency || 'USD',
-      workStartHour: workStartHour || 9,
-      workEndHour: workEndHour || 18,
+      workStartHour: workStartHour ?? 9,
+      workEndHour: workEndHour ?? 18,
       workingDays: workingDays || '1,2,3,4,5',
+      breakfastTime: breakfastTime ?? null,
+      breakfastDuration: breakfastDuration ?? 0,
+      lunchTime: lunchTime ?? 12,
+      lunchDuration: lunchDuration ?? 60,
+      dinnerTime: dinnerTime ?? null,
+      dinnerDuration: dinnerDuration ?? 0,
     });
 
     res.json({ success: true, id: result[0].insertId });

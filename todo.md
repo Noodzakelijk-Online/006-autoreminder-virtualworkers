@@ -363,3 +363,18 @@
 - [x] Quick approve/reject with feedback
 - [x] Review queue for founder
 - [x] Revision history tracking
+
+## Rename VA to Virtual Worker (Dec 16, 2025)
+- [x] Rename "Virtual Assistant" to "Virtual Worker" in all UI text
+- [x] Rename "VA" abbreviation to "VW" in all UI text
+- [x] Update FounderDashboard component labels and headings
+- [x] Update Add Worker dialog labels
+- [x] Update backend route comments (keep API paths for compatibility)
+
+## Per-Worker Working Hours & Meal Times (Dec 16, 2025)
+- [x] Add working hours fields to worker profile form (start time, end time)
+- [x] Add meal time configuration to worker profile (breakfast, lunch, dinner times and durations)
+- [x] Add working days selector to worker profile
+- [x] Create worker settings/edit dialog with full configuration
+- [x] Update backend to save/retrieve worker-specific working hours
+- [ ] Use worker's working hours in scheduling algorithm (future enhancement)

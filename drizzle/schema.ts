@@ -180,7 +180,7 @@ export type InsertTrelloCachedCard = typeof trelloCachedCards.$inferInsert;
 // VA MANAGEMENT TABLES
 // ============================================
 
-// Virtual Assistant profiles
+// Virtual Worker profiles (formerly Virtual Assistant)
 export const vaProfiles = mysqlTable('va_profiles', {
   id: int('id').primaryKey().autoincrement(),
   userId: int('userId').notNull(), // References users.id (the VA's user account)
@@ -194,6 +194,13 @@ export const vaProfiles = mysqlTable('va_profiles', {
   workStartHour: int('workStartHour').notNull().default(9),
   workEndHour: int('workEndHour').notNull().default(18),
   workingDays: varchar('workingDays', { length: 50 }).notNull().default('1,2,3,4,5'),
+  // Meal times (stored as hour in 24h format, e.g., 12 = 12:00 PM)
+  breakfastTime: int('breakfastTime'), // Optional breakfast break
+  breakfastDuration: int('breakfastDuration').default(0), // In minutes
+  lunchTime: int('lunchTime').default(12), // Default 12:00 PM
+  lunchDuration: int('lunchDuration').default(60), // Default 1 hour
+  dinnerTime: int('dinnerTime'), // Optional dinner break
+  dinnerDuration: int('dinnerDuration').default(0), // In minutes
   status: mysqlEnum('status', ['active', 'inactive', 'on_leave']).default('active').notNull(),
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
