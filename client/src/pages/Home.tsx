@@ -18,7 +18,15 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 export default function Home() {
   // The userAuth hooks provides authentication state
   // To implement login/logout functionality, simply call logout() or redirect to getLoginUrl()
-  let { user, loading, error, isAuthenticated, logout } = useAuth();
+  let { user, loading, error, isAuthenticated, logout } = useAuth({ redirectOnUnauthenticated: true });
+
+  // Get current date for display
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const rescheduleMutation = trpc.trello.reschedule.useMutation({
@@ -68,7 +76,10 @@ export default function Home() {
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
           console.error('Error fetching tasks:', errorData);
-          toast.error(`Failed to load tasks: ${errorData.error || response.statusText}`);
+          // Don't show toast for auth errors - user will be redirected
+          if (response.status !== 401) {
+            toast.error(`Failed to load tasks: ${errorData.error || response.statusText}`);
+          }
           return;
         }
         const data = await response.json();
@@ -168,7 +179,7 @@ export default function Home() {
             </div>
             <div>
               <h1 className="font-bold text-lg">Task Dashboard</h1>
-              <p className="text-xs text-muted-foreground">Friday, Dec 5, 2025</p>
+              <p className="text-xs text-muted-foreground">{currentDate}</p>
             </div>
           </div>
           
@@ -192,8 +203,8 @@ export default function Home() {
               <span className={`absolute top-2 right-2 h-2 w-2 rounded-full ${wsStatus.connected ? 'bg-green-500' : 'bg-gray-400'}`} />
             </Button>
             <Avatar>
-              <AvatarImage src="https://github.com/shadcn.png" />
-              <AvatarFallback>JK</AvatarFallback>
+              <AvatarImage src={user?.email ? `https://www.gravatar.com/avatar/${user.email}?d=mp` : 'https://github.com/shadcn.png'} />
+              <AvatarFallback>{user?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}</AvatarFallback>
             </Avatar>
           </div>
         </div>
@@ -206,7 +217,9 @@ export default function Home() {
             <div className="bg-card rounded-2xl p-6 shadow-sm border relative overflow-hidden">
               <div className="absolute inset-0 opacity-10 bg-[url('/images/card-bg.png')] bg-cover" />
               <div className="relative z-10">
-                <h2 className="text-2xl font-bold mb-2">Good Morning, Joyce! ☀️</h2>
+                <h2 className="text-2xl font-bold mb-2">
+                  {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'}, {user?.name?.split(' ')[0] || 'there'}! {new Date().getHours() < 12 ? '☀️' : new Date().getHours() < 17 ? '🌤️' : '🌙'}
+                </h2>
                 <p className="text-muted-foreground mb-6">
                   You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining. 
                   Your focus block starts at 14:00.

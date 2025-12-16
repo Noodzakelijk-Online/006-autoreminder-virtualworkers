@@ -210,9 +210,16 @@ describe('Request Queue Service', () => {
         return 'result';
       };
 
-      await expect(
-        queue.execute('slow-key', slowExecutor, 500) // 500ms timeout
-      ).rejects.toThrow('Request timeout');
+      // Catch the rejection properly
+      let error: Error | null = null;
+      try {
+        await queue.execute('slow-key', slowExecutor, 500); // 500ms timeout
+      } catch (e) {
+        error = e as Error;
+      }
+      
+      expect(error).not.toBeNull();
+      expect(error?.message).toContain('Request timeout');
 
       const metrics = queue.getMetrics();
       expect(metrics.timeoutErrors).toBe(1);
@@ -325,8 +332,16 @@ describe('Request Queue Service', () => {
       // Clear all pending
       queue.clearAll();
 
-      // Should reject
-      await expect(promise).rejects.toThrow('Queue cleared');
+      // Should reject - catch properly
+      let error: Error | null = null;
+      try {
+        await promise;
+      } catch (e) {
+        error = e as Error;
+      }
+      
+      expect(error).not.toBeNull();
+      expect(error?.message).toBe('Queue cleared');
 
       // Should have no pending requests
       expect(queue.getPendingKeys()).toHaveLength(0);

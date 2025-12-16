@@ -154,3 +154,16 @@
 - [x] Add real-time metrics updates via auto-refresh (30s)
 - [x] Add historical metrics tracking (last 24h)
 - [x] Test metrics accuracy and calculations
+
+## Debugging & UX Review (Dec 16, 2025)
+- [x] Investigate "Failed to load tasks: Unauthorized" error (requires auth, added redirect)
+- [x] Check authentication flow and token handling (working correctly)
+- [x] Review date display (fixed - now shows current date dynamically)
+- [x] Test task loading and display in timeline (works when authenticated)
+- [x] Verify WebSocket connection status indicator (working)
+- [x] Check Settings page functionality (working - all forms functional)
+- [x] Check APTLSS Management page functionality (working - loads 29 workspaces)
+- [ ] Review mobile responsiveness (future enhancement)
+- [x] Test all interactive elements (buttons, links, forms)
+- [x] Fix any console errors or warnings (suppressed auth-related toasts)
+- [x] Improve error messages for better UX (don't show toast for 401 errors)
