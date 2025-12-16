@@ -9,6 +9,7 @@ import APTLSSManagement from "./pages/APTLSSManagement";
 import Settings from "./pages/Settings";
 import Calendar from "./pages/Calendar";
 import FounderDashboard from "./pages/FounderDashboard";
+import WorkerDashboard from "./pages/WorkerDashboard";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -19,6 +20,7 @@ function Router() {
       <Route path={"/settings"} component={Settings} />
       <Route path={"/calendar"} component={Calendar} />
       <Route path={"/founder"} component={FounderDashboard} />
+      <Route path={"/worker"} component={WorkerDashboard} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

@@ -1206,4 +1206,171 @@ router.get('/workload-overview', async (req: any, res) => {
   }
 });
 
+// ============================================
+// WORKER-SPECIFIC ENDPOINTS
+// ============================================
+
+// Get worker's own profile
+router.get('/worker/profile', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    
+    // Find the VA profile linked to this user
+    const profile = await db.select().from(vaProfiles).where(eq(vaProfiles.userId, user.id)).limit(1);
+    
+    if (profile.length === 0) {
+      return res.status(404).json({ error: 'Worker profile not found' });
+    }
+
+    res.json(profile[0]);
+  } catch (error) {
+    console.error('Error fetching worker profile:', error);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
+// Get worker's assigned tasks
+router.get('/worker/tasks', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    
+    // Find the VA profile linked to this user
+    const profile = await db.select().from(vaProfiles).where(eq(vaProfiles.userId, user.id)).limit(1);
+    
+    if (profile.length === 0) {
+      // User is not a worker, return empty tasks
+      return res.json({ tasks: [] });
+    }
+    
+    const vaId = profile[0].id;
+    
+    // Get all assignments for this worker
+    const assignments = await db.select().from(taskAssignments).where(eq(taskAssignments.vaId, vaId));
+    
+    // For now, return mock task data based on assignments
+    // In production, this would fetch from Trello or cached tasks
+    const tasks = assignments.map((a: typeof assignments[0]) => ({
+      id: a.taskId,
+      title: `Task ${a.taskId.split(':').pop()}`,
+      cardName: 'Project Card',
+      durationHours: 1,
+      startTime: '09:00',
+      endTime: '10:00',
+      isCompleted: a.status === 'completed',
+      priorityLevel: 'NORMAL',
+      date: new Date().toISOString().split('T')[0],
+      status: a.status,
+    }));
+
+    res.json({ tasks });
+  } catch (error) {
+    console.error('Error fetching worker tasks:', error);
+    res.status(500).json({ error: 'Failed to fetch tasks' });
+  }
+});
+
+// Mark task as complete/incomplete
+router.post('/worker/tasks/:taskId/complete', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { taskId } = req.params;
+    const { completed } = req.body;
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    
+    // Find the VA profile linked to this user
+    const profile = await db.select().from(vaProfiles).where(eq(vaProfiles.userId, user.id)).limit(1);
+    
+    if (profile.length === 0) {
+      return res.status(403).json({ error: 'Not a worker' });
+    }
+    
+    const vaId = profile[0].id;
+    
+    // Update the assignment status
+    await db.update(taskAssignments)
+      .set({ status: completed ? 'completed' : 'in_progress' })
+      .where(and(eq(taskAssignments.taskId, decodeURIComponent(taskId)), eq(taskAssignments.vaId, vaId)));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating task:', error);
+    res.status(500).json({ error: 'Failed to update task' });
+  }
+});
+
+// Submit task for review
+router.post('/worker/tasks/:taskId/review', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { taskId } = req.params;
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    
+    // Find the VA profile linked to this user
+    const profile = await db.select().from(vaProfiles).where(eq(vaProfiles.userId, user.id)).limit(1);
+    
+    if (profile.length === 0) {
+      return res.status(403).json({ error: 'Not a worker' });
+    }
+    
+    const vaId = profile[0].id;
+    
+    // Update the assignment status to ready_for_review
+    await db.update(taskAssignments)
+      .set({ status: 'ready_for_review' })
+      .where(and(eq(taskAssignments.taskId, decodeURIComponent(taskId)), eq(taskAssignments.vaId, vaId)));
+    
+    // Also add to review queue
+    const assignment = await db.select().from(taskAssignments)
+      .where(and(eq(taskAssignments.taskId, decodeURIComponent(taskId)), eq(taskAssignments.vaId, vaId)))
+      .limit(1);
+    
+    if (assignment.length > 0) {
+      await db.insert(reviewQueue).values({
+        taskId: decodeURIComponent(taskId),
+        vaId,
+        founderId: assignment[0].founderId,
+        status: 'pending_review',
+        revisionCount: 0,
+      });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error submitting for review:', error);
+    res.status(500).json({ error: 'Failed to submit for review' });
+  }
+});
+
 export default router;

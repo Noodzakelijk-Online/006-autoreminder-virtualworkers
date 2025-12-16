@@ -304,7 +304,7 @@
 - [x] Create founder dashboard showing all VAs' workloads side-by-side
 - [x] Add load balancing suggestions when one VA is overloaded
 - [x] Filter tasks by assigned VA
-- [ ] VA-specific login showing only their tasks
+- [x] VA-specific login showing only their tasks (Worker Dashboard at /worker)
 
 ### 2. Task Dependencies & Blocking
 - [x] Add dependency field to tasks (blocked_by, blocks)
@@ -378,3 +378,25 @@
 - [x] Create worker settings/edit dialog with full configuration
 - [x] Update backend to save/retrieve worker-specific working hours
 - [ ] Use worker's working hours in scheduling algorithm (future enhancement)
+
+## Worker-Specific Scheduling Integration (Dec 16, 2025)
+- [ ] Update scheduling algorithm to fetch worker's working hours
+- [ ] Apply worker's work start/end times instead of global settings
+- [ ] Integrate worker's meal breaks into scheduling (skip lunch/breakfast/dinner times)
+- [ ] Calculate available work hours per worker per day
+- [ ] Test scheduling with different worker configurations
+
+## Working Days Selector (Dec 16, 2025)
+- [ ] Add working days UI selector in Add Worker dialog
+- [ ] Add working days UI selector in Edit Worker dialog
+- [ ] Store working days as comma-separated values (e.g., "1,2,3,4,5")
+- [ ] Update scheduling to skip non-working days for each worker
+- [ ] Test scheduling respects worker-specific working days
+
+## Worker-Specific Login (Dec 16, 2025)
+- [ ] Create worker login page separate from founder login
+- [ ] Link worker profile to user account (userId field)
+- [ ] Filter tasks to show only assigned tasks for logged-in worker
+- [ ] Create worker dashboard view (simplified, task-focused)
+- [ ] Add role-based access control (founder vs worker)
+- [ ] Test worker login flow and task visibility

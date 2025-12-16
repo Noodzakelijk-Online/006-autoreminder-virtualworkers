@@ -26,7 +26,11 @@ interface SchedulingOptions {
   workingDays: number[];
   holidays: string[];
   lunchBreakStart?: number;  // e.g., 12
-  lunchBreakEnd?: number;    // e.g., 13
+  lunchBreakDuration?: number; // minutes (e.g., 60)
+  breakfastBreakStart?: number; // e.g., 9 (optional)
+  breakfastBreakDuration?: number; // minutes (e.g., 30)
+  dinnerBreakStart?: number; // e.g., 18 (optional)
+  dinnerBreakDuration?: number; // minutes (e.g., 30)
   shortBreakInterval?: number; // minutes between short breaks
   shortBreakDuration?: number; // minutes for short breaks
 }
@@ -47,7 +51,18 @@ function scheduleTasksByTime(
   
   // Break settings (defaults)
   const LUNCH_START = options?.lunchBreakStart ?? 12;
-  const LUNCH_END = options?.lunchBreakEnd ?? 13;
+  const LUNCH_DURATION = options?.lunchBreakDuration ?? 60; // minutes
+  const LUNCH_END = LUNCH_START + Math.floor(LUNCH_DURATION / 60); // Calculate end hour
+  const LUNCH_END_MINUTE = LUNCH_DURATION % 60;
+  
+  // Optional breakfast break
+  const BREAKFAST_START = options?.breakfastBreakStart;
+  const BREAKFAST_DURATION = options?.breakfastBreakDuration ?? 0;
+  
+  // Optional dinner break
+  const DINNER_START = options?.dinnerBreakStart;
+  const DINNER_DURATION = options?.dinnerBreakDuration ?? 0;
+  
   const SHORT_BREAK_INTERVAL = options?.shortBreakInterval ?? 90; // 90 minutes
   const SHORT_BREAK_DURATION = options?.shortBreakDuration ?? 10; // 10 minutes
 
@@ -121,7 +136,51 @@ function scheduleTasksByTime(
     // Helper to check if time is during lunch
     const isDuringLunch = (h: number, m: number) => {
       const mins = toMinutes(h, m);
-      return mins >= toMinutes(LUNCH_START, 0) && mins < toMinutes(LUNCH_END, 0);
+      const lunchEndMins = toMinutes(LUNCH_START, 0) + LUNCH_DURATION;
+      return mins >= toMinutes(LUNCH_START, 0) && mins < lunchEndMins;
+    };
+    
+    // Helper to check if time is during breakfast
+    const isDuringBreakfast = (h: number, m: number) => {
+      if (!BREAKFAST_START || !BREAKFAST_DURATION) return false;
+      const mins = toMinutes(h, m);
+      const breakfastEndMins = toMinutes(BREAKFAST_START, 0) + BREAKFAST_DURATION;
+      return mins >= toMinutes(BREAKFAST_START, 0) && mins < breakfastEndMins;
+    };
+    
+    // Helper to check if time is during dinner
+    const isDuringDinner = (h: number, m: number) => {
+      if (!DINNER_START || !DINNER_DURATION) return false;
+      const mins = toMinutes(h, m);
+      const dinnerEndMins = toMinutes(DINNER_START, 0) + DINNER_DURATION;
+      return mins >= toMinutes(DINNER_START, 0) && mins < dinnerEndMins;
+    };
+    
+    // Helper to check if time is during any meal break
+    const isDuringMealBreak = (h: number, m: number) => {
+      return isDuringLunch(h, m) || isDuringBreakfast(h, m) || isDuringDinner(h, m);
+    };
+    
+    // Helper to skip past any active meal break
+    const skipMealBreak = () => {
+      if (isDuringBreakfast(currentHour, currentMinute) && BREAKFAST_START) {
+        const breakfastEndMins = toMinutes(BREAKFAST_START, 0) + BREAKFAST_DURATION;
+        currentHour = Math.floor(breakfastEndMins / 60);
+        currentMinute = breakfastEndMins % 60;
+        minutesSinceBreak = 0;
+      }
+      if (isDuringLunch(currentHour, currentMinute)) {
+        const lunchEndMins = toMinutes(LUNCH_START, 0) + LUNCH_DURATION;
+        currentHour = Math.floor(lunchEndMins / 60);
+        currentMinute = lunchEndMins % 60;
+        minutesSinceBreak = 0;
+      }
+      if (isDuringDinner(currentHour, currentMinute) && DINNER_START) {
+        const dinnerEndMins = toMinutes(DINNER_START, 0) + DINNER_DURATION;
+        currentHour = Math.floor(dinnerEndMins / 60);
+        currentMinute = dinnerEndMins % 60;
+        minutesSinceBreak = 0;
+      }
     };
 
     for (const task of sortedTasks) {
@@ -136,12 +195,8 @@ function scheduleTasksByTime(
         continue;
       }
 
-      // Skip lunch break if we're about to enter it
-      if (isDuringLunch(currentHour, currentMinute)) {
-        currentHour = LUNCH_END;
-        currentMinute = 0;
-        minutesSinceBreak = 0;
-      }
+      // Skip any meal break if we're about to enter it
+      skipMealBreak();
       
       // Add short break if needed (every 90 minutes of work)
       if (minutesSinceBreak >= SHORT_BREAK_INTERVAL) {
@@ -152,11 +207,8 @@ function scheduleTasksByTime(
         }
         minutesSinceBreak = 0;
         
-        // Skip lunch if break pushed us into it
-        if (isDuringLunch(currentHour, currentMinute)) {
-          currentHour = LUNCH_END;
-          currentMinute = 0;
-        }
+        // Skip any meal break if short break pushed us into it
+        skipMealBreak();
       }
 
       // Calculate end time
@@ -173,20 +225,31 @@ function scheduleTasksByTime(
       // Check if task spans lunch - if so, push start to after lunch
       const startMins = toMinutes(currentHour, currentMinute);
       const endMins = toMinutes(endHour, endMinute);
-      const lunchStartMins = toMinutes(LUNCH_START, 0);
-      const lunchEndMins = toMinutes(LUNCH_END, 0);
       
-      if (startMins < lunchStartMins && endMins > lunchStartMins) {
-        // Task would span lunch, push to after lunch
-        currentHour = LUNCH_END;
-        currentMinute = 0;
-        endHour = LUNCH_END;
-        endMinute = durationMinutes;
-        if (endMinute >= 60) {
-          endHour += Math.floor(endMinute / 60);
-          endMinute = endMinute % 60;
+      // Check if task spans any meal break and push to after if needed
+      const checkAndPushPastMealBreak = (breakStart: number | undefined, breakDuration: number) => {
+        if (!breakStart || !breakDuration) return false;
+        const breakStartMins = toMinutes(breakStart, 0);
+        const breakEndMins = breakStartMins + breakDuration;
+        if (startMins < breakStartMins && endMins > breakStartMins) {
+          // Task would span this break, push to after
+          currentHour = Math.floor(breakEndMins / 60);
+          currentMinute = breakEndMins % 60;
+          endHour = currentHour;
+          endMinute = currentMinute + durationMinutes;
+          if (endMinute >= 60) {
+            endHour += Math.floor(endMinute / 60);
+            endMinute = endMinute % 60;
+          }
+          return true;
         }
-      }
+        return false;
+      };
+      
+      // Check breakfast, lunch, and dinner breaks
+      checkAndPushPastMealBreak(BREAKFAST_START, BREAKFAST_DURATION);
+      checkAndPushPastMealBreak(LUNCH_START, LUNCH_DURATION);
+      checkAndPushPastMealBreak(DINNER_START, DINNER_DURATION);
 
       // Check if task fits in working hours
       if (endHour > WORK_END_HOUR || (endHour === WORK_END_HOUR && endMinute > 0)) {
@@ -820,6 +883,7 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     let workEndHour = 18;
     let workingDays = [1, 2, 3, 4, 5]; // Default: Mon-Fri
     let userHolidays: string[] = [];
+    const schedulingOptions: Partial<SchedulingOptions> = {};
     
     if (req.user) {
       try {
@@ -837,6 +901,26 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
               .split(',')
               .filter(d => d)
               .map(d => parseInt(d));
+            
+            // Get meal break settings (times are stored as HH:MM strings)
+            const parseTimeToHour = (timeStr: string | null): number | undefined => {
+              if (!timeStr) return undefined;
+              const parts = timeStr.split(':');
+              return parseInt(parts[0], 10);
+            };
+            
+            if (settings[0].lunchTime) {
+              schedulingOptions.lunchBreakStart = parseTimeToHour(settings[0].lunchTime);
+              schedulingOptions.lunchBreakDuration = settings[0].lunchDuration || 60;
+            }
+            if (settings[0].breakfastTime) {
+              schedulingOptions.breakfastBreakStart = parseTimeToHour(settings[0].breakfastTime);
+              schedulingOptions.breakfastBreakDuration = settings[0].breakfastDuration || 30;
+            }
+            if (settings[0].dinnerTime) {
+              schedulingOptions.dinnerBreakStart = parseTimeToHour(settings[0].dinnerTime);
+              schedulingOptions.dinnerBreakDuration = settings[0].dinnerDuration || 30;
+            }
           }
 
           // Fetch active holidays
@@ -854,8 +938,8 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
       }
     }
     
-    // Schedule tasks with proper time slots
-    const scheduledTasks = scheduleTasksByTime(tasks, workStartHour, workEndHour, workingDays, userHolidays);
+    // Schedule tasks with proper time slots (including meal break options)
+    const scheduledTasks = scheduleTasksByTime(tasks, workStartHour, workEndHour, workingDays, userHolidays, schedulingOptions);
     
     // Get user's timezone for client-side conversion
     let userTimezone = 'UTC';

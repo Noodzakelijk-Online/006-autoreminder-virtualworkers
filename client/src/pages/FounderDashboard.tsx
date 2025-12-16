@@ -661,6 +661,33 @@ export default function FounderDashboard() {
                         </Select>
                       </div>
                     </div>
+                    
+                    {/* Working Days */}
+                    <div className="mt-4">
+                      <Label className="mb-2 block">Working Days</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => {
+                          const days = newWorker.workingDays.split(',').filter(d => d).map(d => parseInt(d));
+                          const isSelected = days.includes(index);
+                          return (
+                            <Button
+                              key={day}
+                              type="button"
+                              variant={isSelected ? 'default' : 'outline'}
+                              size="sm"
+                              onClick={() => {
+                                const newDays = isSelected
+                                  ? days.filter(d => d !== index)
+                                  : [...days, index].sort();
+                                setNewWorker({ ...newWorker, workingDays: newDays.join(',') });
+                              }}
+                            >
+                              {day}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Meal Times Section */}
@@ -1558,6 +1585,33 @@ export default function FounderDashboard() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                </div>
+                
+                {/* Working Days */}
+                <div className="mt-4">
+                  <Label className="mb-2 block">Working Days</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, index) => {
+                      const days = (editingWorker.workingDays || '1,2,3,4,5').split(',').filter(d => d).map(d => parseInt(d));
+                      const isSelected = days.includes(index);
+                      return (
+                        <Button
+                          key={day}
+                          type="button"
+                          variant={isSelected ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => {
+                            const newDays = isSelected
+                              ? days.filter(d => d !== index)
+                              : [...days, index].sort();
+                            setEditingWorker({ ...editingWorker, workingDays: newDays.join(',') });
+                          }}
+                        >
+                          {day}
+                        </Button>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
