@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Timeline } from "@/components/Timeline";
 import { StatsPanel } from "@/components/StatsPanel";
@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useWebSocket } from "@/hooks/useWebSocket";
+import { MobileNav } from "@/components/MobileNav";
 
 // No longer using mock data - fetch from Trello API
 
@@ -38,6 +39,19 @@ export default function Home() {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
+  // Filter tasks based on search query
+  const filteredTasks = useMemo(() => {
+    if (!searchQuery.trim()) return tasks;
+    const query = searchQuery.toLowerCase();
+    return tasks.filter(task => 
+      task.description?.toLowerCase().includes(query) ||
+      task.cardName?.toLowerCase().includes(query) ||
+      (task.isPriority ? 'priority high' : '').toLowerCase().includes(query)
+    );
+  }, [tasks, searchQuery]);
   const rescheduleMutation = trpc.trello.reschedule.useMutation({
     onSuccess: (data) => {
       toast.success(`Rescheduling complete! ${data.tasksCount} tasks updated.`);
@@ -199,7 +213,22 @@ export default function Home() {
             {/* Search - hidden on mobile */}
             <div className="relative hidden lg:block">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input placeholder="Search tasks..." className="pl-9 w-64 bg-secondary/50 border-none" />
+              <Input 
+                placeholder="Search tasks..." 
+                className="pl-9 w-64 bg-secondary/50 border-none" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="absolute right-1 top-1 h-6 w-6"
+                  onClick={() => setSearchQuery('')}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
             </div>
             
             {/* Desktop navigation */}
@@ -216,8 +245,11 @@ export default function Home() {
               </Link>
             </div>
             
+            {/* Mobile menu button */}
+            <MobileNav user={user} onLogout={logout} />
+            
             {/* Bell notification - visible on all screens */}
-            <Button variant="ghost" size="icon" className="relative" title={wsStatus.connected ? 'Real-time updates connected' : 'Real-time updates disconnected'}>
+            <Button variant="ghost" size="icon" className="relative hidden md:flex" title={wsStatus.connected ? 'Real-time updates connected' : 'Real-time updates disconnected'}>
               <Bell className="h-5 w-5" />
               <span className={`absolute top-2 right-2 h-2 w-2 rounded-full ${wsStatus.connected ? 'bg-green-500' : 'bg-gray-400'}`} />
             </Button>
@@ -350,8 +382,23 @@ export default function Home() {
                   </div>
                 </div>
                 
+                {/* Search results info */}
+                {searchQuery && (
+                  <div className="mb-4 p-3 bg-secondary/50 rounded-lg flex items-center justify-between">
+                    <span className="text-sm">
+                      {filteredTasks.length === 0 
+                        ? `No tasks found for "${searchQuery}"`
+                        : `Found ${filteredTasks.length} task${filteredTasks.length === 1 ? '' : 's'} matching "${searchQuery}"`
+                      }
+                    </span>
+                    <Button variant="ghost" size="sm" onClick={() => setSearchQuery('')}>
+                      Clear search
+                    </Button>
+                  </div>
+                )}
+                
                 <Timeline 
-                  tasks={tasks} 
+                  tasks={filteredTasks} 
                   onToggleTask={handleToggleTask} 
                   isLoading={isLoadingTasks}
                   onRefresh={() => window.location.reload()}

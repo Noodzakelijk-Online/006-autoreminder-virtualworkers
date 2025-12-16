@@ -11,6 +11,7 @@ import { fetchWithRetry } from '../utils/retry';
 import { getCachedTasks, setCachedTasks, invalidateCache } from '../services/trello-cache';
 import { requestQueue } from '../services/request-queue';
 import { websocketService } from '../services/websocket';
+import { parseAPTLSSItem, parseAPTLSSChecklist } from '../utils/aptlss-parser';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -18,13 +19,37 @@ const __dirname = path.dirname(__filename);
 
 const router = Router();
 
-// Task scheduling algorithm
-function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHour: number = 18, workingDays: number[] = [1, 2, 3, 4, 5], userHolidays: string[] = []) {
+// Enhanced task scheduling algorithm with break times and task type optimization
+interface SchedulingOptions {
+  workStartHour: number;
+  workEndHour: number;
+  workingDays: number[];
+  holidays: string[];
+  lunchBreakStart?: number;  // e.g., 12
+  lunchBreakEnd?: number;    // e.g., 13
+  shortBreakInterval?: number; // minutes between short breaks
+  shortBreakDuration?: number; // minutes for short breaks
+}
+
+function scheduleTasksByTime(
+  tasks: any[], 
+  workStartHour: number = 9, 
+  workEndHour: number = 18, 
+  workingDays: number[] = [1, 2, 3, 4, 5], 
+  userHolidays: string[] = [],
+  options?: Partial<SchedulingOptions>
+) {
   // Working hours configurable per user
   const WORK_START_HOUR = workStartHour;
   const WORK_END_HOUR = workEndHour;
   const MAX_HOURS_PER_DAY = WORK_END_HOUR - WORK_START_HOUR;
   const WORKING_DAYS = new Set(workingDays); // Convert to Set for faster lookup
+  
+  // Break settings (defaults)
+  const LUNCH_START = options?.lunchBreakStart ?? 12;
+  const LUNCH_END = options?.lunchBreakEnd ?? 13;
+  const SHORT_BREAK_INTERVAL = options?.shortBreakInterval ?? 90; // 90 minutes
+  const SHORT_BREAK_DURATION = options?.shortBreakDuration ?? 10; // 10 minutes
 
   // Group tasks by date and card
   const tasksByDate = new Map<string, any[]>();
@@ -60,21 +85,44 @@ function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHou
       }
       continue;
     }
-    // Sort by priority and step index
+    // Enhanced sorting: priority, then task type optimization, then card grouping
     const sortedTasks = dayTasks.sort((a: any, b: any) => {
       // Priority order: CRITICAL > URGENT > HIGH > NORMAL
-      const priorityOrder = { CRITICAL: 0, URGENT: 1, HIGH: 2, NORMAL: 3 };
-      const priorityDiff = priorityOrder[a.priorityLevel as keyof typeof priorityOrder] - 
-                          priorityOrder[b.priorityLevel as keyof typeof priorityOrder];
+      const priorityOrder: Record<string, number> = { CRITICAL: 0, URGENT: 1, HIGH: 2, NORMAL: 3 };
+      const priorityDiff = (priorityOrder[a.priorityLevel] ?? 3) - (priorityOrder[b.priorityLevel] ?? 3);
       if (priorityDiff !== 0) return priorityDiff;
       
-      // If same priority, sort by card name then step index (to keep steps together)
+      // Task type optimization: schedule communication tasks early, creative tasks mid-day
+      const taskTypeOrder: Record<string, number> = {
+        communication: 1, // Early morning - clear inbox
+        admin: 2,         // Morning - routine tasks
+        meeting: 3,       // Mid-morning
+        creation: 4,      // Late morning/afternoon - peak focus
+        research: 5,      // Afternoon
+        review: 6,        // End of day
+        other: 4
+      };
+      const typeA = taskTypeOrder[a.taskType] ?? 4;
+      const typeB = taskTypeOrder[b.taskType] ?? 4;
+      if (typeA !== typeB) return typeA - typeB;
+      
+      // If same priority and type, sort by card name then step index (to keep steps together)
       if (a.cardName !== b.cardName) return a.cardName.localeCompare(b.cardName);
       return a.stepIndex - b.stepIndex;
     });
 
     let currentHour = WORK_START_HOUR;
     let currentMinute = 0;
+    let minutesSinceBreak = 0;
+
+    // Helper to convert hour:minute to total minutes
+    const toMinutes = (h: number, m: number) => h * 60 + m;
+    
+    // Helper to check if time is during lunch
+    const isDuringLunch = (h: number, m: number) => {
+      const mins = toMinutes(h, m);
+      return mins >= toMinutes(LUNCH_START, 0) && mins < toMinutes(LUNCH_END, 0);
+    };
 
     for (const task of sortedTasks) {
       // Skip if already completed
@@ -82,9 +130,33 @@ function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHou
         scheduledTasks.push({
           ...task,
           startTime: '--:--',
-          endTime: '--:--'
+          endTime: '--:--',
+          schedulingNote: 'Completed'
         });
         continue;
+      }
+
+      // Skip lunch break if we're about to enter it
+      if (isDuringLunch(currentHour, currentMinute)) {
+        currentHour = LUNCH_END;
+        currentMinute = 0;
+        minutesSinceBreak = 0;
+      }
+      
+      // Add short break if needed (every 90 minutes of work)
+      if (minutesSinceBreak >= SHORT_BREAK_INTERVAL) {
+        currentMinute += SHORT_BREAK_DURATION;
+        if (currentMinute >= 60) {
+          currentHour += Math.floor(currentMinute / 60);
+          currentMinute = currentMinute % 60;
+        }
+        minutesSinceBreak = 0;
+        
+        // Skip lunch if break pushed us into it
+        if (isDuringLunch(currentHour, currentMinute)) {
+          currentHour = LUNCH_END;
+          currentMinute = 0;
+        }
       }
 
       // Calculate end time
@@ -97,15 +169,34 @@ function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHou
         endHour += Math.floor(endMinute / 60);
         endMinute = endMinute % 60;
       }
+      
+      // Check if task spans lunch - if so, push start to after lunch
+      const startMins = toMinutes(currentHour, currentMinute);
+      const endMins = toMinutes(endHour, endMinute);
+      const lunchStartMins = toMinutes(LUNCH_START, 0);
+      const lunchEndMins = toMinutes(LUNCH_END, 0);
+      
+      if (startMins < lunchStartMins && endMins > lunchStartMins) {
+        // Task would span lunch, push to after lunch
+        currentHour = LUNCH_END;
+        currentMinute = 0;
+        endHour = LUNCH_END;
+        endMinute = durationMinutes;
+        if (endMinute >= 60) {
+          endHour += Math.floor(endMinute / 60);
+          endMinute = endMinute % 60;
+        }
+      }
 
       // Check if task fits in working hours
       if (endHour > WORK_END_HOUR || (endHour === WORK_END_HOUR && endMinute > 0)) {
-        // Task doesn't fit, mark as unscheduled
+        // Task doesn't fit, mark as unscheduled with reason
         scheduledTasks.push({
           ...task,
           startTime: 'TBD',
           endTime: 'TBD',
-          overbooked: true
+          overbooked: true,
+          schedulingNote: 'Exceeds daily capacity'
         });
         continue;
       }
@@ -117,10 +208,12 @@ function scheduleTasksByTime(tasks: any[], workStartHour: number = 9, workEndHou
       scheduledTasks.push({
         ...task,
         startTime,
-        endTime
+        endTime,
+        schedulingNote: task.durationConfidence === 'low' ? 'Duration estimated' : undefined
       });
 
-      // Move to next time slot
+      // Move to next time slot and track time since break
+      minutesSinceBreak += durationMinutes;
       currentHour = endHour;
       currentMinute = endMinute;
     }
@@ -670,19 +763,25 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
         );
 
         if (aptlssChecklist && aptlssChecklist.checkItems) {
-          // Convert checklist items to tasks
-          aptlssChecklist.checkItems.forEach((item: any, index: number) => {
-            // Parse step description for time and date
-            const timeMatch = item.name.match(/(\d+)\s*(mins?|hours?)/i);
-            const durationHours = timeMatch 
-              ? (timeMatch[2].toLowerCase().startsWith('min') 
-                ? parseInt(timeMatch[1]) / 60 
-                : parseInt(timeMatch[1]))
-              : 1;
-
-            const dateMatch = item.name.match(/due:\s*([^|]+)/i);
-            const dueDate = dateMatch ? dateMatch[1].trim() : new Date().toLocaleDateString();
-
+          // Get card due date if available
+          const cardDueDate = card.due ? new Date(card.due).toISOString().split('T')[0] : undefined;
+          const cardLabels = card.labels?.map((l: any) => l.name.toLowerCase()) || [];
+          
+          // Use enhanced APTLSS parser for better accuracy
+          const parsedItems = parseAPTLSSChecklist(
+            aptlssChecklist.checkItems,
+            cardDueDate,
+            cardLabels
+          );
+          
+          parsedItems.forEach((parsed, index) => {
+            const item = parsed.originalItem;
+            
+            // Determine priority level from card labels
+            const priorityLevel = cardLabels.some((l: string) => l.includes('critical')) ? 'CRITICAL' :
+                                 cardLabels.some((l: string) => l.includes('urgent')) ? 'URGENT' :
+                                 cardLabels.some((l: string) => l.includes('high')) ? 'HIGH' : 'NORMAL';
+            
             tasks.push({
               id: `${card.id}_${item.id}`,
               cardId: card.id,
@@ -690,19 +789,25 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
               checklistId: aptlssChecklist.id,
               checkItemId: item.id,
               stepIndex: index,
-              description: item.name,
-              durationHours,
+              description: parsed.cleanDescription || parsed.description,
+              fullDescription: parsed.description,
+              durationHours: parsed.durationHours,
+              durationConfidence: parsed.durationConfidence,
               startTime: '09:00',
               endTime: '10:00',
-              date: dueDate,
+              date: parsed.dueDate || new Date().toISOString().split('T')[0],
+              dateSource: parsed.dateSource,
               isCompleted: item.state === 'complete',
               isArchived: false,
-              isBlocker: item.name.toLowerCase().includes('blocker'),
-              isPriority: card.labels?.some((l: any) => l.name.toLowerCase().includes('priority')),
-              priorityLevel: card.labels?.some((l: any) => l.name.toLowerCase().includes('critical')) ? 'CRITICAL' :
-                           card.labels?.some((l: any) => l.name.toLowerCase().includes('urgent')) ? 'URGENT' :
-                           card.labels?.some((l: any) => l.name.toLowerCase().includes('high')) ? 'HIGH' : 'NORMAL',
-              hasDutch: item.name.toLowerCase().includes('dutch') || item.name.toLowerCase().includes('nederlands'),
+              isBlocker: parsed.isBlocker,
+              isPriority: cardLabels.some((l: string) => l.includes('priority')),
+              priorityLevel,
+              taskType: parsed.taskType,
+              complexity: parsed.complexity,
+              dependencies: parsed.dependencies,
+              hasExternalDependency: parsed.hasExternalDependency,
+              keywords: parsed.keywords,
+              hasDutch: parsed.description.toLowerCase().includes('dutch') || parsed.description.toLowerCase().includes('nederlands'),
               attachments: []
             });
           });

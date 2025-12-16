@@ -219,3 +219,52 @@
 - [x] Implement notification bell (shows WebSocket status)
 - [x] Add mobile responsive breakpoints
 - [ ] Add collapsible navigation for mobile (future enhancement)
+
+## Functional Search Bar (Dec 16, 2025)
+- [ ] Add search state to Home component
+- [ ] Filter tasks by title as user types
+- [ ] Filter tasks by card name
+- [ ] Filter tasks by priority
+- [ ] Show "No results" message when search has no matches
+- [ ] Add clear search button
+- [ ] Debounce search input for performance
+
+## Mobile Hamburger Menu (Dec 16, 2025)
+- [ ] Create MobileNav component with slide-out drawer
+- [ ] Add hamburger menu button visible only on mobile
+- [ ] Include all navigation items in drawer (Dashboard, APTLSS, Settings)
+- [ ] Add user info and logout in drawer
+- [ ] Add backdrop overlay when drawer is open
+- [ ] Implement smooth slide animation
+- [ ] Close drawer on navigation or outside click
+
+## APTLSS Logic Enhancements (Dec 16, 2025)
+
+### Step Identification Accuracy
+- [x] Analyze current APTLSS checklist parsing logic
+- [x] Improve regex patterns for extracting task steps
+- [x] Handle multi-line task descriptions
+- [x] Parse sub-tasks and nested items correctly
+- [x] Identify task dependencies from description
+
+### Time Allocation Accuracy
+- [x] Analyze current time estimation algorithm
+- [x] Implement smarter duration parsing (e.g., "30m", "1.5h", "2 hours", "1h30m", "1-2 hours")
+- [x] Add default time estimates based on task type/category
+- [ ] Learn from historical completion times (future enhancement)
+- [x] Handle time ranges (e.g., "1-2 hours") - averages the range
+- [x] Account for task complexity indicators (simple/medium/complex)
+
+### General APTLSS Improvements
+- [x] Validate APTLSS checklist format
+- [x] Handle edge cases (empty checklists, malformed data)
+- [x] Add confidence scores for parsed data (high/medium/low)
+- [x] Improve error messages for parsing failures
+- [x] Add logging for debugging APTLSS parsing
+
+### Enhanced Scheduling Algorithm
+- [x] Task type optimization (communication early, creative mid-day)
+- [x] Automatic lunch break handling (12-1pm)
+- [x] Short break intervals (every 90 minutes)
+- [x] Scheduling notes for estimated durations
+- [x] 29 unit tests passing
