@@ -19,8 +19,10 @@ import {
   Download,
   RefreshCw,
   Filter,
-  Search
+  Search,
+  ArrowLeft
 } from 'lucide-react';
+import { Link } from 'wouter';
 
 interface TrelloCard {
   id: string;
@@ -451,11 +453,18 @@ export default function APTLSSManagement() {
     <div className="container mx-auto py-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">APTLSS Management</h1>
-          <p className="text-muted-foreground">
-            Select cards and generate APTLSS checklists in bulk
-          </p>
+        <div className="flex items-center gap-4">
+          <Link href="/">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-3xl font-bold">APTLSS Management</h1>
+            <p className="text-muted-foreground">
+              Select cards and generate APTLSS checklists in bulk
+            </p>
+          </div>
         </div>
         <Button onClick={loadBoards} variant="outline" disabled={loading}>
           <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />

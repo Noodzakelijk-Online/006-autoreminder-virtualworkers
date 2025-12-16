@@ -4,7 +4,15 @@ import { Timeline } from "@/components/Timeline";
 import { StatsPanel } from "@/components/StatsPanel";
 import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
 import { Task, WeeklyStats } from "@/types";
-import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo } from "lucide-react";
+import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo, LogOut, User, Menu, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Link } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -29,6 +37,7 @@ export default function Home() {
   });
 
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const rescheduleMutation = trpc.trello.reschedule.useMutation({
     onSuccess: (data) => {
       toast.success(`Rescheduling complete! ${data.tasksCount} tasks updated.`);
@@ -71,6 +80,7 @@ export default function Home() {
   useEffect(() => {
     // Fetch tasks from Trello API
     const fetchTasks = async () => {
+      setIsLoadingTasks(true);
       try {
         const response = await fetch('/api/trello/tasks');
         if (!response.ok) {
@@ -121,6 +131,8 @@ export default function Home() {
         console.error('Error fetching tasks:', error);
         // Fallback to empty state on error
         setTasks([]);
+      } finally {
+        setIsLoadingTasks(false);
       }
     };
     
@@ -183,29 +195,62 @@ export default function Home() {
             </div>
           </div>
           
-          <div className="flex items-center gap-4">
-            <div className="relative hidden md:block">
+          <div className="flex items-center gap-2 md:gap-4">
+            {/* Search - hidden on mobile */}
+            <div className="relative hidden lg:block">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input placeholder="Search tasks..." className="pl-9 w-64 bg-secondary/50 border-none" />
             </div>
-            <Link href="/aptlss">
-              <Button variant="ghost" size="icon" title="APTLSS Management">
-                <ListTodo className="h-5 w-5" />
+            
+            {/* Desktop navigation */}
+            <div className="hidden md:flex items-center gap-2">
+              <Link href="/aptlss">
+                <Button variant="ghost" size="icon" title="APTLSS Management">
+                  <ListTodo className="h-5 w-5" />
+                </Button>
+              </Link>
+              <Link href="/settings">
+                <Button variant="ghost" size="icon" title="Settings">
+                  <Settings className="h-5 w-5" />
               </Button>
-            </Link>
-            <Link href="/settings">
-              <Button variant="ghost" size="icon" title="Settings">
-                <Settings className="h-5 w-5" />
-              </Button>
-            </Link>
+              </Link>
+            </div>
+            
+            {/* Bell notification - visible on all screens */}
             <Button variant="ghost" size="icon" className="relative" title={wsStatus.connected ? 'Real-time updates connected' : 'Real-time updates disconnected'}>
               <Bell className="h-5 w-5" />
               <span className={`absolute top-2 right-2 h-2 w-2 rounded-full ${wsStatus.connected ? 'bg-green-500' : 'bg-gray-400'}`} />
             </Button>
-            <Avatar>
-              <AvatarImage src={user?.email ? `https://www.gravatar.com/avatar/${user.email}?d=mp` : 'https://github.com/shadcn.png'} />
-              <AvatarFallback>{user?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}</AvatarFallback>
-            </Avatar>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                  <Avatar>
+                    <AvatarImage src={user?.email ? `https://www.gravatar.com/avatar/${user.email}?d=mp` : undefined} />
+                    <AvatarFallback>{user?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}</AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56" align="end" forceMount>
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">{user?.name || 'User'}</p>
+                    <p className="text-xs leading-none text-muted-foreground">{user?.email || ''}</p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <Link href="/settings">
+                  <DropdownMenuItem>
+                    <Settings className="mr-2 h-4 w-4" />
+                    <span>Settings</span>
+                  </DropdownMenuItem>
+                </Link>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => logout()} className="text-destructive">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Log out</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </header>
@@ -221,8 +266,10 @@ export default function Home() {
                   {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'}, {user?.name?.split(' ')[0] || 'there'}! {new Date().getHours() < 12 ? '☀️' : new Date().getHours() < 17 ? '🌤️' : '🌙'}
                 </h2>
                 <p className="text-muted-foreground mb-6">
-                  You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining. 
-                  Your focus block starts at 14:00.
+                  You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining.
+                  {tasks.length > 0 && tasks.some(t => !t.isCompleted && t.startTime) && (
+                    <> Your next task starts at {tasks.find(t => !t.isCompleted && t.startTime)?.startTime || 'TBD'}.</>
+                  )}
                 </p>
                 <div className="flex gap-2">
                   <Button 
@@ -254,34 +301,40 @@ export default function Home() {
               <WorkloadHeatmap tasks={tasks} />
             </div>
             
-            <div className="bg-card rounded-xl p-4 border">
-              <h3 className="font-medium mb-4 flex items-center gap-2">
-                <CalendarDays className="h-4 w-4" />
-                Upcoming
-              </h3>
-              <div className="space-y-3">
-                <div className="flex items-center gap-3 text-sm">
-                  <div className="w-12 text-center bg-secondary rounded p-1">
-                    <div className="text-xs uppercase text-muted-foreground">Mon</div>
-                    <div className="font-bold">08</div>
-                  </div>
-                  <div>
-                    <p className="font-medium">Weekly Planning</p>
-                    <p className="text-xs text-muted-foreground">09:00 - 10:00</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 text-sm">
-                  <div className="w-12 text-center bg-secondary rounded p-1">
-                    <div className="text-xs uppercase text-muted-foreground">Tue</div>
-                    <div className="font-bold">09</div>
-                  </div>
-                  <div>
-                    <p className="font-medium">Team Sync</p>
-                    <p className="text-xs text-muted-foreground">14:00 - 15:00</p>
-                  </div>
+            {/* Upcoming Tasks - Dynamic based on actual tasks */}
+            {tasks.filter(t => !t.isCompleted).length > 0 && (
+              <div className="bg-card rounded-xl p-4 border">
+                <h3 className="font-medium mb-4 flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4" />
+                  Upcoming Tasks
+                </h3>
+                <div className="space-y-3">
+                  {tasks.filter(t => !t.isCompleted).slice(0, 3).map((task, index) => {
+                    const today = new Date();
+                    const taskDate = new Date(today);
+                    taskDate.setDate(today.getDate() + index);
+                    return (
+                      <div key={task.id} className="flex items-center gap-3 text-sm">
+                        <div className="w-12 text-center bg-secondary rounded p-1">
+                          <div className="text-xs uppercase text-muted-foreground">
+                            {taskDate.toLocaleDateString('en-US', { weekday: 'short' })}
+                          </div>
+                          <div className="font-bold">
+                            {taskDate.getDate().toString().padStart(2, '0')}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{task.description}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {task.startTime && task.endTime ? `${task.startTime} - ${task.endTime}` : 'Time TBD'}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Main Content - Timeline */}
@@ -297,7 +350,12 @@ export default function Home() {
                   </div>
                 </div>
                 
-                <Timeline tasks={tasks} onToggleTask={handleToggleTask} />
+                <Timeline 
+                  tasks={tasks} 
+                  onToggleTask={handleToggleTask} 
+                  isLoading={isLoadingTasks}
+                  onRefresh={() => window.location.reload()}
+                />
               </div>
             </div>
           </div>

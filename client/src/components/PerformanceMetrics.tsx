@@ -65,7 +65,10 @@ export function PerformanceMetrics() {
       }
     } catch (error) {
       console.error('Error fetching metrics:', error);
-      toast.error('Failed to load performance metrics');
+      // Only show toast on manual refresh, not on auto-refresh or initial load
+      if (showToast) {
+        toast.error('Failed to load performance metrics');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -81,12 +84,38 @@ export function PerformanceMetrics() {
     return () => clearInterval(interval);
   }, []);
 
-  if (loading || !metrics) {
+  // Show loading state only briefly, then show error or content
+  if (loading) {
     return (
       <div className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle>Loading Performance Metrics...</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              Loading Performance Metrics...
+            </CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
+  // Show empty state if metrics failed to load
+  if (!metrics) {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span>Performance Metrics</span>
+              <Button variant="outline" size="sm" onClick={() => fetchMetrics(true)}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry
+              </Button>
+            </CardTitle>
+            <CardDescription>
+              Unable to load performance metrics. This may be due to authentication or server issues.
+            </CardDescription>
           </CardHeader>
         </Card>
       </div>

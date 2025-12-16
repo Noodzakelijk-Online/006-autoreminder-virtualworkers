@@ -167,3 +167,55 @@
 - [x] Test all interactive elements (buttons, links, forms)
 - [x] Fix any console errors or warnings (suppressed auth-related toasts)
 - [x] Improve error messages for better UX (don't show toast for 401 errors)
+
+## Mobile Responsive Design (Dec 16, 2025)
+- [ ] Create responsive breakpoints (sm: 640px, md: 768px, lg: 1024px)
+- [ ] Optimize Home page layout for mobile (stack sidebar below timeline)
+- [ ] Make header responsive with collapsible menu
+- [ ] Optimize Settings page forms for mobile
+- [ ] Optimize APTLSS Management page for mobile
+- [ ] Add touch-friendly button sizes and spacing
+- [ ] Test on various screen sizes
+
+## Loading Skeletons (Dec 16, 2025)
+- [ ] Create TaskSkeleton component for task cards
+- [ ] Create TimelineSkeleton component for workload timeline
+- [ ] Create StatsSkeleton component for weekly progress
+- [ ] Create SettingsSkeleton for settings page
+- [ ] Replace loading spinners with skeleton components
+- [ ] Add smooth fade transition when content loads
+
+## Comprehensive UX Fixes (Dec 16, 2025)
+
+### Home Page Fixes
+- [x] Add empty state message when no tasks ("No tasks scheduled")
+- [x] Remove hardcoded "Weekly Planning" and "Team Sync" from Upcoming section
+- [x] Make Upcoming section show actual tasks or hide when empty
+- [x] Fix static "focus block at 14:00" productivity tip
+- [x] Fix Workload Intensity to show real data or hide
+- [x] Hide WebSocket status when not authenticated
+
+### Loading & Feedback
+- [x] Create TaskSkeleton component
+- [x] Create TimelineSkeleton component
+- [x] Create StatsSkeleton component
+- [x] Add loading states to all async operations
+- [x] Add save confirmation toast to Settings
+
+### Settings Page Fixes
+- [x] Handle Performance Metrics error gracefully
+- [x] Auto-detect user timezone on first load
+- [ ] Add form validation for time inputs (future enhancement)
+
+### APTLSS Management Fixes
+- [x] Add back button to return to dashboard
+- [ ] Add search/filter for workspaces (future enhancement)
+- [x] Add loading spinners to buttons
+- [x] Clarify "0 cards" state
+
+### Navigation & General
+- [x] Make avatar clickable with user menu
+- [x] Add logout option
+- [x] Implement notification bell (shows WebSocket status)
+- [x] Add mobile responsive breakpoints
+- [ ] Add collapsible navigation for mobile (future enhancement)
