@@ -4,7 +4,7 @@ import { Timeline } from "@/components/Timeline";
 import { StatsPanel } from "@/components/StatsPanel";
 import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
 import { Task, WeeklyStats } from "@/types";
-import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo, LogOut, User, Menu, X } from "lucide-react";
+import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo, LogOut, User, Menu, X, Calendar, Users } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -233,9 +233,19 @@ export default function Home() {
             
             {/* Desktop navigation */}
             <div className="hidden md:flex items-center gap-2">
+              <Link href="/calendar">
+                <Button variant="ghost" size="icon" title="Calendar View">
+                  <Calendar className="h-5 w-5" />
+                </Button>
+              </Link>
               <Link href="/aptlss">
                 <Button variant="ghost" size="icon" title="APTLSS Management">
                   <ListTodo className="h-5 w-5" />
+                </Button>
+              </Link>
+              <Link href="/founder">
+                <Button variant="ghost" size="icon" title="VA Management">
+                  <Users className="h-5 w-5" />
                 </Button>
               </Link>
               <Link href="/settings">

@@ -14,6 +14,7 @@ import rescheduleRoutes from "../routes/reschedule.js";
 import cacheRoutes from "../routes/cache.js";
 import queueRoutes from "../routes/queue.js";
 import metricsRoutes from "../routes/metrics.js";
+import vaManagementRoutes from "../routes/va-management.js";
 import { websocketService } from "../services/websocket.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -47,6 +48,8 @@ async function startServer() {
   app.use("/api", aptlssRoutes);
   // Working Hours Settings API
   app.use("/api", workingHoursRoutes);
+  // VA Management API
+  app.use("/api/va", vaManagementRoutes);
   // Holidays API
   app.use("/api/holidays", holidaysRoutes);
   // Reschedule API

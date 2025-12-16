@@ -268,3 +268,98 @@
 - [x] Short break intervals (every 90 minutes)
 - [x] Scheduling notes for estimated durations
 - [x] 29 unit tests passing
+
+## Calendar View (Dec 16, 2025)
+- [ ] Create CalendarView component with month/week toggle
+- [ ] Display tasks on calendar grid by scheduled date/time
+- [ ] Add task cards showing title, duration, and status
+- [ ] Implement day view for detailed hourly schedule
+- [ ] Add navigation between months/weeks
+- [ ] Color-code tasks by priority or card
+- [ ] Show holidays and non-working days
+- [ ] Implement drag-and-drop task rescheduling
+- [ ] Update task dates when dropped on new day
+- [ ] Add visual feedback during drag operations
+- [ ] Sync rescheduled tasks back to scheduling algorithm
+
+## Time Tracking (Dec 16, 2025)
+- [ ] Create time_entries database table
+- [ ] Add start/stop timer API endpoints
+- [ ] Build timer UI component with play/pause/stop
+- [ ] Track actual duration for each task
+- [ ] Store time entries with start/end timestamps
+- [ ] Calculate total time spent per task
+- [ ] Compare actual vs estimated durations
+- [ ] Add time tracking analytics to dashboard
+- [ ] Show accuracy percentage for estimates
+- [ ] Use historical data to improve future estimates
+- [ ] Add manual time entry option
+
+## VA Management Features (Dec 16, 2025)
+
+### 1. VA Assignment & Multi-VA Support
+- [x] Create VA profiles database table (name, email, timezone, skills, hourly rate)
+- [x] Add task assignment field linking tasks to VAs
+- [x] Build VA selector dropdown in task views
+- [x] Create founder dashboard showing all VAs' workloads side-by-side
+- [x] Add load balancing suggestions when one VA is overloaded
+- [x] Filter tasks by assigned VA
+- [ ] VA-specific login showing only their tasks
+
+### 2. Task Dependencies & Blocking
+- [x] Add dependency field to tasks (blocked_by, blocks)
+- [ ] Parse dependency keywords from APTLSS descriptions
+- [ ] Visual dependency chain diagram
+- [ ] Auto-reschedule downstream tasks when blockers slip
+- [x] Flag blocked tasks prominently with blocker info
+- [ ] Prevent starting blocked tasks
+
+### 3. Priority Override by Founder
+- [x] Add founder_priority field (normal, high, urgent, drop_everything)
+- [x] "Do This First" button for founder to override APTLSS priority
+- [ ] Emergency task injection that reshuffles the day
+- [x] Visual indicator for founder-prioritized tasks
+- [ ] Notification to VA when priorities change
+
+### 4. Daily Briefing & End-of-Day Report
+- [x] Morning briefing email template with day's tasks (UI preview)
+- [x] End-of-day summary: completed, incomplete, blockers (UI preview)
+- [ ] Weekly productivity trends per VA
+- [x] Scheduled email sending settings (configurable times)
+- [ ] Include estimated vs actual time comparisons
+
+### 5. Client/Project Context
+- [ ] Extract client name from Trello card/board names
+- [ ] Group tasks by client/project in dashboard
+- [ ] Client priority rankings (VIP clients get faster turnaround)
+- [ ] Show which client is affected by each task
+- [ ] Client workload distribution chart
+
+### 6. Communication Integration
+- [ ] "Ask Founder" button that creates context-rich message
+- [ ] Decision log for "I chose X because Y"
+- [ ] Link field for relevant Slack/WhatsApp threads
+- [x] In-app messaging between founder and VA (Communication Log)
+- [x] Activity feed showing task updates (Communication Log)
+
+### 7. Timezone Awareness
+- [x] Store VA timezone in profile
+- [x] Show overlap windows for real-time collaboration (Timezone Overlap Calculator)
+- [ ] Deadline conversion (client deadline in CET → VA deadline in local TZ)
+- [ ] Display times in both founder and VA timezones
+- [x] Working hours overlap calculator
+
+### 8. Handoff & Continuity
+- [ ] "Where I left off" notes field per task
+- [ ] Auto-brief next VA when shift ends
+- [ ] Incomplete task handover with context
+- [ ] Shift schedule management
+- [ ] Handoff summary generation
+
+### 9. Quality Checkpoints
+- [x] Add review_status field (pending, ready_for_review, approved, needs_revision)
+- [x] Founder review gates before delivery
+- [x] "Ready for Review" status button for VA
+- [x] Quick approve/reject with feedback
+- [x] Review queue for founder
+- [x] Revision history tracking

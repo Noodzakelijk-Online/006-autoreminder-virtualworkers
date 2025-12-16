@@ -175,3 +175,165 @@ export type TrelloCachedBoard = typeof trelloCachedBoards.$inferSelect;
 export type InsertTrelloCachedBoard = typeof trelloCachedBoards.$inferInsert;
 export type TrelloCachedCard = typeof trelloCachedCards.$inferSelect;
 export type InsertTrelloCachedCard = typeof trelloCachedCards.$inferInsert;
+
+// ============================================
+// VA MANAGEMENT TABLES
+// ============================================
+
+// Virtual Assistant profiles
+export const vaProfiles = mysqlTable('va_profiles', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('userId').notNull(), // References users.id (the VA's user account)
+  founderId: int('founderId').notNull(), // References users.id (the founder who manages this VA)
+  name: varchar('name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 320 }),
+  timezone: varchar('timezone', { length: 50 }).notNull().default('Asia/Manila'), // Default to Philippines
+  skills: text('skills'), // JSON array of skills
+  hourlyRate: int('hourlyRate'), // In cents
+  currency: varchar('currency', { length: 3 }).default('USD'),
+  workStartHour: int('workStartHour').notNull().default(9),
+  workEndHour: int('workEndHour').notNull().default(18),
+  workingDays: varchar('workingDays', { length: 50 }).notNull().default('1,2,3,4,5'),
+  status: mysqlEnum('status', ['active', 'inactive', 'on_leave']).default('active').notNull(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Task assignments linking tasks to VAs
+export const taskAssignments = mysqlTable('task_assignments', {
+  id: int('id').primaryKey().autoincrement(),
+  taskId: varchar('taskId', { length: 128 }).notNull(), // Composite: cardId:checklistId:checkItemId
+  vaId: int('vaId').notNull(), // References vaProfiles.id
+  founderId: int('founderId').notNull(), // References users.id
+  assignedAt: timestamp('assignedAt').defaultNow().notNull(),
+  assignedBy: int('assignedBy').notNull(), // References users.id (who assigned)
+  status: mysqlEnum('status', ['assigned', 'in_progress', 'completed', 'blocked', 'ready_for_review']).default('assigned').notNull(),
+  notes: text('notes'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Task dependencies
+export const taskDependencies = mysqlTable('task_dependencies', {
+  id: int('id').primaryKey().autoincrement(),
+  taskId: varchar('taskId', { length: 128 }).notNull(), // The task that is blocked
+  blockedByTaskId: varchar('blockedByTaskId', { length: 128 }).notNull(), // The task that blocks it
+  founderId: int('founderId').notNull(),
+  dependencyType: mysqlEnum('dependencyType', ['finish_to_start', 'start_to_start', 'finish_to_finish']).default('finish_to_start').notNull(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Founder priority overrides
+export const founderPriorityOverrides = mysqlTable('founder_priority_overrides', {
+  id: int('id').primaryKey().autoincrement(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  founderId: int('founderId').notNull(),
+  priority: mysqlEnum('priority', ['normal', 'high', 'urgent', 'drop_everything']).default('normal').notNull(),
+  reason: text('reason'),
+  expiresAt: timestamp('expiresAt'), // Optional expiry for temporary priorities
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Client/Project context
+export const clients = mysqlTable('clients', {
+  id: int('id').primaryKey().autoincrement(),
+  founderId: int('founderId').notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  priority: mysqlEnum('priority', ['standard', 'priority', 'vip']).default('standard').notNull(),
+  trelloBoardIds: text('trelloBoardIds'), // JSON array of associated board IDs
+  contactEmail: varchar('contactEmail', { length: 320 }),
+  notes: text('notes'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Communication/Decision log
+export const communicationLog = mysqlTable('communication_log', {
+  id: int('id').primaryKey().autoincrement(),
+  taskId: varchar('taskId', { length: 128 }),
+  fromUserId: int('fromUserId').notNull(), // VA or Founder
+  toUserId: int('toUserId'), // Can be null for general notes
+  messageType: mysqlEnum('messageType', ['question', 'decision', 'update', 'handoff', 'feedback']).notNull(),
+  message: text('message').notNull(),
+  context: text('context'), // JSON with task context
+  isRead: int('isRead').notNull().default(0),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Daily briefings
+export const dailyBriefings = mysqlTable('daily_briefings', {
+  id: int('id').primaryKey().autoincrement(),
+  vaId: int('vaId').notNull(),
+  founderId: int('founderId').notNull(),
+  briefingDate: varchar('briefingDate', { length: 10 }).notNull(), // YYYY-MM-DD
+  briefingType: mysqlEnum('briefingType', ['morning', 'end_of_day', 'weekly']).notNull(),
+  content: text('content').notNull(), // JSON with briefing data
+  sentAt: timestamp('sentAt'),
+  sentTo: varchar('sentTo', { length: 320 }), // Email address
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Quality checkpoints / Review queue
+export const reviewQueue = mysqlTable('review_queue', {
+  id: int('id').primaryKey().autoincrement(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  vaId: int('vaId').notNull(),
+  founderId: int('founderId').notNull(),
+  status: mysqlEnum('status', ['pending_review', 'approved', 'needs_revision', 'rejected']).default('pending_review').notNull(),
+  submittedAt: timestamp('submittedAt').defaultNow().notNull(),
+  reviewedAt: timestamp('reviewedAt'),
+  feedback: text('feedback'),
+  revisionCount: int('revisionCount').notNull().default(0),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Time tracking entries
+export const timeEntries = mysqlTable('time_entries', {
+  id: int('id').primaryKey().autoincrement(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  vaId: int('vaId').notNull(),
+  founderId: int('founderId').notNull(),
+  startTime: timestamp('startTime').notNull(),
+  endTime: timestamp('endTime'),
+  durationMinutes: int('durationMinutes'), // Calculated when stopped
+  notes: text('notes'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Handoff notes
+export const handoffNotes = mysqlTable('handoff_notes', {
+  id: int('id').primaryKey().autoincrement(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  fromVaId: int('fromVaId').notNull(),
+  toVaId: int('toVaId'),
+  founderId: int('founderId').notNull(),
+  whereLeftOff: text('whereLeftOff').notNull(),
+  nextSteps: text('nextSteps'),
+  blockers: text('blockers'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Export types
+export type VAProfile = typeof vaProfiles.$inferSelect;
+export type InsertVAProfile = typeof vaProfiles.$inferInsert;
+export type TaskAssignment = typeof taskAssignments.$inferSelect;
+export type InsertTaskAssignment = typeof taskAssignments.$inferInsert;
+export type TaskDependency = typeof taskDependencies.$inferSelect;
+export type InsertTaskDependency = typeof taskDependencies.$inferInsert;
+export type FounderPriorityOverride = typeof founderPriorityOverrides.$inferSelect;
+export type InsertFounderPriorityOverride = typeof founderPriorityOverrides.$inferInsert;
+export type Client = typeof clients.$inferSelect;
+export type InsertClient = typeof clients.$inferInsert;
+export type CommunicationLogEntry = typeof communicationLog.$inferSelect;
+export type InsertCommunicationLogEntry = typeof communicationLog.$inferInsert;
+export type DailyBriefing = typeof dailyBriefings.$inferSelect;
+export type InsertDailyBriefing = typeof dailyBriefings.$inferInsert;
+export type ReviewQueueItem = typeof reviewQueue.$inferSelect;
+export type InsertReviewQueueItem = typeof reviewQueue.$inferInsert;
+export type TimeEntry = typeof timeEntries.$inferSelect;
+export type InsertTimeEntry = typeof timeEntries.$inferInsert;
+export type HandoffNote = typeof handoffNotes.$inferSelect;
+export type InsertHandoffNote = typeof handoffNotes.$inferInsert;

@@ -7,6 +7,8 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import APTLSSManagement from "./pages/APTLSSManagement";
 import Settings from "./pages/Settings";
+import Calendar from "./pages/Calendar";
+import FounderDashboard from "./pages/FounderDashboard";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -15,6 +17,8 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path={"/aptlss"} component={APTLSSManagement} />
       <Route path={"/settings"} component={Settings} />
+      <Route path={"/calendar"} component={Calendar} />
+      <Route path={"/founder"} component={FounderDashboard} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
