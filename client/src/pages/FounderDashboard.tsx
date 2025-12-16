@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import DependencyGraph from '@/components/DependencyGraph';
 
 interface VirtualWorker {
   id: number;
@@ -39,6 +40,14 @@ interface VirtualWorker {
   dinnerTime: number | null;
   dinnerDuration: number | null;
   status: 'active' | 'inactive' | 'on_leave';
+  userId: number | null;
+  linkedUserEmail: string | null;
+}
+
+interface SystemUser {
+  id: number;
+  name: string;
+  email: string;
 }
 
 interface WorkloadItem {
@@ -68,6 +77,7 @@ interface TaskAssignment {
   scheduledStart?: string;
   scheduledEnd?: string;
   blockedBy: string[];
+  blocks: string[];
   clientProject?: string;
 }
 
@@ -148,6 +158,12 @@ export default function FounderDashboard() {
   const [briefingTime, setBriefingTime] = useState('08:00');
   const [eodReportEnabled, setEodReportEnabled] = useState(true);
   const [eodReportTime, setEodReportTime] = useState('18:00');
+  
+  // Link user account
+  const [showLinkUser, setShowLinkUser] = useState(false);
+  const [linkingWorker, setLinkingWorker] = useState<VirtualWorker | null>(null);
+  const [availableUsers, setAvailableUsers] = useState<SystemUser[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
 
   useEffect(() => {
     fetchAllData();
@@ -463,6 +479,54 @@ export default function FounderDashboard() {
     }
   };
 
+  const fetchAvailableUsers = async () => {
+    try {
+      const res = await fetch('/api/va/users', {
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableUsers(data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+    }
+  };
+
+  const handleOpenLinkUser = (worker: VirtualWorker) => {
+    setLinkingWorker(worker);
+    setSelectedUserId(worker.userId?.toString() || '');
+    fetchAvailableUsers();
+    setShowLinkUser(true);
+  };
+
+  const handleLinkUser = async () => {
+    if (!linkingWorker) return;
+    
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/va/vas/${linkingWorker.id}/link-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ userId: selectedUserId ? parseInt(selectedUserId) : null }),
+      });
+
+      if (res.ok) {
+        toast.success(selectedUserId ? 'User linked successfully' : 'User unlinked successfully');
+        setShowLinkUser(false);
+        setLinkingWorker(null);
+        fetchWorkload();
+      } else {
+        toast.error('Failed to link user');
+      }
+    } catch (error) {
+      toast.error('Failed to link user');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Filter assignments
   const filteredAssignments = useMemo(() => {
     let filtered = assignments;
@@ -742,7 +806,7 @@ export default function FounderDashboard() {
 
       <main className="container py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 lg:w-auto lg:inline-grid">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-7 lg:w-auto lg:inline-grid">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="assignments">Assignments</TabsTrigger>
             <TabsTrigger value="reviews">
@@ -751,6 +815,7 @@ export default function FounderDashboard() {
                 <Badge className="ml-2 bg-red-500 text-white text-xs">{reviews.filter(r => r.status === 'pending').length}</Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
             <TabsTrigger value="communications">Communications</TabsTrigger>
             <TabsTrigger value="timezones">Timezones</TabsTrigger>
             <TabsTrigger value="briefings">Briefings</TabsTrigger>
@@ -877,6 +942,9 @@ export default function FounderDashboard() {
                               }}>
                                 View Tasks
                               </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleOpenLinkUser(item.worker)}>
+                                {item.worker.userId ? 'Change Linked User' : 'Link User Account'}
+                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => handleUpdateStatus(item.worker.id, 'active')}>
                                 Set Active
@@ -908,6 +976,12 @@ export default function FounderDashboard() {
                             <div className="flex items-center gap-1">
                               <DollarSign className="h-3 w-3" />
                               <span>{(item.worker.hourlyRate / 100).toFixed(0)}/hr</span>
+                            </div>
+                          )}
+                          {item.worker.userId && (
+                            <div className="flex items-center gap-1">
+                              <Users className="h-3 w-3 text-green-500" />
+                              <span className="text-green-600">Account Linked</span>
                             </div>
                           )}
                         </div>
@@ -1244,6 +1318,21 @@ export default function FounderDashboard() {
             </Card>
           </TabsContent>
 
+          {/* Dependencies Tab */}
+          <TabsContent value="dependencies" className="space-y-6">
+            <DependencyGraph
+              tasks={assignments.map(a => ({
+                id: a.id.toString(),
+                title: a.taskTitle,
+                cardName: a.cardName,
+                status: a.status as 'assigned' | 'in_progress' | 'completed' | 'blocked' | 'ready_for_review',
+                blockedBy: a.blockedBy || [],
+                blocks: a.blocks || [],
+              }))}
+              onRefresh={fetchAssignments}
+            />
+          </TabsContent>
+
           {/* Communications Tab */}
           <TabsContent value="communications" className="space-y-6">
             <Card>
@@ -1452,6 +1541,81 @@ export default function FounderDashboard() {
                   <Send className="h-4 w-4 mr-2" />
                   Save Briefing Settings
                 </Button>
+              </CardContent>
+            </Card>
+
+            {/* Send Now Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Send className="h-5 w-5 text-green-500" />
+                  Send Emails Now
+                </CardTitle>
+                <CardDescription>Manually send briefings or reports to workers</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4">
+                  {workload.map(item => (
+                    <div key={item.worker.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div>
+                        <p className="font-medium">{item.worker.name}</p>
+                        <p className="text-sm text-muted-foreground">{item.worker.email || 'No email set'}</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={!item.worker.email}
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`/api/va/email/morning-briefing/${item.worker.id}`, {
+                                method: 'POST',
+                                credentials: 'include',
+                              });
+                              if (res.ok) {
+                                toast.success(`Morning briefing sent to ${item.worker.name}`);
+                              } else {
+                                const data = await res.json();
+                                toast.error(data.error || 'Failed to send briefing');
+                              }
+                            } catch {
+                              toast.error('Failed to send briefing');
+                            }
+                          }}
+                        >
+                          <Mail className="h-4 w-4 mr-1" />
+                          Send Briefing
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`/api/va/email/eod-report/${item.worker.id}`, {
+                                method: 'POST',
+                                credentials: 'include',
+                              });
+                              if (res.ok) {
+                                toast.success(`EOD report for ${item.worker.name} sent to you`);
+                              } else {
+                                const data = await res.json();
+                                toast.error(data.error || 'Failed to send report');
+                              }
+                            } catch {
+                              toast.error('Failed to send report');
+                            }
+                          }}
+                        >
+                          <Calendar className="h-4 w-4 mr-1" />
+                          Send EOD Report
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {workload.length === 0 && (
+                    <p className="text-center text-muted-foreground py-4">Add workers to send emails</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
 
@@ -1744,6 +1908,57 @@ export default function FounderDashboard() {
             <Button onClick={handleSaveWorkerSettings} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Save Settings
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Link User Account Dialog */}
+      <Dialog open={showLinkUser} onOpenChange={setShowLinkUser}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Link User Account</DialogTitle>
+            <CardDescription>
+              Link a system user account to {linkingWorker?.name}'s worker profile. This allows them to access the Worker Dashboard.
+            </CardDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Select User Account</Label>
+              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a user..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">No linked user (unlink)</SelectItem>
+                  {availableUsers.map((user) => (
+                    <SelectItem key={user.id} value={user.id.toString()}>
+                      {user.name} ({user.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {linkingWorker?.userId && (
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm text-muted-foreground">
+                  Currently linked to: <strong>{linkingWorker.linkedUserEmail || 'Unknown'}</strong>
+                </p>
+              </div>
+            )}
+            <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                Once linked, the user can access /worker to see only their assigned tasks.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowLinkUser(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleLinkUser} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {selectedUserId ? 'Link User' : 'Unlink User'}
             </Button>
           </DialogFooter>
         </DialogContent>

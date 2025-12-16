@@ -400,3 +400,30 @@
 - [ ] Create worker dashboard view (simplified, task-focused)
 - [ ] Add role-based access control (founder vs worker)
 - [ ] Test worker login flow and task visibility
+
+## Link User Accounts to Worker Profiles (Dec 16, 2025)
+- [x] Add "Link User Account" button in worker dropdown menu
+- [x] Create dialog to search/select existing users
+- [x] Update vaProfiles.userId when linking
+- [x] Show linked user email in worker card
+- [x] Allow unlinking user from worker profile
+
+## SendGrid Email Notifications (Dec 16, 2025)
+- [x] Install @sendgrid/mail package
+- [x] Request SendGrid API key from user
+- [x] Create email service with SendGrid integration
+- [x] Implement morning briefing email template
+- [x] Implement EOD report email template
+- [ ] Create scheduled job for sending briefings (future enhancement)
+- [x] Add email sending API endpoints
+- [x] Test email delivery (API key validated)
+
+## Task Dependency Visualization (Dec 16, 2025)
+- [x] Create DependencyGraph component
+- [x] Fetch task dependencies from API
+- [x] Render nodes for each task
+- [x] Draw edges for blocked_by/blocks relationships
+- [x] Color-code nodes by status (completed, in-progress, blocked)
+- [x] Add interactive hover to show task details
+- [x] Add zoom and pan controls
+- [x] Integrate into Founder Dashboard (Dependencies tab)

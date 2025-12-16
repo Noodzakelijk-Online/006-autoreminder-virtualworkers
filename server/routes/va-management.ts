@@ -10,9 +10,11 @@ import {
   reviewQueue,
   timeEntries,
   handoffNotes,
-  dailyBriefings
+  dailyBriefings,
+  users
 } from '../../drizzle/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
+import { sendMorningBriefing, sendEODReport, validateSendGridApiKey } from '../services/email';
 
 const router = Router();
 
@@ -149,6 +151,73 @@ router.delete('/vas/:id', async (req: any, res) => {
   } catch (error) {
     console.error('Error deleting VA:', error);
     res.status(500).json({ error: 'Failed to delete VA' });
+  }
+});
+
+// ============================================
+// USER LINKING
+// ============================================
+
+// Get all users for linking
+router.get('/users', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    
+    const allUsers = await db.select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+    }).from(users);
+
+    res.json(allUsers);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Link user account to VA profile
+router.post('/vas/:id/link-user', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const vaId = parseInt(req.params.id);
+    const { userId } = req.body;
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+    
+    // Verify ownership
+    const existing = await db.select().from(vaProfiles).where(
+      and(eq(vaProfiles.id, vaId), eq(vaProfiles.founderId, user.id))
+    );
+    
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'VA not found' });
+    }
+
+    // Update the VA profile with the linked user ID
+    await db.update(vaProfiles)
+      .set({ userId: userId || null })
+      .where(eq(vaProfiles.id, vaId));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error linking user:', error);
+    res.status(500).json({ error: 'Failed to link user' });
   }
 });
 
@@ -1090,6 +1159,183 @@ router.post('/briefing-settings', async (req: any, res) => {
 });
 
 // ============================================
+// EMAIL NOTIFICATIONS
+// ============================================
+
+// Send test email
+router.post('/email/test', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const isValid = await validateSendGridApiKey();
+    if (!isValid) {
+      return res.status(400).json({ error: 'SendGrid API key not configured or invalid' });
+    }
+
+    res.json({ success: true, message: 'SendGrid API key is valid' });
+  } catch (error) {
+    console.error('Error testing email:', error);
+    res.status(500).json({ error: 'Failed to test email' });
+  }
+});
+
+// Send morning briefing to a worker
+router.post('/email/morning-briefing/:workerId', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const workerId = parseInt(req.params.workerId);
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Get worker profile
+    const worker = await db.select().from(vaProfiles).where(
+      and(eq(vaProfiles.id, workerId), eq(vaProfiles.founderId, user.id))
+    ).limit(1);
+
+    if (worker.length === 0) {
+      return res.status(404).json({ error: 'Worker not found' });
+    }
+
+    if (!worker[0].email) {
+      return res.status(400).json({ error: 'Worker has no email address' });
+    }
+
+    // Get worker's tasks for today
+    const assignments = await db.select().from(taskAssignments).where(
+      and(eq(taskAssignments.vaId, workerId), eq(taskAssignments.founderId, user.id))
+    );
+
+    const tasks = assignments.map((a: typeof assignments[0]) => ({
+      title: `Task ${a.taskId.split(':').pop()}`,
+      cardName: 'Project',
+      startTime: '09:00',
+      endTime: '10:00',
+      durationHours: 1,
+      priority: 'normal',
+    }));
+
+    const today = new Date().toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const success = await sendMorningBriefing(worker[0].email, {
+      workerName: worker[0].name,
+      date: today,
+      tasks,
+      totalHours: tasks.reduce((sum: number, t: typeof tasks[0]) => sum + t.durationHours, 0),
+      highPriorityCount: tasks.filter((t: typeof tasks[0]) => ['critical', 'urgent', 'high'].includes(t.priority)).length,
+    });
+
+    if (success) {
+      res.json({ success: true, message: `Morning briefing sent to ${worker[0].email}` });
+    } else {
+      res.status(500).json({ error: 'Failed to send email' });
+    }
+  } catch (error) {
+    console.error('Error sending morning briefing:', error);
+    res.status(500).json({ error: 'Failed to send briefing' });
+  }
+});
+
+// Send EOD report to founder
+router.post('/email/eod-report/:workerId', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const workerId = parseInt(req.params.workerId);
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Get worker profile
+    const worker = await db.select().from(vaProfiles).where(
+      and(eq(vaProfiles.id, workerId), eq(vaProfiles.founderId, user.id))
+    ).limit(1);
+
+    if (worker.length === 0) {
+      return res.status(404).json({ error: 'Worker not found' });
+    }
+
+    // Get worker's tasks
+    const assignments = await db.select().from(taskAssignments).where(
+      and(eq(taskAssignments.vaId, workerId), eq(taskAssignments.founderId, user.id))
+    );
+
+    const completedTasks = assignments.filter((a: typeof assignments[0]) => a.status === 'completed').map((a: typeof assignments[0]) => ({
+      title: `Task ${a.taskId.split(':').pop()}`,
+      cardName: 'Project',
+      durationHours: 1,
+      priority: 'normal',
+    }));
+
+    const incompleteTasks = assignments.filter((a: typeof assignments[0]) => a.status === 'in_progress').map((a: typeof assignments[0]) => ({
+      title: `Task ${a.taskId.split(':').pop()}`,
+      cardName: 'Project',
+      durationHours: 1,
+      priority: 'normal',
+    }));
+
+    const blockedTasks = assignments.filter((a: typeof assignments[0]) => a.status === 'blocked').map((a: typeof assignments[0]) => ({
+      title: `Task ${a.taskId.split(':').pop()}`,
+      cardName: 'Project',
+      durationHours: 1,
+      priority: 'normal',
+    }));
+
+    const today = new Date().toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+
+    const totalTasks = completedTasks.length + incompleteTasks.length + blockedTasks.length;
+    const completionRate = totalTasks > 0 ? Math.round((completedTasks.length / totalTasks) * 100) : 0;
+
+    // Send to founder's email (user.email)
+    const founderEmail = user.email;
+    if (!founderEmail) {
+      return res.status(400).json({ error: 'Founder has no email address' });
+    }
+
+    const success = await sendEODReport(founderEmail, {
+      workerName: worker[0].name,
+      date: today,
+      completedTasks,
+      incompleteTasks,
+      blockedTasks,
+      totalHoursWorked: completedTasks.reduce((sum: number, t: typeof completedTasks[0]) => sum + t.durationHours, 0),
+      completionRate,
+    });
+
+    if (success) {
+      res.json({ success: true, message: `EOD report sent to ${founderEmail}` });
+    } else {
+      res.status(500).json({ error: 'Failed to send email' });
+    }
+  } catch (error) {
+    console.error('Error sending EOD report:', error);
+    res.status(500).json({ error: 'Failed to send report' });
+  }
+});
+
+// ============================================
 // TIMEZONE OVERLAPS
 // ============================================
 
@@ -1172,6 +1418,10 @@ router.get('/workload-overview', async (req: any, res) => {
     // Get all VAs
     const vas = await db.select().from(vaProfiles).where(eq(vaProfiles.founderId, user.id));
     
+    // Get all users for linking info
+    const allUsers = await db.select({ id: users.id, email: users.email }).from(users);
+    const userMap = new Map(allUsers.map((u: typeof allUsers[0]) => [u.id, u.email]));
+    
     // Get assignment counts per VA
     const workload = await Promise.all(vas.map(async (va: typeof vas[0]) => {
       const assignments = await db.select().from(taskAssignments).where(
@@ -1193,7 +1443,10 @@ router.get('/workload-overview', async (req: any, res) => {
       });
 
       return {
-        va,
+        worker: {
+          ...va,
+          linkedUserEmail: va.userId ? userMap.get(va.userId) || null : null,
+        },
         totalTasks: assignments.length,
         statusCounts,
       };
