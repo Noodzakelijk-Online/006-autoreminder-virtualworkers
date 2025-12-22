@@ -16,6 +16,7 @@ import {
   atisCardUnderstanding,
 } from '../../drizzle/schema';
 import { eq, desc, isNull, sql, and } from 'drizzle-orm';
+import { processCardUnderstanding, processAllCardsUnderstanding, getUnderstandingStats } from '../services/atis-understanding';
 
 const router = Router();
 
@@ -269,6 +270,148 @@ router.get('/cards-without-due-date', async (req: Request, res: Response) => {
     res.json(cards);
   } catch (error: any) {
     console.error('[ATIS] Cards without due date error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/atis/understanding/stats
+ * Get AI understanding statistics
+ */
+router.get('/understanding/stats', async (req: Request, res: Response) => {
+  try {
+    const stats = await getUnderstandingStats();
+    res.json(stats);
+  } catch (error: any) {
+    console.error('[ATIS] Understanding stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/understanding/process
+ * Process cards with AI understanding
+ */
+router.post('/understanding/process', async (req: Request, res: Response) => {
+  try {
+    const { cardId, limit } = req.body;
+
+    if (cardId) {
+      // Process single card
+      const understanding = await processCardUnderstanding(cardId);
+      if (!understanding) {
+        return res.status(404).json({ error: 'Card not found' });
+      }
+      return res.json({ success: true, understanding });
+    }
+
+    // Process all cards without understanding
+    console.log('[ATIS] Starting batch AI understanding processing...');
+    
+    const result = await processAllCardsUnderstanding(
+      (progress) => {
+        if (progress.current % 5 === 0) {
+          console.log(`[ATIS Understanding] Progress: ${progress.current}/${progress.total} - ${progress.status}`);
+        }
+      },
+      limit || 100 // Default to 100 cards at a time
+    );
+
+    res.json({
+      success: true,
+      processed: result.processed,
+      failed: result.failed,
+    });
+  } catch (error: any) {
+    console.error('[ATIS] Understanding process error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/atis/card/:id/understanding
+ * Get AI understanding for a specific card
+ */
+router.get('/card/:id/understanding', async (req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    const cardId = parseInt(req.params.id);
+
+    const [understanding] = await db.select()
+      .from(atisCardUnderstanding)
+      .where(eq(atisCardUnderstanding.cardId, cardId))
+      .limit(1);
+
+    if (!understanding) {
+      return res.status(404).json({ error: 'Understanding not found for this card' });
+    }
+
+    // Parse JSON fields
+    res.json({
+      ...understanding,
+      entities: understanding.entities ? JSON.parse(understanding.entities) : null,
+      deadlines: understanding.deadlines ? JSON.parse(understanding.deadlines) : null,
+      dependencies: understanding.dependencies ? JSON.parse(understanding.dependencies) : null,
+      produces: understanding.produces ? JSON.parse(understanding.produces) : null,
+      missingInfo: understanding.missingInfo ? JSON.parse(understanding.missingInfo) : null,
+    });
+  } catch (error: any) {
+    console.error('[ATIS] Card understanding error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/understanding/reprocess-failed
+ * Reprocess cards with low confidence (fallback results)
+ */
+router.post('/understanding/reprocess-failed', async (req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    const { limit = 50 } = req.body;
+
+    // Get cards with low confidence (fallback results)
+    const lowConfidenceCards = await db.select({
+      id: atisCardUnderstanding.cardId,
+    })
+      .from(atisCardUnderstanding)
+      .where(sql`${atisCardUnderstanding.confidenceScore} < 30`)
+      .limit(limit);
+
+    console.log(`[ATIS] Reprocessing ${lowConfidenceCards.length} low-confidence cards...`);
+
+    let processed = 0;
+    let failed = 0;
+
+    for (const card of lowConfidenceCards) {
+      try {
+        await processCardUnderstanding(card.id);
+        processed++;
+        console.log(`[ATIS Reprocess] [${processed}/${lowConfidenceCards.length}] Reprocessed card ${card.id}`);
+      } catch (error: any) {
+        failed++;
+        console.error(`[ATIS Reprocess] Failed to reprocess card ${card.id}:`, error.message);
+      }
+      // Rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    res.json({
+      success: true,
+      processed,
+      failed,
+      remaining: lowConfidenceCards.length - processed,
+    });
+  } catch (error: any) {
+    console.error('[ATIS] Reprocess failed error:', error);
     res.status(500).json({ error: error.message });
   }
 });
