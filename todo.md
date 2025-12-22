@@ -427,3 +427,78 @@
 - [x] Add interactive hover to show task details
 - [x] Add zoom and pan controls
 - [x] Integrate into Founder Dashboard (Dependencies tab)
+
+
+## ATIS Implementation (Dec 2024)
+
+### Phase 1: Data Ingestion Pipeline
+- [ ] Fetch all workspaces from Trello API
+- [ ] Fetch all boards per workspace
+- [ ] Fetch all cards with full data (attachments, comments, checklists)
+- [ ] Store raw Trello data in database
+- [ ] Create database schema for workspaces, boards, cards, attachments, comments
+
+### Phase 2: Attachment Processor
+- [ ] PDF text extraction (pdf-parse + Tesseract OCR)
+- [ ] DOCX text extraction (mammoth)
+- [ ] XLSX data extraction (xlsx library)
+- [ ] Image description via Vision AI + OCR
+- [ ] Link content fetching
+- [ ] Email file parsing
+- [ ] Fallback handling for unreadable attachments
+
+### Phase 3: Knowledge Builder
+- [ ] Generate card understanding via AI (goal, deliverable, entities, deadlines, etc.)
+- [ ] Store card understanding in database
+- [ ] Calculate clarity score per card
+- [ ] Identify missing information per card
+
+### Phase 4: Relationship Mapper
+- [ ] Analyze all cards to find true relationships
+- [ ] Detect: DEPENDS_ON, ENABLES, SAME_PROJECT, SAME_ENTITY, CONTRADICTS, DUPLICATES
+- [ ] Store relationships in database
+- [ ] Build entity index across all cards
+
+### Phase 5: Breakdown Generator
+- [ ] Gather full context for target card (including related cards)
+- [ ] Assess sufficiency (can AI determine deliverable and actions?)
+- [ ] Generate breakdown with concrete steps and time estimates
+- [ ] Preserve completed checklist items
+- [ ] Validate breakdown (no hallucinations, realistic times)
+- [ ] Use conservative estimates when uncertain
+
+### Phase 6: Trello Writer
+- [ ] Write generated checklists to Trello cards
+- [ ] Replace existing checklists (not merge)
+- [ ] Handle API rate limits
+- [ ] Confirm write success
+
+### Phase 7: Webhook Receiver
+- [ ] Register webhooks for all boards
+- [ ] Handle card created/updated/deleted events
+- [ ] Handle comment added events
+- [ ] Handle attachment added/removed events
+- [ ] Handle checklist item completed events
+- [ ] Update knowledge base on changes
+- [ ] Detect when checklist needs revision
+
+### Phase 8: Time Tracking
+- [ ] Capture step completion from Trello sync
+- [ ] Worker enters actual time (minimal friction UI)
+- [ ] Calculate variance (estimated vs actual)
+- [ ] Store time logs
+- [ ] Update daily/weekly totals
+- [ ] Flag variances >25%
+
+### Phase 9: Learning Engine
+- [ ] Track global estimation accuracy
+- [ ] Calculate calibration factor
+- [ ] Apply calibration to new estimates
+- [ ] Feed actual outcomes back to AI context
+- [ ] Learn from worker modifications to breakdowns
+
+### Phase 10: User Interfaces
+- [ ] Worker Dashboard: Today's tasks, time logging, progress
+- [ ] Founder Dashboard: Progress overview, variance tracking, alerts
+- [ ] Morning email briefing to worker
+- [ ] EOD summary (optional)
