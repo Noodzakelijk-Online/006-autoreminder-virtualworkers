@@ -344,3 +344,158 @@ export type TimeEntry = typeof timeEntries.$inferSelect;
 export type InsertTimeEntry = typeof timeEntries.$inferInsert;
 export type HandoffNote = typeof handoffNotes.$inferSelect;
 export type InsertHandoffNote = typeof handoffNotes.$inferInsert;
+
+
+// ============================================
+// ATIS (Adaptive Task Intelligence System) TABLES
+// Knowledge-first design for accurate task breakdowns
+// ============================================
+
+// Trello workspaces (organizations)
+export const atisWorkspaces = mysqlTable('atis_workspaces', {
+  id: int('id').primaryKey().autoincrement(),
+  trelloId: varchar('trelloId', { length: 64 }).notNull().unique(),
+  name: varchar('name', { length: 255 }).notNull(),
+  displayName: varchar('displayName', { length: 255 }),
+  url: varchar('url', { length: 512 }),
+  boardCount: int('boardCount').default(0),
+  lastSyncedAt: timestamp('lastSyncedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Trello boards
+export const atisBoards = mysqlTable('atis_boards', {
+  id: int('id').primaryKey().autoincrement(),
+  trelloId: varchar('trelloId', { length: 64 }).notNull().unique(),
+  workspaceId: int('workspaceId'), // References atisWorkspaces.id (nullable for personal boards)
+  workspaceTrelloId: varchar('workspaceTrelloId', { length: 64 }),
+  name: varchar('name', { length: 255 }).notNull(),
+  url: varchar('url', { length: 512 }),
+  isOpen: int('isOpen').default(1), // 1=open, 0=closed
+  cardCount: int('cardCount').default(0),
+  lastSyncedAt: timestamp('lastSyncedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Trello cards with full data
+export const atisCards = mysqlTable('atis_cards', {
+  id: int('id').primaryKey().autoincrement(),
+  trelloId: varchar('trelloId', { length: 64 }).notNull().unique(),
+  boardId: int('boardId').notNull(), // References atisBoards.id
+  boardTrelloId: varchar('boardTrelloId', { length: 64 }).notNull(),
+  listName: varchar('listName', { length: 255 }),
+  listId: varchar('listId', { length: 64 }),
+  name: varchar('name', { length: 512 }).notNull(),
+  description: text('description'),
+  url: varchar('url', { length: 512 }),
+  dueDate: timestamp('dueDate'),
+  dueComplete: int('dueComplete').default(0),
+  isArchived: int('isArchived').default(0),
+  isClosed: int('isClosed').default(0),
+  labels: text('labels'), // JSON array of labels
+  memberIds: text('memberIds'), // JSON array of assigned member IDs
+  checklistCount: int('checklistCount').default(0),
+  attachmentCount: int('attachmentCount').default(0),
+  commentCount: int('commentCount').default(0),
+  rawData: text('rawData'), // Full JSON from Trello API
+  lastSyncedAt: timestamp('lastSyncedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Attachments with extracted content
+export const atisAttachments = mysqlTable('atis_attachments', {
+  id: int('id').primaryKey().autoincrement(),
+  trelloId: varchar('trelloId', { length: 64 }).notNull(),
+  cardId: int('cardId').notNull(), // References atisCards.id
+  cardTrelloId: varchar('cardTrelloId', { length: 64 }).notNull(),
+  filename: varchar('filename', { length: 512 }),
+  mimeType: varchar('mimeType', { length: 128 }),
+  fileType: varchar('fileType', { length: 32 }), // pdf, docx, xlsx, image, link, email, other
+  url: varchar('url', { length: 1024 }),
+  bytes: int('bytes'),
+  // Extraction status and content
+  extractionStatus: mysqlEnum('extractionStatus', ['pending', 'processing', 'success', 'failed', 'unreadable']).default('pending').notNull(),
+  extractedContent: text('extractedContent'), // Extracted text/description
+  extractionError: text('extractionError'),
+  extractedAt: timestamp('extractedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Comments from Trello cards
+export const atisComments = mysqlTable('atis_comments', {
+  id: int('id').primaryKey().autoincrement(),
+  trelloId: varchar('trelloId', { length: 64 }).notNull(),
+  cardId: int('cardId').notNull(), // References atisCards.id
+  cardTrelloId: varchar('cardTrelloId', { length: 64 }).notNull(),
+  authorId: varchar('authorId', { length: 64 }),
+  authorName: varchar('authorName', { length: 255 }),
+  text: text('text').notNull(),
+  commentDate: timestamp('commentDate'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// AI-generated understanding of each card
+export const atisCardUnderstanding = mysqlTable('atis_card_understanding', {
+  id: int('id').primaryKey().autoincrement(),
+  cardId: int('cardId').notNull().unique(), // References atisCards.id
+  cardTrelloId: varchar('cardTrelloId', { length: 64 }).notNull().unique(),
+  // Core understanding
+  goal: text('goal'), // What is this card trying to achieve?
+  deliverable: text('deliverable'), // What tangible output marks completion?
+  taskType: varchar('taskType', { length: 64 }), // communication, research, creation, meeting, review, admin, etc.
+  // Extracted entities
+  entities: text('entities'), // JSON: {people: [], organizations: [], cases: [], systems: [], documents: []}
+  // Timing
+  deadlines: text('deadlines'), // JSON: [{date, source, description}]
+  estimatedMinutes: int('estimatedMinutes'),
+  // Dependencies and relationships
+  dependencies: text('dependencies'), // JSON: What must happen before this?
+  produces: text('produces'), // JSON: What does completing this enable?
+  // Classification
+  domain: varchar('domain', { length: 128 }), // Area of work
+  complexity: mysqlEnum('complexity', ['simple', 'medium', 'complex']).default('medium'),
+  // Quality assessment
+  clarityScore: int('clarityScore'), // 1-10, how clear is what needs to be done?
+  missingInfo: text('missingInfo'), // What's unclear or would help to know?
+  confidenceScore: int('confidenceScore'), // 1-100, AI confidence in understanding
+  // Status
+  status: mysqlEnum('status', ['pending', 'processing', 'complete', 'needs_review', 'insufficient_info']).default('pending').notNull(),
+  generatedAt: timestamp('generatedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Ingestion job tracking
+export const atisIngestionJobs = mysqlTable('atis_ingestion_jobs', {
+  id: int('id').primaryKey().autoincrement(),
+  jobType: mysqlEnum('jobType', ['full_sync', 'incremental', 'workspace', 'board', 'card']).notNull(),
+  status: mysqlEnum('status', ['pending', 'running', 'completed', 'failed']).default('pending').notNull(),
+  targetId: varchar('targetId', { length: 64 }), // Trello ID of target (workspace, board, or card)
+  totalItems: int('totalItems').default(0),
+  processedItems: int('processedItems').default(0),
+  failedItems: int('failedItems').default(0),
+  errorLog: text('errorLog'), // JSON array of errors
+  startedAt: timestamp('startedAt'),
+  completedAt: timestamp('completedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Export ATIS types
+export type ATISWorkspace = typeof atisWorkspaces.$inferSelect;
+export type InsertATISWorkspace = typeof atisWorkspaces.$inferInsert;
+export type ATISBoard = typeof atisBoards.$inferSelect;
+export type InsertATISBoard = typeof atisBoards.$inferInsert;
+export type ATISCard = typeof atisCards.$inferSelect;
+export type InsertATISCard = typeof atisCards.$inferInsert;
+export type ATISAttachment = typeof atisAttachments.$inferSelect;
+export type InsertATISAttachment = typeof atisAttachments.$inferInsert;
+export type ATISComment = typeof atisComments.$inferSelect;
+export type InsertATISComment = typeof atisComments.$inferInsert;
+export type ATISCardUnderstanding = typeof atisCardUnderstanding.$inferSelect;
+export type InsertATISCardUnderstanding = typeof atisCardUnderstanding.$inferInsert;
+export type ATISIngestionJob = typeof atisIngestionJobs.$inferSelect;
+export type InsertATISIngestionJob = typeof atisIngestionJobs.$inferInsert;
