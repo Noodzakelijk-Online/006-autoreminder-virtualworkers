@@ -16,6 +16,7 @@ import queueRoutes from "../routes/queue.js";
 import metricsRoutes from "../routes/metrics.js";
 import vaManagementRoutes from "../routes/va-management.js";
 import atisRoutes from "../routes/atis.js";
+import notificationPreferencesRoutes from "../routes/notification-preferences.js";
 import { websocketService } from "../services/websocket.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -63,6 +64,8 @@ async function startServer() {
   app.use("/api", metricsRoutes);
   // ATIS (Adaptive Task Intelligence System) API
   app.use("/api/atis", atisRoutes);
+  // Notification Preferences API
+  app.use("/api/notification-preferences", notificationPreferencesRoutes);
   // tRPC API
   app.use(
     "/api/trpc",

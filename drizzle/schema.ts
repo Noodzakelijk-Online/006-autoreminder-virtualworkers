@@ -499,3 +499,37 @@ export type ATISCardUnderstanding = typeof atisCardUnderstanding.$inferSelect;
 export type InsertATISCardUnderstanding = typeof atisCardUnderstanding.$inferInsert;
 export type ATISIngestionJob = typeof atisIngestionJobs.$inferSelect;
 export type InsertATISIngestionJob = typeof atisIngestionJobs.$inferInsert;
+
+
+// User notification preferences
+export const userNotificationPreferences = mysqlTable('user_notification_preferences', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull().unique(),
+  
+  // Notification mode: 'disabled' | 'daily_digest' | 'priority_only'
+  notificationMode: mysqlEnum('notificationMode', ['disabled', 'daily_digest', 'priority_only']).default('priority_only').notNull(),
+  
+  // Daily digest settings
+  digestTime: varchar('digestTime', { length: 5 }).default('08:00').notNull(), // HH:MM format
+  digestTimezone: varchar('digestTimezone', { length: 50 }).default('Europe/Amsterdam').notNull(),
+  
+  // Priority only settings - what counts as "urgent"
+  urgentThresholdHours: int('urgentThresholdHours').default(24).notNull(), // Tasks due within X hours are urgent
+  
+  // Email notification settings
+  emailEnabled: int('emailEnabled').default(1).notNull(), // 0=false, 1=true
+  emailAddress: varchar('emailAddress', { length: 320 }),
+  
+  // In-app notification settings
+  inAppEnabled: int('inAppEnabled').default(1).notNull(),
+  
+  // Last digest sent timestamp
+  lastDigestSent: timestamp('lastDigestSent'),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+export type UserNotificationPreferences = typeof userNotificationPreferences.$inferSelect;
+export type InsertUserNotificationPreferences = typeof userNotificationPreferences.$inferInsert;

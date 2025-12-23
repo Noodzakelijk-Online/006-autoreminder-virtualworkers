@@ -542,3 +542,13 @@ Each card now has:
 - Extracted entities (people, organizations, systems, documents)
 - Time estimation in minutes
 - AI-generated APTLSS checklist with prioritized steps
+
+
+## Notification Preferences System (Dec 22, 2025)
+- [x] Add notification preferences to user settings database schema
+- [x] Create notification preferences API endpoints (GET/PUT)
+- [x] Build notification settings UI toggle in Settings page
+- [x] Implement three notification modes: Disabled, Daily Digest, Priority Only
+- [x] Update notification service to filter based on user preferences
+- [x] Add digest scheduling for daily summary emails
+- [x] Test notification filtering with different user preferences (17 tests passing)

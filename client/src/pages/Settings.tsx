@@ -5,6 +5,7 @@ import { ArrowLeft } from 'lucide-react';
 import { WorkingHoursSettings } from '@/components/WorkingHoursSettings';
 import { HolidayManagement } from '@/components/HolidayManagement';
 import { PerformanceMetrics } from '@/components/PerformanceMetrics';
+import { NotificationSettings } from '@/components/NotificationSettings';
 
 export default function Settings() {
   const [country, setCountry] = useState('US');
@@ -26,6 +27,7 @@ export default function Settings() {
       </header>
 
       <main className="container py-8 max-w-4xl space-y-6">
+        <NotificationSettings />
         <PerformanceMetrics />
         <WorkingHoursSettings />
         <HolidayManagement country={country} onCountryChange={setCountry} />

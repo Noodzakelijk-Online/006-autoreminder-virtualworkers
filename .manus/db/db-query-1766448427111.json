@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `user_notification_preferences` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `userId` int NOT NULL,\n  `userOpenId` varchar(64) NOT NULL UNIQUE,\n  `notificationMode` enum('disabled','daily_digest','priority_only') NOT NULL DEFAULT 'priority_only',\n  `digestTime` varchar(5) NOT NULL DEFAULT '08:00',\n  `digestTimezone` varchar(50) NOT NULL DEFAULT 'Europe/Amsterdam',\n  `urgentThresholdHours` int NOT NULL DEFAULT 24,\n  `emailEnabled` int NOT NULL DEFAULT 1,\n  `emailAddress` varchar(320),\n  `inAppEnabled` int NOT NULL DEFAULT 1,\n  `lastDigestSent` timestamp NULL,\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`)\n)",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute CREATE TABLE IF NOT EXISTS `user_notification_preferences` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `userId` int NOT NULL,\n  `userOpenId` varchar(64) NOT NULL UNIQUE,\n  `notificationMode` enum('disabled','daily_digest','priority_only') NOT NULL DEFAULT 'priority_only',\n  `digestTime` varchar(5) NOT NULL DEFAULT '08:00',\n  `digestTimezone` varchar(50) NOT NULL DEFAULT 'Europe/Amsterdam',\n  `urgentThresholdHours` int NOT NULL DEFAULT 24,\n  `emailEnabled` int NOT NULL DEFAULT 1,\n  `emailAddress` varchar(320),\n  `inAppEnabled` int NOT NULL DEFAULT 1,\n  `lastDigestSent` timestamp NULL,\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`)\n)",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 247
+}
