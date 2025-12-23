@@ -18,6 +18,25 @@ export interface Task {
   hasDutch: boolean;
   dutchPercentage?: number;
   attachments: Attachment[];
+  // ATIS AI-enhanced fields
+  goal?: string;
+  deliverable?: string;
+  taskType?: string;
+  complexity?: 'simple' | 'medium' | 'complex';
+  boardName?: string;
+  listName?: string;
+  url?: string;
+  checklist?: ChecklistItem[];
+  hasUnderstanding?: boolean;
+  confidenceScore?: number;
+}
+
+export interface ChecklistItem {
+  id: string;
+  step: string;
+  timeMinutes: number;
+  aptlssType: 'A' | 'P' | 'T' | 'L' | 'S';
+  completed: boolean;
 }
 
 export interface Attachment {

@@ -22,6 +22,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { MobileNav } from "@/components/MobileNav";
 import { NotificationBell } from "@/components/NotificationBell";
+import { TaskFilters, TaskFiltersState } from "@/components/TaskFilters";
 
 // No longer using mock data - fetch from Trello API
 
@@ -42,17 +43,75 @@ export default function Home() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [taskTypes, setTaskTypes] = useState<{ taskType: string; count: number }[]>([]);
+  const [filters, setFilters] = useState<TaskFiltersState>({
+    filter: 'all',
+    taskType: null,
+    complexity: null,
+    sortBy: 'dueDate',
+    sortOrder: 'asc',
+  });
   
-  // Filter tasks based on search query
+  // Filter and sort tasks based on search query and filters
   const filteredTasks = useMemo(() => {
-    if (!searchQuery.trim()) return tasks;
-    const query = searchQuery.toLowerCase();
-    return tasks.filter(task => 
-      task.description?.toLowerCase().includes(query) ||
-      task.cardName?.toLowerCase().includes(query) ||
-      (task.isPriority ? 'priority high' : '').toLowerCase().includes(query)
-    );
-  }, [tasks, searchQuery]);
+    let result = [...tasks];
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(task => 
+        task.description?.toLowerCase().includes(query) ||
+        task.cardName?.toLowerCase().includes(query) ||
+        task.goal?.toLowerCase().includes(query) ||
+        (task.isPriority ? 'priority high' : '').toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply status filter
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    
+    if (filters.filter === 'overdue') {
+      result = result.filter(t => t.date && new Date(t.date) < now);
+    } else if (filters.filter === 'today') {
+      result = result.filter(t => t.date && new Date(t.date) >= todayStart && new Date(t.date) < todayEnd);
+    } else if (filters.filter === 'upcoming') {
+      result = result.filter(t => t.date && new Date(t.date) >= now);
+    }
+    
+    // Apply task type filter
+    if (filters.taskType) {
+      result = result.filter(t => t.taskType === filters.taskType);
+    }
+    
+    // Apply complexity filter
+    if (filters.complexity) {
+      result = result.filter(t => t.complexity === filters.complexity);
+    }
+    
+    // Apply sorting
+    result.sort((a, b) => {
+      let comparison = 0;
+      
+      if (filters.sortBy === 'dueDate') {
+        const dateA = a.date ? new Date(a.date).getTime() : Infinity;
+        const dateB = b.date ? new Date(b.date).getTime() : Infinity;
+        comparison = dateA - dateB;
+      } else if (filters.sortBy === 'estimatedTime') {
+        comparison = (a.durationHours || 0) - (b.durationHours || 0);
+      } else if (filters.sortBy === 'complexity') {
+        const complexityOrder = { simple: 1, medium: 2, complex: 3 };
+        const orderA = a.complexity ? complexityOrder[a.complexity] : 2;
+        const orderB = b.complexity ? complexityOrder[b.complexity] : 2;
+        comparison = orderA - orderB;
+      }
+      
+      return filters.sortOrder === 'asc' ? comparison : -comparison;
+    });
+    
+    return result;
+  }, [tasks, searchQuery, filters]);
   const rescheduleMutation = trpc.trello.reschedule.useMutation({
     onSuccess: (data) => {
       toast.success(`Rescheduling complete! ${data.tasksCount} tasks updated.`);
@@ -93,10 +152,76 @@ export default function Home() {
   });
 
   useEffect(() => {
-    // Fetch tasks from Trello API
+    // Fetch tasks from ATIS (AI-enhanced) or fallback to Trello API
     const fetchTasks = async () => {
       setIsLoadingTasks(true);
       try {
+        // Try ATIS timeline tasks first (AI-enhanced)
+        const atisResponse = await fetch('/api/atis/timeline-tasks?limit=100&filter=all');
+        if (atisResponse.ok) {
+          const atisData = await atisResponse.json();
+          if (atisData.tasks && atisData.tasks.length > 0) {
+            // Transform ATIS tasks to Task format
+            const atisTasks: Task[] = atisData.tasks.map((t: any) => ({
+              id: `atis-${t.id}`,
+              cardId: t.trelloId,
+              cardName: t.name,
+              stepIndex: 0,
+              description: t.goal || t.description || t.name,
+              durationHours: (t.estimatedMinutes || 30) / 60,
+              startTime: '',
+              endTime: '',
+              date: t.dueDate ? new Date(t.dueDate).toISOString().split('T')[0] : '',
+              isCompleted: false,
+              isArchived: false,
+              isBlocker: t.status === 'overdue',
+              isPriority: t.complexity === 'complex' || t.status === 'overdue',
+              priorityLevel: t.status === 'overdue' ? 'CRITICAL' : t.complexity === 'complex' ? 'HIGH' : 'NORMAL',
+              hasDutch: false,
+              attachments: [],
+              // ATIS-specific fields
+              goal: t.goal,
+              deliverable: t.deliverable,
+              taskType: t.taskType,
+              complexity: t.complexity,
+              boardName: t.boardName,
+              listName: t.listName,
+              url: t.url,
+              checklist: t.checklist || [],
+              hasUnderstanding: t.hasUnderstanding,
+              confidenceScore: t.confidenceScore,
+            }));
+            setTasks(atisTasks);
+            
+            // Calculate stats from ATIS data
+            const totalTasks = atisTasks.length;
+            const completedTasks = atisTasks.filter(t => t.isCompleted).length;
+            const totalHours = atisTasks.reduce((acc, t) => acc + t.durationHours, 0);
+            const completedHours = atisTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
+            
+            setStats({
+              totalTasks,
+              completedTasks,
+              totalHours,
+              completedHours,
+              accuracy: 100
+            });
+            
+            // Fetch task types for filtering
+            try {
+              const typesResponse = await fetch('/api/atis/task-types');
+              if (typesResponse.ok) {
+                const types = await typesResponse.json();
+                setTaskTypes(types);
+              }
+            } catch (e) {
+              console.error('Failed to fetch task types:', e);
+            }
+            return;
+          }
+        }
+        
+        // Fallback to original Trello API
         const response = await fetch('/api/trello/tasks');
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -384,12 +509,23 @@ export default function Home() {
             <div className="timeline-section bg-card rounded-2xl shadow-sm border min-h-[600px] relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-32 bg-[url('/images/hero-bg.png')] bg-cover opacity-20" />
               <div className="relative z-10 p-6">
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-4">
                   <h2 className="text-xl font-bold">Workload Timeline</h2>
                   <div className="flex gap-2">
                     <Button variant="outline" size="sm">Day</Button>
                     <Button variant="ghost" size="sm">Week</Button>
                   </div>
+                </div>
+                
+                {/* Task Filters */}
+                <div className="mb-4">
+                  <TaskFilters
+                    filters={filters}
+                    onFiltersChange={setFilters}
+                    taskTypes={taskTypes}
+                    totalTasks={tasks.length}
+                    filteredCount={filteredTasks.length}
+                  />
                 </div>
                 
                 {/* Search results info */}

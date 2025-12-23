@@ -562,3 +562,23 @@ Each card now has:
 - [x] Build notification history UI component in dashboard
 - [x] Add notification bell with unread count in header
 - [x] Test digest scheduling and history view (31 tests passing)
+
+
+## ATIS Timeline Integration (Dec 23, 2025)
+- [x] Create API endpoint to fetch tasks with AI understanding and checklists
+- [x] Update Timeline component to display ATIS tasks with APTLSS steps
+- [x] Add checklist step completion tracking (mark steps done)
+- [x] Implement task filtering by due date, complexity, task type
+- [x] Add task sorting options (due date, priority, estimated time)
+- [x] Connect Refresh Tasks button to ATIS data
+- [x] Test timeline with real Trello data (18 tests passing)
+
+
+## Future: Chatbot URL Context Extraction (Roadmap)
+- [ ] Detect chatbot URLs in card descriptions/comments (ChatGPT, Gemini, Claude share links)
+- [ ] Build URL parser to extract conversation content from chatbot share links
+- [ ] Store extracted conversations in ATIS knowledge base linked to cards
+- [ ] Use conversation content to enrich AI understanding of task "how-to"
+- [ ] Train ATIS algorithms on chatbot conversations for better checklist generation
+- [ ] Create UI to view associated chatbot conversations per card
+- [ ] Enable VAs to easily drop chatbot URLs into cards with one-click extraction
