@@ -29,6 +29,8 @@ export interface Task {
   checklist?: ChecklistItem[];
   hasUnderstanding?: boolean;
   confidenceScore?: number;
+  atisCardId?: number;
+  synced?: boolean;
 }
 
 export interface ChecklistItem {

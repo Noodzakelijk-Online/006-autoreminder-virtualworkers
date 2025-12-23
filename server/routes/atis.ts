@@ -17,6 +17,7 @@ import {
 } from '../../drizzle/schema';
 import { eq, desc, isNull, sql, and } from 'drizzle-orm';
 import { processCardUnderstanding, processAllCardsUnderstanding, getUnderstandingStats } from '../services/atis-understanding';
+import { createChecklistSyncService } from '../services/trello-checklist-sync';
 
 const router = Router();
 
@@ -525,6 +526,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
 
       return {
         id: card.id,
+        atisCardId: card.id, // For sync operations
         trelloId: card.trelloId,
         name: card.name,
         description: card.description,
@@ -672,6 +674,246 @@ router.get('/checklist/status/:cardId', async (req: Request, res: Response) => {
     res.json({ cardId, completedSteps });
   } catch (error: any) {
     console.error('[ATIS] Checklist status error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/checklist/sync-completion/:cardId
+ * Sync completion status to Trello when a step is completed in dashboard
+ */
+router.post('/checklist/sync-completion/:cardId', async (req: Request, res: Response) => {
+  try {
+    const cardId = parseInt(req.params.cardId);
+    const { stepIndex, completed } = req.body;
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    // Get card's Trello ID and synced checklist ID
+    const cardResult = await db.execute(sql`
+      SELECT c.trello_id, s.trello_checklist_id
+      FROM atis_cards c
+      LEFT JOIN atis_checklist_sync s ON c.trello_id = s.trello_card_id
+      WHERE c.id = ${cardId}
+    `);
+    const cardRows = (cardResult as any)[0] || [];
+
+    if (cardRows.length === 0) {
+      return res.status(404).json({ error: 'Card not found' });
+    }
+
+    const { trello_id: trelloCardId, trello_checklist_id: checklistId } = cardRows[0];
+
+    if (!trelloCardId || !checklistId) {
+      return res.json({ synced: false, reason: 'Checklist not synced to Trello yet' });
+    }
+
+    // Get checklist items from Trello
+    const syncService = createChecklistSyncService();
+    const checklists = await syncService.getCardChecklists(trelloCardId);
+    const aptlssChecklist = checklists.find(c => c.id === checklistId);
+
+    if (!aptlssChecklist) {
+      return res.json({ synced: false, reason: 'APTLSS checklist not found on Trello card' });
+    }
+
+    // Find the item at the given step index
+    if (stepIndex >= aptlssChecklist.checkItems.length) {
+      return res.status(400).json({ error: 'Step index out of range' });
+    }
+
+    const checkItem = aptlssChecklist.checkItems[stepIndex];
+    const newState = completed ? 'complete' : 'incomplete';
+
+    // Update in Trello
+    await syncService.updateChecklistItemState(trelloCardId, checkItem.id, newState);
+
+    res.json({ synced: true, stepIndex, completed, trelloItemId: checkItem.id });
+  } catch (error: any) {
+    console.error('[ATIS] Checklist sync completion error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/sync-checklist/:cardId
+ * Sync APTLSS checklist to a single Trello card
+ */
+router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
+  try {
+    const cardId = parseInt(req.params.cardId);
+    const { replaceExisting = false, preserveCompleted = true } = req.body;
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    // Get card understanding with checklist
+    const result = await db.execute(sql`
+      SELECT c.trello_id, u.checklist
+      FROM atis_cards c
+      LEFT JOIN atis_card_understanding u ON c.id = u.card_id
+      WHERE c.id = ${cardId}
+    `);
+
+    const rows = (result as any)[0] || [];
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Card not found' });
+    }
+
+    const card = rows[0];
+    if (!card.trello_id) {
+      return res.status(400).json({ error: 'Card has no Trello ID' });
+    }
+
+    let checklist: any[] = [];
+    try {
+      checklist = card.checklist ? JSON.parse(card.checklist) : [];
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid checklist data' });
+    }
+
+    if (checklist.length === 0) {
+      return res.status(400).json({ error: 'No checklist items to sync' });
+    }
+
+    // Sync to Trello
+    const syncService = createChecklistSyncService();
+    const syncResult = await syncService.syncChecklistToCard(
+      card.trello_id,
+      checklist,
+      { replaceExisting, preserveCompleted }
+    );
+
+    res.json(syncResult);
+  } catch (error: any) {
+    console.error('[ATIS] Checklist sync error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/sync-checklists/bulk
+ * Bulk sync APTLSS checklists to multiple Trello cards
+ */
+router.post('/sync-checklists/bulk', async (req: Request, res: Response) => {
+  try {
+    const { cardIds, replaceExisting = false, preserveCompleted = true, limit = 50 } = req.body;
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    // Get cards with understanding
+    let result;
+    if (cardIds && cardIds.length > 0) {
+      const idList = cardIds.map((id: number) => id).join(',');
+      result = await db.execute(sql`
+        SELECT c.id, c.trello_id, u.checklist
+        FROM atis_cards c
+        JOIN atis_card_understanding u ON c.id = u.card_id
+        WHERE c.id IN (${sql.raw(idList)})
+        AND u.checklist IS NOT NULL
+        AND c.trello_id IS NOT NULL
+        LIMIT ${limit}
+      `);
+    } else {
+      result = await db.execute(sql`
+        SELECT c.id, c.trello_id, u.checklist
+        FROM atis_cards c
+        JOIN atis_card_understanding u ON c.id = u.card_id
+        WHERE u.checklist IS NOT NULL
+        AND c.trello_id IS NOT NULL
+        AND c.is_archived = 0
+        LIMIT ${limit}
+      `);
+    }
+
+    const rows = (result as any)[0] || [];
+
+    if (rows.length === 0) {
+      return res.json({ total: 0, success: 0, failed: 0, results: [] });
+    }
+
+    // Parse checklists and prepare for sync
+    const cardsToSync = rows.map((row: any) => {
+      let checklist: any[] = [];
+      try {
+        checklist = row.checklist ? JSON.parse(row.checklist) : [];
+      } catch (e) {
+        checklist = [];
+      }
+      return {
+        cardId: row.id,
+        trelloId: row.trello_id,
+        checklist,
+      };
+    }).filter((c: any) => c.checklist.length > 0);
+
+    // Sync to Trello
+    const syncService = createChecklistSyncService();
+    const syncResult = await syncService.bulkSync(cardsToSync, { replaceExisting, preserveCompleted });
+
+    res.json(syncResult);
+  } catch (error: any) {
+    console.error('[ATIS] Bulk checklist sync error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/atis/sync-status/:cardId
+ * Get sync status for a card
+ */
+router.get('/sync-status/:cardId', async (req: Request, res: Response) => {
+  try {
+    const cardId = parseInt(req.params.cardId);
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    // Get card's Trello ID
+    const cardResult = await db.execute(sql`
+      SELECT trello_id FROM atis_cards WHERE id = ${cardId}
+    `);
+    const cardRows = (cardResult as any)[0] || [];
+    
+    if (cardRows.length === 0) {
+      return res.status(404).json({ error: 'Card not found' });
+    }
+
+    const trelloId = cardRows[0].trello_id;
+    if (!trelloId) {
+      return res.json({ synced: false, reason: 'No Trello ID' });
+    }
+
+    // Get sync status
+    const syncResult = await db.execute(sql`
+      SELECT trello_checklist_id, items_synced, synced_at
+      FROM atis_checklist_sync
+      WHERE trello_card_id = ${trelloId}
+    `);
+    const syncRows = (syncResult as any)[0] || [];
+
+    if (syncRows.length === 0) {
+      return res.json({ synced: false });
+    }
+
+    res.json({
+      synced: true,
+      checklistId: syncRows[0].trello_checklist_id,
+      itemsSynced: syncRows[0].items_synced,
+      syncedAt: syncRows[0].synced_at,
+    });
+  } catch (error: any) {
+    console.error('[ATIS] Sync status error:', error);
     res.status(500).json({ error: error.message });
   }
 });

@@ -582,3 +582,13 @@ Each card now has:
 - [ ] Train ATIS algorithms on chatbot conversations for better checklist generation
 - [ ] Create UI to view associated chatbot conversations per card
 - [ ] Enable VAs to easily drop chatbot URLs into cards with one-click extraction
+
+
+## APTLSS Checklist Sync to Trello (Dec 23, 2025)
+- [x] Create Trello checklist sync service (create/update checklists via API)
+- [x] Build API endpoint to push AI-generated checklists to Trello cards
+- [x] Add "Sync to Trello" button on task cards in dashboard
+- [x] Implement bi-directional completion sync (dashboard ↔ Trello)
+- [x] Handle existing checklists (merge vs replace options)
+- [x] Add sync status indicator on task cards
+- [x] Test checklist sync with real Trello cards (15 tests passing)

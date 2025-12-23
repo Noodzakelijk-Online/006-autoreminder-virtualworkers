@@ -190,6 +190,8 @@ export default function Home() {
               checklist: t.checklist || [],
               hasUnderstanding: t.hasUnderstanding,
               confidenceScore: t.confidenceScore,
+              atisCardId: t.atisCardId || t.id,
+              synced: false, // Will be updated from sync status
             }));
             setTasks(atisTasks);
             

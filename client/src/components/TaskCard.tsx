@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronUp, RefreshCw, Check, CloudUpload } from "lucide-react";
+import { toast } from "sonner";
 import { Task } from "@/types";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -15,6 +16,38 @@ interface TaskCardProps {
 
 export function TaskCard({ task, onToggle }: TaskCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [synced, setSynced] = useState(task.synced || false);
+
+  const handleSyncToTrello = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!task.atisCardId) {
+      toast.error('No ATIS card ID available');
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      const response = await fetch(`/api/atis/sync-checklist/${task.atisCardId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ replaceExisting: true, preserveCompleted: true }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        setSynced(true);
+        toast.success(`Synced ${result.itemsCreated} checklist items to Trello`);
+      } else {
+        toast.error(result.error || 'Failed to sync checklist');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to sync checklist');
+    } finally {
+      setSyncing(false);
+    }
+  };
   
   const priorityColors = {
     CRITICAL: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
@@ -266,21 +299,53 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
           </div>
         )}
 
-        {/* Open in Trello link */}
-        {task.url && (
-          <div className="pt-2 border-t">
+        {/* Actions row */}
+        <div className="pt-2 border-t flex items-center justify-between gap-2">
+          {/* Sync to Trello button */}
+          {task.checklist && task.checklist.length > 0 && task.atisCardId && (
+            <Button
+              variant={synced ? "outline" : "default"}
+              size="sm"
+              className={cn(
+                "text-xs gap-1",
+                synced && "text-green-600 border-green-200 bg-green-50 hover:bg-green-100"
+              )}
+              onClick={handleSyncToTrello}
+              disabled={syncing}
+            >
+              {syncing ? (
+                <>
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  Syncing...
+                </>
+              ) : synced ? (
+                <>
+                  <Check className="h-3 w-3" />
+                  Synced
+                </>
+              ) : (
+                <>
+                  <CloudUpload className="h-3 w-3" />
+                  Sync to Trello
+                </>
+              )}
+            </Button>
+          )}
+
+          {/* Open in Trello link */}
+          {task.url && (
             <a 
               href={task.url} 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+              className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 ml-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <ExternalLink className="h-3 w-3" />
               Open in Trello
             </a>
-          </div>
-        )}
+          )}
+        </div>
       </CardContent>
     </Card>
   );
