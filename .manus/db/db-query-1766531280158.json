@@ -1,0 +1,9 @@
+{
+  "query": "ALTER TABLE atis_attachments \nADD COLUMN IF NOT EXISTS extracted_content TEXT,\nADD COLUMN IF NOT EXISTS word_count INT,\nADD COLUMN IF NOT EXISTS page_count INT,\nADD COLUMN IF NOT EXISTS extraction_status VARCHAR(20),\nADD COLUMN IF NOT EXISTS extraction_error TEXT,\nADD COLUMN IF NOT EXISTS extracted_at TIMESTAMP;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute ALTER TABLE atis_attachments \nADD COLUMN IF NOT EXISTS extracted_content TEXT,\nADD COLUMN IF NOT EXISTS word_count INT,\nADD COLUMN IF NOT EXISTS page_count INT,\nADD COLUMN IF NOT EXISTS extraction_status VARCHAR(20),\nADD COLUMN IF NOT EXISTS extraction_error TEXT,\nADD COLUMN IF NOT EXISTS extracted_at TIMESTAMP;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1724
+}

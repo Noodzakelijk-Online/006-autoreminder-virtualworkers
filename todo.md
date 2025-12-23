@@ -592,3 +592,34 @@ Each card now has:
 - [x] Handle existing checklists (merge vs replace options)
 - [x] Add sync status indicator on task cards
 - [x] Test checklist sync with real Trello cards (15 tests passing)
+
+
+## Attachment Content Extraction (Dec 24, 2025)
+- [x] Create attachment content extraction service
+- [x] Support PDF text extraction using pdf-parse
+- [x] Support document text extraction (doc, docx, txt, html, markdown)
+- [ ] Support image OCR for text in images (future enhancement)
+- [x] Store extracted content in database
+- [x] Update AI understanding to include attachment context
+- [x] Add extraction progress tracking
+- [x] Test extraction with real attachments (30 processed, 22 skipped non-text, 8 failed)
+
+### Extraction Results:
+- 2,340 total attachments
+- Processing supported file types: PDF, TXT, HTML, Markdown
+- Extracted content integrated into AI understanding prompts
+
+## Chatbot URL Context Extraction (Dec 24, 2025)
+- [x] Create chatbot URL detection service (ChatGPT, Gemini, Claude share links)
+- [x] Build URL content fetcher for public share links
+- [x] Parse and extract conversation content from chatbot pages
+- [x] Store extracted conversations linked to cards
+- [x] Add chatbot context to AI understanding prompts
+- [ ] Create UI to view associated chatbot conversations (future enhancement)
+- [x] Test with real chatbot share URLs
+- [x] Unit tests passing (21 tests)
+
+### Chatbot Extraction Results:
+- 60 chatbot URLs detected (14 ChatGPT, 46 Gemini)
+- 4 conversations successfully extracted
+- Conversations integrated into AI understanding prompts for richer context

@@ -118,7 +118,7 @@ async function buildCardContext(cardId: number): Promise<CardContext | null> {
 /**
  * Format card context into a prompt for AI analysis
  */
-function formatContextForAI(context: CardContext): string {
+function formatContextForAI(context: CardContext, extractedContent?: ExtractedContent): string {
   const { card, boardName, attachments, comments } = context;
 
   let prompt = `# Task Card Analysis
@@ -137,7 +137,11 @@ function formatContextForAI(context: CardContext): string {
   if (attachments.length > 0) {
     for (const att of attachments.slice(0, 20)) { // Limit to 20 attachments
       prompt += `- ${att.filename || att.url} (${att.fileType || 'unknown type'})`;
-      if (att.extractedContent) {
+      // Check for extracted content from the attachment extractor
+      const extracted = extractedContent?.attachments?.find(a => a.attachmentId === att.id);
+      if (extracted?.content) {
+        prompt += `\n  **Extracted Content**: ${extracted.content.substring(0, 1000)}${extracted.content.length > 1000 ? '...' : ''}`;
+      } else if (att.extractedContent) {
         prompt += `\n  Content preview: ${att.extractedContent.substring(0, 500)}...`;
       }
       prompt += '\n';
@@ -157,14 +161,38 @@ function formatContextForAI(context: CardContext): string {
     prompt += 'No comments\n';
   }
 
+  // Add chatbot conversations if available
+  if (extractedContent?.chatbotConversations && extractedContent.chatbotConversations.length > 0) {
+    prompt += `\n## Chatbot Conversations (${extractedContent.chatbotConversations.length} found)\n`;
+    prompt += `These are AI assistant conversations that provide context on how to complete this task:\n\n`;
+    
+    for (const conv of extractedContent.chatbotConversations.slice(0, 3)) { // Limit to 3 conversations
+      prompt += `### ${conv.platform.toUpperCase()}: ${conv.title}\n`;
+      prompt += `${conv.content.substring(0, 2000)}${conv.content.length > 2000 ? '...' : ''}\n\n`;
+    }
+  }
+
   return prompt;
+}
+
+interface ExtractedContent {
+  attachments?: Array<{
+    attachmentId: number;
+    content: string;
+    wordCount: number;
+  }>;
+  chatbotConversations?: Array<{
+    platform: string;
+    title: string;
+    content: string;
+  }>;
 }
 
 /**
  * Call AI to analyze the card and generate understanding
  */
-async function analyzeWithAI(context: CardContext): Promise<TaskUnderstanding> {
-  const contextText = formatContextForAI(context);
+async function analyzeWithAI(context: CardContext, extractedContent?: ExtractedContent): Promise<TaskUnderstanding> {
+  const contextText = formatContextForAI(context, extractedContent);
 
   const systemPrompt = `You are an expert task analyst for a Virtual Assistant management system. Your job is to analyze Trello cards and extract structured information to help VAs understand and complete tasks efficiently.
 
@@ -334,6 +362,51 @@ async function saveUnderstanding(cardId: number, cardTrelloId: string, understan
 }
 
 /**
+ * Load extracted content for a card (attachments and chatbot conversations)
+ */
+async function loadExtractedContent(cardId: number): Promise<ExtractedContent | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+
+  try {
+    // Load extracted attachment content
+    const attachmentsResult = await db.execute(sql`
+      SELECT id, extractedContent
+      FROM atis_attachments
+      WHERE cardId = ${cardId}
+        AND extractionStatus = 'success'
+        AND extractedContent IS NOT NULL
+    `);
+    const attachments = ((attachmentsResult as any)[0] || []).map((a: any) => ({
+      attachmentId: a.id,
+      content: a.extractedContent || '',
+      wordCount: 0,
+    }));
+
+    // Load chatbot conversations
+    const conversationsResult = await db.execute(sql`
+      SELECT platform, title, full_content
+      FROM atis_chatbot_conversations
+      WHERE card_id = ${cardId}
+    `);
+    const chatbotConversations = ((conversationsResult as any)[0] || []).map((c: any) => ({
+      platform: c.platform,
+      title: c.title || 'Untitled',
+      content: c.full_content || '',
+    }));
+
+    if (attachments.length === 0 && chatbotConversations.length === 0) {
+      return undefined;
+    }
+
+    return { attachments, chatbotConversations };
+  } catch (error) {
+    console.error('[ATIS Understanding] Error loading extracted content:', error);
+    return undefined;
+  }
+}
+
+/**
  * Process a single card with AI understanding
  */
 export async function processCardUnderstanding(cardId: number): Promise<TaskUnderstanding | null> {
@@ -345,7 +418,15 @@ export async function processCardUnderstanding(cardId: number): Promise<TaskUnde
 
   console.log(`[ATIS Understanding] Analyzing card: ${context.card.name.substring(0, 50)}...`);
 
-  const understanding = await analyzeWithAI(context);
+  // Load extracted content (attachments and chatbot conversations)
+  const extractedContent = await loadExtractedContent(cardId);
+  if (extractedContent) {
+    const attachCount = extractedContent.attachments?.length || 0;
+    const convCount = extractedContent.chatbotConversations?.length || 0;
+    console.log(`[ATIS Understanding] Including ${attachCount} extracted attachments, ${convCount} chatbot conversations`);
+  }
+
+  const understanding = await analyzeWithAI(context, extractedContent);
   await saveUnderstanding(cardId, context.card.trelloId, understanding);
 
   return understanding;

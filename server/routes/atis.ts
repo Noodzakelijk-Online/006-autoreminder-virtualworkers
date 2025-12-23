@@ -18,6 +18,8 @@ import {
 import { eq, desc, isNull, sql, and } from 'drizzle-orm';
 import { processCardUnderstanding, processAllCardsUnderstanding, getUnderstandingStats } from '../services/atis-understanding';
 import { createChecklistSyncService } from '../services/trello-checklist-sync';
+import { createAttachmentExtractor } from '../services/attachment-extractor';
+import { createChatbotExtractor } from '../services/chatbot-extractor';
 
 const router = Router();
 
@@ -940,6 +942,167 @@ router.get('/task-types', async (req: Request, res: Response) => {
     res.json(result.filter(r => r.taskType));
   } catch (error: any) {
     console.error('[ATIS] Task types error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// ATTACHMENT EXTRACTION ENDPOINTS
+// ============================================
+
+/**
+ * GET /api/atis/extraction/stats
+ * Get attachment extraction statistics
+ */
+router.get('/extraction/stats', async (req: Request, res: Response) => {
+  try {
+    const extractor = createAttachmentExtractor();
+    const stats = await extractor.getExtractionStats();
+    res.json(stats);
+  } catch (error: any) {
+    console.error('[ATIS] Extraction stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/extraction/process
+ * Process pending attachments for content extraction
+ */
+router.post('/extraction/process', async (req: Request, res: Response) => {
+  try {
+    const { limit = 50 } = req.body;
+    const extractor = createAttachmentExtractor();
+    const result = await extractor.processPendingAttachments(limit);
+    res.json(result);
+  } catch (error: any) {
+    console.error('[ATIS] Extraction process error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/atis/extraction/card/:cardId
+ * Get extracted content for a specific card
+ */
+router.get('/extraction/card/:cardId', async (req: Request, res: Response) => {
+  try {
+    const cardId = parseInt(req.params.cardId);
+    const extractor = createAttachmentExtractor();
+    const content = await extractor.getCardAttachmentContent(cardId);
+    res.json({ cardId, attachmentCount: content.length, content });
+  } catch (error: any) {
+    console.error('[ATIS] Card extraction error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// CHATBOT URL EXTRACTION ENDPOINTS
+// ============================================
+
+/**
+ * GET /api/atis/chatbot/stats
+ * Get chatbot URL extraction statistics
+ */
+router.get('/chatbot/stats', async (req: Request, res: Response) => {
+  try {
+    const extractor = createChatbotExtractor();
+    const stats = await extractor.getStats();
+    res.json(stats);
+  } catch (error: any) {
+    console.error('[ATIS] Chatbot stats error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/chatbot/scan
+ * Scan cards and comments for chatbot URLs
+ */
+router.post('/chatbot/scan', async (req: Request, res: Response) => {
+  try {
+    const extractor = createChatbotExtractor();
+    const detected = await extractor.scanForChatbotUrls();
+    
+    // Group by platform
+    const byPlatform: Record<string, number> = {};
+    for (const d of detected) {
+      byPlatform[d.platform] = (byPlatform[d.platform] || 0) + 1;
+    }
+    
+    res.json({
+      totalDetected: detected.length,
+      byPlatform,
+      urls: detected.slice(0, 50), // Return first 50 for preview
+    });
+  } catch (error: any) {
+    console.error('[ATIS] Chatbot scan error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/chatbot/process
+ * Process detected chatbot URLs and extract conversations
+ */
+router.post('/chatbot/process', async (req: Request, res: Response) => {
+  try {
+    const { limit = 20 } = req.body;
+    const extractor = createChatbotExtractor();
+    const result = await extractor.processDetectedUrls(limit);
+    res.json(result);
+  } catch (error: any) {
+    console.error('[ATIS] Chatbot process error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/atis/chatbot/card/:cardId
+ * Get chatbot conversations for a specific card
+ */
+router.get('/chatbot/card/:cardId', async (req: Request, res: Response) => {
+  try {
+    const cardId = parseInt(req.params.cardId);
+    const extractor = createChatbotExtractor();
+    const conversations = await extractor.getCardConversations(cardId);
+    res.json({ cardId, conversationCount: conversations.length, conversations });
+  } catch (error: any) {
+    console.error('[ATIS] Card chatbot error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/chatbot/extract-url
+ * Extract conversation from a single chatbot URL
+ */
+router.post('/chatbot/extract-url', async (req: Request, res: Response) => {
+  try {
+    const { url, cardId } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+    
+    const extractor = createChatbotExtractor();
+    const detected = extractor.detectUrls(url);
+    
+    if (detected.length === 0) {
+      return res.status(400).json({ error: 'No valid chatbot URL detected' });
+    }
+    
+    const { url: detectedUrl, platform } = detected[0];
+    const result = await extractor.extractConversation(detectedUrl, platform);
+    
+    if (result.success && result.conversation && cardId) {
+      await extractor.storeConversation(cardId, result.conversation, detectedUrl);
+    }
+    
+    res.json(result);
+  } catch (error: any) {
+    console.error('[ATIS] URL extraction error:', error);
     res.status(500).json({ error: error.message });
   }
 });
