@@ -533,3 +533,57 @@ export const userNotificationPreferences = mysqlTable('user_notification_prefere
 
 export type UserNotificationPreferences = typeof userNotificationPreferences.$inferSelect;
 export type InsertUserNotificationPreferences = typeof userNotificationPreferences.$inferInsert;
+
+
+// Notification history for tracking sent notifications
+export const notificationHistory = mysqlTable('notification_history', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  
+  // Notification details
+  title: varchar('title', { length: 500 }).notNull(),
+  content: text('content').notNull(),
+  notificationType: mysqlEnum('notificationType', [
+    'task_assigned',
+    'task_due_soon', 
+    'task_overdue',
+    'task_completed',
+    'daily_digest',
+    'general'
+  ]).notNull(),
+  
+  // Related task info (optional)
+  taskId: varchar('taskId', { length: 128 }),
+  taskName: varchar('taskName', { length: 500 }),
+  dueDate: timestamp('dueDate'),
+  
+  // Delivery status
+  channel: mysqlEnum('channel', ['in_app', 'email', 'both']).notNull(),
+  deliveryStatus: mysqlEnum('deliveryStatus', ['pending', 'sent', 'failed', 'queued_for_digest']).default('pending').notNull(),
+  deliveredAt: timestamp('deliveredAt'),
+  
+  // Read status for in-app notifications
+  isRead: int('isRead').default(0).notNull(), // 0=unread, 1=read
+  readAt: timestamp('readAt'),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+export type NotificationHistory = typeof notificationHistory.$inferSelect;
+export type InsertNotificationHistory = typeof notificationHistory.$inferInsert;
+
+// Digest job tracking
+export const digestJobs = mysqlTable('digest_jobs', {
+  id: int('id').primaryKey().autoincrement(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  scheduledFor: timestamp('scheduledFor').notNull(),
+  status: mysqlEnum('status', ['pending', 'processing', 'completed', 'failed']).default('pending').notNull(),
+  notificationCount: int('notificationCount').default(0).notNull(),
+  error: text('error'),
+  completedAt: timestamp('completedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+export type DigestJob = typeof digestJobs.$inferSelect;
+export type InsertDigestJob = typeof digestJobs.$inferInsert;

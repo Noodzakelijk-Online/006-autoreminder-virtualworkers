@@ -552,3 +552,13 @@ Each card now has:
 - [x] Update notification service to filter based on user preferences
 - [x] Add digest scheduling for daily summary emails
 - [x] Test notification filtering with different user preferences (17 tests passing)
+
+
+## Digest Scheduling & Notification History (Dec 23, 2025)
+- [x] Create notification history database table
+- [x] Build digest scheduler service with cron job (runs every 5 minutes)
+- [x] Create digest email template with grouped notifications
+- [x] Create notification history API endpoints
+- [x] Build notification history UI component in dashboard
+- [x] Add notification bell with unread count in header
+- [x] Test digest scheduling and history view (31 tests passing)

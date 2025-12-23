@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { MobileNav } from "@/components/MobileNav";
+import { NotificationBell } from "@/components/NotificationBell";
 
 // No longer using mock data - fetch from Trello API
 
@@ -258,11 +259,10 @@ export default function Home() {
             {/* Mobile menu button */}
             <MobileNav user={user} onLogout={logout} />
             
-            {/* Bell notification - visible on all screens */}
-            <Button variant="ghost" size="icon" className="relative hidden md:flex" title={wsStatus.connected ? 'Real-time updates connected' : 'Real-time updates disconnected'}>
-              <Bell className="h-5 w-5" />
-              <span className={`absolute top-2 right-2 h-2 w-2 rounded-full ${wsStatus.connected ? 'bg-green-500' : 'bg-gray-400'}`} />
-            </Button>
+            {/* Notification Bell with history */}
+            <div className="hidden md:flex">
+              <NotificationBell />
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="relative h-10 w-10 rounded-full">

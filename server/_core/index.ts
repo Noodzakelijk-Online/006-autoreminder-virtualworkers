@@ -17,7 +17,9 @@ import metricsRoutes from "../routes/metrics.js";
 import vaManagementRoutes from "../routes/va-management.js";
 import atisRoutes from "../routes/atis.js";
 import notificationPreferencesRoutes from "../routes/notification-preferences.js";
+import notificationHistoryRoutes from "../routes/notification-history.js";
 import { websocketService } from "../services/websocket.js";
+import { startDigestScheduler } from "../services/digest-scheduler.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -66,6 +68,8 @@ async function startServer() {
   app.use("/api/atis", atisRoutes);
   // Notification Preferences API
   app.use("/api/notification-preferences", notificationPreferencesRoutes);
+  // Notification History API
+  app.use("/api/notifications", notificationHistoryRoutes);
   // tRPC API
   app.use(
     "/api/trpc",
@@ -90,6 +94,9 @@ async function startServer() {
 
   // Initialize WebSocket server
   websocketService.initialize(server);
+
+  // Start digest scheduler for daily email summaries
+  startDigestScheduler();
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
