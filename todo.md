@@ -725,3 +725,11 @@ Each card now has:
 - [x] Update deduplication logic to use card name (keeps most recent with AI understanding)
 - [x] Added isArchived column to atis_boards table
 - [x] Reduced tasks from 100 to 89 (removed duplicates)
+
+
+## Group Checklist Steps in Card (Dec 24, 2025)
+- [x] Display all APTLSS checklist steps within each task card
+- [x] Show step type (A/P/T/L/S/S), duration, and completion status
+- [x] Allow individual step completion tracking
+- [x] Color-coded step types with labels
+- [x] Total time summary at bottom
