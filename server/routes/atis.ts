@@ -469,6 +469,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       confidenceScore: atisCardUnderstanding.confidenceScore,
       clarityScore: atisCardUnderstanding.clarityScore,
       entities: atisCardUnderstanding.entities,
+      aptlssChecklist: atisCardUnderstanding.aptlssChecklist,
     })
       .from(atisCards)
       .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
@@ -490,17 +491,28 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
 
     // Process and filter results
     let tasks = cards.map(card => {
-      // Parse checklist JSON
+      // Parse checklist JSON from stored aptlssChecklist or generate fallback
       let checklist: any[] = [];
-      // APTLSS checklist is generated from AI understanding, stored in description for now
-      // We'll generate checklist steps from the goal/deliverable if no checklist exists
-      if (card.goal) {
+      
+      // First try to parse stored aptlssChecklist from AI understanding
+      if (card.aptlssChecklist) {
         try {
-          // Generate simple checklist from goal
-          checklist = [{ step: card.goal, timeMinutes: card.estimatedMinutes || 30, aptlssType: 'T' }];
+          const parsed = JSON.parse(card.aptlssChecklist);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            checklist = parsed.map((item: any) => ({
+              step: item.name || item.step || item.description || 'Step',
+              timeMinutes: item.estimatedMinutes || item.timeMinutes || item.time || 15,
+              aptlssType: item.priority || item.aptlssType || item.type || 'T',
+            }));
+          }
         } catch (e) {
-          checklist = [];
+          console.warn('[ATIS] Failed to parse aptlssChecklist for card', card.id, e);
         }
+      }
+      
+      // Fallback: generate simple checklist from goal if no stored checklist
+      if (checklist.length === 0 && card.goal) {
+        checklist = [{ step: card.goal, timeMinutes: card.estimatedMinutes || 30, aptlssType: 'T' }];
       }
 
       // Parse entities JSON

@@ -1,12 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronRight, RefreshCw, Check, CloudUpload, Play, ListChecks } from "lucide-react";
+import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronRight, RefreshCw, Check, CloudUpload, Play, ListChecks, Loader2 } from "lucide-react";
 import { Timer } from "@/components/Timer";
 import { toast } from "sonner";
 import { Task } from "@/types";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -14,6 +14,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 interface TaskCardProps {
   task: Task;
   onToggle: (id: string) => void;
+  isExpanded?: boolean;
+  onExpandChange?: (expanded: boolean) => void;
 }
 
 // APTLSS type colors and labels
@@ -25,10 +27,11 @@ const aptlssTypeInfo: Record<string, { color: string; label: string; bgColor: st
   S: { color: "text-orange-700", label: "Support", bgColor: "bg-orange-100" },
 };
 
-export function TaskCard({ task, onToggle }: TaskCardProps) {
-  const [cardExpanded, setCardExpanded] = useState(false);
+export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCardProps) {
+  const [cardExpanded, setCardExpanded] = useState(isExpanded ?? false);
   const [syncing, setSyncing] = useState(false);
   const [synced, setSynced] = useState(task.synced || false);
+  const [syncingStep, setSyncingStep] = useState<string | null>(null);
   const [stepCompletions, setStepCompletions] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     task.checklist?.forEach(item => {
@@ -36,6 +39,46 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
     });
     return initial;
   });
+
+  // Sync with external isExpanded prop
+  useEffect(() => {
+    if (isExpanded !== undefined) {
+      setCardExpanded(isExpanded);
+    }
+  }, [isExpanded]);
+
+  // Load completion status from backend when card expands
+  useEffect(() => {
+    if (cardExpanded && task.atisCardId) {
+      loadCompletionStatus();
+    }
+  }, [cardExpanded, task.atisCardId]);
+
+  const loadCompletionStatus = async () => {
+    if (!task.atisCardId) return;
+    
+    try {
+      const response = await fetch(`/api/atis/checklist/status/${task.atisCardId}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.completions && Array.isArray(data.completions)) {
+          const newCompletions: Record<string, boolean> = {};
+          task.checklist?.forEach((item, index) => {
+            const isCompleted = data.completions.some((c: any) => c.step_index === index);
+            newCompletions[item.id] = isCompleted;
+          });
+          setStepCompletions(newCompletions);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load completion status:', error);
+    }
+  };
+
+  const handleCardExpandChange = (expanded: boolean) => {
+    setCardExpanded(expanded);
+    onExpandChange?.(expanded);
+  };
 
   const handleSyncToTrello = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -67,12 +110,76 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
     }
   };
 
-  const handleStepToggle = (stepId: string) => {
+  const handleStepToggle = async (stepId: string, stepIndex: number) => {
+    if (!task.atisCardId) {
+      // Local-only toggle if no card ID
+      setStepCompletions(prev => ({
+        ...prev,
+        [stepId]: !prev[stepId]
+      }));
+      return;
+    }
+
+    setSyncingStep(stepId);
+    const newValue = !stepCompletions[stepId];
+    
+    // Optimistic update
     setStepCompletions(prev => ({
       ...prev,
-      [stepId]: !prev[stepId]
+      [stepId]: newValue
     }));
-    // TODO: Persist step completion to backend
+
+    try {
+      // Save to backend
+      const response = await fetch('/api/atis/checklist/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cardId: task.atisCardId,
+          stepIndex: stepIndex,
+          userId: 1, // TODO: Get actual user ID from auth context
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save');
+      }
+
+      const result = await response.json();
+      
+      // Also sync to Trello if we have the checklist info
+      if (task.trelloChecklistId) {
+        try {
+          await fetch('/api/atis/checklist/sync-step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cardId: task.atisCardId,
+              checklistId: task.trelloChecklistId,
+              stepIndex: stepIndex,
+              completed: newValue,
+            }),
+          });
+        } catch (syncError) {
+          // Don't fail the whole operation if Trello sync fails
+          console.warn('Trello sync failed:', syncError);
+        }
+      }
+
+      // Show subtle feedback
+      if (newValue) {
+        toast.success('Step completed', { duration: 1500 });
+      }
+    } catch (error: any) {
+      // Revert on error
+      setStepCompletions(prev => ({
+        ...prev,
+        [stepId]: !newValue
+      }));
+      toast.error('Failed to save step completion');
+    } finally {
+      setSyncingStep(null);
+    }
   };
   
   const priorityColors = {
@@ -107,7 +214,7 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
     return `${hours.toFixed(1)}h`;
   };
 
-  const completedSteps = task.checklist?.filter((_, idx) => stepCompletions[task.checklist![idx].id]).length || 0;
+  const completedSteps = Object.values(stepCompletions).filter(Boolean).length;
   const totalSteps = task.checklist?.length || 0;
   const progress = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0;
 
@@ -124,7 +231,7 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
         "border-l-primary"
       )}
     >
-      <Collapsible open={cardExpanded} onOpenChange={setCardExpanded}>
+      <Collapsible open={cardExpanded} onOpenChange={handleCardExpandChange}>
         {/* Card Header - Always visible */}
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-3 cursor-pointer hover:bg-muted/30 transition-colors">
@@ -262,6 +369,7 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
                   {task.checklist.map((item, index) => {
                     const typeInfo = aptlssTypeInfo[item.aptlssType] || { color: "text-gray-700", label: item.aptlssType, bgColor: "bg-gray-100" };
                     const isCompleted = stepCompletions[item.id];
+                    const isSyncing = syncingStep === item.id;
                     
                     return (
                       <div 
@@ -274,12 +382,16 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
                         )}
                       >
                         {/* Step checkbox */}
-                        <div onClick={(e) => e.stopPropagation()}>
-                          <Checkbox 
-                            checked={isCompleted}
-                            onCheckedChange={() => handleStepToggle(item.id)}
-                            className="h-5 w-5 mt-0.5"
-                          />
+                        <div onClick={(e) => e.stopPropagation()} className="relative">
+                          {isSyncing ? (
+                            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                          ) : (
+                            <Checkbox 
+                              checked={isCompleted}
+                              onCheckedChange={() => handleStepToggle(item.id, index)}
+                              className="h-5 w-5 mt-0.5"
+                            />
+                          )}
                         </div>
                         
                         {/* Step number & type badge */}
@@ -316,7 +428,7 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
                         </div>
                         
                         {/* Completion indicator */}
-                        {isCompleted && (
+                        {isCompleted && !isSyncing && (
                           <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
                         )}
                       </div>

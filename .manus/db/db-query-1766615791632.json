@@ -1,0 +1,70 @@
+{
+  "query": "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'atis_card_understanding' ORDER BY ORDINAL_POSITION;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'atis_card_understanding' ORDER BY ORDINAL_POSITION;",
+  "rows": [
+    {
+      "COLUMN_NAME": "id"
+    },
+    {
+      "COLUMN_NAME": "cardId"
+    },
+    {
+      "COLUMN_NAME": "cardTrelloId"
+    },
+    {
+      "COLUMN_NAME": "goal"
+    },
+    {
+      "COLUMN_NAME": "deliverable"
+    },
+    {
+      "COLUMN_NAME": "taskType"
+    },
+    {
+      "COLUMN_NAME": "entities"
+    },
+    {
+      "COLUMN_NAME": "deadlines"
+    },
+    {
+      "COLUMN_NAME": "estimatedMinutes"
+    },
+    {
+      "COLUMN_NAME": "dependencies"
+    },
+    {
+      "COLUMN_NAME": "produces"
+    },
+    {
+      "COLUMN_NAME": "domain"
+    },
+    {
+      "COLUMN_NAME": "complexity"
+    },
+    {
+      "COLUMN_NAME": "clarityScore"
+    },
+    {
+      "COLUMN_NAME": "missingInfo"
+    },
+    {
+      "COLUMN_NAME": "confidenceScore"
+    },
+    {
+      "COLUMN_NAME": "status"
+    },
+    {
+      "COLUMN_NAME": "generatedAt"
+    },
+    {
+      "COLUMN_NAME": "createdAt"
+    },
+    {
+      "COLUMN_NAME": "updatedAt"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\nid\ncardId\ncardTrelloId\ngoal\ndeliverable\ntaskType\nentities\ndeadlines\nestimatedMinutes\ndependencies\nproduces\ndomain\ncomplexity\nclarityScore\nmissingInfo\nconfidenceScore\nstatus\ngeneratedAt\ncreatedAt\nupdatedAt\n",
+  "stderr": "",
+  "execution_time_ms": 59
+}

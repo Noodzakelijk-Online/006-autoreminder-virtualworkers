@@ -54,6 +54,7 @@ export default function Home() {
     sortOrder: 'asc',
   });
   const [overflowTasks, setOverflowTasks] = useState<any[]>([]);
+  const [allExpanded, setAllExpanded] = useState(false);
   
   // Filter and sort tasks based on search query and filters
   const filteredTasks = useMemo(() => {
@@ -532,11 +533,37 @@ export default function Home() {
                   </div>
                 )}
                 
+                {/* Expand All / Collapse All buttons */}
+                {filteredTasks.length > 0 && (
+                  <div className="flex items-center justify-end gap-2 mb-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAllExpanded(true)}
+                      disabled={allExpanded}
+                      className="text-xs"
+                    >
+                      Expand All
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAllExpanded(false)}
+                      disabled={!allExpanded}
+                      className="text-xs"
+                    >
+                      Collapse All
+                    </Button>
+                  </div>
+                )}
+                
                 <Timeline 
                   tasks={filteredTasks} 
                   onToggleTask={handleToggleTask} 
                   isLoading={isLoadingTasks}
                   onRefresh={() => window.location.reload()}
+                  allExpanded={allExpanded}
+                  onExpandChange={(expanded) => setAllExpanded(expanded)}
                 />
               </div>
             </div>

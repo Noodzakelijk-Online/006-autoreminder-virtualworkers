@@ -4,15 +4,58 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { TimelineSkeleton, EmptyState } from "./Skeletons";
 import { CalendarX, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
 
 interface TimelineProps {
   tasks: Task[];
   onToggleTask: (id: string) => void;
   isLoading?: boolean;
   onRefresh?: () => void;
+  allExpanded?: boolean;
+  onExpandChange?: (expanded: boolean) => void;
 }
 
-export function Timeline({ tasks, onToggleTask, isLoading, onRefresh }: TimelineProps) {
+export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpanded, onExpandChange }: TimelineProps) {
+  // Track individual card expansion states
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+
+  // Sync with allExpanded prop
+  useEffect(() => {
+    if (allExpanded !== undefined) {
+      if (allExpanded) {
+        // Expand all cards
+        setExpandedCards(new Set(tasks.map(t => t.id)));
+      } else {
+        // Collapse all cards
+        setExpandedCards(new Set());
+      }
+    }
+  }, [allExpanded, tasks]);
+
+  const handleCardExpandChange = (taskId: string, expanded: boolean) => {
+    setExpandedCards(prev => {
+      const newSet = new Set(prev);
+      if (expanded) {
+        newSet.add(taskId);
+      } else {
+        newSet.delete(taskId);
+      }
+      
+      // Notify parent if all cards are now expanded or collapsed
+      if (onExpandChange) {
+        const allNowExpanded = newSet.size === tasks.length;
+        const allNowCollapsed = newSet.size === 0;
+        if (allNowExpanded && !allExpanded) {
+          onExpandChange(true);
+        } else if (allNowCollapsed && allExpanded) {
+          onExpandChange(false);
+        }
+      }
+      
+      return newSet;
+    });
+  };
+
   // Show skeleton while loading
   if (isLoading) {
     return (
@@ -62,7 +105,12 @@ export function Timeline({ tasks, onToggleTask, isLoading, onRefresh }: Timeline
                 {task.startTime || '--:--'}
               </div>
               
-              <TaskCard task={task} onToggle={onToggleTask} />
+              <TaskCard 
+                task={task} 
+                onToggle={onToggleTask}
+                isExpanded={expandedCards.has(task.id)}
+                onExpandChange={(expanded) => handleCardExpandChange(task.id, expanded)}
+              />
             </div>
           ))}
         </div>

@@ -231,14 +231,51 @@ APTLSS Priority Guide:
 - L (Leesvoer/Reading): Documents to review, emails to read
 - S (Someday/Maybe): Low priority items for later
 
+CHECKLIST GENERATION - CRITICAL RULES:
+Generate steps based on WHAT IS ACTUALLY NEEDED to complete the task properly, NOT arbitrary counts.
+
+You MUST include steps for:
+1. COMMUNICATION THREADS: Every person/party mentioned in comments or attachments who needs to be:
+   - Notified of progress or completion
+   - Responded to (if they asked questions)
+   - Updated on status changes
+   - Confirmed with before proceeding
+
+2. COMMITMENTS & PROMISES: Any explicit or implicit promises made in:
+   - Card description
+   - Comments ("I will...", "We'll send...", "Let me check...")
+   - Attachments (email threads, chat logs)
+   - Referenced documents
+
+3. STAKEHOLDER AWARENESS: Ensure ALL parties are informed:
+   - Who initiated this task?
+   - Who is waiting for the outcome?
+   - Who needs to approve or review?
+   - Who might be affected by the result?
+
+4. DEPENDENCIES & PREREQUISITES:
+   - What information needs to be gathered first?
+   - What approvals are needed?
+   - What other tasks must complete before this one?
+
+5. QUALITY GATES:
+   - Review steps before sending/publishing
+   - Verification that requirements are met
+   - Double-check critical details
+
+6. FOLLOW-UP ACTIONS:
+   - What happens after the main task is done?
+   - Who needs to be notified of completion?
+   - What documentation needs to be updated?
+
 Guidelines:
-- Be specific and actionable in the checklist items
-- Estimate time realistically based on task complexity
+- Be specific and actionable - each step should be completable in one sitting
+- Estimate time realistically based on actual work required
 - Extract ALL entities mentioned in the card, comments, and attachments
 - If information is unclear, note it in missingInfo
 - Confidence score should reflect how well you understand what needs to be done
-- Break complex tasks into 3-7 checklist items
-- Simple tasks may only need 1-3 items
+- DO NOT limit steps to a fixed number - include EVERYTHING needed for proper completion
+- Include notification/communication steps even if they seem minor
 
 Return ONLY valid JSON, no markdown formatting or explanation.`;
 
@@ -348,6 +385,7 @@ async function saveUnderstanding(cardId: number, cardTrelloId: string, understan
     clarityScore: understanding.clarityScore,
     missingInfo: JSON.stringify(understanding.missingInfo),
     confidenceScore: understanding.confidenceScore,
+    aptlssChecklist: JSON.stringify(understanding.aptlssChecklist || []),
     status: 'complete' as const,
     generatedAt: new Date(),
   };

@@ -31,6 +31,7 @@ export interface Task {
   confidenceScore?: number;
   atisCardId?: number;
   synced?: boolean;
+  trelloChecklistId?: string;
 }
 
 export interface ChecklistItem {

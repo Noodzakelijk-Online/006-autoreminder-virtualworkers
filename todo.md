@@ -733,3 +733,45 @@ Each card now has:
 - [x] Allow individual step completion tracking
 - [x] Color-coded step types with labels
 - [x] Total time summary at bottom
+
+
+## Step Completion Persistence (Dec 24, 2025)
+- [ ] Create database table for step completions
+- [ ] Create API endpoint to save/update step completion status
+- [ ] Connect TaskCard checkbox to backend API
+- [ ] Sync step completions to Trello checklist items
+
+## Enhanced APTLSS Checklist Generation (Dec 24, 2025)
+- [ ] Update AI prompt to generate detailed multi-step checklists
+- [ ] Generate 3-7 steps based on task complexity
+- [ ] Include proper APTLSS type for each step
+- [ ] Estimate time per step based on complexity
+
+## Bulk Actions (Dec 24, 2025)
+- [ ] Add Expand All button to timeline header
+- [ ] Add Collapse All button to timeline header
+- [ ] Implement state management for bulk expand/collapse
+
+
+## Step Completion Persistence (Dec 24, 2025)
+- [x] Connect TaskCard checkboxes to backend API
+- [x] Load initial completion status when card loads
+- [x] Sync completions with Trello checklist
+- [x] Show sync status indicator
+
+## Enhanced APTLSS Checklist Generation (Dec 24, 2025)
+- [x] Update AI prompt to focus on completeness, not arbitrary step counts
+- [x] Include communication threads (who needs to be notified)
+- [x] Include commitments and promises (explicit and implicit)
+- [x] Include stakeholder awareness (all parties informed)
+- [x] Include dependencies and prerequisites
+- [x] Include quality gates (review steps)
+- [x] Include follow-up actions
+- [x] Add aptlssChecklist column to database
+- [x] Store and retrieve checklist from database
+
+## Expand All / Collapse All (Dec 24, 2025)
+- [x] Add Expand All button to expand all task cards
+- [x] Add Collapse All button to collapse all task cards
+- [x] Track individual card expansion states
+- [x] Sync expansion state between parent and children

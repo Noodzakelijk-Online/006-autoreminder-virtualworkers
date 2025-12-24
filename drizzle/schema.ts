@@ -468,6 +468,8 @@ export const atisCardUnderstanding = mysqlTable('atis_card_understanding', {
   clarityScore: int('clarityScore'), // 1-10, how clear is what needs to be done?
   missingInfo: text('missingInfo'), // What's unclear or would help to know?
   confidenceScore: int('confidenceScore'), // 1-100, AI confidence in understanding
+  // APTLSS Checklist - AI-generated steps to complete the task
+  aptlssChecklist: text('aptlssChecklist'), // JSON array of checklist items
   // Status
   status: mysqlEnum('status', ['pending', 'processing', 'complete', 'needs_review', 'insufficient_info']).default('pending').notNull(),
   generatedAt: timestamp('generatedAt'),
