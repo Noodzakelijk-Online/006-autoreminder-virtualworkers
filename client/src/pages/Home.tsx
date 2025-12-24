@@ -483,44 +483,7 @@ export default function Home() {
             {/* Weekly Progress Dashboard */}
             <WeeklyProgressDashboard />
             
-            <div className="bg-card rounded-xl p-4 border">
-              <WorkloadHeatmap tasks={tasks} />
-            </div>
-            
-            {/* Upcoming Tasks - Dynamic based on actual tasks */}
-            {tasks.filter(t => !t.isCompleted).length > 0 && (
-              <div className="bg-card rounded-xl p-4 border">
-                <h3 className="font-medium mb-4 flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4" />
-                  Upcoming Tasks
-                </h3>
-                <div className="space-y-3">
-                  {tasks.filter(t => !t.isCompleted).slice(0, 3).map((task, index) => {
-                    const today = new Date();
-                    const taskDate = new Date(today);
-                    taskDate.setDate(today.getDate() + index);
-                    return (
-                      <div key={task.id} className="flex items-center gap-3 text-sm">
-                        <div className="w-12 text-center bg-secondary rounded p-1">
-                          <div className="text-xs uppercase text-muted-foreground">
-                            {taskDate.toLocaleDateString('en-US', { weekday: 'short' })}
-                          </div>
-                          <div className="font-bold">
-                            {taskDate.getDate().toString().padStart(2, '0')}
-                          </div>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium truncate">{task.description}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {task.startTime && task.endTime ? `${task.startTime} - ${task.endTime}` : 'Time TBD'}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+
           </div>
 
           {/* Main Content - Timeline */}

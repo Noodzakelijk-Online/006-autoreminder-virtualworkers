@@ -700,3 +700,15 @@ Each card now has:
 - [x] Show daily breakdown of scheduled hours
 - [x] Add comparison to weekly target range (min/max)
 - [x] Update sidebar Weekly Progress section with new metrics
+
+
+## Bug Fixes (Dec 24, 2025)
+- [x] Fix WeeklyProgressDashboard API error - fetching HTML instead of JSON
+- [x] Fix duplicate items appearing in task list (deduplicate by trelloId)
+- [x] Remove redundant "Upcoming Tasks" section from sidebar
+- [x] Remove Productivity Tip card from StatsPanel
+- [x] Remove WorkloadHeatmap from sidebar
+- [x] Remove Task Type, Complexity, and Sort By filters from TaskFilters
+- [x] Make Weekly Progress Dashboard collapsible
+- [x] Add gradient fill bars for daily hours (light green to dark green)
+- [ ] Weekly hours shows defaults (40-45h) until user saves settings in Settings page

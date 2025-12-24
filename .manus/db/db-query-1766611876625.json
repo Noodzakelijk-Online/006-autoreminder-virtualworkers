@@ -1,0 +1,9 @@
+{
+  "query": "SELECT * FROM user_working_hours WHERE userOpenId = '9X5UMPkiNHoG96W9Vf4fjP';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute SELECT * FROM user_working_hours WHERE userOpenId = '9X5UMPkiNHoG96W9Vf4fjP';",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 103
+}

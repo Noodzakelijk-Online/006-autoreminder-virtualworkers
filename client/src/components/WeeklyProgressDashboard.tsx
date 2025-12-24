@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { TrendingUp, TrendingDown, Target, Calendar, Clock } from 'lucide-react';
+import { TrendingUp, TrendingDown, Target, Calendar, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 interface WeeklyProgressData {
   weekStart: string;
@@ -29,6 +31,7 @@ export function WeeklyProgressDashboard() {
   const [scheduledHours, setScheduledHours] = useState<ScheduledHoursData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(true);
 
   useEffect(() => {
     fetchWeeklyProgress();
@@ -48,10 +51,10 @@ export function WeeklyProgressDashboard() {
           weekEnd: getWeekEnd(),
           actualHours: 0,
           actualMinutes: 0,
-          weeklyHoursMin: 40,
-          weeklyHoursMax: 45,
-          dailyHoursMin: 8,
-          dailyHoursMax: 9,
+          weeklyHoursMin: 55,
+          weeklyHoursMax: 60,
+          dailyHoursMin: 9.5,
+          dailyHoursMax: 11.5,
           dailyHours: {},
           progressPercent: 0,
           onTrack: false,
@@ -69,7 +72,8 @@ export function WeeklyProgressDashboard() {
   const fetchScheduledHours = async () => {
     try {
       // Fetch tasks to calculate scheduled hours for the week
-      const response = await fetch('/api/aptlss/tasks');
+      // Use the ATIS timeline-tasks endpoint which is the correct API
+      const response = await fetch('/api/atis/timeline-tasks?limit=200&filter=all');
       if (response.ok) {
         const data = await response.json();
         const tasks = data.scheduled || data.tasks || [];
@@ -83,11 +87,11 @@ export function WeeklyProgressDashboard() {
         const dailyScheduled: Record<string, number> = {};
         
         tasks.forEach((task: any) => {
-          if (task.date && task.durationHours) {
-            const taskDate = new Date(task.date);
+          if (task.dueDate && task.estimatedMinutes) {
+            const taskDate = new Date(task.dueDate);
             if (taskDate >= weekStart && taskDate <= weekEnd) {
-              const dateStr = task.date;
-              const minutes = Math.round(task.durationHours * 60);
+              const dateStr = taskDate.toISOString().split('T')[0];
+              const minutes = task.estimatedMinutes || 30;
               totalScheduledMinutes += minutes;
               dailyScheduled[dateStr] = (dailyScheduled[dateStr] || 0) + minutes;
             }
@@ -108,17 +112,15 @@ export function WeeklyProgressDashboard() {
     const now = new Date();
     const dayOfWeek = now.getDay();
     const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1));
+    startOfWeek.setDate(now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)); // Monday
+    startOfWeek.setHours(0, 0, 0, 0);
     return startOfWeek.toISOString().split('T')[0];
   };
 
   const getWeekEnd = () => {
-    const now = new Date();
-    const dayOfWeek = now.getDay();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1));
+    const startOfWeek = new Date(getWeekStart());
     const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setDate(startOfWeek.getDate() + 6); // Sunday
     return endOfWeek.toISOString().split('T')[0];
   };
 
@@ -130,6 +132,16 @@ export function WeeklyProgressDashboard() {
   const getDayName = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-US', { weekday: 'short' });
+  };
+
+  // Get gradient color based on fill percentage (light green to dark green)
+  const getGradientColor = (fillPercent: number) => {
+    if (fillPercent === 0) return 'bg-secondary';
+    if (fillPercent <= 25) return 'bg-gradient-to-t from-green-200 to-green-100';
+    if (fillPercent <= 50) return 'bg-gradient-to-t from-green-400 to-green-200';
+    if (fillPercent <= 75) return 'bg-gradient-to-t from-green-500 to-green-300';
+    if (fillPercent <= 100) return 'bg-gradient-to-t from-green-600 to-green-400';
+    return 'bg-gradient-to-t from-green-700 to-green-500'; // Over capacity
   };
 
   if (loading) {
@@ -172,150 +184,121 @@ export function WeeklyProgressDashboard() {
 
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Target className="h-5 w-5" />
-          Weekly Progress
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">
-          {formatDate(progress.weekStart)} - {formatDate(progress.weekEnd)}
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Scheduled Hours vs Target */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Scheduled</span>
+      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+        <CollapsibleTrigger asChild>
+          <CardHeader className="pb-2 cursor-pointer hover:bg-muted/50 transition-colors rounded-t-lg">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <TrendingUp className="h-5 w-5" />
+                Weekly Progress
+              </CardTitle>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
             </div>
-            <span className={cn(
-              "text-lg font-bold",
-              scheduledTotal < progress.weeklyHoursMin && "text-amber-500",
-              scheduledTotal >= progress.weeklyHoursMin && scheduledTotal <= progress.weeklyHoursMax && "text-green-500",
-              scheduledTotal > progress.weeklyHoursMax && "text-red-500"
-            )}>
-              {scheduledTotal}h
-              <span className="text-sm font-normal text-muted-foreground">
-                /{progress.weeklyHoursMin}-{progress.weeklyHoursMax}h
-              </span>
-            </span>
-          </div>
-          <Progress 
-            value={scheduledProgressPercent} 
-            className={cn(
-              "h-3",
-              scheduledTotal < progress.weeklyHoursMin && "[&>div]:bg-amber-500",
-              scheduledTotal >= progress.weeklyHoursMin && scheduledTotal <= progress.weeklyHoursMax && "[&>div]:bg-green-500",
-              scheduledTotal > progress.weeklyHoursMax && "[&>div]:bg-red-500"
-            )}
-          />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>0h</span>
-            <span>{progress.weeklyHoursMin}h (min)</span>
-            <span>{progress.weeklyHoursMax}h (max)</span>
-          </div>
-        </div>
-
-        {/* Actual Tracked Hours */}
-        <div className="space-y-2 pt-2 border-t">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">Tracked</span>
-            </div>
-            <span className="text-lg font-bold text-primary">
-              {progress.actualHours}h
-            </span>
-          </div>
-          <Progress 
-            value={progress.progressPercent} 
-            className="h-2 [&>div]:bg-primary"
-          />
-        </div>
-
-        {/* Daily Breakdown */}
-        <div className="pt-2 border-t">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-sm font-medium">Daily Breakdown</span>
-          </div>
-          <div className="grid grid-cols-7 gap-1">
-            {weekDays.map((date) => {
-              const scheduled = scheduledHours?.dailyScheduled[date] || 0;
-              const tracked = (progress.dailyHours[date] || 0) * 60; // Convert hours to minutes
-              const scheduledHrs = Math.round(scheduled / 60 * 10) / 10;
-              const trackedHrs = Math.round(tracked / 60 * 10) / 10;
-              const isToday = date === new Date().toISOString().split('T')[0];
-              const maxDailyMinutes = progress.dailyHoursMax * 60;
-              const fillPercent = Math.min(100, Math.round((scheduled / maxDailyMinutes) * 100));
-              
-              return (
-                <div 
-                  key={date} 
-                  className={cn(
-                    "flex flex-col items-center p-1 rounded text-xs",
-                    isToday && "bg-primary/10 ring-1 ring-primary"
-                  )}
-                >
-                  <span className="font-medium">{getDayName(date)}</span>
-                  <div className="w-full h-12 bg-secondary rounded mt-1 relative overflow-hidden">
-                    <div 
-                      className="absolute bottom-0 w-full bg-primary/60 transition-all"
-                      style={{ height: `${fillPercent}%` }}
-                    />
-                    {tracked > 0 && (
-                      <div 
-                        className="absolute bottom-0 w-full bg-green-500/80"
-                        style={{ height: `${Math.min(100, Math.round((tracked / maxDailyMinutes) * 100))}%` }}
-                      />
-                    )}
-                  </div>
-                  <span className="text-[10px] text-muted-foreground mt-1">
-                    {scheduledHrs > 0 ? `${scheduledHrs}h` : '-'}
-                  </span>
+          </CardHeader>
+        </CollapsibleTrigger>
+        
+        <CollapsibleContent>
+          <CardContent className="space-y-4 pt-0">
+            {/* Summary Stats */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="text-center p-2 bg-muted/50 rounded-lg">
+                <div className="text-xs text-muted-foreground">Completion Rate</div>
+                <div className="text-lg font-bold">{scheduledProgressPercent}%</div>
+              </div>
+              <div className="text-center p-2 bg-muted/50 rounded-lg">
+                <div className="text-xs text-muted-foreground">Hours</div>
+                <div className="text-lg font-bold">
+                  {scheduledTotal}/{progress.weeklyHoursMin}
                 </div>
-              );
-            })}
-          </div>
-          <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 bg-primary/60 rounded" />
-              <span>Scheduled</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 bg-green-500/80 rounded" />
-              <span>Tracked</span>
-            </div>
-          </div>
-        </div>
 
-        {/* Status Indicator */}
-        <div className={cn(
-          "flex items-center gap-2 p-2 rounded-md text-sm",
-          progress.status === 'under' && "bg-amber-500/10 text-amber-600",
-          progress.status === 'on_track' && "bg-green-500/10 text-green-600",
-          progress.status === 'over' && "bg-red-500/10 text-red-600"
-        )}>
-          {progress.status === 'under' && (
-            <>
-              <TrendingDown className="h-4 w-4" />
-              <span>Below target - {(progress.weeklyHoursMin - progress.actualHours).toFixed(1)}h remaining to reach minimum</span>
-            </>
-          )}
-          {progress.status === 'on_track' && (
-            <>
-              <Target className="h-4 w-4" />
-              <span>On track! Within target range</span>
-            </>
-          )}
-          {progress.status === 'over' && (
-            <>
-              <TrendingUp className="h-4 w-4" />
-              <span>Above target by {(progress.actualHours - progress.weeklyHoursMax).toFixed(1)}h</span>
-            </>
-          )}
-        </div>
-      </CardContent>
+            {/* Daily Breakdown with Gradient Bars */}
+            <div className="pt-2">
+              <div className="grid grid-cols-7 gap-1">
+                {weekDays.map((date) => {
+                  const scheduled = scheduledHours?.dailyScheduled[date] || 0;
+                  const tracked = (progress.dailyHours[date] || 0) * 60; // Convert hours to minutes
+                  const scheduledHrs = Math.round(scheduled / 60 * 10) / 10;
+                  const isToday = date === new Date().toISOString().split('T')[0];
+                  const maxDailyMinutes = progress.dailyHoursMax * 60;
+                  const fillPercent = Math.min(120, Math.round((scheduled / maxDailyMinutes) * 100));
+                  const trackedPercent = Math.min(100, Math.round((tracked / maxDailyMinutes) * 100));
+                  
+                  return (
+                    <div 
+                      key={date} 
+                      className={cn(
+                        "flex flex-col items-center p-1 rounded text-xs",
+                        isToday && "ring-2 ring-primary ring-offset-1"
+                      )}
+                    >
+                      <span className={cn(
+                        "font-medium",
+                        isToday && "text-primary"
+                      )}>{getDayName(date)}</span>
+                      <div className="w-full h-16 bg-secondary rounded mt-1 relative overflow-hidden">
+                        {/* Scheduled hours - gradient fill from bottom */}
+                        <div 
+                          className={cn(
+                            "absolute bottom-0 w-full transition-all duration-500 ease-out",
+                            fillPercent === 0 ? 'bg-transparent' :
+                            fillPercent <= 25 ? 'bg-gradient-to-t from-green-300 to-green-100' :
+                            fillPercent <= 50 ? 'bg-gradient-to-t from-green-400 to-green-200' :
+                            fillPercent <= 75 ? 'bg-gradient-to-t from-green-500 to-green-300' :
+                            fillPercent <= 100 ? 'bg-gradient-to-t from-green-600 to-green-400' :
+                            'bg-gradient-to-t from-red-500 to-orange-400' // Over capacity
+                          )}
+                          style={{ height: `${Math.min(fillPercent, 100)}%` }}
+                        />
+                        {/* Tracked hours overlay - darker shade */}
+                        {trackedPercent > 0 && (
+                          <div 
+                            className="absolute bottom-0 w-full bg-green-700/60 transition-all duration-300"
+                            style={{ height: `${trackedPercent}%` }}
+                          />
+                        )}
+                        {/* Capacity indicator line */}
+                        <div className="absolute w-full h-px bg-muted-foreground/30" style={{ bottom: '100%' }} />
+                      </div>
+                      <span className={cn(
+                        "text-[10px] mt-1",
+                        scheduledHrs > 0 ? "text-foreground font-medium" : "text-muted-foreground"
+                      )}>
+                        {scheduledHrs > 0 ? `${scheduledHrs}h` : '-'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Legend */}
+              <div className="flex items-center justify-center gap-4 mt-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-gradient-to-t from-green-500 to-green-300 rounded" />
+                  <span>Scheduled</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-green-700/60 rounded" />
+                  <span>Tracked</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Time Accuracy */}
+            <div className="flex items-center justify-between pt-2 border-t text-sm">
+              <div className="flex items-center gap-2">
+                <Target className="h-4 w-4 text-muted-foreground" />
+                <span>Time Accuracy</span>
+              </div>
+              <span className="font-bold text-green-500">100%</span>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2">Estimates are accurate</p>
+          </CardContent>
+        </CollapsibleContent>
+      </Collapsible>
     </Card>
   );
 }

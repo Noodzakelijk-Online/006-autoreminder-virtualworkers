@@ -64,55 +64,7 @@ export function TaskFilters({
           </SelectContent>
         </Select>
 
-        {/* Task Type Filter */}
-        <Select
-          value={filters.taskType || 'all'}
-          onValueChange={(value) => onFiltersChange({ ...filters, taskType: value === 'all' ? null : value })}
-        >
-          <SelectTrigger className="w-[130px] h-8 text-xs">
-            <SelectValue placeholder="Task Type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Types</SelectItem>
-            {taskTypes.map((type) => (
-              <SelectItem key={type.taskType} value={type.taskType}>
-                <span className="capitalize">{type.taskType}</span>
-                <span className="text-muted-foreground ml-1">({type.count})</span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
 
-        {/* Complexity Filter */}
-        <Select
-          value={filters.complexity || 'all'}
-          onValueChange={(value) => onFiltersChange({ ...filters, complexity: value === 'all' ? null : value as TaskFiltersState['complexity'] })}
-        >
-          <SelectTrigger className="w-[120px] h-8 text-xs">
-            <SelectValue placeholder="Complexity" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="simple">Simple</SelectItem>
-            <SelectItem value="medium">Medium</SelectItem>
-            <SelectItem value="complex">Complex</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {/* Sort By */}
-        <Select
-          value={filters.sortBy}
-          onValueChange={(value) => onFiltersChange({ ...filters, sortBy: value as TaskFiltersState['sortBy'] })}
-        >
-          <SelectTrigger className="w-[130px] h-8 text-xs">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="dueDate">Due Date</SelectItem>
-            <SelectItem value="estimatedTime">Est. Time</SelectItem>
-            <SelectItem value="complexity">Complexity</SelectItem>
-          </SelectContent>
-        </Select>
 
         {/* Sort Order Toggle */}
         <Button

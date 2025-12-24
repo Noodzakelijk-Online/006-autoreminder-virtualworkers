@@ -560,6 +560,22 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       };
     });
 
+    // Deduplicate by trelloId - keep the most recent entry (by id) for each Trello card
+    const seenTrelloIds = new Map<string, typeof tasks[0]>();
+    tasks.forEach(task => {
+      if (task.trelloId) {
+        const existing = seenTrelloIds.get(task.trelloId);
+        // Keep the one with higher id (more recent) or with understanding
+        if (!existing || task.id > existing.id || (task.hasUnderstanding && !existing.hasUnderstanding)) {
+          seenTrelloIds.set(task.trelloId, task);
+        }
+      } else {
+        // No trelloId, keep it (use id as key)
+        seenTrelloIds.set(`no-trello-${task.id}`, task);
+      }
+    });
+    tasks = Array.from(seenTrelloIds.values());
+
     // Apply filters
     if (filter === 'overdue') {
       tasks = tasks.filter(t => t.status === 'overdue');

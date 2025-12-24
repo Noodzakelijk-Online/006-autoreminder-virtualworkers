@@ -1,0 +1,8 @@
+{
+  "query": "SELECT id, trello_id, name, list_name, due_date, created_at \nFROM atis_cards \nWHERE name LIKE '%Blog post%' \nORDER BY name, created_at;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute SELECT id, trello_id, name, list_name, due_date, created_at \nFROM atis_cards \nWHERE name LIKE '%Blog post%' \nORDER BY name, created_at;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'trello_id' in 'field list'"
+  ]
+}
