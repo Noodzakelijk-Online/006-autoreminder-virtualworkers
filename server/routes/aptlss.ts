@@ -33,6 +33,12 @@ interface SchedulingOptions {
   dinnerBreakDuration?: number; // minutes (e.g., 30)
   shortBreakInterval?: number; // minutes between short breaks
   shortBreakDuration?: number; // minutes for short breaks
+  // Weekly hours target (for scheduling optimization)
+  weeklyHoursMin?: number; // e.g., 55
+  weeklyHoursMax?: number; // e.g., 60
+  // Daily hours flexibility (allows scheduling to vary day-to-day)
+  dailyHoursMin?: number; // e.g., 9.5 hours
+  dailyHoursMax?: number; // e.g., 11.5 hours
 }
 
 // FIXED VERSION - Prevents overbooking by enforcing daily capacity limits
@@ -60,13 +66,28 @@ function scheduleTasksByTime(
   
   const SHORT_BREAK_INTERVAL = options?.shortBreakInterval ?? 90;
   const SHORT_BREAK_DURATION = options?.shortBreakDuration ?? 10;
+  
+  // NEW: Flexible daily hours (configurable per user)
+  const DAILY_HOURS_MIN = options?.dailyHoursMin ?? 8; // Default 8 hours minimum
+  const DAILY_HOURS_MAX = options?.dailyHoursMax ?? 9; // Default 9 hours maximum
+  const WEEKLY_HOURS_MIN = options?.weeklyHoursMin ?? 40; // Default 40 hours/week
+  const WEEKLY_HOURS_MAX = options?.weeklyHoursMax ?? 45; // Default 45 hours/week
 
   // FIX #1: Calculate available capacity UPFRONT (accounting for all breaks)
+  // Now uses flexible daily hours instead of fixed work start/end
   const TOTAL_BREAK_MINUTES = LUNCH_DURATION + BREAKFAST_DURATION + DINNER_DURATION;
   const TOTAL_WORK_MINUTES = (WORK_END_HOUR - WORK_START_HOUR) * 60;
-  const AVAILABLE_WORK_MINUTES = TOTAL_WORK_MINUTES - TOTAL_BREAK_MINUTES;
   
-  console.log(`[Scheduling] Daily capacity: ${AVAILABLE_WORK_MINUTES} minutes (${TOTAL_WORK_MINUTES}min work - ${TOTAL_BREAK_MINUTES}min breaks)`);
+  // Use DAILY_HOURS_MAX for maximum capacity per day (in minutes)
+  // This replaces the old fixed calculation
+  const MAX_DAILY_WORK_MINUTES = Math.round(DAILY_HOURS_MAX * 60);
+  const MIN_DAILY_WORK_MINUTES = Math.round(DAILY_HOURS_MIN * 60);
+  
+  // Available work minutes is the minimum of: (work window - breaks) OR max daily hours
+  const AVAILABLE_WORK_MINUTES = Math.min(TOTAL_WORK_MINUTES - TOTAL_BREAK_MINUTES, MAX_DAILY_WORK_MINUTES);
+  
+  console.log(`[Scheduling] Daily capacity: ${AVAILABLE_WORK_MINUTES} minutes (flexible: ${DAILY_HOURS_MIN}h-${DAILY_HOURS_MAX}h, weekly target: ${WEEKLY_HOURS_MIN}-${WEEKLY_HOURS_MAX}h)`);
+  console.log(`[Scheduling] Work window: ${TOTAL_WORK_MINUTES}min - ${TOTAL_BREAK_MINUTES}min breaks = ${TOTAL_WORK_MINUTES - TOTAL_BREAK_MINUTES}min available`);
 
   // Group tasks by date
   const tasksByDate = new Map<string, any[]>();
@@ -321,6 +342,12 @@ function scheduleTasksByTime(
   const cognitiveLoadOverflow = overflowTasks.filter(t => t.rejectionReason?.includes('Cognitive')).length;
   const capacityOverflow = overflowTasks.filter(t => !t.rejectionReason?.includes('Cognitive')).length;
   
+  // Calculate total scheduled hours for weekly tracking
+  const totalScheduledMinutes = scheduledTasks
+    .filter(t => t.startTime !== 'TBD' && t.startTime !== '--:--')
+    .reduce((sum, t) => sum + Math.ceil(t.durationHours * 60), 0);
+  const totalScheduledHours = Math.round(totalScheduledMinutes / 60 * 10) / 10;
+  
   return {
     scheduled: scheduledTasks,
     overflow: overflowTasks,
@@ -330,10 +357,14 @@ function scheduleTasksByTime(
       cognitiveLoadOverflow: cognitiveLoadOverflow,
       capacityOverflow: capacityOverflow,
       dailyCapacityMinutes: AVAILABLE_WORK_MINUTES,
-      totalScheduledMinutes: scheduledTasks
-        .filter(t => t.startTime !== 'TBD' && t.startTime !== '--:--')
-        .reduce((sum, t) => sum + Math.ceil(t.durationHours * 60), 0),
-      schedulingStrategy: 'Cognitive Load Heuristic (max 4 distinct tasks/day, 5 for CRITICAL)'
+      totalScheduledMinutes: totalScheduledMinutes,
+      totalScheduledHours: totalScheduledHours,
+      // Flexible hours configuration
+      dailyHoursMin: DAILY_HOURS_MIN,
+      dailyHoursMax: DAILY_HOURS_MAX,
+      weeklyHoursMin: WEEKLY_HOURS_MIN,
+      weeklyHoursMax: WEEKLY_HOURS_MAX,
+      schedulingStrategy: `Flexible Hours (${DAILY_HOURS_MIN}-${DAILY_HOURS_MAX}h/day, ${WEEKLY_HOURS_MIN}-${WEEKLY_HOURS_MAX}h/week) + Cognitive Load (max 4-5 tasks/day)`
     }
   }
 }
@@ -973,6 +1004,22 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
             if (settings[0].dinnerTime) {
               schedulingOptions.dinnerBreakStart = parseTimeToHour(settings[0].dinnerTime);
               schedulingOptions.dinnerBreakDuration = settings[0].dinnerDuration || 30;
+            }
+            
+            // Add weekly and daily hours flexibility
+            if (settings[0].weeklyHoursMin !== undefined) {
+              schedulingOptions.weeklyHoursMin = settings[0].weeklyHoursMin;
+            }
+            if (settings[0].weeklyHoursMax !== undefined) {
+              schedulingOptions.weeklyHoursMax = settings[0].weeklyHoursMax;
+            }
+            if (settings[0].dailyHoursMin !== undefined) {
+              // Convert from string (decimal) to number
+              schedulingOptions.dailyHoursMin = parseFloat(String(settings[0].dailyHoursMin)) || 8;
+            }
+            if (settings[0].dailyHoursMax !== undefined) {
+              // Convert from string (decimal) to number
+              schedulingOptions.dailyHoursMax = parseFloat(String(settings[0].dailyHoursMax)) || 9;
             }
           }
 

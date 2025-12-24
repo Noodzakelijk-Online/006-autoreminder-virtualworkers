@@ -44,6 +44,10 @@ router.get('/working-hours/settings', async (req: any, res: Response) => {
         workingDays: '1,2,3,4,5',
         timezone: 'UTC',
         country: 'US',
+        weeklyHoursMin: 40,
+        weeklyHoursMax: 45,
+        dailyHoursMin: 8,
+        dailyHoursMax: 9,
       });
     }
 
@@ -86,6 +90,10 @@ router.post('/working-hours/settings', async (req: any, res: Response) => {
       workingDays,
       timezone,
       country,
+      weeklyHoursMin,
+      weeklyHoursMax,
+      dailyHoursMin,
+      dailyHoursMax,
     } = req.body;
 
     // Check if settings exist
@@ -116,6 +124,10 @@ router.post('/working-hours/settings', async (req: any, res: Response) => {
         workingDays: workingDays || '1,2,3,4,5',
         timezone: timezone || 'UTC',
         country: country || 'US',
+        weeklyHoursMin: weeklyHoursMin || 40,
+        weeklyHoursMax: weeklyHoursMax || 45,
+        dailyHoursMin: String(dailyHoursMin || 8),
+        dailyHoursMax: String(dailyHoursMax || 9),
       });
     } else {
       // Update existing settings
@@ -139,6 +151,10 @@ router.post('/working-hours/settings', async (req: any, res: Response) => {
           workingDays: workingDays || '1,2,3,4,5',
           timezone: timezone || 'UTC',
           country: country || 'US',
+          weeklyHoursMin: weeklyHoursMin || 40,
+          weeklyHoursMax: weeklyHoursMax || 45,
+          dailyHoursMin: String(dailyHoursMin || 8),
+          dailyHoursMax: String(dailyHoursMax || 9),
         })
         .where(eq(userWorkingHours.userOpenId, user.openId));
     }

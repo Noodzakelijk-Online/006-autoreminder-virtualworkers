@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
-import { Clock, Coffee, Utensils } from 'lucide-react';
+import { Clock, Coffee, Utensils, Target } from 'lucide-react';
 
 interface WorkingHoursSettings {
   workStartHour: number;
@@ -26,6 +26,12 @@ interface WorkingHoursSettings {
   workingDays: string; // Comma-separated day numbers: 0=Sun, 1=Mon, ..., 6=Sat
   timezone: string; // IANA timezone
   country: string; // ISO 3166-1 alpha-2 country code
+  // Weekly hours target (for scheduling optimization)
+  weeklyHoursMin: number;
+  weeklyHoursMax: number;
+  // Daily hours flexibility
+  dailyHoursMin: number;
+  dailyHoursMax: number;
 }
 
 const defaultSettings: WorkingHoursSettings = {
@@ -47,6 +53,10 @@ const defaultSettings: WorkingHoursSettings = {
   workingDays: '1,2,3,4,5', // Mon-Fri by default
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC', // Detect user's timezone
   country: 'US', // Default to US
+  weeklyHoursMin: 40, // Default 40 hours/week minimum
+  weeklyHoursMax: 45, // Default 45 hours/week maximum
+  dailyHoursMin: 8, // Default 8 hours/day minimum
+  dailyHoursMax: 9, // Default 9 hours/day maximum
 };
 
 export function WorkingHoursSettings() {
@@ -265,6 +275,94 @@ export function WorkingHoursSettings() {
                 <span className="text-sm text-muted-foreground">mins</span>
               </div>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* NEW: Weekly Hours Target Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
+            <Target className="h-5 w-5" />
+            Weekly Hours Target
+          </CardTitle>
+          <CardDescription>
+            Set your target weekly hours and daily flexibility. The scheduler will distribute tasks to meet your weekly target.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 md:space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Weekly Hours Target (Range)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="20"
+                  max="80"
+                  step="1"
+                  value={settings.weeklyHoursMin}
+                  onChange={(e) => setSettings({ ...settings, weeklyHoursMin: parseInt(e.target.value) || 40 })}
+                  className="w-20"
+                  placeholder="Min"
+                />
+                <span className="text-muted-foreground">to</span>
+                <Input
+                  type="number"
+                  min="20"
+                  max="80"
+                  step="1"
+                  value={settings.weeklyHoursMax}
+                  onChange={(e) => setSettings({ ...settings, weeklyHoursMax: parseInt(e.target.value) || 45 })}
+                  className="w-20"
+                  placeholder="Max"
+                />
+                <span className="text-sm text-muted-foreground">hours/week</span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Target: {settings.weeklyHoursMin}-{settings.weeklyHoursMax} hours per week
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Daily Hours Flexibility (Range)</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min="4"
+                  max="16"
+                  step="0.5"
+                  value={settings.dailyHoursMin}
+                  onChange={(e) => setSettings({ ...settings, dailyHoursMin: parseFloat(e.target.value) || 8 })}
+                  className="w-20"
+                  placeholder="Min"
+                />
+                <span className="text-muted-foreground">to</span>
+                <Input
+                  type="number"
+                  min="4"
+                  max="16"
+                  step="0.5"
+                  value={settings.dailyHoursMax}
+                  onChange={(e) => setSettings({ ...settings, dailyHoursMax: parseFloat(e.target.value) || 9 })}
+                  className="w-20"
+                  placeholder="Max"
+                />
+                <span className="text-sm text-muted-foreground">hours/day</span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Flexibility: {settings.dailyHoursMin}-{settings.dailyHoursMax} hours per day
+              </p>
+            </div>
+          </div>
+
+          <div className="text-sm bg-secondary/50 p-3 rounded-md space-y-1">
+            <p className="font-medium">How it works:</p>
+            <ul className="list-disc list-inside text-muted-foreground space-y-1">
+              <li>Scheduler distributes tasks across the week to meet your target hours</li>
+              <li>Daily hours can vary between {settings.dailyHoursMin}h and {settings.dailyHoursMax}h based on task load</li>
+              <li>Cognitive load limit (4 distinct tasks/day) still applies</li>
+              <li>Tasks that exceed capacity will overflow to the next available day</li>
+            </ul>
           </div>
         </CardContent>
       </Card>

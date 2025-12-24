@@ -671,3 +671,14 @@ Each card now has:
 - [ ] Run integration tests with real Trello data
 - [ ] Monitor VA feedback on schedule realism
 - [ ] Adjust limits based on feedback (4 vs 5 tasks per day)
+
+
+## Weekly Hours Target Configuration (Dec 24, 2025)
+- [x] Add database fields for weekly hours target (min/max)
+- [x] Add database fields for daily hours flexibility (min/max)
+- [x] Update Settings UI with weekly hours configuration
+- [x] Update Settings UI with daily hours flexibility
+- [x] Update scheduling algorithm to use flexible daily hours (9.5h-11.5h)
+- [x] Update scheduling algorithm to target weekly hours (55-60h)
+- [x] Add validation for weekly hours vs daily hours consistency
+- [ ] Test scheduling with Joyce's settings (55-60h/week, 9.5-11.5h/day)

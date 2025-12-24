@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -98,6 +98,12 @@ export const userWorkingHours = mysqlTable('user_working_hours', {
   workingDays: varchar('workingDays', { length: 50 }).notNull().default('1,2,3,4,5'), // Comma-separated: 0=Sun, 1=Mon, ..., 6=Sat
   // Timezone support
   timezone: varchar('timezone', { length: 50 }).notNull().default('UTC'), // IANA timezone (e.g., 'America/New_York', 'Europe/Amsterdam')
+  // Weekly hours target (for scheduling optimization)
+  weeklyHoursMin: int('weeklyHoursMin').notNull().default(40), // Minimum target hours per week
+  weeklyHoursMax: int('weeklyHoursMax').notNull().default(45), // Maximum target hours per week
+  // Daily hours flexibility (allows scheduling to vary day-to-day)
+  dailyHoursMin: decimal('dailyHoursMin', { precision: 4, scale: 2 }).notNull().default('8.00'), // Minimum hours per day (e.g., 9.5)
+  dailyHoursMax: decimal('dailyHoursMax', { precision: 4, scale: 2 }).notNull().default('9.00'), // Maximum hours per day (e.g., 11.5)
   // Holiday integration
   country: varchar('country', { length: 2 }).notNull().default('US'), // ISO 3166-1 alpha-2 country code for holidays
   createdAt: timestamp('createdAt').defaultNow().notNull(),
