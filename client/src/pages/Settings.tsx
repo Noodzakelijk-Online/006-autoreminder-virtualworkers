@@ -13,7 +13,7 @@ export default function Settings() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container py-4 flex items-center gap-4">
+        <div className="container py-3 md:py-4 flex items-center gap-2 md:gap-4">
           <Link href="/">
             <Button variant="ghost" size="icon">
               <ArrowLeft className="h-5 w-5" />
@@ -26,7 +26,7 @@ export default function Settings() {
         </div>
       </header>
 
-      <main className="container py-8 max-w-4xl space-y-6">
+      <main className="container py-4 md:py-8 max-w-4xl space-y-4 md:space-y-6">
         <NotificationSettings />
         <PerformanceMetrics />
         <WorkingHoursSettings />

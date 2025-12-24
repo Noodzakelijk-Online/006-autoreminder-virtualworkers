@@ -114,10 +114,10 @@ export function WorkingHoursSettings() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
             <Clock className="h-5 w-5" />
             Working Hours
           </CardTitle>
@@ -125,8 +125,8 @@ export function WorkingHoursSettings() {
             Configure your daily work schedule. Tasks will be automatically scheduled within these hours.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-2 gap-4">
+        <CardContent className="space-y-4 md:space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Work Start Time</Label>
               <div className="flex gap-2">

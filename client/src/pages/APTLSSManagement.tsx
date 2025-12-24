@@ -450,23 +450,23 @@ export default function APTLSSManagement() {
   const progressPercent = progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="container mx-auto py-4 md:py-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
+        <div className="flex items-center gap-2 md:gap-4">
           <Link href="/">
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="h-5 w-5" />
+            <Button variant="ghost" size="icon" className="h-8 w-8 md:h-10 md:w-10">
+              <ArrowLeft className="h-4 w-4 md:h-5 md:w-5" />
             </Button>
           </Link>
           <div>
-            <h1 className="text-3xl font-bold">APTLSS Management</h1>
-            <p className="text-muted-foreground">
+            <h1 className="text-xl md:text-3xl font-bold">APTLSS Management</h1>
+            <p className="text-xs md:text-sm text-muted-foreground">
               Select cards and generate APTLSS checklists in bulk
             </p>
           </div>
         </div>
-        <Button onClick={loadBoards} variant="outline" disabled={loading}>
+        <Button onClick={loadBoards} variant="outline" disabled={loading} className="w-full md:w-auto">
           <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
@@ -476,7 +476,7 @@ export default function APTLSSManagement() {
       {progress.status !== 'idle' && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center justify-between">
+            <CardTitle className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-0 text-lg md:text-xl">
               <span>Generation Progress</span>
               <div className="flex gap-2">
                 {progress.status === 'running' && (
@@ -493,7 +493,7 @@ export default function APTLSSManagement() {
                 )}
               </div>
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-xs md:text-sm">
               {progress.current && `Currently processing: ${progress.current}`}
             </CardDescription>
           </CardHeader>

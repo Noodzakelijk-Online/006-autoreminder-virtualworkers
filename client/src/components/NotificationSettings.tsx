@@ -116,7 +116,7 @@ export function NotificationSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
           <Bell className="h-5 w-5" />
           Notification Settings
         </CardTitle>
@@ -124,14 +124,14 @@ export function NotificationSettings() {
           Control how and when you receive task notifications to minimize interruptions
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4 md:space-y-6">
         {/* Notification Mode Selection */}
-        <div className="space-y-4">
-          <Label className="text-base font-medium">Notification Mode</Label>
-          <div className="grid gap-3">
+        <div className="space-y-3 md:space-y-4">
+          <Label className="text-sm md:text-base font-medium">Notification Mode</Label>
+          <div className="grid gap-2 md:gap-3">
             {/* Disabled Option */}
             <div
-              className={`flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-colors ${
+              className={`flex items-start gap-2 md:gap-4 p-3 md:p-4 rounded-lg border-2 cursor-pointer transition-colors ${
                 preferences.notificationMode === 'disabled'
                   ? 'border-primary bg-primary/5'
                   : 'border-border hover:border-muted-foreground/50'
@@ -160,7 +160,7 @@ export function NotificationSettings() {
 
             {/* Daily Digest Option */}
             <div
-              className={`flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-colors ${
+              className={`flex items-start gap-2 md:gap-4 p-3 md:p-4 rounded-lg border-2 cursor-pointer transition-colors ${
                 preferences.notificationMode === 'daily_digest'
                   ? 'border-primary bg-primary/5'
                   : 'border-border hover:border-muted-foreground/50'
@@ -189,7 +189,7 @@ export function NotificationSettings() {
 
             {/* Priority Only Option */}
             <div
-              className={`flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-colors ${
+              className={`flex items-start gap-2 md:gap-4 p-3 md:p-4 rounded-lg border-2 cursor-pointer transition-colors ${
                 preferences.notificationMode === 'priority_only'
                   ? 'border-primary bg-primary/5'
                   : 'border-border hover:border-muted-foreground/50'

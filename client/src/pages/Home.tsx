@@ -339,12 +339,12 @@ export default function Home() {
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container py-4 flex items-center justify-between">
+        <div className="container py-3 md:py-4 flex items-center justify-between gap-2">
           <div className="flex items-center gap-4">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-xl">
+            <div className="h-8 w-8 md:h-10 md:w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-sm md:text-xl">
               VA
             </div>
-            <div>
+            <div className="hidden md:block">
               <h1 className="font-bold text-lg">Task Dashboard</h1>
               <p className="text-xs text-muted-foreground">{currentDate}</p>
             </div>
@@ -437,23 +437,23 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex-1 container py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <main className="flex-1 container py-4 md:py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8">
           {/* Left Sidebar - Stats */}
-          <div className="lg:col-span-4 space-y-8">
-            <div className="bg-card rounded-2xl p-6 shadow-sm border relative overflow-hidden">
+          <div className="lg:col-span-4 space-y-4 md:space-y-8 order-2 lg:order-1">
+            <div className="bg-card rounded-2xl p-4 md:p-6 shadow-sm border relative overflow-hidden">
               <div className="absolute inset-0 opacity-10 bg-[url('/images/card-bg.png')] bg-cover" />
               <div className="relative z-10">
-                <h2 className="text-2xl font-bold mb-2">
+                <h2 className="text-xl md:text-2xl font-bold mb-2">
                   {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'}, {user?.name?.split(' ')[0] || 'there'}! {new Date().getHours() < 12 ? '☀️' : new Date().getHours() < 17 ? '🌤️' : '🌙'}
                 </h2>
-                <p className="text-muted-foreground mb-6">
+                <p className="text-sm md:text-base text-muted-foreground mb-4 md:mb-6">
                   You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining.
                   {tasks.length > 0 && tasks.some(t => !t.isCompleted && t.startTime) && (
                     <> Your next task starts at {tasks.find(t => !t.isCompleted && t.startTime)?.startTime || 'TBD'}.</>
                   )}
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-col md:flex-row gap-2">
                   <Button 
                     className="flex-1"
                     onClick={() => window.scrollTo({ top: document.querySelector('.timeline-section')?.getBoundingClientRect().top! + window.scrollY - 100, behavior: 'smooth' })}
@@ -520,15 +520,15 @@ export default function Home() {
           </div>
 
           {/* Main Content - Timeline */}
-          <div className="lg:col-span-8">
-            <div className="timeline-section bg-card rounded-2xl shadow-sm border min-h-[600px] relative overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-32 bg-[url('/images/hero-bg.png')] bg-cover opacity-20" />
-              <div className="relative z-10 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-bold">Workload Timeline</h2>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm">Day</Button>
-                    <Button variant="ghost" size="sm">Week</Button>
+          <div className="lg:col-span-8 order-1 lg:order-2">
+            <div className="timeline-section bg-card rounded-2xl shadow-sm border min-h-[400px] md:min-h-[600px] relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-20 md:h-32 bg-[url('/images/hero-bg.png')] bg-cover opacity-20" />
+              <div className="relative z-10 p-4 md:p-6">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 mb-4">
+                  <h2 className="text-lg md:text-xl font-bold">Workload Timeline</h2>
+                  <div className="flex gap-1 md:gap-2">
+                    <Button variant="outline" size="sm" className="text-xs md:text-sm">Day</Button>
+                    <Button variant="ghost" size="sm" className="text-xs md:text-sm">Week</Button>
                   </div>
                 </div>
                 

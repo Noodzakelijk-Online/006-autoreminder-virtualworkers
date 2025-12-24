@@ -121,7 +121,7 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
           <Calendar className="h-5 w-5" />
           Holiday Calendar
         </CardTitle>
@@ -129,10 +129,10 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
           Automatically mark public holidays as non-working days
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 md:space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="country">Country</Label>
-          <div className="flex gap-2">
+          <Label htmlFor="country" className="text-sm md:text-base">Country</Label>
+          <div className="flex flex-col md:flex-row gap-2">
             <select
               id="country"
               value={country}
@@ -171,7 +171,7 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
                 {holidays.map((holiday) => (
                   <div
                     key={holiday.id}
-                    className="flex items-center justify-between p-3 hover:bg-accent/50"
+                    className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 p-2 md:p-3 hover:bg-accent/50"
                   >
                     <div className="flex-1">
                       <div className="font-medium">{holiday.name}</div>
