@@ -682,3 +682,21 @@ Each card now has:
 - [x] Update scheduling algorithm to target weekly hours (55-60h)
 - [x] Add validation for weekly hours vs daily hours consistency
 - [ ] Test scheduling with Joyce's settings (55-60h/week, 9.5-11.5h/day)
+
+
+## Time Tracking System (Dec 24, 2025)
+- [x] Create time_entries database table (taskId, startTime, endTime, duration, notes)
+- [x] Create time tracking API endpoints (start, pause, stop, get entries)
+- [x] Build Timer UI component (play/pause/stop buttons, elapsed time display)
+- [x] Integrate timer with task cards in timeline
+- [x] Calculate actual vs estimated duration per task
+- [x] Store time tracking history for analytics
+- [x] Add time tracking summary to task details
+
+## Weekly Progress Dashboard (Dec 24, 2025)
+- [x] Calculate total scheduled hours for current week
+- [x] Display scheduled hours vs weekly target (e.g., "42/55 hours")
+- [x] Add progress bar visualization
+- [x] Show daily breakdown of scheduled hours
+- [x] Add comparison to weekly target range (min/max)
+- [x] Update sidebar Weekly Progress section with new metrics

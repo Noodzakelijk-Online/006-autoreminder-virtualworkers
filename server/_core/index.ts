@@ -18,6 +18,7 @@ import vaManagementRoutes from "../routes/va-management.js";
 import atisRoutes from "../routes/atis.js";
 import notificationPreferencesRoutes from "../routes/notification-preferences.js";
 import notificationHistoryRoutes from "../routes/notification-history.js";
+import timeTrackingRoutes from "../routes/time-tracking.js";
 import { websocketService } from "../services/websocket.js";
 import { startDigestScheduler } from "../services/digest-scheduler.js";
 
@@ -70,6 +71,8 @@ async function startServer() {
   app.use("/api/notification-preferences", notificationPreferencesRoutes);
   // Notification History API
   app.use("/api/notifications", notificationHistoryRoutes);
+  // Time Tracking API
+  app.use("/api", timeTrackingRoutes);
   // tRPC API
   app.use(
     "/api/trpc",

@@ -1,0 +1,414 @@
+import { Router } from 'express';
+import type { Request, Response } from 'express';
+import { getDb } from '../db';
+import { timeEntries } from '../../drizzle/schema';
+import { eq, and, desc, gte, lte, sql } from 'drizzle-orm';
+
+const router = Router();
+
+// Get active timer for a task (if any)
+router.get('/time-tracking/active', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Find any active timer (endTime is null)
+    const activeTimer = await db.select()
+      .from(timeEntries)
+      .where(and(
+        eq(timeEntries.founderId, user.id),
+        sql`${timeEntries.endTime} IS NULL`
+      ))
+      .orderBy(desc(timeEntries.startTime))
+      .limit(1);
+
+    if (activeTimer.length === 0) {
+      return res.json({ active: false, entry: null });
+    }
+
+    res.json({ active: true, entry: activeTimer[0] });
+  } catch (error) {
+    console.error('Error fetching active timer:', error);
+    res.status(500).json({ error: 'Failed to fetch active timer' });
+  }
+});
+
+// Start a timer for a task
+router.post('/time-tracking/start', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { taskId, notes } = req.body;
+    if (!taskId) {
+      return res.status(400).json({ error: 'Task ID is required' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Check if there's already an active timer
+    const existingActive = await db.select()
+      .from(timeEntries)
+      .where(and(
+        eq(timeEntries.founderId, user.id),
+        sql`${timeEntries.endTime} IS NULL`
+      ))
+      .limit(1);
+
+    if (existingActive.length > 0) {
+      return res.status(400).json({ 
+        error: 'Timer already active', 
+        activeTaskId: existingActive[0].taskId 
+      });
+    }
+
+    // Create new time entry
+    const result = await db.insert(timeEntries).values({
+      taskId,
+      vaId: user.id, // Using user.id as vaId for now
+      founderId: user.id,
+      startTime: new Date(),
+      notes: notes || null,
+    });
+
+    // Fetch the created entry
+    const newEntry = await db.select()
+      .from(timeEntries)
+      .where(eq(timeEntries.founderId, user.id))
+      .orderBy(desc(timeEntries.id))
+      .limit(1);
+
+    res.json({ success: true, entry: newEntry[0] });
+  } catch (error) {
+    console.error('Error starting timer:', error);
+    res.status(500).json({ error: 'Failed to start timer' });
+  }
+});
+
+// Stop the active timer
+router.post('/time-tracking/stop', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { notes } = req.body;
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Find active timer
+    const activeTimer = await db.select()
+      .from(timeEntries)
+      .where(and(
+        eq(timeEntries.founderId, user.id),
+        sql`${timeEntries.endTime} IS NULL`
+      ))
+      .limit(1);
+
+    if (activeTimer.length === 0) {
+      return res.status(400).json({ error: 'No active timer found' });
+    }
+
+    const entry = activeTimer[0];
+    const endTime = new Date();
+    const startTime = new Date(entry.startTime);
+    const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
+
+    // Update the entry with end time and duration
+    await db.update(timeEntries)
+      .set({
+        endTime,
+        durationMinutes,
+        notes: notes || entry.notes,
+      })
+      .where(eq(timeEntries.id, entry.id));
+
+    // Fetch updated entry
+    const updatedEntry = await db.select()
+      .from(timeEntries)
+      .where(eq(timeEntries.id, entry.id))
+      .limit(1);
+
+    res.json({ success: true, entry: updatedEntry[0] });
+  } catch (error) {
+    console.error('Error stopping timer:', error);
+    res.status(500).json({ error: 'Failed to stop timer' });
+  }
+});
+
+// Pause timer (stop and allow resume)
+router.post('/time-tracking/pause', async (req: any, res: Response) => {
+  // Pause is essentially the same as stop - we just record the time
+  // Resume will create a new entry for the same task
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Find active timer
+    const activeTimer = await db.select()
+      .from(timeEntries)
+      .where(and(
+        eq(timeEntries.founderId, user.id),
+        sql`${timeEntries.endTime} IS NULL`
+      ))
+      .limit(1);
+
+    if (activeTimer.length === 0) {
+      return res.status(400).json({ error: 'No active timer found' });
+    }
+
+    const entry = activeTimer[0];
+    const endTime = new Date();
+    const startTime = new Date(entry.startTime);
+    const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
+
+    // Update the entry with end time and duration
+    await db.update(timeEntries)
+      .set({
+        endTime,
+        durationMinutes,
+        notes: entry.notes ? `${entry.notes} (paused)` : '(paused)',
+      })
+      .where(eq(timeEntries.id, entry.id));
+
+    // Fetch updated entry
+    const updatedEntry = await db.select()
+      .from(timeEntries)
+      .where(eq(timeEntries.id, entry.id))
+      .limit(1);
+
+    res.json({ success: true, entry: updatedEntry[0], paused: true, taskId: entry.taskId });
+  } catch (error) {
+    console.error('Error pausing timer:', error);
+    res.status(500).json({ error: 'Failed to pause timer' });
+  }
+});
+
+// Get time entries for a specific task
+router.get('/time-tracking/task/:taskId', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { taskId } = req.params;
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const entries = await db.select()
+      .from(timeEntries)
+      .where(and(
+        eq(timeEntries.founderId, user.id),
+        eq(timeEntries.taskId, taskId)
+      ))
+      .orderBy(desc(timeEntries.startTime));
+
+    // Calculate total time spent
+    const totalMinutes = entries.reduce((sum, entry) => sum + (entry.durationMinutes || 0), 0);
+
+    res.json({ 
+      entries, 
+      totalMinutes,
+      totalHours: Math.round(totalMinutes / 60 * 10) / 10
+    });
+  } catch (error) {
+    console.error('Error fetching task time entries:', error);
+    res.status(500).json({ error: 'Failed to fetch time entries' });
+  }
+});
+
+// Get time entries for a date range (for weekly summary)
+router.get('/time-tracking/summary', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { startDate, endDate } = req.query;
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    let query = db.select()
+      .from(timeEntries)
+      .where(eq(timeEntries.founderId, user.id));
+
+    // If date range provided, filter by it
+    if (startDate && endDate) {
+      const start = new Date(startDate as string);
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999); // Include entire end day
+      
+      query = db.select()
+        .from(timeEntries)
+        .where(and(
+          eq(timeEntries.founderId, user.id),
+          gte(timeEntries.startTime, start),
+          lte(timeEntries.startTime, end)
+        ));
+    }
+
+    const entries = await query.orderBy(desc(timeEntries.startTime));
+
+    // Calculate totals
+    const totalMinutes = entries.reduce((sum, entry) => sum + (entry.durationMinutes || 0), 0);
+    
+    // Group by date
+    const byDate: Record<string, number> = {};
+    entries.forEach(entry => {
+      const date = new Date(entry.startTime).toISOString().split('T')[0];
+      byDate[date] = (byDate[date] || 0) + (entry.durationMinutes || 0);
+    });
+
+    // Group by task
+    const byTask: Record<string, number> = {};
+    entries.forEach(entry => {
+      byTask[entry.taskId] = (byTask[entry.taskId] || 0) + (entry.durationMinutes || 0);
+    });
+
+    res.json({
+      entries,
+      totalMinutes,
+      totalHours: Math.round(totalMinutes / 60 * 10) / 10,
+      byDate,
+      byTask,
+      entryCount: entries.length
+    });
+  } catch (error) {
+    console.error('Error fetching time summary:', error);
+    res.status(500).json({ error: 'Failed to fetch time summary' });
+  }
+});
+
+// Get weekly progress (scheduled hours vs target)
+router.get('/time-tracking/weekly-progress', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Get current week's start and end dates
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1)); // Monday
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6); // Sunday
+    endOfWeek.setHours(23, 59, 59, 999);
+
+    // Get time entries for this week
+    const weekEntries = await db.select()
+      .from(timeEntries)
+      .where(and(
+        eq(timeEntries.founderId, user.id),
+        gte(timeEntries.startTime, startOfWeek),
+        lte(timeEntries.startTime, endOfWeek)
+      ));
+
+    const actualMinutes = weekEntries.reduce((sum, entry) => sum + (entry.durationMinutes || 0), 0);
+    const actualHours = Math.round(actualMinutes / 60 * 10) / 10;
+
+    // Get user's weekly hours target from settings
+    const { userWorkingHours } = await import('../../drizzle/schema');
+    const settings = await db.select()
+      .from(userWorkingHours)
+      .where(eq(userWorkingHours.userOpenId, user.openId))
+      .limit(1);
+
+    let weeklyHoursMin = 40;
+    let weeklyHoursMax = 45;
+    let dailyHoursMin = 8;
+    let dailyHoursMax = 9;
+
+    if (settings.length > 0) {
+      weeklyHoursMin = settings[0].weeklyHoursMin || 40;
+      weeklyHoursMax = settings[0].weeklyHoursMax || 45;
+      dailyHoursMin = parseFloat(String(settings[0].dailyHoursMin)) || 8;
+      dailyHoursMax = parseFloat(String(settings[0].dailyHoursMax)) || 9;
+    }
+
+    // Calculate daily breakdown
+    const dailyBreakdown: Record<string, number> = {};
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(startOfWeek);
+      date.setDate(startOfWeek.getDate() + i);
+      const dateStr = date.toISOString().split('T')[0];
+      dailyBreakdown[dateStr] = 0;
+    }
+
+    weekEntries.forEach(entry => {
+      const date = new Date(entry.startTime).toISOString().split('T')[0];
+      if (dailyBreakdown[date] !== undefined) {
+        dailyBreakdown[date] += entry.durationMinutes || 0;
+      }
+    });
+
+    // Convert daily breakdown to hours
+    const dailyHours: Record<string, number> = {};
+    Object.entries(dailyBreakdown).forEach(([date, minutes]) => {
+      dailyHours[date] = Math.round(minutes / 60 * 10) / 10;
+    });
+
+    // Calculate progress percentage
+    const targetMidpoint = (weeklyHoursMin + weeklyHoursMax) / 2;
+    const progressPercent = Math.min(100, Math.round((actualHours / targetMidpoint) * 100));
+
+    res.json({
+      weekStart: startOfWeek.toISOString().split('T')[0],
+      weekEnd: endOfWeek.toISOString().split('T')[0],
+      actualHours,
+      actualMinutes,
+      weeklyHoursMin,
+      weeklyHoursMax,
+      dailyHoursMin,
+      dailyHoursMax,
+      dailyHours,
+      progressPercent,
+      onTrack: actualHours >= weeklyHoursMin && actualHours <= weeklyHoursMax,
+      status: actualHours < weeklyHoursMin ? 'under' : actualHours > weeklyHoursMax ? 'over' : 'on_track'
+    });
+  } catch (error) {
+    console.error('Error fetching weekly progress:', error);
+    res.status(500).json({ error: 'Failed to fetch weekly progress' });
+  }
+});
+
+export default router;

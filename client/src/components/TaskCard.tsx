@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronUp, RefreshCw, Check, CloudUpload } from "lucide-react";
+import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronUp, RefreshCw, Check, CloudUpload, Play } from "lucide-react";
+import { Timer } from "@/components/Timer";
 import { toast } from "sonner";
 import { Task } from "@/types";
 import { cn } from "@/lib/utils";
@@ -190,11 +191,23 @@ export function TaskCard({ task, onToggle }: TaskCardProps) {
         
         {/* Metadata badges */}
         <div className="flex flex-wrap gap-2 text-xs">
-          {/* Duration */}
+          {/* Duration with Timer */}
           <div className="flex items-center gap-1 bg-muted px-2 py-1 rounded-md">
             <Clock className="h-3 w-3" />
             <span>{formatDuration(task.durationHours)}</span>
           </div>
+          
+          {/* Time Tracking Timer */}
+          {!task.isCompleted && (
+            <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+              <Timer 
+                taskId={task.id} 
+                taskName={task.cardName}
+                estimatedHours={task.durationHours}
+                compact={true}
+              />
+            </div>
+          )}
 
           {/* Task Type */}
           {task.taskType && (

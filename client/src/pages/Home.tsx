@@ -3,6 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Timeline } from "@/components/Timeline";
 import { OverflowTasks } from "@/components/OverflowTasks";
 import { StatsPanel } from "@/components/StatsPanel";
+import { WeeklyProgressDashboard } from "@/components/WeeklyProgressDashboard";
 import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
 import { Task, WeeklyStats } from "@/types";
 import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo, LogOut, User, Menu, X, Calendar, Users } from "lucide-react";
@@ -478,6 +479,9 @@ export default function Home() {
             </div>
             
             <StatsPanel stats={stats} />
+            
+            {/* Weekly Progress Dashboard */}
+            <WeeklyProgressDashboard />
             
             <div className="bg-card rounded-xl p-4 border">
               <WorkloadHeatmap tasks={tasks} />
