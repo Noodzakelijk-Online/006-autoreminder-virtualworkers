@@ -128,6 +128,11 @@ function scheduleTasksByTime(
     let currentHour = WORK_START_HOUR;
     let currentMinute = 0;
     let minutesSinceBreak = 0;
+    
+    // NEW: Cognitive Load Heuristic - track distinct tasks per day
+    const scheduledCardNames = new Set<string>();
+    const MAX_DISTINCT_TASKS_NORMAL = 4;
+    const MAX_DISTINCT_TASKS_CRITICAL = 5;
 
     const toMinutes = (h: number, m: number) => h * 60 + m;
     
@@ -185,6 +190,21 @@ function scheduleTasksByTime(
       }
 
       skipMealBreak();
+      
+      // NEW: Cognitive Load Heuristic - check if adding this task would exceed distinct task limit
+      const isNewCard = !scheduledCardNames.has(task.cardName);
+      const maxDistinctTasks = (task.priorityLevel === 'CRITICAL' || task.priorityLevel === 'URGENT') 
+        ? MAX_DISTINCT_TASKS_CRITICAL 
+        : MAX_DISTINCT_TASKS_NORMAL;
+      
+      if (isNewCard && scheduledCardNames.size >= maxDistinctTasks) {
+        // Would exceed cognitive load limit - reject this task
+        overflowTasks.push({
+          ...task,
+          rejectionReason: `Cognitive load limit reached (${maxDistinctTasks} distinct tasks per day). Current: ${scheduledCardNames.size} tasks.`
+        });
+        continue;
+      }
       
       // FIX #4: Check if short break fits in remaining capacity BEFORE adding it
       let breakMinutesNeeded = 0;
@@ -274,6 +294,11 @@ function scheduleTasksByTime(
       const startTime = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
       const endTime = `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
 
+      // NEW: Track this card as scheduled for cognitive load tracking
+      if (isNewCard) {
+        scheduledCardNames.add(task.cardName);
+      }
+
       scheduledTasks.push({
         ...task,
         startTime,
@@ -292,16 +317,23 @@ function scheduleTasksByTime(
   }
 
   // FIX #7: Return structured object with separate scheduled/overflow tasks
+  // NEW: Include cognitive load metrics
+  const cognitiveLoadOverflow = overflowTasks.filter(t => t.rejectionReason?.includes('Cognitive')).length;
+  const capacityOverflow = overflowTasks.filter(t => !t.rejectionReason?.includes('Cognitive')).length;
+  
   return {
     scheduled: scheduledTasks,
     overflow: overflowTasks,
     metrics: {
       totalScheduled: scheduledTasks.filter(t => t.startTime !== 'TBD' && t.startTime !== '--:--').length,
       totalOverflow: overflowTasks.length,
+      cognitiveLoadOverflow: cognitiveLoadOverflow,
+      capacityOverflow: capacityOverflow,
       dailyCapacityMinutes: AVAILABLE_WORK_MINUTES,
       totalScheduledMinutes: scheduledTasks
         .filter(t => t.startTime !== 'TBD' && t.startTime !== '--:--')
-        .reduce((sum, t) => sum + Math.ceil(t.durationHours * 60), 0)
+        .reduce((sum, t) => sum + Math.ceil(t.durationHours * 60), 0),
+      schedulingStrategy: 'Cognitive Load Heuristic (max 4 distinct tasks/day, 5 for CRITICAL)'
     }
   }
 }

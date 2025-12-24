@@ -656,3 +656,18 @@ Each card now has:
 - [x] Optimize NotificationSettings component for mobile
 - [x] Optimize HolidayManagement component for mobile
 - [x] Test responsive breakpoints (mobile, tablet, desktop)
+
+
+## Cognitive Load Heuristic Implementation (Dec 24, 2025)
+- [x] Analyze current scheduling behavior for unrealistic same-day packing
+- [x] Identify why tasks are packed without cognitive load consideration
+- [x] Design cognitive load heuristic (max 4 distinct tasks/day, 5 for CRITICAL/URGENT)
+- [x] Implement cognitive load check in scheduling algorithm
+- [x] Track distinct tasks (by cardName) per day
+- [x] Add rejection reason for cognitive load overflow
+- [x] Update metrics to include cognitiveLoadOverflow and capacityOverflow breakdown
+- [x] Create comprehensive test suite for cognitive load scenarios
+- [x] Document scheduling strategy in SCHEDULING_COGNITIVE_LOAD.md
+- [ ] Run integration tests with real Trello data
+- [ ] Monitor VA feedback on schedule realism
+- [ ] Adjust limits based on feedback (4 vs 5 tasks per day)
