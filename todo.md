@@ -712,3 +712,16 @@ Each card now has:
 - [x] Make Weekly Progress Dashboard collapsible
 - [x] Add gradient fill bars for daily hours (light green to dark green)
 - [ ] Weekly hours shows defaults (40-45h) until user saves settings in Settings page
+
+
+## Collapsible Card Structure (Dec 24, 2025)
+- [x] Make each Trello card collapsible to show/hide details
+- [x] Show APTLSS checklist steps within each card
+- [x] Make steps/tasks collapsible within the card
+- [x] Easy overview of what needs to be done per card
+
+
+## Fix Duplicate Cards (Dec 24, 2025)
+- [x] Update deduplication logic to use card name (keeps most recent with AI understanding)
+- [x] Added isArchived column to atis_boards table
+- [x] Reduced tasks from 100 to 89 (removed duplicates)

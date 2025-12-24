@@ -560,21 +560,22 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       };
     });
 
-    // Deduplicate by trelloId - keep the most recent entry (by id) for each Trello card
-    const seenTrelloIds = new Map<string, typeof tasks[0]>();
+    // Deduplicate by card name - keep only one card per unique name
+    // This handles cases where the same card exists in multiple boards (e.g., template copies)
+    const seenCardNames = new Map<string, typeof tasks[0]>();
     tasks.forEach(task => {
-      if (task.trelloId) {
-        const existing = seenTrelloIds.get(task.trelloId);
-        // Keep the one with higher id (more recent) or with understanding
-        if (!existing || task.id > existing.id || (task.hasUnderstanding && !existing.hasUnderstanding)) {
-          seenTrelloIds.set(task.trelloId, task);
-        }
-      } else {
-        // No trelloId, keep it (use id as key)
-        seenTrelloIds.set(`no-trello-${task.id}`, task);
+      const key = task.name.toLowerCase().trim();
+      const existing = seenCardNames.get(key);
+      // Keep the one with:
+      // 1. AI understanding (prioritize analyzed cards)
+      // 2. Higher id (more recent) if both have/don't have understanding
+      if (!existing || 
+          (task.hasUnderstanding && !existing.hasUnderstanding) ||
+          (task.hasUnderstanding === existing.hasUnderstanding && task.id > existing.id)) {
+        seenCardNames.set(key, task);
       }
     });
-    tasks = Array.from(seenTrelloIds.values());
+    tasks = Array.from(seenCardNames.values());
 
     // Apply filters
     if (filter === 'overdue') {

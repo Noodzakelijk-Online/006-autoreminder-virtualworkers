@@ -1,0 +1,22 @@
+{
+  "query": "SELECT id, trelloId, name, createdAt FROM atis_cards WHERE name LIKE '%Blog post%' ORDER BY createdAt DESC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute SELECT id, trelloId, name, createdAt FROM atis_cards WHERE name LIKE '%Blog post%' ORDER BY createdAt DESC;",
+  "rows": [
+    {
+      "id": "657",
+      "trelloId": "6359b77a80871d01109fc396",
+      "name": "Blog post - Announcement",
+      "createdAt": "2025-12-22 12:08:06"
+    },
+    {
+      "id": "644",
+      "trelloId": "63b59ad59bce2b020a7fe7db",
+      "name": "Blog post - Announcement",
+      "createdAt": "2025-12-22 12:08:04"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttrelloId\tname\tcreatedAt\n657\t6359b77a80871d01109fc396\tBlog post - Announcement\t2025-12-22 12:08:06\n644\t63b59ad59bce2b020a7fe7db\tBlog post - Announcement\t2025-12-22 12:08:04\n",
+  "stderr": "",
+  "execution_time_ms": 80
+}

@@ -1,0 +1,22 @@
+{
+  "query": "SELECT id, trelloId, name, createdAt FROM atis_boards WHERE name LIKE '%Go To Market%' ORDER BY createdAt ASC;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute SELECT id, trelloId, name, createdAt FROM atis_boards WHERE name LIKE '%Go To Market%' ORDER BY createdAt ASC;",
+  "rows": [
+    {
+      "id": "19",
+      "trelloId": "63b59ad59bce2b020a7fe79a",
+      "name": "Go To Market Strategy Template",
+      "createdAt": "2025-12-22 12:04:12"
+    },
+    {
+      "id": "20",
+      "trelloId": "6359b77a80871d01109fc355",
+      "name": "Go To Market Strategy Template",
+      "createdAt": "2025-12-22 12:04:12"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\ttrelloId\tname\tcreatedAt\n19\t63b59ad59bce2b020a7fe79a\tGo To Market Strategy Template\t2025-12-22 12:04:12\n20\t6359b77a80871d01109fc355\tGo To Market Strategy Template\t2025-12-22 12:04:12\n",
+  "stderr": "",
+  "execution_time_ms": 57
+}

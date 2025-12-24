@@ -1,0 +1,9 @@
+{
+  "query": "UPDATE atis_boards SET isArchived = 1 WHERE name = 'Go To Market Strategy Template' AND id = (SELECT id FROM (SELECT id FROM atis_boards WHERE name = 'Go To Market Strategy Template' ORDER BY createdAt ASC LIMIT 1) as subq);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute UPDATE atis_boards SET isArchived = 1 WHERE name = 'Go To Market Strategy Template' AND id = (SELECT id FROM (SELECT id FROM atis_boards WHERE name = 'Go To Market Strategy Template' ORDER BY createdAt ASC LIMIT 1) as subq);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 62
+}
