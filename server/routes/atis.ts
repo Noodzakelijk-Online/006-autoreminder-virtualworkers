@@ -1155,4 +1155,74 @@ router.post('/chatbot/extract-url', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/atis/understanding/reanalyze-all
+ * Re-analyze ALL cards with the updated AI prompt (comprehensive checklists)
+ * This will regenerate APTLSS checklists for all cards with AI understanding
+ */
+router.post('/understanding/reanalyze-all', async (req: Request, res: Response) => {
+  try {
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    const { limit = 100, minConfidence = 0, forceAll = false } = req.body;
+
+    // Get cards to reprocess
+    // If forceAll is true, reprocess all cards with understanding
+    // Otherwise, only reprocess cards below minConfidence threshold
+    let cardsToProcess;
+    
+    if (forceAll) {
+      // Get all cards with understanding
+      cardsToProcess = await db.select({
+        id: atisCardUnderstanding.cardId,
+      })
+        .from(atisCardUnderstanding)
+        .limit(limit);
+    } else {
+      // Get cards with low confidence or no checklist
+      cardsToProcess = await db.select({
+        id: atisCardUnderstanding.cardId,
+      })
+        .from(atisCardUnderstanding)
+        .where(sql`${atisCardUnderstanding.confidenceScore} <= ${minConfidence} OR ${atisCardUnderstanding.aptlssChecklist} IS NULL`)
+        .limit(limit);
+    }
+
+    console.log(`[ATIS] Re-analyzing ${cardsToProcess.length} cards with updated AI prompt...`);
+
+    let processed = 0;
+    let failed = 0;
+    const results: Array<{ cardId: number; success: boolean; error?: string }> = [];
+
+    for (const card of cardsToProcess) {
+      try {
+        await processCardUnderstanding(card.id);
+        processed++;
+        results.push({ cardId: card.id, success: true });
+        console.log(`[ATIS Reanalyze] [${processed}/${cardsToProcess.length}] Reanalyzed card ${card.id}`);
+      } catch (error: any) {
+        failed++;
+        results.push({ cardId: card.id, success: false, error: error.message });
+        console.error(`[ATIS Reanalyze] Failed to reanalyze card ${card.id}:`, error.message);
+      }
+      // Rate limiting - 500ms between requests
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    res.json({
+      success: true,
+      total: cardsToProcess.length,
+      processed,
+      failed,
+      results: results.slice(0, 20), // Return first 20 results for preview
+    });
+  } catch (error: any) {
+    console.error('[ATIS] Reanalyze all error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

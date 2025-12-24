@@ -775,3 +775,33 @@ Each card now has:
 - [x] Add Collapse All button to collapse all task cards
 - [x] Track individual card expansion states
 - [x] Sync expansion state between parent and children
+
+## Worker Settings Enhancement (Dec 25, 2025)
+- [x] Add breakfast time selector to Add Worker dialog
+- [x] Add breakfast duration selector to Add Worker dialog
+- [x] Add dinner time selector to Add Worker dialog
+- [x] Add dinner duration selector to Add Worker dialog
+- [x] Update Edit Worker dialog with same meal time fields (already existed)
+- [ ] Test meal time settings save correctly
+
+## Re-analyze Cards with New AI Prompt (Dec 25, 2025)
+- [x] Create bulk re-analyze API endpoint (/api/atis/understanding/reanalyze-all)
+- [x] Trigger re-analysis on all existing cards (forceAll=true option)
+- [x] Use new completeness-focused prompt (communications, commitments, stakeholders, dependencies, quality gates, follow-ups) - already in place
+- [x] Show progress indicator during re-analysis (server logs progress)
+- [ ] Verify new checklists are comprehensive (manual testing)
+
+## Weekly Hours Settings (Dec 25, 2025)
+- [x] Set default weekly hours to 55-60h/week
+- [x] Set default daily hours to 9.5-11.5h/day
+- [x] Verify scheduler respects new defaults (updated in aptlss.ts, working-hours.ts, time-tracking.ts)
+
+## Calendar View with Drag-and-Drop (Dec 25, 2025)
+- [x] Create CalendarView component (already exists at /components/CalendarView.tsx)
+- [x] Implement month view with task indicators
+- [x] Implement week view with time slots
+- [x] Add drag-and-drop task rescheduling
+- [x] Update task dates when dropped on new day
+- [ ] Sync changes to Trello (currently local only)
+- [x] Add calendar toggle button to Home page (available at /calendar route)
+- [ ] Test drag-and-drop functionality

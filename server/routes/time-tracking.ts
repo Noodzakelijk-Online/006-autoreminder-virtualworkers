@@ -353,16 +353,16 @@ router.get('/time-tracking/weekly-progress', async (req: any, res: Response) => 
       .where(eq(userWorkingHours.userOpenId, user.openId))
       .limit(1);
 
-    let weeklyHoursMin = 40;
-    let weeklyHoursMax = 45;
-    let dailyHoursMin = 8;
-    let dailyHoursMax = 9;
+    let weeklyHoursMin = 55;
+    let weeklyHoursMax = 60;
+    let dailyHoursMin = 9.5;
+    let dailyHoursMax = 11.5;
 
     if (settings.length > 0) {
-      weeklyHoursMin = settings[0].weeklyHoursMin || 40;
-      weeklyHoursMax = settings[0].weeklyHoursMax || 45;
-      dailyHoursMin = parseFloat(String(settings[0].dailyHoursMin)) || 8;
-      dailyHoursMax = parseFloat(String(settings[0].dailyHoursMax)) || 9;
+      weeklyHoursMin = settings[0].weeklyHoursMin || 55;
+      weeklyHoursMax = settings[0].weeklyHoursMax || 60;
+      dailyHoursMin = parseFloat(String(settings[0].dailyHoursMin)) || 9.5;
+      dailyHoursMax = parseFloat(String(settings[0].dailyHoursMax)) || 11.5;
     }
 
     // Calculate daily breakdown

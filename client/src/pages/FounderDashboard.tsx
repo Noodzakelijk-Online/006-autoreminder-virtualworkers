@@ -141,8 +141,12 @@ export default function FounderDashboard() {
     workStartHour: '9',
     workEndHour: '18',
     workingDays: '1,2,3,4,5',
+    breakfastTime: '7',
+    breakfastDuration: '30',
     lunchTime: '12',
     lunchDuration: '60',
+    dinnerTime: '19',
+    dinnerDuration: '45',
   });
   const [showEditWorker, setShowEditWorker] = useState(false);
   const [editingWorker, setEditingWorker] = useState<VirtualWorker | null>(null);
@@ -283,15 +287,19 @@ export default function FounderDashboard() {
           workStartHour: parseInt(newWorker.workStartHour),
           workEndHour: parseInt(newWorker.workEndHour),
           workingDays: newWorker.workingDays,
+          breakfastTime: parseInt(newWorker.breakfastTime),
+          breakfastDuration: parseInt(newWorker.breakfastDuration),
           lunchTime: parseInt(newWorker.lunchTime),
           lunchDuration: parseInt(newWorker.lunchDuration),
+          dinnerTime: parseInt(newWorker.dinnerTime),
+          dinnerDuration: parseInt(newWorker.dinnerDuration),
         }),
       });
 
       if (res.ok) {
         toast.success('Worker added successfully');
         setShowAddWorker(false);
-        setNewWorker({ name: '', email: '', timezone: 'Asia/Manila', hourlyRate: '', currency: 'USD', workStartHour: '9', workEndHour: '18', workingDays: '1,2,3,4,5', lunchTime: '12', lunchDuration: '60' });
+        setNewWorker({ name: '', email: '', timezone: 'Asia/Manila', hourlyRate: '', currency: 'USD', workStartHour: '9', workEndHour: '18', workingDays: '1,2,3,4,5', breakfastTime: '7', breakfastDuration: '30', lunchTime: '12', lunchDuration: '60', dinnerTime: '19', dinnerDuration: '45' });
         fetchWorkload();
       } else {
         toast.error('Failed to add worker');
@@ -758,35 +766,107 @@ export default function FounderDashboard() {
                   <div className="border-t pt-4 mt-4">
                     <h4 className="font-medium mb-3 flex items-center gap-2">
                       <Briefcase className="h-4 w-4" />
-                      Lunch Break
+                      Meal Breaks
                     </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Lunch Time</Label>
-                        <Select value={newWorker.lunchTime} onValueChange={(v) => setNewWorker({ ...newWorker, lunchTime: v })}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {Array.from({ length: 24 }, (_, i) => (
-                              <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                    
+                    {/* Breakfast */}
+                    <div className="mb-4">
+                      <Label className="text-sm text-muted-foreground mb-2 block">Breakfast</Label>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Time</Label>
+                          <Select value={newWorker.breakfastTime} onValueChange={(v) => setNewWorker({ ...newWorker, breakfastTime: v })}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 24 }, (_, i) => (
+                                <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Duration</Label>
+                          <Select value={newWorker.breakfastDuration} onValueChange={(v) => setNewWorker({ ...newWorker, breakfastDuration: v })}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="15">15 min</SelectItem>
+                              <SelectItem value="30">30 min</SelectItem>
+                              <SelectItem value="45">45 min</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Duration (minutes)</Label>
-                        <Select value={newWorker.lunchDuration} onValueChange={(v) => setNewWorker({ ...newWorker, lunchDuration: v })}>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="30">30 min</SelectItem>
-                            <SelectItem value="45">45 min</SelectItem>
-                            <SelectItem value="60">1 hour</SelectItem>
-                            <SelectItem value="90">1.5 hours</SelectItem>
-                          </SelectContent>
-                        </Select>
+                    </div>
+
+                    {/* Lunch */}
+                    <div className="mb-4">
+                      <Label className="text-sm text-muted-foreground mb-2 block">Lunch</Label>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Time</Label>
+                          <Select value={newWorker.lunchTime} onValueChange={(v) => setNewWorker({ ...newWorker, lunchTime: v })}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 24 }, (_, i) => (
+                                <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Duration</Label>
+                          <Select value={newWorker.lunchDuration} onValueChange={(v) => setNewWorker({ ...newWorker, lunchDuration: v })}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="30">30 min</SelectItem>
+                              <SelectItem value="45">45 min</SelectItem>
+                              <SelectItem value="60">1 hour</SelectItem>
+                              <SelectItem value="90">1.5 hours</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dinner */}
+                    <div>
+                      <Label className="text-sm text-muted-foreground mb-2 block">Dinner</Label>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Time</Label>
+                          <Select value={newWorker.dinnerTime} onValueChange={(v) => setNewWorker({ ...newWorker, dinnerTime: v })}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.from({ length: 24 }, (_, i) => (
+                                <SelectItem key={i} value={i.toString()}>{i.toString().padStart(2, '0')}:00</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Duration</Label>
+                          <Select value={newWorker.dinnerDuration} onValueChange={(v) => setNewWorker({ ...newWorker, dinnerDuration: v })}>
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="30">30 min</SelectItem>
+                              <SelectItem value="45">45 min</SelectItem>
+                              <SelectItem value="60">1 hour</SelectItem>
+                              <SelectItem value="90">1.5 hours</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
                   </div>

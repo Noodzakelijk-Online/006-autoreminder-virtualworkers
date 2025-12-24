@@ -68,10 +68,11 @@ function scheduleTasksByTime(
   const SHORT_BREAK_DURATION = options?.shortBreakDuration ?? 10;
   
   // NEW: Flexible daily hours (configurable per user)
-  const DAILY_HOURS_MIN = options?.dailyHoursMin ?? 8; // Default 8 hours minimum
-  const DAILY_HOURS_MAX = options?.dailyHoursMax ?? 9; // Default 9 hours maximum
-  const WEEKLY_HOURS_MIN = options?.weeklyHoursMin ?? 40; // Default 40 hours/week
-  const WEEKLY_HOURS_MAX = options?.weeklyHoursMax ?? 45; // Default 45 hours/week
+  // Joyce's schedule: 55-60h/week, 9.5-11.5h/day
+  const DAILY_HOURS_MIN = options?.dailyHoursMin ?? 9.5; // Default 9.5 hours minimum
+  const DAILY_HOURS_MAX = options?.dailyHoursMax ?? 11.5; // Default 11.5 hours maximum
+  const WEEKLY_HOURS_MIN = options?.weeklyHoursMin ?? 55; // Default 55 hours/week
+  const WEEKLY_HOURS_MAX = options?.weeklyHoursMax ?? 60; // Default 60 hours/week
 
   // FIX #1: Calculate available capacity UPFRONT (accounting for all breaks)
   // Now uses flexible daily hours instead of fixed work start/end
