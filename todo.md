@@ -623,3 +623,21 @@ Each card now has:
 - 60 chatbot URLs detected (14 ChatGPT, 46 Gemini)
 - 4 conversations successfully extracted
 - Conversations integrated into AI understanding prompts for richer context
+
+
+## Scheduling Fix: Prevent Overbooking (Dec 24, 2025)
+- [x] Analyze root cause of 124-hour/day overbooking (7 critical flaws identified)
+- [x] Design deterministic fix for capacity enforcement
+- [x] Implement daily capacity limits in scheduling algorithm
+- [x] Handle overflow tasks separately
+- [x] Update frontend to display overflow tasks
+- [x] Test fix with edge cases (8 tests passing)
+- [x] Deploy and verify no overbooking
+
+### Fix Summary:
+- 7 critical flaws fixed in scheduleTasksByTime function
+- Daily capacity now enforced: AVAILABLE_WORK_MINUTES = (work hours * 60) - (all breaks)
+- Overflow tasks returned separately with rejection reasons
+- Frontend updated to display overflow tasks in OverflowTasks component
+- All 216 tests passing (3 pre-existing failures unrelated to fix)
+- No regressions introduced

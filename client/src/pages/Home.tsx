@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Timeline } from "@/components/Timeline";
+import { OverflowTasks } from "@/components/OverflowTasks";
 import { StatsPanel } from "@/components/StatsPanel";
 import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
 import { Task, WeeklyStats } from "@/types";
@@ -51,6 +52,7 @@ export default function Home() {
     sortBy: 'dueDate',
     sortOrder: 'asc',
   });
+  const [overflowTasks, setOverflowTasks] = useState<any[]>([]);
   
   // Filter and sort tasks based on search query and filters
   const filteredTasks = useMemo(() => {
@@ -160,9 +162,11 @@ export default function Home() {
         const atisResponse = await fetch('/api/atis/timeline-tasks?limit=100&filter=all');
         if (atisResponse.ok) {
           const atisData = await atisResponse.json();
-          if (atisData.tasks && atisData.tasks.length > 0) {
+          const scheduledTasks = atisData.scheduled || atisData.tasks || [];
+          const overflowTasks = atisData.overflow || [];
+          if (scheduledTasks && scheduledTasks.length > 0) {
             // Transform ATIS tasks to Task format
-            const atisTasks: Task[] = atisData.tasks.map((t: any) => ({
+            const atisTasks: Task[] = scheduledTasks.map((t: any) => ({
               id: `atis-${t.id}`,
               cardId: t.trelloId,
               cardName: t.name,
@@ -195,11 +199,20 @@ export default function Home() {
             }));
             setTasks(atisTasks);
             
-            // Calculate stats from ATIS data
-            const totalTasks = atisTasks.length;
+            // Calculate stats from ATIS data (using metrics from API)
+            const metrics = atisData.metrics || {};
+            const totalTasks = metrics.totalScheduled || atisTasks.length;
             const completedTasks = atisTasks.filter(t => t.isCompleted).length;
-            const totalHours = atisTasks.reduce((acc, t) => acc + t.durationHours, 0);
+            const totalHours = (metrics.totalScheduledMinutes || 0) / 60;
             const completedHours = atisTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
+            
+            // Store overflow tasks for display
+            if (overflowTasks && overflowTasks.length > 0) {
+              console.log('Overflow tasks found:', overflowTasks.length);
+              setOverflowTasks(overflowTasks);
+            } else {
+              setOverflowTasks([]);
+            }
             
             setStats({
               totalTasks,
@@ -542,6 +555,13 @@ export default function Home() {
                     <Button variant="ghost" size="sm" onClick={() => setSearchQuery('')}>
                       Clear search
                     </Button>
+                  </div>
+                )}
+                
+                {/* Overflow Tasks Alert */}
+                {overflowTasks.length > 0 && (
+                  <div className="mb-4">
+                    <OverflowTasks tasks={overflowTasks} />
                   </div>
                 )}
                 

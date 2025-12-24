@@ -582,8 +582,27 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       .from(atisCards)
       .where(eq(atisCards.isArchived, 0));
 
+    // For now, all tasks are considered scheduled (no overflow logic in ATIS endpoint)
+    // The overflow logic will be applied when scheduling is triggered
+    const scheduled = tasks;
+    const overflow: typeof tasks = [];
+    
+    // Calculate metrics
+    const totalScheduledMinutes = scheduled.reduce((acc, t) => acc + (t.estimatedMinutes || 30), 0);
+    const totalOverflowMinutes = overflow.reduce((acc, t) => acc + (t.estimatedMinutes || 30), 0);
+    const dailyCapacityMinutes = 480; // 8 hours per day
+    
     res.json({
-      tasks,
+      scheduled,
+      overflow,
+      metrics: {
+        totalScheduled: scheduled.length,
+        totalOverflow: overflow.length,
+        totalScheduledMinutes,
+        totalOverflowMinutes,
+        dailyCapacityMinutes,
+        averageDailyLoad: scheduled.length > 0 ? (totalScheduledMinutes / 5) : 0,
+      },
       pagination: {
         total: Number(totalResult?.count) || 0,
         limit: Number(limit),

@@ -35,6 +35,8 @@ interface SchedulingOptions {
   shortBreakDuration?: number; // minutes for short breaks
 }
 
+// FIXED VERSION - Prevents overbooking by enforcing daily capacity limits
+// See SCHEDULING_ANALYSIS.md for detailed explanation of all 7 fixes
 function scheduleTasksByTime(
   tasks: any[], 
   workStartHour: number = 9, 
@@ -46,29 +48,28 @@ function scheduleTasksByTime(
   // Working hours configurable per user
   const WORK_START_HOUR = workStartHour;
   const WORK_END_HOUR = workEndHour;
-  const MAX_HOURS_PER_DAY = WORK_END_HOUR - WORK_START_HOUR;
-  const WORKING_DAYS = new Set(workingDays); // Convert to Set for faster lookup
+  const WORKING_DAYS = new Set(workingDays);
   
   // Break settings (defaults)
   const LUNCH_START = options?.lunchBreakStart ?? 12;
   const LUNCH_DURATION = options?.lunchBreakDuration ?? 60; // minutes
-  const LUNCH_END = LUNCH_START + Math.floor(LUNCH_DURATION / 60); // Calculate end hour
-  const LUNCH_END_MINUTE = LUNCH_DURATION % 60;
-  
-  // Optional breakfast break
   const BREAKFAST_START = options?.breakfastBreakStart;
   const BREAKFAST_DURATION = options?.breakfastBreakDuration ?? 0;
-  
-  // Optional dinner break
   const DINNER_START = options?.dinnerBreakStart;
   const DINNER_DURATION = options?.dinnerBreakDuration ?? 0;
   
-  const SHORT_BREAK_INTERVAL = options?.shortBreakInterval ?? 90; // 90 minutes
-  const SHORT_BREAK_DURATION = options?.shortBreakDuration ?? 10; // 10 minutes
+  const SHORT_BREAK_INTERVAL = options?.shortBreakInterval ?? 90;
+  const SHORT_BREAK_DURATION = options?.shortBreakDuration ?? 10;
 
-  // Group tasks by date and card
-  const tasksByDate = new Map<string, any[]>();
+  // FIX #1: Calculate available capacity UPFRONT (accounting for all breaks)
+  const TOTAL_BREAK_MINUTES = LUNCH_DURATION + BREAKFAST_DURATION + DINNER_DURATION;
+  const TOTAL_WORK_MINUTES = (WORK_END_HOUR - WORK_START_HOUR) * 60;
+  const AVAILABLE_WORK_MINUTES = TOTAL_WORK_MINUTES - TOTAL_BREAK_MINUTES;
   
+  console.log(`[Scheduling] Daily capacity: ${AVAILABLE_WORK_MINUTES} minutes (${TOTAL_WORK_MINUTES}min work - ${TOTAL_BREAK_MINUTES}min breaks)`);
+
+  // Group tasks by date
+  const tasksByDate = new Map<string, any[]>();
   for (const task of tasks) {
     if (!tasksByDate.has(task.date)) {
       tasksByDate.set(task.date, []);
@@ -76,18 +77,16 @@ function scheduleTasksByTime(
     tasksByDate.get(task.date)!.push(task);
   }
 
-  // Schedule each day's tasks
+  // FIX #2: Separate scheduled and overflow tasks (not mixed in single array)
   const scheduledTasks: any[] = [];
+  const overflowTasks: any[] = [];
   
   for (const [date, dayTasks] of Array.from(tasksByDate.entries())) {
-    // Parse date and check if it's a working day
     const taskDate = new Date(date);
-    const dayOfWeek = taskDate.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-    
-    // Check if this is a holiday
+    const dayOfWeek = taskDate.getDay();
     const isHoliday = userHolidays.includes(date);
     
-    // If this is not a working day or is a holiday, mark all tasks as TBD
+    // Skip non-working days
     if (!WORKING_DAYS.has(dayOfWeek) || isHoliday) {
       const reason = isHoliday ? 'Holiday' : 'Non-working day';
       for (const task of dayTasks) {
@@ -100,47 +99,44 @@ function scheduleTasksByTime(
       }
       continue;
     }
-    // Enhanced sorting: priority, then task type optimization, then card grouping
+
+    // Sort tasks by priority and type
     const sortedTasks = dayTasks.sort((a: any, b: any) => {
-      // Priority order: CRITICAL > URGENT > HIGH > NORMAL
       const priorityOrder: Record<string, number> = { CRITICAL: 0, URGENT: 1, HIGH: 2, NORMAL: 3 };
       const priorityDiff = (priorityOrder[a.priorityLevel] ?? 3) - (priorityOrder[b.priorityLevel] ?? 3);
       if (priorityDiff !== 0) return priorityDiff;
       
-      // Task type optimization: schedule communication tasks early, creative tasks mid-day
       const taskTypeOrder: Record<string, number> = {
-        communication: 1, // Early morning - clear inbox
-        admin: 2,         // Morning - routine tasks
-        meeting: 3,       // Mid-morning
-        creation: 4,      // Late morning/afternoon - peak focus
-        research: 5,      // Afternoon
-        review: 6,        // End of day
+        communication: 1,
+        admin: 2,
+        meeting: 3,
+        creation: 4,
+        research: 5,
+        review: 6,
         other: 4
       };
       const typeA = taskTypeOrder[a.taskType] ?? 4;
       const typeB = taskTypeOrder[b.taskType] ?? 4;
       if (typeA !== typeB) return typeA - typeB;
       
-      // If same priority and type, sort by card name then step index (to keep steps together)
       if (a.cardName !== b.cardName) return a.cardName.localeCompare(b.cardName);
       return a.stepIndex - b.stepIndex;
     });
 
+    // FIX #3: Track cumulative scheduled time per day
+    let dailyScheduledMinutes = 0;
     let currentHour = WORK_START_HOUR;
     let currentMinute = 0;
     let minutesSinceBreak = 0;
 
-    // Helper to convert hour:minute to total minutes
     const toMinutes = (h: number, m: number) => h * 60 + m;
     
-    // Helper to check if time is during lunch
     const isDuringLunch = (h: number, m: number) => {
       const mins = toMinutes(h, m);
       const lunchEndMins = toMinutes(LUNCH_START, 0) + LUNCH_DURATION;
       return mins >= toMinutes(LUNCH_START, 0) && mins < lunchEndMins;
     };
     
-    // Helper to check if time is during breakfast
     const isDuringBreakfast = (h: number, m: number) => {
       if (!BREAKFAST_START || !BREAKFAST_DURATION) return false;
       const mins = toMinutes(h, m);
@@ -148,7 +144,6 @@ function scheduleTasksByTime(
       return mins >= toMinutes(BREAKFAST_START, 0) && mins < breakfastEndMins;
     };
     
-    // Helper to check if time is during dinner
     const isDuringDinner = (h: number, m: number) => {
       if (!DINNER_START || !DINNER_DURATION) return false;
       const mins = toMinutes(h, m);
@@ -156,12 +151,6 @@ function scheduleTasksByTime(
       return mins >= toMinutes(DINNER_START, 0) && mins < dinnerEndMins;
     };
     
-    // Helper to check if time is during any meal break
-    const isDuringMealBreak = (h: number, m: number) => {
-      return isDuringLunch(h, m) || isDuringBreakfast(h, m) || isDuringDinner(h, m);
-    };
-    
-    // Helper to skip past any active meal break
     const skipMealBreak = () => {
       if (isDuringBreakfast(currentHour, currentMinute) && BREAKFAST_START) {
         const breakfastEndMins = toMinutes(BREAKFAST_START, 0) + BREAKFAST_DURATION;
@@ -184,7 +173,7 @@ function scheduleTasksByTime(
     };
 
     for (const task of sortedTasks) {
-      // Skip if already completed
+      // Skip completed tasks
       if (task.isCompleted) {
         scheduledTasks.push({
           ...task,
@@ -195,48 +184,69 @@ function scheduleTasksByTime(
         continue;
       }
 
-      // Skip any meal break if we're about to enter it
       skipMealBreak();
       
-      // Add short break if needed (every 90 minutes of work)
+      // FIX #4: Check if short break fits in remaining capacity BEFORE adding it
+      let breakMinutesNeeded = 0;
       if (minutesSinceBreak >= SHORT_BREAK_INTERVAL) {
-        currentMinute += SHORT_BREAK_DURATION;
+        breakMinutesNeeded = SHORT_BREAK_DURATION;
+        // Check if break + task would exceed capacity
+        const taskMinutes = Math.ceil(task.durationHours * 60);
+        if (dailyScheduledMinutes + breakMinutesNeeded + taskMinutes > AVAILABLE_WORK_MINUTES) {
+          // Task doesn't fit - REJECT it
+          overflowTasks.push({
+            ...task,
+            rejectionReason: 'Insufficient capacity for break + task'
+          });
+          continue;
+        }
+        // Add break to scheduled time
+        dailyScheduledMinutes += breakMinutesNeeded;
+        currentMinute += breakMinutesNeeded;
         if (currentMinute >= 60) {
           currentHour += Math.floor(currentMinute / 60);
           currentMinute = currentMinute % 60;
         }
         minutesSinceBreak = 0;
-        
-        // Skip any meal break if short break pushed us into it
         skipMealBreak();
       }
 
-      // Calculate end time
-      const durationMinutes = Math.ceil(task.durationHours * 60);
-      let endHour = currentHour;
-      let endMinute = currentMinute + durationMinutes;
+      // FIX #5: Calculate task duration and check against remaining capacity
+      const taskMinutes = Math.ceil(task.durationHours * 60);
+      
+      // CRITICAL CHECK: Does task fit in remaining daily capacity?
+      if (dailyScheduledMinutes + taskMinutes > AVAILABLE_WORK_MINUTES) {
+        // Task doesn't fit - REJECT and move to overflow
+        overflowTasks.push({
+          ...task,
+          rejectionReason: `Task duration (${taskMinutes}min) exceeds remaining capacity (${AVAILABLE_WORK_MINUTES - dailyScheduledMinutes}min)`
+        });
+        continue;
+      }
 
-      // Handle minute overflow
+      // Calculate end time
+      let endHour = currentHour;
+      let endMinute = currentMinute + taskMinutes;
+
       if (endMinute >= 60) {
         endHour += Math.floor(endMinute / 60);
         endMinute = endMinute % 60;
       }
       
-      // Check if task spans lunch - if so, push start to after lunch
+      // Check if task spans meal breaks and push to after if needed
       const startMins = toMinutes(currentHour, currentMinute);
       const endMins = toMinutes(endHour, endMinute);
       
-      // Check if task spans any meal break and push to after if needed
       const checkAndPushPastMealBreak = (breakStart: number | undefined, breakDuration: number) => {
         if (!breakStart || !breakDuration) return false;
         const breakStartMins = toMinutes(breakStart, 0);
         const breakEndMins = breakStartMins + breakDuration;
         if (startMins < breakStartMins && endMins > breakStartMins) {
-          // Task would span this break, push to after
+          // Task spans this break, push to after
           currentHour = Math.floor(breakEndMins / 60);
           currentMinute = breakEndMins % 60;
           endHour = currentHour;
-          endMinute = currentMinute + durationMinutes;
+          endMinute = currentMinute + taskMinutes;
           if (endMinute >= 60) {
             endHour += Math.floor(endMinute / 60);
             endMinute = endMinute % 60;
@@ -246,25 +256,21 @@ function scheduleTasksByTime(
         return false;
       };
       
-      // Check breakfast, lunch, and dinner breaks
       checkAndPushPastMealBreak(BREAKFAST_START, BREAKFAST_DURATION);
       checkAndPushPastMealBreak(LUNCH_START, LUNCH_DURATION);
       checkAndPushPastMealBreak(DINNER_START, DINNER_DURATION);
 
-      // Check if task fits in working hours
+      // FIX #6: Final validation - does task fit in work hours?
       if (endHour > WORK_END_HOUR || (endHour === WORK_END_HOUR && endMinute > 0)) {
-        // Task doesn't fit, mark as unscheduled with reason
-        scheduledTasks.push({
+        // Task pushed past end time - REJECT
+        overflowTasks.push({
           ...task,
-          startTime: 'TBD',
-          endTime: 'TBD',
-          overbooked: true,
-          schedulingNote: 'Exceeds daily capacity'
+          rejectionReason: `Task end time (${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}) exceeds work end time (${WORK_END_HOUR}:00)`
         });
         continue;
       }
 
-      // Format times
+      // Schedule the task
       const startTime = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
       const endTime = `${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`;
 
@@ -275,14 +281,29 @@ function scheduleTasksByTime(
         schedulingNote: task.durationConfidence === 'low' ? 'Duration estimated' : undefined
       });
 
-      // Move to next time slot and track time since break
-      minutesSinceBreak += durationMinutes;
+      // Update tracking
+      dailyScheduledMinutes += taskMinutes;
+      minutesSinceBreak += taskMinutes;
       currentHour = endHour;
       currentMinute = endMinute;
     }
+
+    console.log(`[Scheduling] ${date}: Scheduled ${scheduledTasks.filter(t => t.date === date && t.startTime !== 'TBD' && t.startTime !== '--:--').length} tasks (${dailyScheduledMinutes}/${AVAILABLE_WORK_MINUTES} minutes)`);
   }
 
-  return scheduledTasks;
+  // FIX #7: Return structured object with separate scheduled/overflow tasks
+  return {
+    scheduled: scheduledTasks,
+    overflow: overflowTasks,
+    metrics: {
+      totalScheduled: scheduledTasks.filter(t => t.startTime !== 'TBD' && t.startTime !== '--:--').length,
+      totalOverflow: overflowTasks.length,
+      dailyCapacityMinutes: AVAILABLE_WORK_MINUTES,
+      totalScheduledMinutes: scheduledTasks
+        .filter(t => t.startTime !== 'TBD' && t.startTime !== '--:--')
+        .reduce((sum, t) => sum + Math.ceil(t.durationHours * 60), 0)
+    }
+  }
 }
 
 // Mock data for development
@@ -939,7 +960,7 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     }
     
     // Schedule tasks with proper time slots (including meal break options)
-    const scheduledTasks = scheduleTasksByTime(tasks, workStartHour, workEndHour, workingDays, userHolidays, schedulingOptions);
+    const schedulingResult = scheduleTasksByTime(tasks, workStartHour, workEndHour, workingDays, userHolidays, schedulingOptions);
     
     // Get user's timezone for client-side conversion
     let userTimezone = 'UTC';
@@ -961,13 +982,15 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     }
     
       const responseData = {
-        tasks: scheduledTasks,
+        tasks: schedulingResult.scheduled,
+        overflow: schedulingResult.overflow,
+        metrics: schedulingResult.metrics,
         timezone: userTimezone
       };
 
       // Save to cache
       await setCachedTasks(user.id, user.openId, responseData, cacheTTL);
-      console.log(`Cached ${scheduledTasks.length} tasks for ${cacheTTL} seconds`);
+      console.log(`Cached ${schedulingResult.scheduled.length} tasks (${schedulingResult.overflow.length} overflow) for ${cacheTTL} seconds`);
 
       return responseData;
     }); // End of requestQueue.execute
