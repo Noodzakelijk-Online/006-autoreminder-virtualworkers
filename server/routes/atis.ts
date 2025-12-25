@@ -1157,8 +1157,8 @@ router.post('/chatbot/extract-url', async (req: Request, res: Response) => {
 
 /**
  * POST /api/atis/understanding/reanalyze-all
- * Re-analyze ALL cards with the updated AI prompt (comprehensive checklists)
- * This will regenerate APTLSS checklists for all cards with AI understanding
+ * Re-analyze cards with the updated AI prompt (comprehensive checklists)
+ * Supports filtering by board, specific cards, or all cards
  */
 router.post('/understanding/reanalyze-all', async (req: Request, res: Response) => {
   try {
@@ -1167,14 +1167,35 @@ router.post('/understanding/reanalyze-all', async (req: Request, res: Response) 
       return res.status(500).json({ error: 'Database not available' });
     }
 
-    const { limit = 100, minConfidence = 0, forceAll = false } = req.body;
+    const { 
+      limit = 100, 
+      minConfidence = 0, 
+      forceAll = false,
+      boardId,  // Filter by specific board
+      cardIds,  // Filter by specific card IDs
+    } = req.body;
 
-    // Get cards to reprocess
-    // If forceAll is true, reprocess all cards with understanding
-    // Otherwise, only reprocess cards below minConfidence threshold
-    let cardsToProcess;
+    // Get cards to reprocess based on filters
+    let cardsToProcess: Array<{ id: number; cardName?: string }>;
     
-    if (forceAll) {
+    if (cardIds && Array.isArray(cardIds) && cardIds.length > 0) {
+      // Specific cards requested
+      cardsToProcess = await db.select({
+        id: atisCardUnderstanding.cardId,
+      })
+        .from(atisCardUnderstanding)
+        .where(sql`${atisCardUnderstanding.cardId} IN (${sql.join(cardIds.map(id => sql`${id}`), sql`, `)})`)
+        .limit(limit);
+    } else if (boardId) {
+      // Filter by board - join with cards table to get board info
+      cardsToProcess = await db.select({
+        id: atisCardUnderstanding.cardId,
+      })
+        .from(atisCardUnderstanding)
+        .innerJoin(atisCards, eq(atisCardUnderstanding.cardId, atisCards.id))
+        .where(eq(atisCards.boardId, parseInt(boardId)))
+        .limit(limit);
+    } else if (forceAll) {
       // Get all cards with understanding
       cardsToProcess = await db.select({
         id: atisCardUnderstanding.cardId,
@@ -1191,18 +1212,25 @@ router.post('/understanding/reanalyze-all', async (req: Request, res: Response) 
         .limit(limit);
     }
 
-    console.log(`[ATIS] Re-analyzing ${cardsToProcess.length} cards with updated AI prompt...`);
+    const filterDesc = cardIds ? `${cardIds.length} specific cards` : boardId ? `board ${boardId}` : 'all cards';
+    console.log(`[ATIS] Re-analyzing ${cardsToProcess.length} cards (${filterDesc}) with updated AI prompt...`);
 
     let processed = 0;
     let failed = 0;
-    const results: Array<{ cardId: number; success: boolean; error?: string }> = [];
+    const results: Array<{ cardId: number; cardName?: string; success: boolean; error?: string }> = [];
 
     for (const card of cardsToProcess) {
       try {
+        // Get card name for better results display
+        const [cardInfo] = await db.select({ name: atisCards.name })
+          .from(atisCards)
+          .where(eq(atisCards.id, card.id))
+          .limit(1);
+        
         await processCardUnderstanding(card.id);
         processed++;
-        results.push({ cardId: card.id, success: true });
-        console.log(`[ATIS Reanalyze] [${processed}/${cardsToProcess.length}] Reanalyzed card ${card.id}`);
+        results.push({ cardId: card.id, cardName: cardInfo?.name, success: true });
+        console.log(`[ATIS Reanalyze] [${processed}/${cardsToProcess.length}] Reanalyzed card ${card.id}: ${cardInfo?.name || 'Unknown'}`);
       } catch (error: any) {
         failed++;
         results.push({ cardId: card.id, success: false, error: error.message });
@@ -1217,7 +1245,7 @@ router.post('/understanding/reanalyze-all', async (req: Request, res: Response) 
       total: cardsToProcess.length,
       processed,
       failed,
-      results: results.slice(0, 20), // Return first 20 results for preview
+      results, // Return all results for the modal
     });
   } catch (error: any) {
     console.error('[ATIS] Reanalyze all error:', error);

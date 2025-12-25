@@ -21,6 +21,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import DependencyGraph from '@/components/DependencyGraph';
+import { ReanalysisProgressModal } from '@/components/ReanalysisProgressModal';
 
 interface VirtualWorker {
   id: number;
@@ -172,6 +173,8 @@ export default function FounderDashboard() {
   // Re-analysis state
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [reanalysisProgress, setReanalysisProgress] = useState<{ total: number; processed: number; failed: number } | null>(null);
+  const [showReanalysisModal, setShowReanalysisModal] = useState(false);
+  const [selectedBoardForReanalysis, setSelectedBoardForReanalysis] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     fetchAllData();
@@ -679,21 +682,13 @@ export default function FounderDashboard() {
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={handleReanalyzeAll}
-              disabled={isReanalyzing}
-              className="relative"
+              onClick={() => {
+                setSelectedBoardForReanalysis(null);
+                setShowReanalysisModal(true);
+              }}
             >
-              {isReanalyzing ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <ArrowUpCircle className="h-4 w-4 mr-2" />
-              )}
-              {isReanalyzing ? 'Re-analyzing...' : 'Re-analyze All'}
-              {reanalysisProgress && (
-                <Badge variant="secondary" className="ml-2 text-xs">
-                  {reanalysisProgress.processed}/{reanalysisProgress.total}
-                </Badge>
-              )}
+              <ArrowUpCircle className="h-4 w-4 mr-2" />
+              Re-analyze All
             </Button>
             <Dialog open={showAddWorker} onOpenChange={setShowAddWorker}>
               <DialogTrigger asChild>
@@ -2106,6 +2101,18 @@ export default function FounderDashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Re-analysis Progress Modal */}
+      <ReanalysisProgressModal
+        open={showReanalysisModal}
+        onOpenChange={setShowReanalysisModal}
+        preselectedBoardId={selectedBoardForReanalysis?.id}
+        preselectedBoardName={selectedBoardForReanalysis?.name}
+        onComplete={(results) => {
+          setReanalysisProgress(results);
+          toast.success(`Re-analysis complete: ${results.processed} processed, ${results.failed} failed`);
+        }}
+      />
     </div>
   );
 }

@@ -811,3 +811,26 @@ Each card now has:
 - [x] Add "Re-analyze All" button to Founder Dashboard header
 - [x] Show progress/status during re-analysis (loading spinner + badge)
 - [x] Display success/failure count after completion (toast notification + badge)
+
+## Progress Modal for Re-analysis (Dec 25, 2025)
+- [x] Create ReanalysisProgressModal component
+- [x] Show real-time progress bar (processed/total)
+- [x] Display list of cards being processed (results scroll area)
+- [x] Show success/failure status for each card
+- [x] Add cancel button to stop processing
+- [x] Auto-close modal on completion with summary
+
+## Selective Re-analysis (Dec 25, 2025)
+- [x] Add board selector dropdown to re-analysis dialog
+- [x] Add option to re-analyze specific cards (cardIds parameter)
+- [x] Filter cards by board before re-analysis
+- [x] Update API to accept cardIds or boardId parameter
+- [x] Show card count before starting re-analysis
+
+## Calendar Drag-and-Drop Sync to Trello (Dec 25, 2025)
+- [x] Create backend endpoint to update card due date (PUT /api/trello/cards/:cardId/due)
+- [x] Call Trello API to update card due date
+- [x] Update local state with new date (optimistic update)
+- [x] Handle sync errors gracefully (revert on failure)
+- [x] Show sync status in calendar UI (loading toast)
+- [ ] Test sync with actual Trello cards (manual testing)

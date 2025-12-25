@@ -1197,32 +1197,101 @@ router.get('/aptlss/scheduled', async (req: any, res: Response) => {
   }
 });
 
-// Cancel scheduled job endpoint
+// Ca// Cancel scheduled job endpoint
 router.delete('/aptlss/scheduled/:id', async (req: any, res: Response) => {
   try {
     const { id } = req.params;
     const user = req.user;
-
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-
     const db = await getDb();
     if (!db) {
       return res.status(503).json({ error: 'Database not available' });
     }
-
     await db.update(scheduledJobs)
       .set({ status: 'cancelled' })
       .where(and(
         eq(scheduledJobs.id, id),
         eq(scheduledJobs.createdBy, user.openId)
       ));
-
     res.json({ success: true });
   } catch (error) {
     console.error('Error cancelling scheduled job:', error);
     res.status(500).json({ error: 'Failed to cancel scheduled job' });
+  }
+});
+
+/**
+ * PUT /api/trello/cards/:cardId/due
+ * Update card due date in Trello (for calendar drag-and-drop sync)
+ */
+router.put('/trello/cards/:cardId/due', async (req: Request, res: Response) => {
+  try {
+    const { cardId } = req.params;
+    const { dueDate } = req.body;
+
+    const apiKey = process.env.TRELLO_API_KEY;
+    const apiToken = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !apiToken) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    if (!cardId) {
+      return res.status(400).json({ error: 'Missing cardId parameter' });
+    }
+
+    // Build Trello API URL to update due date
+    // dueDate should be ISO 8601 format or null to remove
+    const updateUrl = `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${apiToken}`;
+    
+    const response = await fetch(updateUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        due: dueDate || null,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Trello] Failed to update card due date:', errorText);
+      return res.status(response.status).json({ 
+        error: 'Failed to update due date in Trello', 
+        details: errorText 
+      });
+    }
+
+    const result = await response.json();
+    
+    console.log(`[Trello] Updated card ${cardId} due date to ${dueDate}`);
+    
+    // Broadcast the update to connected clients
+    const user = (req as any).user;
+    if (user) {
+      websocketService.emitToUser(user.openId, 'card:rescheduled', {
+        cardId,
+        dueDate,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    res.json({ 
+      success: true, 
+      cardId,
+      dueDate,
+      trelloCard: {
+        id: result.id,
+        name: result.name,
+        due: result.due,
+      }
+    });
+  } catch (error) {
+    console.error('[Trello] Error updating card due date:', error);
+    res.status(500).json({ error: 'Failed to update card due date' });
   }
 });
 

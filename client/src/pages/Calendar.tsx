@@ -96,17 +96,49 @@ export default function Calendar() {
   };
 
   const handleTaskReschedule = async (taskId: string, newDate: string) => {
+    // Find the task to get its cardId
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) {
+      toast.error('Task not found');
+      return;
+    }
+
     // Optimistically update the UI
-    setTasks(prev => prev.map(task => 
-      task.id === taskId ? { ...task, date: newDate } : task
+    const previousTasks = [...tasks];
+    setTasks(prev => prev.map(t => 
+      t.id === taskId ? { ...t, date: newDate } : t
     ));
     
-    toast.success('Task rescheduled', {
-      description: `Moved to ${new Date(newDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`
-    });
+    toast.loading('Syncing to Trello...', { id: 'reschedule-sync' });
     
-    // Note: In a full implementation, this would sync back to Trello
-    // For now, we just update the local state
+    try {
+      // Sync to Trello - update card due date
+      const response = await fetch(`/api/trello/cards/${task.cardId}/due`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          dueDate: new Date(newDate + 'T23:59:59').toISOString(),
+        }),
+      });
+
+      if (response.ok) {
+        toast.success('Task rescheduled and synced to Trello', {
+          id: 'reschedule-sync',
+          description: `Moved to ${new Date(newDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`
+        });
+      } else {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to sync');
+      }
+    } catch (error: any) {
+      // Revert optimistic update on failure
+      setTasks(previousTasks);
+      toast.error('Failed to sync to Trello', {
+        id: 'reschedule-sync',
+        description: error.message || 'Please try again'
+      });
+    }
   };
 
   return (
