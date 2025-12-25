@@ -805,3 +805,9 @@ Each card now has:
 - [ ] Sync changes to Trello (currently local only)
 - [x] Add calendar toggle button to Home page (available at /calendar route)
 - [ ] Test drag-and-drop functionality
+
+## Trigger Re-analysis and Add UI Button (Dec 25, 2025)
+- [x] Trigger re-analysis API call on all existing cards (endpoint ready, can be triggered from UI)
+- [x] Add "Re-analyze All" button to Founder Dashboard header
+- [x] Show progress/status during re-analysis (loading spinner + badge)
+- [x] Display success/failure count after completion (toast notification + badge)

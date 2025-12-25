@@ -168,6 +168,10 @@ export default function FounderDashboard() {
   const [linkingWorker, setLinkingWorker] = useState<VirtualWorker | null>(null);
   const [availableUsers, setAvailableUsers] = useState<SystemUser[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
+  
+  // Re-analysis state
+  const [isReanalyzing, setIsReanalyzing] = useState(false);
+  const [reanalysisProgress, setReanalysisProgress] = useState<{ total: number; processed: number; failed: number } | null>(null);
 
   useEffect(() => {
     fetchAllData();
@@ -535,6 +539,46 @@ export default function FounderDashboard() {
     }
   };
 
+  // Re-analyze all cards with AI
+  const handleReanalyzeAll = async () => {
+    setIsReanalyzing(true);
+    setReanalysisProgress(null);
+    
+    try {
+      toast.info('Starting AI re-analysis of all cards...', {
+        description: 'This may take several minutes. Progress will be shown below.',
+        duration: 5000,
+      });
+      
+      const res = await fetch('/api/atis/understanding/reanalyze-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ forceAll: true, limit: 200 }),
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        setReanalysisProgress({
+          total: data.total,
+          processed: data.processed,
+          failed: data.failed,
+        });
+        toast.success(`Re-analysis complete!`, {
+          description: `Processed ${data.processed} cards, ${data.failed} failed`,
+          duration: 10000,
+        });
+      } else {
+        const error = await res.json();
+        toast.error('Re-analysis failed', { description: error.error });
+      }
+    } catch (error) {
+      toast.error('Failed to start re-analysis');
+    } finally {
+      setIsReanalyzing(false);
+    }
+  };
+
   // Filter assignments
   const filteredAssignments = useMemo(() => {
     let filtered = assignments;
@@ -631,6 +675,25 @@ export default function FounderDashboard() {
             <Button variant="outline" size="sm" onClick={fetchAllData}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleReanalyzeAll}
+              disabled={isReanalyzing}
+              className="relative"
+            >
+              {isReanalyzing ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <ArrowUpCircle className="h-4 w-4 mr-2" />
+              )}
+              {isReanalyzing ? 'Re-analyzing...' : 'Re-analyze All'}
+              {reanalysisProgress && (
+                <Badge variant="secondary" className="ml-2 text-xs">
+                  {reanalysisProgress.processed}/{reanalysisProgress.total}
+                </Badge>
+              )}
             </Button>
             <Dialog open={showAddWorker} onOpenChange={setShowAddWorker}>
               <DialogTrigger asChild>
