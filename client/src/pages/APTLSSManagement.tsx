@@ -20,7 +20,10 @@ import {
   RefreshCw,
   Filter,
   Search,
-  ArrowLeft
+  ArrowLeft,
+  Trash2,
+  Clock,
+  CheckSquare
 } from 'lucide-react';
 import { Link } from 'wouter';
 
@@ -102,6 +105,8 @@ export default function APTLSSManagement() {
     failedBoards: { id: string; name: string; workspaceName: string }[];
     currentBoard: string;
     cancelled?: boolean;
+    startTime?: number;
+    avgTimePerBoard?: number;
   } | null>(null);
   
   // Cancel flag ref (to avoid stale closure issues)
@@ -109,6 +114,10 @@ export default function APTLSSManagement() {
   
   // Local storage key for persisting cards
   const CARDS_STORAGE_KEY = 'aptlss_loaded_cards';
+  
+  // Board selection state for filtered loading
+  const [showBoardSelector, setShowBoardSelector] = useState(false);
+  const [selectedWorkspacesForLoad, setSelectedWorkspacesForLoad] = useState<Set<string>>(new Set());
 
   // Load cards from local storage on mount
   useEffect(() => {
@@ -425,9 +434,37 @@ export default function APTLSSManagement() {
     cancelLoadRef.current = true;
     toast.info('Cancelling load operation...');
   };
+  
+  // Clear the card cache
+  const clearCache = () => {
+    localStorage.removeItem(CARDS_STORAGE_KEY);
+    setCards([]);
+    setAutoLoadProgress(null);
+    toast.success('Card cache cleared');
+  };
+  
+  // Format time remaining
+  const formatTimeRemaining = (seconds: number): string => {
+    if (seconds < 60) return `${Math.ceil(seconds)}s`;
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.ceil(seconds % 60);
+    return `${minutes}m ${secs}s`;
+  };
+  
+  // Calculate estimated time remaining
+  const getEstimatedTimeRemaining = (): string | null => {
+    if (!autoLoadProgress || !autoLoadProgress.isLoading || !autoLoadProgress.startTime) return null;
+    if (autoLoadProgress.current < 2) return 'Calculating...';
+    
+    const elapsed = (Date.now() - autoLoadProgress.startTime) / 1000;
+    const avgTimePerBoard = elapsed / autoLoadProgress.current;
+    const remaining = (autoLoadProgress.total - autoLoadProgress.current) * avgTimePerBoard;
+    
+    return formatTimeRemaining(remaining);
+  };
 
-  // Auto-load all cards from all workspaces
-  const autoLoadAllCards = async () => {
+  // Auto-load all cards from all workspaces (or selected workspaces)
+  const autoLoadAllCards = async (selectedOnly: boolean = false) => {
     if (workspaces.length === 0) {
       toast.error('No workspaces available. Please refresh first.');
       return;
@@ -436,9 +473,12 @@ export default function APTLSSManagement() {
     // Reset cancel flag
     cancelLoadRef.current = false;
 
-    // Calculate total boards across all workspaces
+    // Calculate total boards across all (or selected) workspaces
     const allBoards: { id: string; name: string; workspaceName: string; cardCount: number }[] = [];
     for (const workspace of workspaces) {
+      // If selectedOnly, only include selected workspaces
+      if (selectedOnly && !selectedWorkspacesForLoad.has(workspace.id)) continue;
+      
       for (const board of workspace.boards) {
         allBoards.push({
           id: board.id,
@@ -450,7 +490,7 @@ export default function APTLSSManagement() {
     }
 
     if (allBoards.length === 0) {
-      toast.error('No boards found in any workspace.');
+      toast.error(selectedOnly ? 'No boards in selected workspaces.' : 'No boards found in any workspace.');
       return;
     }
 
@@ -466,8 +506,12 @@ export default function APTLSSManagement() {
       failed: 0,
       failedBoards: [],
       currentBoard: '',
-      cancelled: false
+      cancelled: false,
+      startTime: Date.now()
     });
+    
+    // Close the board selector if open
+    setShowBoardSelector(false);
 
     const newCards: TrelloCard[] = [];
     const failedBoards: { id: string; name: string; workspaceName: string }[] = [];
@@ -952,6 +996,92 @@ export default function APTLSSManagement() {
 
             {/* Cards Tab */}
             <TabsContent value="cards" className="space-y-4">
+          {/* Workspace Selector Modal */}
+          {showBoardSelector && (
+            <Card className="border-2 border-primary/30 bg-primary/5">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Select Workspaces to Load</CardTitle>
+                  <Button variant="ghost" size="sm" onClick={() => setShowBoardSelector(false)}>
+                    ✕
+                  </Button>
+                </div>
+                <CardDescription>
+                  Choose which workspaces to load cards from. Loading fewer workspaces is faster.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex gap-2 mb-3">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSelectedWorkspacesForLoad(new Set(workspaces.map(w => w.id)))}
+                    >
+                      <CheckSquare className="h-3 w-3 mr-1" />
+                      Select All
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSelectedWorkspacesForLoad(new Set())}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto space-y-1 border rounded-md p-2">
+                    {workspaces.map(workspace => (
+                      <label
+                        key={workspace.id}
+                        className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
+                      >
+                        <Checkbox
+                          checked={selectedWorkspacesForLoad.has(workspace.id)}
+                          onCheckedChange={(checked) => {
+                            const newSet = new Set(selectedWorkspacesForLoad);
+                            if (checked) {
+                              newSet.add(workspace.id);
+                            } else {
+                              newSet.delete(workspace.id);
+                            }
+                            setSelectedWorkspacesForLoad(newSet);
+                          }}
+                        />
+                        <span className="flex-1 text-sm">{workspace.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {workspace.boardCount} boards • {workspace.boards?.reduce((sum, b: any) => sum + (b.cardCount || 0), 0) || 0} cards
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <p className="text-sm text-muted-foreground">
+                      {selectedWorkspacesForLoad.size} workspace{selectedWorkspacesForLoad.size !== 1 ? 's' : ''} selected
+                      ({workspaces.filter(w => selectedWorkspacesForLoad.has(w.id)).reduce((sum, w) => sum + w.boardCount, 0)} boards)
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowBoardSelector(false)}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={selectedWorkspacesForLoad.size === 0}
+                        onClick={() => autoLoadAllCards(true)}
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Load Selected
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Auto-load Progress */}
           {autoLoadProgress && (
             <Card className="bg-primary/5 border-primary/20">
@@ -978,6 +1108,12 @@ export default function APTLSSManagement() {
                       <p className="text-muted-foreground">
                         {Math.round((autoLoadProgress.current / autoLoadProgress.total) * 100)}%
                       </p>
+                      {autoLoadProgress.isLoading && getEstimatedTimeRemaining() && (
+                        <p className="text-xs text-muted-foreground flex items-center justify-end gap-1 mt-1">
+                          <Clock className="h-3 w-3" />
+                          ~{getEstimatedTimeRemaining()} remaining
+                        </p>
+                      )}
                     </div>
                   </div>
                   
@@ -1095,19 +1231,41 @@ export default function APTLSSManagement() {
                 : `Total cards across all workspaces: ${workspaces.reduce((sum, w) => sum + (w.boards?.reduce((bSum, b: any) => bSum + (b.cardCount || 0), 0) || 0), 0)}`
               }
             </p>
-            <Button 
-              onClick={autoLoadAllCards} 
-              variant="default"
-              size="sm"
-              disabled={autoLoadProgress?.isLoading || workspaces.length === 0}
-            >
-              {autoLoadProgress?.isLoading ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Download className="h-4 w-4 mr-2" />
+            <div className="flex gap-2">
+              {cards.length > 0 && (
+                <Button 
+                  onClick={clearCache} 
+                  variant="outline"
+                  size="sm"
+                  disabled={autoLoadProgress?.isLoading}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Clear Cache
+                </Button>
               )}
-              {autoLoadProgress?.isLoading ? 'Loading...' : 'Load All Cards'}
-            </Button>
+              <Button 
+                onClick={() => setShowBoardSelector(true)} 
+                variant="outline"
+                size="sm"
+                disabled={autoLoadProgress?.isLoading || workspaces.length === 0}
+              >
+                <Filter className="h-4 w-4 mr-2" />
+                Select Workspaces
+              </Button>
+              <Button 
+                onClick={() => autoLoadAllCards(false)} 
+                variant="default"
+                size="sm"
+                disabled={autoLoadProgress?.isLoading || workspaces.length === 0}
+              >
+                {autoLoadProgress?.isLoading ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4 mr-2" />
+                )}
+                {autoLoadProgress?.isLoading ? 'Loading...' : 'Load All Cards'}
+              </Button>
+            </div>
           </div>
 
           {/* Filters and Actions */}

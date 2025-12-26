@@ -875,3 +875,9 @@ Each card now has:
 - [x] Add failed boards retry UI with individual retry buttons
 - [x] Show list of failed boards after loading completes
 - [ ] Test all enhancements (manual testing)
+
+## Load All Cards Further Enhancements (Dec 26, 2025)
+- [x] Add "Clear Cache" button to manually clear local storage cache
+- [x] Add loading time estimate based on average board load time (~Xm Ys remaining)
+- [x] Add board/workspace filtering before load (Select Workspaces button + modal)
+- [ ] Test all enhancements (manual testing)
