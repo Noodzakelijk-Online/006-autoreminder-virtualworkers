@@ -26,6 +26,7 @@ import {
   CheckSquare
 } from 'lucide-react';
 import { Link } from 'wouter';
+import { useLoadingQueue } from '@/contexts/LoadingQueueContext';
 
 interface TrelloCard {
   id: string;
@@ -68,6 +69,7 @@ interface GenerationProgress {
 }
 
 export default function APTLSSManagement() {
+  const { addOperation, updateOperation, removeOperation } = useLoadingQueue();
   const [workspaces, setWorkspaces] = useState<TrelloWorkspace[]>([]);
   const [boards, setBoards] = useState<TrelloBoard[]>([]);
   const [cards, setCards] = useState<TrelloCard[]>([]);
@@ -120,6 +122,9 @@ export default function APTLSSManagement() {
   const [selectedWorkspacesForLoad, setSelectedWorkspacesForLoad] = useState<Set<string>>(new Set());
   const [workspaceSearchTerm, setWorkspaceSearchTerm] = useState('');
   
+  // Ref for workspace search input (for keyboard shortcut)
+  const workspaceSearchInputRef = useRef<HTMLInputElement>(null);
+  
   // Local storage key for remembering workspace selection
   const WORKSPACE_SELECTION_KEY = 'aptlss_selected_workspaces';
 
@@ -167,6 +172,23 @@ export default function APTLSSManagement() {
       localStorage.setItem(WORKSPACE_SELECTION_KEY, JSON.stringify(Array.from(selectedWorkspacesForLoad)));
     }
   }, [selectedWorkspacesForLoad]);
+
+  // Keyboard shortcut: "/" to focus workspace search when selector is open
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only trigger if not already in an input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+      
+      if (e.key === '/' && showBoardSelector) {
+        e.preventDefault();
+        workspaceSearchInputRef.current?.focus();
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showBoardSelector]);
 
   // Load workspaces and boards
   useEffect(() => {
@@ -535,6 +557,10 @@ export default function APTLSSManagement() {
       startTime: Date.now()
     });
     
+    // Add to global loading queue
+    const operationId = 'aptlss-load-cards';
+    addOperation(operationId, `Loading cards from ${allBoards.length} boards`);
+    
     // Close the board selector if open
     setShowBoardSelector(false);
 
@@ -547,6 +573,7 @@ export default function APTLSSManagement() {
       // Check if cancelled
       if (cancelLoadRef.current) {
         setAutoLoadProgress(prev => prev ? { ...prev, isLoading: false, cancelled: true } : null);
+        updateOperation(operationId, { status: 'cancelled' });
         toast.warning(`Load cancelled. ${loadedCount} cards loaded, ${failedBoards.length} boards remaining.`);
         // Still save what we loaded so far
         if (newCards.length > 0) {
@@ -562,6 +589,14 @@ export default function APTLSSManagement() {
         current: i + 1,
         currentBoard: `${board.workspaceName} / ${board.name}`
       } : null);
+      
+      // Update global loading queue progress
+      const progressPercent = Math.round(((i + 1) / allBoards.length) * 100);
+      updateOperation(operationId, {
+        progress: progressPercent,
+        current: i + 1,
+        total: allBoards.length
+      });
 
       // Retry mechanism - try up to 3 times
       let success = false;
@@ -639,9 +674,18 @@ export default function APTLSSManagement() {
     // Show completion message
     setAutoLoadProgress(prev => prev ? { ...prev, isLoading: false } : null);
     
+    // Update global loading queue with completion status
     if (failedBoards.length === 0) {
+      updateOperation(operationId, {
+        status: 'completed',
+        progress: 100
+      });
       toast.success(`Loaded ${loadedCount} new cards (${skippedCount} already loaded)`);
     } else {
+      updateOperation(operationId, {
+        status: 'failed',
+        progress: 100
+      });
       toast.warning(`Loaded ${loadedCount} cards, ${failedBoards.length} boards failed`);
     }
   };
@@ -1041,11 +1085,13 @@ export default function APTLSSManagement() {
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search workspaces..."
+                      ref={workspaceSearchInputRef}
+                      placeholder="Search workspaces... (press / to focus)"
                       value={workspaceSearchTerm}
                       onChange={(e) => setWorkspaceSearchTerm(e.target.value)}
-                      className="pl-9"
+                      className="pl-9 pr-12"
                     />
+                    <kbd className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">/</kbd>
                   </div>
                   
                   <div className="flex gap-2">

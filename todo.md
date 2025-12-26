@@ -887,3 +887,9 @@ Each card now has:
 - [x] Add workspace search/filter in selector modal (search input + Select/Clear Filtered buttons)
 - [x] Remember workspace selection in local storage (auto-save/restore)
 - [ ] Test all enhancements (manual testing)
+
+## Keyboard Shortcut and Loading Status (Dec 26, 2025)
+- [x] Add keyboard shortcut "/" to focus workspace search input (with kbd hint)
+- [x] Add persistent loading queue status indicator in header (LoadingQueueIndicator component)
+- [x] Show loading progress across pages (LoadingQueueContext + integration with APTLSS)
+- [ ] Test all enhancements (manual testing)

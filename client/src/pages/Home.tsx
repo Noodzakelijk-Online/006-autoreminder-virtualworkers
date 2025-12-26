@@ -25,6 +25,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { MobileNav } from "@/components/MobileNav";
 import { NotificationBell } from "@/components/NotificationBell";
 import { TaskFilters, TaskFiltersState } from "@/components/TaskFilters";
+import { LoadingQueueIndicator } from "@/components/LoadingQueueIndicator";
 
 // No longer using mock data - fetch from Trello API
 
@@ -400,6 +401,11 @@ export default function Home() {
             
             {/* Mobile menu button */}
             <MobileNav user={user} onLogout={logout} />
+            
+            {/* Loading Queue Indicator */}
+            <div className="hidden md:flex">
+              <LoadingQueueIndicator />
+            </div>
             
             {/* Notification Bell with history */}
             <div className="hidden md:flex">

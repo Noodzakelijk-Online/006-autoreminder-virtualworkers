@@ -4,6 +4,7 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { LoadingQueueProvider } from "./contexts/LoadingQueueContext";
 import Home from "./pages/Home";
 import APTLSSManagement from "./pages/APTLSSManagement";
 import Settings from "./pages/Settings";
@@ -40,10 +41,12 @@ function App() {
         defaultTheme="light"
         // switchable
       >
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
+        <LoadingQueueProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </LoadingQueueProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );
