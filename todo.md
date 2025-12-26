@@ -860,3 +860,11 @@ Each card now has:
 ## Bug Fix: Reschedule Error (Dec 26, 2025)
 - [x] Fix missing run_fix.py script error in reschedule functionality
 - [x] Update reschedule to use proper scheduling logic instead of Python script (now uses cache invalidation)
+
+## Bug Fix: APTLSS Management Shows 0 Cards (Dec 26, 2025)
+- [x] Investigate why card count shows 0 when cards exist in Trello (cards need to be loaded first)
+- [x] Add "Auto-load all cards" button to Cards tab
+- [x] Show progress bar during loading (with current board name, percentage, board count)
+- [x] Implement retry mechanism for failed loads (3 attempts with exponential backoff + retry button)
+- [x] Skip already-loaded cards that haven't changed
+- [x] Show total card count summary (shows total across workspaces or loaded/shown count)

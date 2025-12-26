@@ -90,6 +90,18 @@ export default function APTLSSManagement() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobDetails, setJobDetails] = useState<any>(null);
   const [loadingProgress, setLoadingProgress] = useState<{current: number; total: number; message: string} | null>(null);
+  
+  // Auto-load all cards state
+  const [autoLoadProgress, setAutoLoadProgress] = useState<{
+    isLoading: boolean;
+    current: number;
+    total: number;
+    loaded: number;
+    skipped: number;
+    failed: number;
+    failedBoards: { id: string; name: string; workspaceName: string }[];
+    currentBoard: string;
+  } | null>(null);
 
   // Load workspaces and boards
   useEffect(() => {
@@ -377,6 +389,242 @@ export default function APTLSSManagement() {
     setCards(prev => prev.map(card => ({ ...card, selected: false })));
   };
 
+  // Auto-load all cards from all workspaces
+  const autoLoadAllCards = async () => {
+    if (workspaces.length === 0) {
+      toast.error('No workspaces available. Please refresh first.');
+      return;
+    }
+
+    // Calculate total boards across all workspaces
+    const allBoards: { id: string; name: string; workspaceName: string; cardCount: number }[] = [];
+    for (const workspace of workspaces) {
+      for (const board of workspace.boards) {
+        allBoards.push({
+          id: board.id,
+          name: board.name,
+          workspaceName: workspace.name,
+          cardCount: board.cardCount || 0
+        });
+      }
+    }
+
+    if (allBoards.length === 0) {
+      toast.error('No boards found in any workspace.');
+      return;
+    }
+
+    // Get existing card IDs to skip already loaded cards
+    const existingCardIds = new Set(cards.map(c => c.id));
+
+    setAutoLoadProgress({
+      isLoading: true,
+      current: 0,
+      total: allBoards.length,
+      loaded: 0,
+      skipped: 0,
+      failed: 0,
+      failedBoards: [],
+      currentBoard: ''
+    });
+
+    const newCards: TrelloCard[] = [];
+    const failedBoards: { id: string; name: string; workspaceName: string }[] = [];
+    let loadedCount = 0;
+    let skippedCount = 0;
+
+    for (let i = 0; i < allBoards.length; i++) {
+      const board = allBoards[i];
+      
+      setAutoLoadProgress(prev => prev ? {
+        ...prev,
+        current: i + 1,
+        currentBoard: `${board.workspaceName} / ${board.name}`
+      } : null);
+
+      // Retry mechanism - try up to 3 times
+      let success = false;
+      let lastError: Error | null = null;
+      
+      for (let attempt = 0; attempt < 3 && !success; attempt++) {
+        try {
+          if (attempt > 0) {
+            // Wait before retry (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+          }
+
+          const response = await fetch(`/api/trello/boards/${board.id}/cards`);
+          
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          
+          const boardCards = await response.json();
+          
+          if (!Array.isArray(boardCards)) {
+            throw new Error('Invalid response format');
+          }
+
+          // Process cards - skip already loaded ones
+          for (const card of boardCards) {
+            if (existingCardIds.has(card.id)) {
+              skippedCount++;
+            } else {
+              newCards.push({
+                id: card.id,
+                name: card.name,
+                desc: card.desc || '',
+                idBoard: card.idBoard,
+                idList: card.idList,
+                boardName: board.name,
+                listName: card.listName || '',
+                hasAPTLSS: card.checklists?.some((cl: any) => cl.name === 'APTLSS') || false,
+                selected: false,
+                due: card.due,
+                badges: card.badges
+              });
+              existingCardIds.add(card.id); // Prevent duplicates within this load
+              loadedCount++;
+            }
+          }
+
+          success = true;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          console.error(`Attempt ${attempt + 1} failed for board ${board.name}:`, error);
+        }
+      }
+
+      if (!success) {
+        failedBoards.push(board);
+        console.error(`All attempts failed for board ${board.name}:`, lastError);
+      }
+
+      // Update progress
+      setAutoLoadProgress(prev => prev ? {
+        ...prev,
+        loaded: loadedCount,
+        skipped: skippedCount,
+        failed: failedBoards.length,
+        failedBoards: [...failedBoards]
+      } : null);
+    }
+
+    // Add all new cards to state
+    if (newCards.length > 0) {
+      setCards(prev => [...prev, ...newCards]);
+    }
+
+    // Show completion message
+    setAutoLoadProgress(prev => prev ? { ...prev, isLoading: false } : null);
+    
+    if (failedBoards.length === 0) {
+      toast.success(`Loaded ${loadedCount} new cards (${skippedCount} already loaded)`);
+    } else {
+      toast.warning(`Loaded ${loadedCount} cards, ${failedBoards.length} boards failed`);
+    }
+  };
+
+  // Retry failed boards
+  const retryFailedBoards = async () => {
+    if (!autoLoadProgress || autoLoadProgress.failedBoards.length === 0) return;
+
+    const failedBoards = [...autoLoadProgress.failedBoards];
+    const existingCardIds = new Set(cards.map(c => c.id));
+
+    setAutoLoadProgress(prev => prev ? {
+      ...prev,
+      isLoading: true,
+      current: 0,
+      total: failedBoards.length,
+      failedBoards: [],
+      failed: 0
+    } : null);
+
+    const newCards: TrelloCard[] = [];
+    const stillFailedBoards: { id: string; name: string; workspaceName: string }[] = [];
+    let loadedCount = 0;
+    let skippedCount = 0;
+
+    for (let i = 0; i < failedBoards.length; i++) {
+      const board = failedBoards[i];
+      
+      setAutoLoadProgress(prev => prev ? {
+        ...prev,
+        current: i + 1,
+        currentBoard: `${board.workspaceName} / ${board.name}`
+      } : null);
+
+      let success = false;
+      
+      for (let attempt = 0; attempt < 3 && !success; attempt++) {
+        try {
+          if (attempt > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt)));
+          }
+
+          const response = await fetch(`/api/trello/boards/${board.id}/cards`);
+          
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          
+          const boardCards = await response.json();
+          
+          if (!Array.isArray(boardCards)) throw new Error('Invalid response');
+
+          for (const card of boardCards) {
+            if (existingCardIds.has(card.id)) {
+              skippedCount++;
+            } else {
+              newCards.push({
+                id: card.id,
+                name: card.name,
+                desc: card.desc || '',
+                idBoard: card.idBoard,
+                idList: card.idList,
+                boardName: board.name,
+                listName: card.listName || '',
+                hasAPTLSS: card.checklists?.some((cl: any) => cl.name === 'APTLSS') || false,
+                selected: false,
+                due: card.due,
+                badges: card.badges
+              });
+              existingCardIds.add(card.id);
+              loadedCount++;
+            }
+          }
+
+          success = true;
+        } catch (error) {
+          console.error(`Retry attempt ${attempt + 1} failed for ${board.name}:`, error);
+        }
+      }
+
+      if (!success) {
+        stillFailedBoards.push(board);
+      }
+
+      setAutoLoadProgress(prev => prev ? {
+        ...prev,
+        loaded: prev.loaded + loadedCount,
+        skipped: prev.skipped + skippedCount,
+        failed: stillFailedBoards.length,
+        failedBoards: [...stillFailedBoards]
+      } : null);
+    }
+
+    if (newCards.length > 0) {
+      setCards(prev => [...prev, ...newCards]);
+    }
+
+    setAutoLoadProgress(prev => prev ? { ...prev, isLoading: false } : null);
+    
+    if (stillFailedBoards.length === 0) {
+      toast.success(`Retry successful! Loaded ${loadedCount} cards`);
+    } else {
+      toast.warning(`Loaded ${loadedCount} cards, ${stillFailedBoards.length} boards still failing`);
+    }
+  };
+
   const startGeneration = async () => {
     const selectedCards = cards.filter(card => card.selected);
     
@@ -652,6 +900,98 @@ export default function APTLSSManagement() {
 
             {/* Cards Tab */}
             <TabsContent value="cards" className="space-y-4">
+          {/* Auto-load Progress */}
+          {autoLoadProgress && (
+            <Card className="bg-primary/5 border-primary/20">
+              <CardContent className="py-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      {autoLoadProgress.isLoading && (
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      )}
+                      <div>
+                        <p className="font-medium">
+                          {autoLoadProgress.isLoading ? 'Loading cards...' : 'Loading complete'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {autoLoadProgress.currentBoard || 'Preparing...'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right text-sm">
+                      <p className="font-medium">
+                        {autoLoadProgress.current} / {autoLoadProgress.total} boards
+                      </p>
+                      <p className="text-muted-foreground">
+                        {Math.round((autoLoadProgress.current / autoLoadProgress.total) * 100)}%
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <Progress 
+                    value={(autoLoadProgress.current / autoLoadProgress.total) * 100} 
+                    className="h-2"
+                  />
+                  
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex gap-4">
+                      <span className="text-green-600">✓ Loaded: {autoLoadProgress.loaded}</span>
+                      <span className="text-blue-600">⊘ Skipped: {autoLoadProgress.skipped}</span>
+                      {autoLoadProgress.failed > 0 && (
+                        <span className="text-red-600">✗ Failed: {autoLoadProgress.failed}</span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      {!autoLoadProgress.isLoading && autoLoadProgress.failedBoards.length > 0 && (
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={retryFailedBoards}
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1" />
+                          Retry {autoLoadProgress.failedBoards.length} Failed
+                        </Button>
+                      )}
+                      {!autoLoadProgress.isLoading && (
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={() => setAutoLoadProgress(null)}
+                        >
+                          Dismiss
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Card Count Summary */}
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              {cards.length > 0 
+                ? `${cards.length} cards loaded • ${filteredCards.length} shown`
+                : `Total cards across all workspaces: ${workspaces.reduce((sum, w) => sum + (w.boards?.reduce((bSum, b: any) => bSum + (b.cardCount || 0), 0) || 0), 0)}`
+              }
+            </p>
+            <Button 
+              onClick={autoLoadAllCards} 
+              variant="default"
+              size="sm"
+              disabled={autoLoadProgress?.isLoading || workspaces.length === 0}
+            >
+              {autoLoadProgress?.isLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-4 w-4 mr-2" />
+              )}
+              {autoLoadProgress?.isLoading ? 'Loading...' : 'Load All Cards'}
+            </Button>
+          </div>
+
           {/* Filters and Actions */}
           <Card>
             <CardContent className="pt-6">
