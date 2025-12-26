@@ -420,6 +420,158 @@ router.post('/understanding/reprocess-failed', async (req: Request, res: Respons
 });
 
 /**
+ * POST /api/atis/understanding/reprocess/:cardId
+ * Re-analyze a single card with AI (regenerate checklist & timeline)
+ */
+router.post('/understanding/reprocess/:cardId', async (req: Request, res: Response) => {
+  try {
+    const { cardId } = req.params;
+    const cardIdNum = parseInt(cardId);
+    
+    if (isNaN(cardIdNum)) {
+      return res.status(400).json({ error: 'Invalid card ID' });
+    }
+
+    console.log(`[ATIS] Re-analyzing single card ${cardIdNum}...`);
+    
+    const understanding = await processCardUnderstanding(cardIdNum);
+    
+    res.json({
+      success: true,
+      cardId: cardIdNum,
+      understanding,
+    });
+  } catch (error: any) {
+    console.error(`[ATIS] Failed to reprocess card:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/cards/:trelloId/reingest
+ * Re-ingest a single card from Trello (refresh data)
+ */
+router.post('/cards/:trelloId/reingest', async (req: Request, res: Response) => {
+  try {
+    const { trelloId } = req.params;
+    const db = await getDb();
+    
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    const apiKey = process.env.TRELLO_API_KEY;
+    const token = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !token) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    console.log(`[ATIS] Re-ingesting card ${trelloId} from Trello...`);
+
+    // Fetch fresh card data from Trello
+    const cardResponse = await fetch(
+      `https://api.trello.com/1/cards/${trelloId}?key=${apiKey}&token=${token}&checklists=all&attachments=true`
+    );
+
+    if (!cardResponse.ok) {
+      const errorText = await cardResponse.text();
+      throw new Error(`Trello API error: ${errorText}`);
+    }
+
+    const trelloCard = await cardResponse.json();
+
+    // Find existing card in database
+    const [existingCard] = await db.select()
+      .from(atisCards)
+      .where(eq(atisCards.trelloId, trelloId))
+      .limit(1);
+
+    if (!existingCard) {
+      return res.status(404).json({ error: 'Card not found in ATIS database' });
+    }
+
+    // Update card data
+    await db.update(atisCards)
+      .set({
+        name: trelloCard.name,
+        description: trelloCard.desc || null,
+        url: trelloCard.url,
+        dueDate: trelloCard.due ? new Date(trelloCard.due) : null,
+        labels: trelloCard.labels ? JSON.stringify(trelloCard.labels) : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(atisCards.id, existingCard.id));
+
+    // Fetch and update comments
+    const commentsResponse = await fetch(
+      `https://api.trello.com/1/cards/${trelloId}/actions?filter=commentCard&key=${apiKey}&token=${token}`
+    );
+    
+    if (commentsResponse.ok) {
+      const comments = await commentsResponse.json();
+      
+      // Delete existing comments and re-insert
+      await db.delete(atisComments).where(eq(atisComments.cardId, existingCard.id));
+      
+      for (const comment of comments) {
+        await db.insert(atisComments).values({
+          cardId: existingCard.id,
+          cardTrelloId: trelloId,
+          trelloId: comment.id,
+          text: comment.data?.text || '',
+          authorId: comment.memberCreator?.id || null,
+          authorName: comment.memberCreator?.fullName || 'Unknown',
+          commentDate: new Date(comment.date),
+        });
+      }
+    }
+
+    console.log(`[ATIS] Successfully re-ingested card ${trelloId}`);
+
+    res.json({
+      success: true,
+      cardId: existingCard.id,
+      trelloId,
+      name: trelloCard.name,
+      commentsUpdated: true,
+    });
+  } catch (error: any) {
+    console.error(`[ATIS] Failed to reingest card:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/atis/cards/by-trello/:trelloId
+ * Get ATIS card ID by Trello ID
+ */
+router.get('/cards/by-trello/:trelloId', async (req: Request, res: Response) => {
+  try {
+    const { trelloId } = req.params;
+    const db = await getDb();
+    
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    const [card] = await db.select({ id: atisCards.id, name: atisCards.name })
+      .from(atisCards)
+      .where(eq(atisCards.trelloId, trelloId))
+      .limit(1);
+
+    if (!card) {
+      return res.status(404).json({ error: 'Card not found' });
+    }
+
+    res.json(card);
+  } catch (error: any) {
+    console.error(`[ATIS] Failed to get card by Trello ID:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/atis/timeline-tasks
  * Get tasks for the dashboard timeline with AI understanding and checklists
  */

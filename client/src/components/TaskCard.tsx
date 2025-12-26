@@ -32,6 +32,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
   const [syncing, setSyncing] = useState(false);
   const [synced, setSynced] = useState(task.synced || false);
   const [syncingStep, setSyncingStep] = useState<string | null>(null);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const [stepCompletions, setStepCompletions] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     task.checklist?.forEach(item => {
@@ -108,6 +109,79 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleReanalyze = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    // Need either atisCardId or cardId (trello ID) to re-analyze
+    const cardIdentifier = task.atisCardId || task.cardId;
+    if (!cardIdentifier) {
+      toast.error('No card ID available for re-analysis');
+      return;
+    }
+
+    setReanalyzing(true);
+    toast.loading('Re-analyzing card...', { id: 'reanalyze' });
+
+    try {
+      // Step 1: Re-ingest card data from Trello (if we have trello ID)
+      if (task.cardId) {
+        const ingestResponse = await fetch(`/api/atis/cards/${task.cardId}/reingest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+        
+        if (!ingestResponse.ok) {
+          const error = await ingestResponse.json();
+          throw new Error(error.error || 'Failed to re-ingest card data');
+        }
+      }
+
+      // Step 2: Re-analyze with AI (generate new checklist & timeline)
+      const atisId = task.atisCardId || (await getAtisCardId(task.cardId!));
+      if (atisId) {
+        const analyzeResponse = await fetch(`/api/atis/understanding/reprocess/${atisId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+
+        if (!analyzeResponse.ok) {
+          const error = await analyzeResponse.json();
+          throw new Error(error.error || 'Failed to re-analyze card');
+        }
+
+        const result = await analyzeResponse.json();
+        
+        toast.success('Card re-analyzed successfully', {
+          id: 'reanalyze',
+          description: `Updated checklist with ${result.understanding?.aptlssChecklist?.length || 0} steps`,
+        });
+
+        // Reload completion status to reflect new checklist
+        await loadCompletionStatus();
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to re-analyze card', { id: 'reanalyze' });
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
+  // Helper to get ATIS card ID from Trello ID
+  const getAtisCardId = async (trelloId: string): Promise<number | null> => {
+    try {
+      const response = await fetch(`/api/atis/cards/by-trello/${trelloId}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.id;
+      }
+    } catch (error) {
+      console.error('Failed to get ATIS card ID:', error);
+    }
+    return null;
   };
 
   const handleStepToggle = async (stepId: string, stepIndex: number) => {
@@ -463,6 +537,29 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
                     compact={true}
                   />
                 </div>
+              )}
+
+              {/* Re-analyze button */}
+              {(task.atisCardId || task.cardId) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1"
+                  onClick={handleReanalyze}
+                  disabled={reanalyzing}
+                >
+                  {reanalyzing ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="h-3 w-3" />
+                      Re-analyze
+                    </>
+                  )}
+                </Button>
               )}
 
               {/* Sync to Trello button */}

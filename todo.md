@@ -834,3 +834,11 @@ Each card now has:
 - [x] Handle sync errors gracefully (revert on failure)
 - [x] Show sync status in calendar UI (loading toast)
 - [ ] Test sync with actual Trello cards (manual testing)
+
+## Individual Card Re-analyze Button (Dec 26, 2025)
+- [x] Add "Re-analyze" button to task cards in workload timeline
+- [x] Create API endpoint for single card re-ingestion (POST /api/atis/cards/:trelloId/reingest)
+- [x] Create API endpoint for single card AI re-analysis (POST /api/atis/understanding/reprocess/:cardId)
+- [x] Show loading state during re-analysis (spinner + toast)
+- [x] Update card data in UI after re-analysis completes (reload completion status)
+- [ ] Test re-analyze functionality on individual cards (manual testing)
