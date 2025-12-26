@@ -881,3 +881,9 @@ Each card now has:
 - [x] Add loading time estimate based on average board load time (~Xm Ys remaining)
 - [x] Add board/workspace filtering before load (Select Workspaces button + modal)
 - [ ] Test all enhancements (manual testing)
+
+## Rate Limit and UX Enhancements (Dec 26, 2025)
+- [x] Add rate limit handling with automatic backoff for Trello API (sequential processing + delays + fetchWithRetry)
+- [x] Add workspace search/filter in selector modal (search input + Select/Clear Filtered buttons)
+- [x] Remember workspace selection in local storage (auto-save/restore)
+- [ ] Test all enhancements (manual testing)

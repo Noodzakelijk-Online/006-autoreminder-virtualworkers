@@ -411,8 +411,17 @@ router.get('/trello/workspaces', async (req: Request, res: Response) => {
       return res.json([]);
     }
 
-    const response = await fetch(
-      `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`
+    const response = await fetchWithRetry(
+      `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`,
+      undefined,
+      {
+        maxRetries: 5,
+        initialDelayMs: 2000,
+        maxDelayMs: 60000,
+        onRetry: (attempt, error, delayMs) => {
+          console.log(`Retrying workspaces fetch (attempt ${attempt}) after ${delayMs}ms due to:`, error.message);
+        }
+      }
     );
     
     if (!response.ok) {
@@ -421,55 +430,80 @@ router.get('/trello/workspaces', async (req: Request, res: Response) => {
 
     const workspaces = await response.json();
     
-    // Get board counts for each workspace
-    const workspacesWithCounts = await Promise.all(
-      workspaces.map(async (workspace: any) => {
-        try {
-          const boardsResponse = await fetch(
-            `https://api.trello.com/1/organizations/${workspace.id}/boards?filter=open&key=${apiKey}&token=${token}`
-          );
-          if (!boardsResponse.ok) {
-            console.warn(`Failed to fetch boards for workspace ${workspace.displayName}`);
-            return null;
-          }
-          const boards = await boardsResponse.json();
-          const boardsArray = Array.isArray(boards) ? boards : [];
-          
-          // Get card counts for each board
-          const boardsWithCards = await Promise.all(
-            boardsArray.map(async (board: any) => {
-              try {
-                const cardsResponse = await fetch(
-                  `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`
-                );
-                if (!cardsResponse.ok) return { id: board.id, name: board.name, cardCount: 0 };
-                const cards = await cardsResponse.json();
-                return {
-                  id: board.id,
-                  name: board.name,
-                  cardCount: Array.isArray(cards) ? cards.length : 0
-                };
-              } catch (error) {
-                return { id: board.id, name: board.name, cardCount: 0 };
-              }
-            })
-          );
-          
-          const totalCards = boardsWithCards.reduce((sum, b) => sum + b.cardCount, 0);
-          
-          return {
-            id: workspace.id,
-            name: workspace.displayName,
-            boardCount: boardsArray.length,
-            cardCount: totalCards,
-            boards: boardsWithCards
-          };
-        } catch (error) {
-          console.warn(`Error fetching boards for workspace ${workspace.displayName}:`, error);
-          return null;
+    // Get board counts for each workspace - process sequentially to avoid rate limits
+    const workspacesWithCounts: any[] = [];
+    for (const workspace of workspaces) {
+      try {
+        // Add small delay between workspace requests to avoid rate limits
+        if (workspacesWithCounts.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
-      })
-    );
+        
+        const boardsResponse = await fetchWithRetry(
+          `https://api.trello.com/1/organizations/${workspace.id}/boards?filter=open&key=${apiKey}&token=${token}`,
+          undefined,
+          {
+            maxRetries: 3,
+            initialDelayMs: 2000,
+            maxDelayMs: 30000,
+            onRetry: (attempt, error, delayMs) => {
+              console.log(`Retrying boards fetch for ${workspace.displayName} (attempt ${attempt}) after ${delayMs}ms`);
+            }
+          }
+        );
+        if (!boardsResponse.ok) {
+          console.warn(`Failed to fetch boards for workspace ${workspace.displayName}`);
+          continue;
+        }
+        const boards = await boardsResponse.json();
+        const boardsArray = Array.isArray(boards) ? boards : [];
+        
+        // Get card counts for each board - process sequentially
+        const boardsWithCards: any[] = [];
+        for (const board of boardsArray) {
+          try {
+            // Add small delay between board requests
+            if (boardsWithCards.length > 0) {
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            const cardsResponse = await fetchWithRetry(
+              `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`,
+              undefined,
+              {
+                maxRetries: 2,
+                initialDelayMs: 1000,
+                maxDelayMs: 10000
+              }
+            );
+            if (!cardsResponse.ok) {
+              boardsWithCards.push({ id: board.id, name: board.name, cardCount: 0 });
+              continue;
+            }
+            const cards = await cardsResponse.json();
+            boardsWithCards.push({
+              id: board.id,
+              name: board.name,
+              cardCount: Array.isArray(cards) ? cards.length : 0
+            });
+          } catch (error) {
+            boardsWithCards.push({ id: board.id, name: board.name, cardCount: 0 });
+          }
+        }
+        
+        const totalCards = boardsWithCards.reduce((sum, b) => sum + b.cardCount, 0);
+        
+        workspacesWithCounts.push({
+          id: workspace.id,
+          name: workspace.displayName,
+          boardCount: boardsArray.length,
+          cardCount: totalCards,
+          boards: boardsWithCards
+        });
+      } catch (error) {
+        console.warn(`Error fetching boards for workspace ${workspace.displayName}:`, error);
+      }
+    }
     
     // Filter out null results (failed workspace fetches)
     const validWorkspaces = workspacesWithCounts.filter(w => w !== null);
@@ -492,8 +526,17 @@ router.get('/trello/boards', async (req: Request, res: Response) => {
       return res.json(mockBoards);
     }
 
-    const response = await fetch(
-      `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${token}`
+    const response = await fetchWithRetry(
+      `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${token}`,
+      undefined,
+      {
+        maxRetries: 5,
+        initialDelayMs: 2000,
+        maxDelayMs: 60000,
+        onRetry: (attempt, error, delayMs) => {
+          console.log(`Retrying boards fetch (attempt ${attempt}) after ${delayMs}ms due to:`, error.message);
+        }
+      }
     );
     
     if (!response.ok) {
@@ -502,34 +545,42 @@ router.get('/trello/boards', async (req: Request, res: Response) => {
 
     const boards = await response.json();
     
-    // Get card counts for each board with error handling
-    const boardsWithCounts = await Promise.all(
-      boards.map(async (board: any) => {
-        try {
-          const cardsResponse = await fetch(
-            `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`
-          );
-          if (!cardsResponse.ok) {
-            console.warn(`Failed to fetch cards for board ${board.name}`);
-            return null;
-          }
-          const cards = await cardsResponse.json();
-          return {
-            id: board.id,
-            name: board.name,
-            cardCount: Array.isArray(cards) ? cards.length : 0
-          };
-        } catch (error) {
-          console.warn(`Error fetching cards for board ${board.name}:`, error);
-          return null;
+    // Get card counts for each board - process sequentially to avoid rate limits
+    const boardsWithCounts: any[] = [];
+    for (const board of boards) {
+      try {
+        // Add small delay between board requests
+        if (boardsWithCounts.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
-      })
-    );
-    
-    // Filter out null results (failed board fetches)
-    const validBoards = boardsWithCounts.filter(b => b !== null);
+        
+        const cardsResponse = await fetchWithRetry(
+          `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`,
+          undefined,
+          {
+            maxRetries: 2,
+            initialDelayMs: 1000,
+            maxDelayMs: 10000
+          }
+        );
+        if (!cardsResponse.ok) {
+          console.warn(`Failed to fetch cards for board ${board.name}`);
+          boardsWithCounts.push({ id: board.id, name: board.name, cardCount: 0 });
+          continue;
+        }
+        const cards = await cardsResponse.json();
+        boardsWithCounts.push({
+          id: board.id,
+          name: board.name,
+          cardCount: Array.isArray(cards) ? cards.length : 0
+        });
+      } catch (error) {
+        console.warn(`Error fetching cards for board ${board.name}:`, error);
+        boardsWithCounts.push({ id: board.id, name: board.name, cardCount: 0 });
+      }
+    }
 
-    res.json(validBoards);
+    res.json(boardsWithCounts);
   } catch (error) {
     console.error('Error fetching boards:', error);
     res.status(500).json({ error: 'Failed to fetch boards' });
@@ -550,8 +601,17 @@ router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) 
     }
 
     // Fetch cards with checklists and board/list info
-    const response = await fetch(
-      `https://api.trello.com/1/boards/${boardId}/cards?key=${apiKey}&token=${token}&checklists=all&list=true&board=true`
+    const response = await fetchWithRetry(
+      `https://api.trello.com/1/boards/${boardId}/cards?key=${apiKey}&token=${token}&checklists=all&list=true&board=true`,
+      undefined,
+      {
+        maxRetries: 3,
+        initialDelayMs: 2000,
+        maxDelayMs: 30000,
+        onRetry: (attempt, error, delayMs) => {
+          console.log(`Retrying cards fetch for board ${boardId} (attempt ${attempt}) after ${delayMs}ms`);
+        }
+      }
     );
     
     if (!response.ok) {

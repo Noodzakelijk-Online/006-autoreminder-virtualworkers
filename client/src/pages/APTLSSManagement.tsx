@@ -118,6 +118,10 @@ export default function APTLSSManagement() {
   // Board selection state for filtered loading
   const [showBoardSelector, setShowBoardSelector] = useState(false);
   const [selectedWorkspacesForLoad, setSelectedWorkspacesForLoad] = useState<Set<string>>(new Set());
+  const [workspaceSearchTerm, setWorkspaceSearchTerm] = useState('');
+  
+  // Local storage key for remembering workspace selection
+  const WORKSPACE_SELECTION_KEY = 'aptlss_selected_workspaces';
 
   // Load cards from local storage on mount
   useEffect(() => {
@@ -134,6 +138,20 @@ export default function APTLSSManagement() {
         localStorage.removeItem(CARDS_STORAGE_KEY);
       }
     }
+    
+    // Load saved workspace selection
+    const savedWorkspaces = localStorage.getItem(WORKSPACE_SELECTION_KEY);
+    if (savedWorkspaces) {
+      try {
+        const parsedWorkspaces = JSON.parse(savedWorkspaces);
+        if (Array.isArray(parsedWorkspaces)) {
+          setSelectedWorkspacesForLoad(new Set(parsedWorkspaces));
+        }
+      } catch (e) {
+        console.error('Failed to parse saved workspace selection:', e);
+        localStorage.removeItem(WORKSPACE_SELECTION_KEY);
+      }
+    }
   }, []);
   
   // Save cards to local storage when they change
@@ -142,6 +160,13 @@ export default function APTLSSManagement() {
       localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify(cards));
     }
   }, [cards]);
+  
+  // Save workspace selection to local storage when it changes
+  useEffect(() => {
+    if (selectedWorkspacesForLoad.size > 0) {
+      localStorage.setItem(WORKSPACE_SELECTION_KEY, JSON.stringify(Array.from(selectedWorkspacesForLoad)));
+    }
+  }, [selectedWorkspacesForLoad]);
 
   // Load workspaces and boards
   useEffect(() => {
@@ -1012,25 +1037,55 @@ export default function APTLSSManagement() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  <div className="flex gap-2 mb-3">
+                  {/* Search input */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search workspaces..."
+                      value={workspaceSearchTerm}
+                      onChange={(e) => setWorkspaceSearchTerm(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                  
+                  <div className="flex gap-2">
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setSelectedWorkspacesForLoad(new Set(workspaces.map(w => w.id)))}
+                      onClick={() => {
+                        const filteredIds = workspaces
+                          .filter(w => w.name.toLowerCase().includes(workspaceSearchTerm.toLowerCase()))
+                          .map(w => w.id);
+                        setSelectedWorkspacesForLoad(new Set([...Array.from(selectedWorkspacesForLoad), ...filteredIds]));
+                      }}
                     >
                       <CheckSquare className="h-3 w-3 mr-1" />
-                      Select All
+                      {workspaceSearchTerm ? 'Select Filtered' : 'Select All'}
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setSelectedWorkspacesForLoad(new Set())}
+                      onClick={() => {
+                        if (workspaceSearchTerm) {
+                          const filteredIds = workspaces
+                            .filter(w => w.name.toLowerCase().includes(workspaceSearchTerm.toLowerCase()))
+                            .map(w => w.id);
+                          const newSet = new Set(selectedWorkspacesForLoad);
+                          filteredIds.forEach(id => newSet.delete(id));
+                          setSelectedWorkspacesForLoad(newSet);
+                        } else {
+                          setSelectedWorkspacesForLoad(new Set());
+                        }
+                      }}
                     >
-                      Clear
+                      {workspaceSearchTerm ? 'Clear Filtered' : 'Clear All'}
                     </Button>
                   </div>
+                  
                   <div className="max-h-64 overflow-y-auto space-y-1 border rounded-md p-2">
-                    {workspaces.map(workspace => (
+                    {workspaces
+                      .filter(w => w.name.toLowerCase().includes(workspaceSearchTerm.toLowerCase()))
+                      .map(workspace => (
                       <label
                         key={workspace.id}
                         className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
@@ -1053,11 +1108,21 @@ export default function APTLSSManagement() {
                         </span>
                       </label>
                     ))}
+                    {workspaces.filter(w => w.name.toLowerCase().includes(workspaceSearchTerm.toLowerCase())).length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No workspaces found matching "{workspaceSearchTerm}"
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center justify-between pt-2 border-t">
                     <p className="text-sm text-muted-foreground">
                       {selectedWorkspacesForLoad.size} workspace{selectedWorkspacesForLoad.size !== 1 ? 's' : ''} selected
                       ({workspaces.filter(w => selectedWorkspacesForLoad.has(w.id)).reduce((sum, w) => sum + w.boardCount, 0)} boards)
+                      {workspaceSearchTerm && (
+                        <span className="ml-2">
+                          • Showing {workspaces.filter(w => w.name.toLowerCase().includes(workspaceSearchTerm.toLowerCase())).length} of {workspaces.length}
+                        </span>
+                      )}
                     </p>
                     <div className="flex gap-2">
                       <Button
