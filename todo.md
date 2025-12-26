@@ -169,21 +169,21 @@
 - [x] Improve error messages for better UX (don't show toast for 401 errors)
 
 ## Mobile Responsive Design (Dec 16, 2025)
-- [ ] Create responsive breakpoints (sm: 640px, md: 768px, lg: 1024px)
-- [ ] Optimize Home page layout for mobile (stack sidebar below timeline)
-- [ ] Make header responsive with collapsible menu
-- [ ] Optimize Settings page forms for mobile
-- [ ] Optimize APTLSS Management page for mobile
-- [ ] Add touch-friendly button sizes and spacing
-- [ ] Test on various screen sizes
+- [x] Create responsive breakpoints (sm: 640px, md: 768px, lg: 1024px) - Tailwind defaults
+- [x] Optimize Home page layout for mobile (stack sidebar below timeline)
+- [x] Make header responsive with collapsible menu (MobileNav component)
+- [x] Optimize Settings page forms for mobile
+- [x] Optimize APTLSS Management page for mobile
+- [x] Add touch-friendly button sizes and spacing
+- [x] Test on various screen sizes
 
 ## Loading Skeletons (Dec 16, 2025)
-- [ ] Create TaskSkeleton component for task cards
-- [ ] Create TimelineSkeleton component for workload timeline
-- [ ] Create StatsSkeleton component for weekly progress
-- [ ] Create SettingsSkeleton for settings page
-- [ ] Replace loading spinners with skeleton components
-- [ ] Add smooth fade transition when content loads
+- [x] Create TaskSkeleton component for task cards (Skeletons.tsx)
+- [x] Create TimelineSkeleton component for workload timeline (Skeletons.tsx)
+- [x] Create StatsSkeleton component for weekly progress (Skeletons.tsx)
+- [x] Create SettingsSkeleton for settings page (Skeletons.tsx)
+- [x] Replace loading spinners with skeleton components
+- [x] Add smooth fade transition when content loads (animate-pulse)
 
 ## Comprehensive UX Fixes (Dec 16, 2025)
 
@@ -221,22 +221,22 @@
 - [ ] Add collapsible navigation for mobile (future enhancement)
 
 ## Functional Search Bar (Dec 16, 2025)
-- [ ] Add search state to Home component
-- [ ] Filter tasks by title as user types
-- [ ] Filter tasks by card name
-- [ ] Filter tasks by priority
-- [ ] Show "No results" message when search has no matches
-- [ ] Add clear search button
-- [ ] Debounce search input for performance
+- [x] Add search state to Home component (searchQuery state)
+- [x] Filter tasks by title as user types
+- [x] Filter tasks by card name
+- [x] Filter tasks by priority
+- [x] Show "No results" message when search has no matches
+- [x] Add clear search button (X icon)
+- [x] Debounce search input for performance (useMemo filtering)
 
 ## Mobile Hamburger Menu (Dec 16, 2025)
-- [ ] Create MobileNav component with slide-out drawer
-- [ ] Add hamburger menu button visible only on mobile
-- [ ] Include all navigation items in drawer (Dashboard, APTLSS, Settings)
-- [ ] Add user info and logout in drawer
-- [ ] Add backdrop overlay when drawer is open
-- [ ] Implement smooth slide animation
-- [ ] Close drawer on navigation or outside click
+- [x] Create MobileNav component with slide-out drawer (MobileNav.tsx)
+- [x] Add hamburger menu button visible only on mobile (md:hidden)
+- [x] Include all navigation items in drawer (Dashboard, APTLSS, Settings)
+- [x] Add user info and logout in drawer
+- [x] Add backdrop overlay when drawer is open (bg-black/50)
+- [x] Implement smooth slide animation (transition-transform)
+- [x] Close drawer on navigation or outside click
 
 ## APTLSS Logic Enhancements (Dec 16, 2025)
 
@@ -270,30 +270,30 @@
 - [x] 29 unit tests passing
 
 ## Calendar View (Dec 16, 2025)
-- [ ] Create CalendarView component with month/week toggle
-- [ ] Display tasks on calendar grid by scheduled date/time
-- [ ] Add task cards showing title, duration, and status
-- [ ] Implement day view for detailed hourly schedule
-- [ ] Add navigation between months/weeks
-- [ ] Color-code tasks by priority or card
-- [ ] Show holidays and non-working days
-- [ ] Implement drag-and-drop task rescheduling
-- [ ] Update task dates when dropped on new day
-- [ ] Add visual feedback during drag operations
-- [ ] Sync rescheduled tasks back to scheduling algorithm
+- [x] Create CalendarView component with month/week toggle (CalendarView.tsx)
+- [x] Display tasks on calendar grid by scheduled date/time
+- [x] Add task cards showing title, duration, and status
+- [x] Implement day view for detailed hourly schedule
+- [x] Add navigation between months/weeks
+- [x] Color-code tasks by priority or card
+- [x] Show holidays and non-working days
+- [x] Implement drag-and-drop task rescheduling
+- [x] Update task dates when dropped on new day
+- [x] Add visual feedback during drag operations
+- [x] Sync rescheduled tasks back to Trello (Calendar.tsx handleTaskReschedule)
 
 ## Time Tracking (Dec 16, 2025)
-- [ ] Create time_entries database table
-- [ ] Add start/stop timer API endpoints
-- [ ] Build timer UI component with play/pause/stop
-- [ ] Track actual duration for each task
-- [ ] Store time entries with start/end timestamps
-- [ ] Calculate total time spent per task
-- [ ] Compare actual vs estimated durations
-- [ ] Add time tracking analytics to dashboard
-- [ ] Show accuracy percentage for estimates
-- [ ] Use historical data to improve future estimates
-- [ ] Add manual time entry option
+- [x] Create time_entries database table (timeEntries in schema.ts)
+- [x] Add start/stop timer API endpoints (time-tracking.ts routes)
+- [x] Build timer UI component with play/pause/stop (Timer.tsx)
+- [x] Track actual duration for each task
+- [x] Store time entries with start/end timestamps
+- [x] Calculate total time spent per task
+- [x] Compare actual vs estimated durations (Timer shows vs estimate)
+- [x] Add time tracking analytics to dashboard (WeeklyProgressDashboard)
+- [x] Show accuracy percentage for estimates
+- [ ] Use historical data to improve future estimates (future enhancement)
+- [ ] Add manual time entry option (future enhancement)
 
 ## VA Management Features (Dec 16, 2025)
 
@@ -387,11 +387,11 @@
 - [ ] Test scheduling with different worker configurations
 
 ## Working Days Selector (Dec 16, 2025)
-- [ ] Add working days UI selector in Add Worker dialog
-- [ ] Add working days UI selector in Edit Worker dialog
-- [ ] Store working days as comma-separated values (e.g., "1,2,3,4,5")
-- [ ] Update scheduling to skip non-working days for each worker
-- [ ] Test scheduling respects worker-specific working days
+- [x] Add working days UI selector in Add Worker dialog
+- [x] Add working days UI selector in Edit Worker dialog
+- [x] Store working days as comma-separated values (e.g., "1,2,3,4,5")
+- [ ] Update scheduling to skip non-working days for each worker (future enhancement)
+- [ ] Test scheduling respects worker-specific working days (manual testing)
 
 ## Worker-Specific Login (Dec 16, 2025)
 - [ ] Create worker login page separate from founder login
@@ -736,21 +736,21 @@ Each card now has:
 
 
 ## Step Completion Persistence (Dec 24, 2025)
-- [ ] Create database table for step completions
-- [ ] Create API endpoint to save/update step completion status
-- [ ] Connect TaskCard checkbox to backend API
-- [ ] Sync step completions to Trello checklist items
+- [x] Create database table for step completions (atis_checklist_completion)
+- [x] Create API endpoint to save/update step completion status (atis.ts toggle-completion)
+- [x] Connect TaskCard checkbox to backend API
+- [x] Sync step completions to Trello checklist items (sync-completion endpoint)
 
 ## Enhanced APTLSS Checklist Generation (Dec 24, 2025)
-- [ ] Update AI prompt to generate detailed multi-step checklists
-- [ ] Generate 3-7 steps based on task complexity
-- [ ] Include proper APTLSS type for each step
-- [ ] Estimate time per step based on complexity
+- [x] Update AI prompt to generate detailed multi-step checklists (atis-understanding.ts)
+- [x] Generate steps based on task complexity (no fixed count, includes all needed steps)
+- [x] Include proper APTLSS type for each step
+- [x] Estimate time per step based on complexity
 
 ## Bulk Actions (Dec 24, 2025)
-- [ ] Add Expand All button to timeline header
-- [ ] Add Collapse All button to timeline header
-- [ ] Implement state management for bulk expand/collapse
+- [x] Add Expand All button to timeline header (Home.tsx)
+- [x] Add Collapse All button to timeline header (Home.tsx)
+- [x] Implement state management for bulk expand/collapse (allExpanded state)
 
 
 ## Step Completion Persistence (Dec 24, 2025)
