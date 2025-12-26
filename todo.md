@@ -842,3 +842,17 @@ Each card now has:
 - [x] Show loading state during re-analysis (spinner + toast)
 - [x] Update card data in UI after re-analysis completes (reload completion status)
 - [ ] Test re-analyze functionality on individual cards (manual testing)
+
+## Last Analyzed Timestamp Display (Dec 26, 2025)
+- [x] Add analyzedAt field to task card data (from atisCardUnderstanding.updatedAt)
+- [x] Display "Analyzed X ago" on task cards (with Brain icon)
+- [x] Show full timestamp on hover (title attribute)
+- [x] Highlight stale cards (analyzed > 7 days ago) - amber color + warning icon
+
+## Batch Selection for Re-analysis (Dec 26, 2025)
+- [x] Add batch selection mode toggle to timeline header ("Select Cards" button)
+- [x] Add checkboxes to task cards when in selection mode
+- [x] Show selected count and "Re-analyze Selected" button
+- [x] Implement batch re-analysis with progress tracking (current/total counter)
+- [x] Add "Select All" and "Clear Selection" buttons
+- [ ] Test batch re-analysis functionality (manual testing)

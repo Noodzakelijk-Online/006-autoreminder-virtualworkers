@@ -288,6 +288,32 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
     return `${hours.toFixed(1)}h`;
   };
 
+  // Format relative time for analyzed timestamp
+  const formatRelativeTime = (date: string | Date | undefined) => {
+    if (!date) return null;
+    const now = new Date();
+    const analyzed = new Date(date);
+    const diffMs = now.getTime() - analyzed.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+    return analyzed.toLocaleDateString();
+  };
+
+  const isStale = (date: string | Date | undefined) => {
+    if (!date) return false;
+    const analyzed = new Date(date);
+    const diffDays = Math.floor((new Date().getTime() - analyzed.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays > 7;
+  };
+
   const completedSteps = Object.values(stepCompletions).filter(Boolean).length;
   const totalSteps = task.checklist?.length || 0;
   const progress = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0;
@@ -391,6 +417,23 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
                   {task.complexity && (
                     <span className={cn("px-1.5 py-0.5 rounded text-xs", complexityColors[task.complexity])}>
                       {task.complexity}
+                    </span>
+                  )}
+                  
+                  {/* Analyzed timestamp */}
+                  {task.hasUnderstanding && task.analyzedAt && (
+                    <span 
+                      className={cn(
+                        "flex items-center gap-1",
+                        isStale(task.analyzedAt) && "text-amber-600"
+                      )}
+                      title={`Analyzed: ${new Date(task.analyzedAt).toLocaleString()}`}
+                    >
+                      <Brain className="h-3.5 w-3.5" />
+                      {formatRelativeTime(task.analyzedAt)}
+                      {isStale(task.analyzedAt) && (
+                        <AlertTriangle className="h-3 w-3 text-amber-500" />
+                      )}
                     </span>
                   )}
                 </div>

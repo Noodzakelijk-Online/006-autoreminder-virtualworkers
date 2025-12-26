@@ -622,6 +622,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       clarityScore: atisCardUnderstanding.clarityScore,
       entities: atisCardUnderstanding.entities,
       aptlssChecklist: atisCardUnderstanding.aptlssChecklist,
+      analyzedAt: atisCardUnderstanding.updatedAt,
     })
       .from(atisCards)
       .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
@@ -711,6 +712,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
         confidenceScore: card.confidenceScore,
         clarityScore: card.clarityScore,
         entities,
+        analyzedAt: card.analyzedAt,
         // APTLSS Checklist
         checklist: checklist.map((item: any, index: number) => ({
           id: `${card.id}-step-${index}`,

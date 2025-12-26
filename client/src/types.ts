@@ -32,6 +32,7 @@ export interface Task {
   atisCardId?: number;
   synced?: boolean;
   trelloChecklistId?: string;
+  analyzedAt?: string | Date;
 }
 
 export interface ChecklistItem {
