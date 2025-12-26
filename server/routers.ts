@@ -2,12 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { readFile } from "fs/promises";
-import path from "path";
-
-const execAsync = promisify(exec);
+import { invalidateCache } from "./services/trello-cache";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -24,41 +19,26 @@ export const appRouter = router({
   }),
 
   trello: router({
-    reschedule: protectedProcedure.mutation(async () => {
+    reschedule: protectedProcedure.mutation(async ({ ctx }) => {
       try {
-        // Run the rescheduling script
-        console.log("[Reschedule] Starting global reschedule...");
-        const { stdout: rescheduleOut, stderr: rescheduleErr } = await execAsync(
-          "cd /home/ubuntu && python3 run_fix.py",
-          { timeout: 600000 } // 10 min timeout
-        );
-        
-        if (rescheduleErr) {
-          console.warn("[Reschedule] stderr:", rescheduleErr);
+        const user = ctx.user;
+        if (!user) {
+          throw new Error("User not authenticated");
         }
-        console.log("[Reschedule] stdout:", rescheduleOut);
+
+        console.log("[Reschedule] Starting reschedule for user:", user.openId);
         
-        // Regenerate dashboard
-        console.log("[Reschedule] Regenerating dashboard...");
-        const { stdout: dashOut, stderr: dashErr } = await execAsync(
-          "cd /home/ubuntu && python3 regenerate_dashboard_final.py",
-          { timeout: 600000 }
-        );
+        // Invalidate the cache to force a fresh fetch and reschedule
+        // The APTLSS scheduling algorithm will automatically reschedule tasks
+        // when the cache is invalidated and tasks are re-fetched
+        await invalidateCache(user.id, user.openId, 'tasks');
         
-        if (dashErr) {
-          console.warn("[Dashboard] stderr:", dashErr);
-        }
-        console.log("[Dashboard] stdout:", dashOut);
-        
-        // Read the updated tasks.json
-        const tasksPath = path.join(process.cwd(), "client/src/data/tasks.json");
-        const tasksData = await readFile(tasksPath, "utf-8");
-        const tasks = JSON.parse(tasksData);
+        console.log("[Reschedule] Cache invalidated, tasks will be rescheduled on next fetch");
         
         return {
           success: true,
-          message: "Rescheduling completed successfully",
-          tasksCount: tasks.length,
+          message: "Cache cleared. Tasks will be rescheduled on next refresh.",
+          note: "The APTLSS scheduling algorithm will automatically reschedule all tasks based on your current working hours settings.",
         };
       } catch (error) {
         console.error("[Reschedule] Error:", error);

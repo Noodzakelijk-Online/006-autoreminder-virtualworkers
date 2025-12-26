@@ -856,3 +856,7 @@ Each card now has:
 - [x] Implement batch re-analysis with progress tracking (current/total counter)
 - [x] Add "Select All" and "Clear Selection" buttons
 - [ ] Test batch re-analysis functionality (manual testing)
+
+## Bug Fix: Reschedule Error (Dec 26, 2025)
+- [x] Fix missing run_fix.py script error in reschedule functionality
+- [x] Update reschedule to use proper scheduling logic instead of Python script (now uses cache invalidation)

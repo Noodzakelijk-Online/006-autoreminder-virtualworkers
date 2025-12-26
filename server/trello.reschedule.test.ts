@@ -2,13 +2,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 
-// Mock the entire routers module to intercept execAsync
-vi.mock("child_process", () => ({
-  exec: vi.fn(),
-}));
-
-vi.mock("fs/promises", () => ({
-  readFile: vi.fn(),
+// Mock the trello-cache service
+vi.mock("./services/trello-cache", () => ({
+  invalidateCache: vi.fn().mockResolvedValue(undefined),
 }));
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
@@ -38,51 +34,52 @@ function createAuthContext(): TrpcContext {
   };
 }
 
+function createUnauthContext(): TrpcContext {
+  return {
+    user: null,
+    req: {
+      protocol: "https",
+      headers: {},
+    } as TrpcContext["req"],
+    res: {
+      clearCookie: () => {},
+    } as TrpcContext["res"],
+  };
+}
+
 describe("trello.reschedule", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("successfully reschedules and returns task count", async () => {
+  it("successfully reschedules by invalidating cache", async () => {
     const ctx = createAuthContext();
     const caller = appRouter.createCaller(ctx);
-
-    // Mock exec to return a promise (since we use promisify)
-    const { exec } = await import("child_process");
-    const { readFile } = await import("fs/promises");
     
-    vi.mocked(exec).mockImplementation(((cmd: string, opts: any, callback: any) => {
-      // Simulate successful execution
-      callback(null, { stdout: "Success", stderr: "" });
-      return {} as any;
-    }) as any);
-
-    // Mock readFile to return sample tasks
-    const mockTasks = [
-      { id: "1", cardName: "Test", date: "Dec 05, 2025", durationHours: 1 },
-      { id: "2", cardName: "Test 2", date: "Dec 06, 2025", durationHours: 1 },
-    ];
-    vi.mocked(readFile).mockResolvedValue(JSON.stringify(mockTasks));
+    const { invalidateCache } = await import("./services/trello-cache");
 
     const result = await caller.trello.reschedule();
 
     expect(result.success).toBe(true);
-    expect(result.tasksCount).toBe(2);
-    expect(result.message).toContain("successfully");
+    expect(result.message).toContain("Cache cleared");
+    expect(invalidateCache).toHaveBeenCalledWith(1, "sample-user", "tasks");
   });
 
-  it("throws error when script fails", async () => {
+  it("returns helpful message about rescheduling", async () => {
     const ctx = createAuthContext();
     const caller = appRouter.createCaller(ctx);
 
-    // Mock exec to simulate failure
-    const { exec } = await import("child_process");
-    
-    vi.mocked(exec).mockImplementation(((cmd: string, opts: any, callback: any) => {
-      callback(new Error("Script failed"), { stdout: "", stderr: "Error" });
-      return {} as any;
-    }) as any);
+    const result = await caller.trello.reschedule();
 
-    await expect(caller.trello.reschedule()).rejects.toThrow("Rescheduling failed");
+    expect(result.success).toBe(true);
+    expect(result.note).toContain("APTLSS");
+  });
+
+  it("throws error when user is not authenticated", async () => {
+    const ctx = createUnauthContext();
+    const caller = appRouter.createCaller(ctx);
+
+    // The protectedProcedure should throw before reaching our code
+    await expect(caller.trello.reschedule()).rejects.toThrow();
   });
 });

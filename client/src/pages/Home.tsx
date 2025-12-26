@@ -118,8 +118,8 @@ export default function Home() {
   }, [tasks, searchQuery, filters]);
   const rescheduleMutation = trpc.trello.reschedule.useMutation({
     onSuccess: (data) => {
-      toast.success(`Rescheduling complete! ${data.tasksCount} tasks updated.`);
-      // Reload tasks
+      toast.success(data.message);
+      // Reload tasks to get fresh schedule
       window.location.reload();
     },
     onError: (error) => {
