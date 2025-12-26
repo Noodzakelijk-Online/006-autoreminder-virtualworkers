@@ -868,3 +868,10 @@ Each card now has:
 - [x] Implement retry mechanism for failed loads (3 attempts with exponential backoff + retry button)
 - [x] Skip already-loaded cards that haven't changed
 - [x] Show total card count summary (shows total across workspaces or loaded/shown count)
+
+## Load All Cards Enhancements (Dec 26, 2025)
+- [x] Add Cancel button to stop load process mid-way
+- [x] Persist loaded cards to local storage (avoid reloading after page refresh)
+- [x] Add failed boards retry UI with individual retry buttons
+- [x] Show list of failed boards after loading completes
+- [ ] Test all enhancements (manual testing)

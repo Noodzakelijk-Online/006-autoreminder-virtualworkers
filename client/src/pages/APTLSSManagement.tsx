@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -101,7 +101,38 @@ export default function APTLSSManagement() {
     failed: number;
     failedBoards: { id: string; name: string; workspaceName: string }[];
     currentBoard: string;
+    cancelled?: boolean;
   } | null>(null);
+  
+  // Cancel flag ref (to avoid stale closure issues)
+  const cancelLoadRef = useRef(false);
+  
+  // Local storage key for persisting cards
+  const CARDS_STORAGE_KEY = 'aptlss_loaded_cards';
+
+  // Load cards from local storage on mount
+  useEffect(() => {
+    const savedCards = localStorage.getItem(CARDS_STORAGE_KEY);
+    if (savedCards) {
+      try {
+        const parsedCards = JSON.parse(savedCards);
+        if (Array.isArray(parsedCards) && parsedCards.length > 0) {
+          setCards(parsedCards);
+          toast.success(`Restored ${parsedCards.length} cards from cache`);
+        }
+      } catch (e) {
+        console.error('Failed to parse saved cards:', e);
+        localStorage.removeItem(CARDS_STORAGE_KEY);
+      }
+    }
+  }, []);
+  
+  // Save cards to local storage when they change
+  useEffect(() => {
+    if (cards.length > 0) {
+      localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify(cards));
+    }
+  }, [cards]);
 
   // Load workspaces and boards
   useEffect(() => {
@@ -389,12 +420,21 @@ export default function APTLSSManagement() {
     setCards(prev => prev.map(card => ({ ...card, selected: false })));
   };
 
+  // Cancel the current load operation
+  const cancelAutoLoad = () => {
+    cancelLoadRef.current = true;
+    toast.info('Cancelling load operation...');
+  };
+
   // Auto-load all cards from all workspaces
   const autoLoadAllCards = async () => {
     if (workspaces.length === 0) {
       toast.error('No workspaces available. Please refresh first.');
       return;
     }
+
+    // Reset cancel flag
+    cancelLoadRef.current = false;
 
     // Calculate total boards across all workspaces
     const allBoards: { id: string; name: string; workspaceName: string; cardCount: number }[] = [];
@@ -425,7 +465,8 @@ export default function APTLSSManagement() {
       skipped: 0,
       failed: 0,
       failedBoards: [],
-      currentBoard: ''
+      currentBoard: '',
+      cancelled: false
     });
 
     const newCards: TrelloCard[] = [];
@@ -434,6 +475,17 @@ export default function APTLSSManagement() {
     let skippedCount = 0;
 
     for (let i = 0; i < allBoards.length; i++) {
+      // Check if cancelled
+      if (cancelLoadRef.current) {
+        setAutoLoadProgress(prev => prev ? { ...prev, isLoading: false, cancelled: true } : null);
+        toast.warning(`Load cancelled. ${loadedCount} cards loaded, ${failedBoards.length} boards remaining.`);
+        // Still save what we loaded so far
+        if (newCards.length > 0) {
+          setCards(prev => [...prev, ...newCards]);
+        }
+        return;
+      }
+
       const board = allBoards[i];
       
       setAutoLoadProgress(prev => prev ? {
@@ -941,8 +993,20 @@ export default function APTLSSManagement() {
                       {autoLoadProgress.failed > 0 && (
                         <span className="text-red-600">✗ Failed: {autoLoadProgress.failed}</span>
                       )}
+                      {autoLoadProgress.cancelled && (
+                        <span className="text-amber-600">⚠ Cancelled</span>
+                      )}
                     </div>
                     <div className="flex gap-2">
+                      {autoLoadProgress.isLoading && (
+                        <Button 
+                          size="sm" 
+                          variant="destructive"
+                          onClick={cancelAutoLoad}
+                        >
+                          Cancel
+                        </Button>
+                      )}
                       {!autoLoadProgress.isLoading && autoLoadProgress.failedBoards.length > 0 && (
                         <Button 
                           size="sm" 
@@ -964,6 +1028,60 @@ export default function APTLSSManagement() {
                       )}
                     </div>
                   </div>
+                  
+                  {/* Failed boards list */}
+                  {!autoLoadProgress.isLoading && autoLoadProgress.failedBoards.length > 0 && (
+                    <div className="mt-4 border-t pt-4">
+                      <p className="text-sm font-medium text-red-600 mb-2">Failed Boards:</p>
+                      <div className="max-h-32 overflow-y-auto space-y-1">
+                        {autoLoadProgress.failedBoards.map((board, idx) => (
+                          <div key={idx} className="text-xs text-muted-foreground flex items-center justify-between bg-red-50 dark:bg-red-950/20 px-2 py-1 rounded">
+                            <span>{board.workspaceName} / {board.name}</span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2 text-xs"
+                              onClick={async () => {
+                                try {
+                                  const response = await fetch(`/api/trello/boards/${board.id}/cards`);
+                                  if (!response.ok) throw new Error('Failed');
+                                  const boardCards = await response.json();
+                                  const existingIds = new Set(cards.map(c => c.id));
+                                  const newCards = boardCards.filter((c: any) => !existingIds.has(c.id)).map((card: any) => ({
+                                    id: card.id,
+                                    name: card.name,
+                                    desc: card.desc || '',
+                                    idBoard: card.idBoard,
+                                    idList: card.idList,
+                                    boardName: board.name,
+                                    listName: card.listName || '',
+                                    hasAPTLSS: card.checklists?.some((cl: any) => cl.name === 'APTLSS') || false,
+                                    selected: false,
+                                    due: card.due,
+                                    badges: card.badges
+                                  }));
+                                  if (newCards.length > 0) {
+                                    setCards(prev => [...prev, ...newCards]);
+                                  }
+                                  setAutoLoadProgress(prev => prev ? {
+                                    ...prev,
+                                    failedBoards: prev.failedBoards.filter(b => b.id !== board.id),
+                                    failed: prev.failed - 1,
+                                    loaded: prev.loaded + newCards.length
+                                  } : null);
+                                  toast.success(`Loaded ${newCards.length} cards from ${board.name}`);
+                                } catch (e) {
+                                  toast.error(`Failed to retry ${board.name}`);
+                                }
+                              }}
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
