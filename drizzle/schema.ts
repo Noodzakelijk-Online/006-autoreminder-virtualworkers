@@ -595,3 +595,124 @@ export const digestJobs = mysqlTable('digest_jobs', {
 
 export type DigestJob = typeof digestJobs.$inferSelect;
 export type InsertDigestJob = typeof digestJobs.$inferInsert;
+
+
+// ============================================
+// TRELLO CHATBOT TABLES
+// ============================================
+
+// Registered webhooks for chatbot
+export const chatbotWebhooks = mysqlTable('chatbot_webhooks', {
+  id: int('id').primaryKey().autoincrement(),
+  trelloWebhookId: varchar('trelloWebhookId', { length: 64 }).notNull().unique(),
+  modelId: varchar('modelId', { length: 64 }).notNull(), // Board or workspace ID
+  modelType: mysqlEnum('modelType', ['board', 'workspace']).default('board').notNull(),
+  description: varchar('description', { length: 255 }),
+  callbackUrl: varchar('callbackUrl', { length: 512 }).notNull(),
+  isActive: int('isActive').default(1).notNull(), // 0=inactive, 1=active
+  lastEventAt: timestamp('lastEventAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Chatbot conversation history
+export const chatbotConversations = mysqlTable('chatbot_conversations', {
+  id: int('id').primaryKey().autoincrement(),
+  cardTrelloId: varchar('cardTrelloId', { length: 64 }).notNull(),
+  cardName: varchar('cardName', { length: 500 }),
+  boardTrelloId: varchar('boardTrelloId', { length: 64 }),
+  
+  // Command details
+  command: varchar('command', { length: 50 }).notNull(), // status, checkin, remind, etc.
+  commandArgs: text('commandArgs'), // JSON array of arguments
+  
+  // Author info
+  authorTrelloId: varchar('authorTrelloId', { length: 64 }),
+  authorName: varchar('authorName', { length: 255 }),
+  
+  // Comment IDs
+  incomingCommentId: varchar('incomingCommentId', { length: 64 }),
+  responseCommentId: varchar('responseCommentId', { length: 64 }),
+  
+  // Response details
+  responseText: text('responseText'),
+  responseStatus: mysqlEnum('responseStatus', ['success', 'failed', 'pending']).default('pending').notNull(),
+  responseError: text('responseError'),
+  
+  // Timing
+  receivedAt: timestamp('receivedAt').defaultNow().notNull(),
+  respondedAt: timestamp('respondedAt'),
+  responseTimeMs: int('responseTimeMs'), // How long it took to respond
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Worker check-in responses (when workers reply to bot check-ins)
+export const chatbotCheckinResponses = mysqlTable('chatbot_checkin_responses', {
+  id: int('id').primaryKey().autoincrement(),
+  conversationId: int('conversationId').notNull(), // References chatbotConversations.id
+  cardTrelloId: varchar('cardTrelloId', { length: 64 }).notNull(),
+  
+  // Worker info
+  workerTrelloId: varchar('workerTrelloId', { length: 64 }),
+  workerName: varchar('workerName', { length: 255 }),
+  workerId: int('workerId'), // References vaProfiles.id if matched
+  
+  // Response content
+  responseCommentId: varchar('responseCommentId', { length: 64 }),
+  responseText: text('responseText'),
+  
+  // Parsed response data
+  reportedProgress: text('reportedProgress'), // What they said they accomplished
+  reportedBlockers: text('reportedBlockers'), // Any blockers mentioned
+  estimatedCompletion: varchar('estimatedCompletion', { length: 100 }), // ETA if provided
+  
+  // Timing
+  checkinSentAt: timestamp('checkinSentAt').notNull(),
+  responseReceivedAt: timestamp('responseReceivedAt').notNull(),
+  responseTimeMinutes: int('responseTimeMinutes'), // How long worker took to respond
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Chatbot analytics aggregates (daily rollups)
+export const chatbotAnalytics = mysqlTable('chatbot_analytics', {
+  id: int('id').primaryKey().autoincrement(),
+  date: timestamp('date').notNull(),
+  
+  // Command counts
+  totalCommands: int('totalCommands').default(0).notNull(),
+  statusCommands: int('statusCommands').default(0).notNull(),
+  checkinCommands: int('checkinCommands').default(0).notNull(),
+  remindCommands: int('remindCommands').default(0).notNull(),
+  timeCommands: int('timeCommands').default(0).notNull(),
+  progressCommands: int('progressCommands').default(0).notNull(),
+  helpCommands: int('helpCommands').default(0).notNull(),
+  unknownCommands: int('unknownCommands').default(0).notNull(),
+  
+  // Response metrics
+  successfulResponses: int('successfulResponses').default(0).notNull(),
+  failedResponses: int('failedResponses').default(0).notNull(),
+  avgResponseTimeMs: int('avgResponseTimeMs'),
+  
+  // Check-in metrics
+  checkinsSent: int('checkinsSent').default(0).notNull(),
+  checkinsResponded: int('checkinsResponded').default(0).notNull(),
+  avgCheckinResponseMinutes: int('avgCheckinResponseMinutes'),
+  
+  // Worker engagement
+  uniqueWorkers: int('uniqueWorkers').default(0).notNull(),
+  uniqueCards: int('uniqueCards').default(0).notNull(),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+export type ChatbotWebhook = typeof chatbotWebhooks.$inferSelect;
+export type InsertChatbotWebhook = typeof chatbotWebhooks.$inferInsert;
+export type ChatbotConversation = typeof chatbotConversations.$inferSelect;
+export type InsertChatbotConversation = typeof chatbotConversations.$inferInsert;
+export type ChatbotCheckinResponse = typeof chatbotCheckinResponses.$inferSelect;
+export type InsertChatbotCheckinResponse = typeof chatbotCheckinResponses.$inferInsert;
+export type ChatbotAnalytics = typeof chatbotAnalytics.$inferSelect;
+export type InsertChatbotAnalytics = typeof chatbotAnalytics.$inferInsert;

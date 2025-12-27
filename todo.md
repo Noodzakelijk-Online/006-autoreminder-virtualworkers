@@ -951,3 +951,24 @@ Each card now has:
 - [x] Connect with worker profiles
 - [x] Add chatbot settings to dashboard
 
+
+## Trello Chatbot Enhancements (Dec 27, 2025)
+
+### Automatic Webhook Registration
+- [x] Auto-register webhooks for all boards on server startup
+- [x] Sync webhooks when new boards are added to ATIS
+- [x] Remove webhooks for deleted/archived boards
+- [x] Store webhook IDs in database for tracking
+
+### Conversation History
+- [x] Create database schema for bot conversations
+- [x] Store all @bot commands and responses
+- [x] Track worker responses to check-ins
+- [x] Add timestamps and card context
+
+### Analytics & Engagement
+- [x] Calculate response rates per worker
+- [x] Track average response time
+- [x] Measure check-in engagement
+- [x] Add analytics dashboard component
+

@@ -531,6 +531,8 @@ export async function handleTrelloWebhook(payload: any): Promise<void> {
 
     const comment = payload.action.data?.text;
     const cardId = payload.action.data?.card?.id;
+    const cardName = payload.action.data?.card?.name;
+    const boardId = payload.action.data?.board?.id;
     const commentId = payload.action.id;
     const authorId = payload.action.memberCreator?.id;
     const authorName = payload.action.memberCreator?.fullName || payload.action.memberCreator?.username || 'Unknown';
@@ -553,11 +555,38 @@ export async function handleTrelloWebhook(payload: any): Promise<void> {
       return;
     }
 
+    // Store conversation in history
+    const { storeConversation, updateConversationResponse } = await import('./chatbot-history');
+    const conversationId = await storeConversation({
+      cardTrelloId: cardId,
+      cardName: cardName,
+      boardTrelloId: boardId,
+      command: cmd.command,
+      commandArgs: cmd.args,
+      authorTrelloId: authorId,
+      authorName: authorName,
+      incomingCommentId: commentId,
+      responseStatus: 'pending',
+      receivedAt: new Date(),
+    });
+
     // Process the command
     const response = await processBotCommand(cmd);
 
     // Post response as comment
     const posted = await postTrelloComment(cardId, response.text);
+    
+    // Update conversation with response
+    if (conversationId) {
+      await updateConversationResponse(
+        conversationId,
+        '', // We don't get the response comment ID back from Trello
+        response.text,
+        posted ? 'success' : 'failed',
+        posted ? undefined : 'Failed to post comment to Trello'
+      );
+    }
+
     if (posted) {
       console.log(`[TrelloChatbot] Posted response to card ${cardId}`);
     } else {

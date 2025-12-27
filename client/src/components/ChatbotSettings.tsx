@@ -18,7 +18,12 @@ import {
   XCircle,
   Loader2,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Zap,
+  BarChart3,
+  Users,
+  Clock,
+  TrendingUp
 } from 'lucide-react';
 
 interface Webhook {
@@ -27,6 +32,29 @@ interface Webhook {
   idModel: string;
   callbackURL: string;
   active: boolean;
+}
+
+interface AnalyticsStats {
+  totalConversations: number;
+  totalCommands: Record<string, number>;
+  avgResponseTimeMs: number;
+  totalCheckins: number;
+  totalResponses: number;
+  overallResponseRate: number;
+  avgCheckinResponseMinutes: number;
+  activeWorkers: number;
+  activeCards: number;
+  topCommands: Array<{ command: string; count: number }>;
+}
+
+interface WorkerEngagement {
+  workerId: number;
+  workerName: string;
+  totalCheckins: number;
+  responded: number;
+  responseRate: number;
+  avgResponseMinutes: number;
+  lastActivity: string | null;
 }
 
 export function ChatbotSettings() {
@@ -43,6 +71,12 @@ export function ChatbotSettings() {
   const [testCardId, setTestCardId] = useState('');
   const [testComment, setTestComment] = useState('@bot status');
   const [testResult, setTestResult] = useState<any>(null);
+  
+  // Analytics state
+  const [analytics, setAnalytics] = useState<AnalyticsStats | null>(null);
+  const [engagement, setEngagement] = useState<WorkerEngagement[]>([]);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   // Get the callback URL for webhooks
   const callbackUrl = typeof window !== 'undefined' 
@@ -161,8 +195,48 @@ export function ChatbotSettings() {
     toast.success('Callback URL copied to clipboard');
   };
 
+  const loadAnalytics = async () => {
+    setLoadingAnalytics(true);
+    try {
+      const response = await fetch('/api/trello-webhook/analytics?days=30');
+      if (response.ok) {
+        const data = await response.json();
+        setAnalytics(data.stats);
+        setEngagement(data.engagement || []);
+      }
+    } catch (error) {
+      console.error('Error loading analytics:', error);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  };
+
+  const syncAllWebhooks = async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch('/api/trello-webhook/sync', {
+        method: 'POST',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        toast.success(
+          `Sync complete: ${data.registered} registered, ${data.removed} removed`
+        );
+        loadWebhooks();
+      } else {
+        toast.error('Failed to sync webhooks');
+      }
+    } catch (error) {
+      console.error('Error syncing webhooks:', error);
+      toast.error('Failed to sync webhooks');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   useEffect(() => {
     loadWebhooks();
+    loadAnalytics();
   }, []);
 
   return (
@@ -263,9 +337,29 @@ export function ChatbotSettings() {
             </p>
           </div>
 
+          {/* Auto-Sync All Boards */}
+          <div className="space-y-3 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Auto-Sync Webhooks</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Automatically register webhooks for all boards in ATIS
+                </p>
+              </div>
+              <Button onClick={syncAllWebhooks} disabled={syncing} variant="secondary">
+                {syncing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Zap className="h-4 w-4 mr-2" />
+                )}
+                Sync All Boards
+              </Button>
+            </div>
+          </div>
+
           {/* Register New Webhook */}
           <div className="space-y-3 pt-4 border-t">
-            <Label>Register New Webhook</Label>
+            <Label>Register New Webhook (Manual)</Label>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground">Model ID (Board or Workspace)</Label>
@@ -414,6 +508,121 @@ export function ChatbotSettings() {
               {testResult.message && !testResult.success && (
                 <p className="text-sm text-muted-foreground">{testResult.message}</p>
               )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Analytics */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Chatbot Analytics (Last 30 Days)
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={loadAnalytics} disabled={loadingAnalytics}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loadingAnalytics ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingAnalytics ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : analytics ? (
+            <div className="space-y-6">
+              {/* Stats Grid */}
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                    <MessageSquare className="h-4 w-4" />
+                    <span className="text-xs">Total Commands</span>
+                  </div>
+                  <p className="text-2xl font-bold">{analytics.totalConversations}</p>
+                </div>
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                    <TrendingUp className="h-4 w-4" />
+                    <span className="text-xs">Response Rate</span>
+                  </div>
+                  <p className="text-2xl font-bold">{analytics.overallResponseRate}%</p>
+                </div>
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                    <Users className="h-4 w-4" />
+                    <span className="text-xs">Active Workers</span>
+                  </div>
+                  <p className="text-2xl font-bold">{analytics.activeWorkers}</p>
+                </div>
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                    <Clock className="h-4 w-4" />
+                    <span className="text-xs">Avg Response</span>
+                  </div>
+                  <p className="text-2xl font-bold">
+                    {analytics.avgCheckinResponseMinutes > 0 
+                      ? `${analytics.avgCheckinResponseMinutes}m` 
+                      : 'N/A'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Top Commands */}
+              {analytics.topCommands.length > 0 && (
+                <div>
+                  <Label className="text-sm text-muted-foreground mb-2 block">Most Used Commands</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {analytics.topCommands.map((cmd) => (
+                      <Badge key={cmd.command} variant="secondary">
+                        @bot {cmd.command}: {cmd.count}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Worker Engagement */}
+              {engagement.length > 0 && (
+                <div>
+                  <Label className="text-sm text-muted-foreground mb-2 block">Worker Engagement</Label>
+                  <div className="space-y-2">
+                    {engagement.slice(0, 5).map((worker) => (
+                      <div 
+                        key={worker.workerId} 
+                        className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                      >
+                        <div>
+                          <p className="font-medium text-sm">{worker.workerName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {worker.totalCheckins} check-ins, {worker.responded} responded
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <Badge 
+                            variant={worker.responseRate >= 80 ? 'default' : worker.responseRate >= 50 ? 'secondary' : 'destructive'}
+                          >
+                            {worker.responseRate}% response rate
+                          </Badge>
+                          {worker.avgResponseMinutes > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Avg: {worker.avgResponseMinutes}m
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <BarChart3 className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No analytics data yet</p>
+              <p className="text-xs">Data will appear after bot interactions</p>
             </div>
           )}
         </CardContent>

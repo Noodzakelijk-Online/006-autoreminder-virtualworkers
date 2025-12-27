@@ -254,4 +254,127 @@ router.post('/send', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/trello-webhook/sync
+ * Sync webhooks with all ATIS boards
+ */
+router.post('/sync', async (req, res) => {
+  try {
+    const { syncWebhooks } = await import('../services/webhook-auto-register');
+    const results = await syncWebhooks();
+    
+    res.json({
+      success: true,
+      registered: results.registered,
+      removed: results.removed,
+      errors: results.errors,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error syncing webhooks:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/trello-webhook/analytics
+ * Get chatbot analytics
+ */
+router.get('/analytics', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days as string) || 30;
+    const { getOverallStats, getWorkerEngagement } = await import('../services/chatbot-analytics');
+    
+    const [stats, engagement] = await Promise.all([
+      getOverallStats(days),
+      getWorkerEngagement(days),
+    ]);
+    
+    res.json({
+      success: true,
+      stats,
+      engagement,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting analytics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/trello-webhook/analytics/daily
+ * Get daily analytics for a date range
+ */
+router.get('/analytics/daily', async (req, res) => {
+  try {
+    const startDate = req.query.start 
+      ? new Date(req.query.start as string) 
+      : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const endDate = req.query.end 
+      ? new Date(req.query.end as string) 
+      : new Date();
+    
+    const { getAnalyticsRange } = await import('../services/chatbot-analytics');
+    const analytics = await getAnalyticsRange(startDate, endDate);
+    
+    res.json({
+      success: true,
+      analytics,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting daily analytics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/trello-webhook/history/:cardId
+ * Get conversation history for a card
+ */
+router.get('/history/:cardId', async (req, res) => {
+  try {
+    const { cardId } = req.params;
+    const limit = parseInt(req.query.limit as string) || 20;
+    
+    const { getCardConversations } = await import('../services/chatbot-history');
+    const conversations = await getCardConversations(cardId, limit);
+    
+    res.json({
+      success: true,
+      conversations,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting card history:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/trello-webhook/stored-webhooks
+ * Get all webhooks stored in database
+ */
+router.get('/stored-webhooks', async (req, res) => {
+  try {
+    const { getDb } = await import('../db');
+    const { sql } = await import('drizzle-orm');
+    
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+    
+    const result = await db.execute(sql`
+      SELECT * FROM chatbot_webhooks ORDER BY createdAt DESC
+    `);
+    const webhooks = (result as any)[0] || [];
+    
+    res.json({
+      success: true,
+      webhooks,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting stored webhooks:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
