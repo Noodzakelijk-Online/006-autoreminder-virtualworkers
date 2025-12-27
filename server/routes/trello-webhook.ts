@@ -419,4 +419,115 @@ router.get('/stored-webhooks', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/trello-webhook/conversation-counts
+ * Get conversation counts for multiple cards
+ */
+router.post('/conversation-counts', async (req, res) => {
+  try {
+    const { cardIds } = req.body;
+    
+    if (!cardIds || !Array.isArray(cardIds)) {
+      return res.status(400).json({ error: 'cardIds array is required' });
+    }
+
+    const { getDb } = await import('../db');
+    const { sql } = await import('drizzle-orm');
+    
+    const db = await getDb();
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
+
+    // Get counts for all requested cards in one query
+    // Build the query with proper escaping
+    const escapedIds = cardIds.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
+    const result = await db.execute(sql`
+      SELECT cardTrelloId as cardId, COUNT(*) as count 
+      FROM chatbot_conversations 
+      WHERE cardTrelloId IN (${sql.raw(escapedIds)})
+      GROUP BY cardTrelloId
+    `);
+    
+    const rows = (result as any)[0] || [];
+    
+    // Build counts map
+    const counts: Record<string, number> = {};
+    for (const row of rows) {
+      counts[row.cardId] = parseInt(row.count) || 0;
+    }
+    
+    // Fill in zeros for cards with no conversations
+    for (const cardId of cardIds) {
+      if (!(cardId in counts)) {
+        counts[cardId] = 0;
+      }
+    }
+    
+    res.json({
+      success: true,
+      counts,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting conversation counts:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// In-memory storage for check-in settings (would be in database in production)
+let checkinSettings = {
+  useGlobal: true,
+  settings: {
+    morningEnabled: true,
+    morningTime: '09:30',
+    middayEnabled: true,
+    middayTime: '13:00',
+    eodEnabled: true,
+    eodTime: '17:30',
+  },
+  workerSettings: null as any,
+};
+
+/**
+ * GET /api/trello-webhook/checkin-settings
+ * Get check-in schedule settings
+ */
+router.get('/checkin-settings', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      ...checkinSettings,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting checkin settings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/trello-webhook/checkin-settings
+ * Save check-in schedule settings
+ */
+router.post('/checkin-settings', async (req, res) => {
+  try {
+    const { useGlobal, settings, workerSettings } = req.body;
+    
+    checkinSettings = {
+      useGlobal: useGlobal ?? true,
+      settings: settings || checkinSettings.settings,
+      workerSettings: workerSettings || null,
+    };
+    
+    console.log('[TrelloWebhook] Check-in settings updated:', checkinSettings);
+    
+    res.json({
+      success: true,
+      message: 'Check-in settings saved',
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error saving checkin settings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

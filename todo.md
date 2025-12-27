@@ -1012,3 +1012,22 @@ Each card now has:
 - [ ] Show conversation count badge (future enhancement)
 - [x] Quick access from dashboard task list
 
+
+## Chatbot Polish Features (Dec 27, 2025)
+
+### Conversation Count Badge
+- [x] Add API endpoint to get conversation counts per card
+- [x] Display badge on Conversations button showing message count
+- [ ] Cache counts to avoid excessive API calls (future optimization)
+
+### Scheduled Check-in Configuration UI
+- [x] Create check-in schedule settings component
+- [x] Allow customizing morning/midday/EOD times per worker
+- [x] Add enable/disable toggles for each check-in type
+- [x] Save settings to database (in-memory for now)
+
+### PUBLIC_URL Documentation
+- [x] Add setup instructions in Settings UI
+- [x] Show copy-paste command for setting env var
+- [x] Auto-detect and suggest URL after publish
+

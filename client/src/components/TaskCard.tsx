@@ -33,6 +33,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
   const [synced, setSynced] = useState(task.synced || false);
   const [syncingStep, setSyncingStep] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [conversationCount, setConversationCount] = useState<number | null>(null);
   const [stepCompletions, setStepCompletions] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     task.checklist?.forEach(item => {
@@ -40,6 +41,31 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
     });
     return initial;
   });
+
+  // Load conversation count when card mounts
+  useEffect(() => {
+    if (task.cardId) {
+      loadConversationCount();
+    }
+  }, [task.cardId]);
+
+  const loadConversationCount = async () => {
+    if (!task.cardId) return;
+    try {
+      const response = await fetch('/api/trello-webhook/conversation-counts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ cardIds: [task.cardId] }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setConversationCount(data.counts?.[task.cardId] || 0);
+      }
+    } catch (error) {
+      console.error('Failed to load conversation count:', error);
+    }
+  };
 
   // Sync with external isExpanded prop
   useEffect(() => {
@@ -641,7 +667,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="text-xs gap-1"
+                  className="text-xs gap-1 relative"
                   onClick={(e) => {
                     e.stopPropagation();
                     // Open conversation dialog - dispatch custom event
@@ -652,6 +678,14 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
                 >
                   <MessageSquare className="h-3 w-3" />
                   Conversations
+                  {conversationCount !== null && conversationCount > 0 && (
+                    <Badge 
+                      variant="secondary" 
+                      className="ml-1 h-4 min-w-4 px-1 text-[10px] bg-purple-100 text-purple-700"
+                    >
+                      {conversationCount > 99 ? '99+' : conversationCount}
+                    </Badge>
+                  )}
                 </Button>
               )}
 

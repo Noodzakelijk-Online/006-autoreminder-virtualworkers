@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ConversationBrowser } from './ConversationBrowser';
+import { CheckinScheduleSettings } from './CheckinScheduleSettings';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +25,8 @@ import {
   BarChart3,
   Users,
   Clock,
-  TrendingUp
+  TrendingUp,
+  AlertCircle
 } from 'lucide-react';
 
 interface Webhook {
@@ -317,6 +319,30 @@ export function ChatbotSettings() {
               <p className="text-xs text-muted-foreground">
                 {webhookStatus.recommendation}
               </p>
+
+              {/* Setup Instructions */}
+              {!webhookStatus.isReachable && (
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg space-y-3">
+                  <h4 className="font-medium text-sm text-yellow-800 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    Setup Required
+                  </h4>
+                  <div className="space-y-2 text-sm text-yellow-700">
+                    <p>
+                      <strong>Step 1:</strong> Publish your app using the Publish button in the top right.
+                    </p>
+                    <p>
+                      <strong>Step 2:</strong> After publishing, set the PUBLIC_URL environment variable in Settings → Secrets:
+                    </p>
+                    <div className="bg-white/50 p-2 rounded font-mono text-xs break-all">
+                      PUBLIC_URL=https://your-app.manus.space
+                    </div>
+                    <p>
+                      <strong>Step 3:</strong> Click "Sync All Boards" below to register webhooks with Trello.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -698,6 +724,9 @@ export function ChatbotSettings() {
           )}
         </CardContent>
       </Card>
+
+      {/* Scheduled Check-ins */}
+      <CheckinScheduleSettings />
 
       {/* How to Get Model ID */}
       <Card>
