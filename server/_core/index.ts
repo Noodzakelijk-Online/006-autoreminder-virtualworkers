@@ -22,6 +22,7 @@ import timeTrackingRoutes from "../routes/time-tracking.js";
 import trelloWebhookRoutes from "../routes/trello-webhook.js";
 import { websocketService } from "../services/websocket.js";
 import { startDigestScheduler } from "../services/digest-scheduler.js";
+import { initializeWebhookAutoRegister } from "../services/webhook-auto-register.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -104,8 +105,18 @@ async function startServer() {
   // Start digest scheduler for daily email summaries
   startDigestScheduler();
 
-  server.listen(port, () => {
+  server.listen(port, async () => {
     console.log(`Server running on http://localhost:${port}/`);
+    
+    // Initialize webhook auto-registration for chatbot
+    // Use the public URL if available, otherwise construct from port
+    const publicUrl = process.env.PUBLIC_URL || `http://localhost:${port}`;
+    try {
+      await initializeWebhookAutoRegister(publicUrl);
+      console.log('[Server] Webhook auto-register initialized');
+    } catch (error) {
+      console.error('[Server] Failed to initialize webhook auto-register:', error);
+    }
   });
 }
 

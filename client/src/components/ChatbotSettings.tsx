@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { ConversationBrowser } from './ConversationBrowser';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -512,6 +513,9 @@ export function ChatbotSettings() {
           )}
         </CardContent>
       </Card>
+
+      {/* Conversation History Browser */}
+      <ConversationBrowser />
 
       {/* Analytics */}
       <Card>

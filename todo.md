@@ -972,3 +972,25 @@ Each card now has:
 - [x] Measure check-in engagement
 - [x] Add analytics dashboard component
 
+
+## Chatbot Additional Enhancements (Dec 27, 2025)
+
+### Auto-Sync on Server Startup
+- [x] Initialize webhook auto-register service on server start
+- [x] Set callback URL from server configuration
+- [x] Run initial webhook sync on startup
+- [x] Set up periodic sync interval (hourly)
+
+### Worker Timezone Detection
+- [x] Auto-detect timezone from VA profile location/country
+- [x] Fall back to default timezone if not detectable
+- [x] Update scheduled check-ins to use detected timezone
+- [ ] Show detected timezone in worker profile (future enhancement)
+
+### Conversation Thread View
+- [x] Create ConversationThread component
+- [x] Fetch conversation history for selected card
+- [x] Display messages in chat-like format
+- [x] Add to card detail view or modal (ConversationBrowser in Settings)
+- [x] Show worker responses and bot replies
+

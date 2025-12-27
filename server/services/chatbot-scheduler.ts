@@ -9,6 +9,7 @@ import { getDb } from '../db';
 import { eq, and, sql, lte, isNotNull } from 'drizzle-orm';
 import { atisCards, atisCardUnderstanding, vaProfiles } from '../../drizzle/schema';
 import { sendScheduledCheckin, sendEODSummary, postTrelloComment } from './trello-chatbot';
+import { getVATimezone, isWithinWorkingHours, convertToVATimezone } from './timezone-detection';
 
 interface ScheduledCheckin {
   cardId: string;
@@ -87,13 +88,29 @@ async function getWorkersWithPreferences(): Promise<Array<{
       .from(vaProfiles)
       .where(eq(vaProfiles.status, 'active'));
 
-    return workers.map(w => ({
-      id: w.id,
-      name: w.name,
-      workStartHour: w.workStartHour || 9,
-      workEndHour: w.workEndHour || 18,
-      timezone: w.timezone || 'UTC',
-    }));
+    // Enhance with timezone detection for workers without explicit timezone
+    const enhancedWorkers = await Promise.all(
+      workers.map(async (w) => {
+        // Use timezone detection if timezone is default or not set
+        let timezone = w.timezone;
+        if (!timezone || timezone === 'UTC' || timezone === 'Asia/Manila') {
+          const detectedTz = await getVATimezone(w.id);
+          if (detectedTz) {
+            timezone = detectedTz;
+          }
+        }
+        
+        return {
+          id: w.id,
+          name: w.name,
+          workStartHour: w.workStartHour || 9,
+          workEndHour: w.workEndHour || 18,
+          timezone: timezone || 'Asia/Manila',
+        };
+      })
+    );
+    
+    return enhancedWorkers;
   } catch (error) {
     console.error('[ChatbotScheduler] Error getting workers:', error);
     return [];
