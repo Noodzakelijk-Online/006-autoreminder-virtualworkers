@@ -395,13 +395,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
                     {task.priorityLevel}
                   </Badge>
                   
-                  {/* AI Badge */}
-                  {task.hasUnderstanding && (
-                    <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-xs">
-                      <Brain className="h-3 w-3 mr-1" />
-                      AI
-                    </Badge>
-                  )}
+
                 </div>
                 
                 {/* Board & List info */}
@@ -446,22 +440,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
                     </span>
                   )}
                   
-                  {/* Analyzed timestamp */}
-                  {task.hasUnderstanding && task.analyzedAt && (
-                    <span 
-                      className={cn(
-                        "flex items-center gap-1",
-                        isStale(task.analyzedAt) && "text-amber-600"
-                      )}
-                      title={`Analyzed: ${new Date(task.analyzedAt).toLocaleString()}`}
-                    >
-                      <Brain className="h-3.5 w-3.5" />
-                      {formatRelativeTime(task.analyzedAt)}
-                      {isStale(task.analyzedAt) && (
-                        <AlertTriangle className="h-3 w-3 text-amber-500" />
-                      )}
-                    </span>
-                  )}
+
                 </div>
                 
                 {/* Progress bar - always visible */}

@@ -1031,3 +1031,10 @@ Each card now has:
 - [x] Show copy-paste command for setting env var
 - [x] Auto-detect and suggest URL after publish
 
+
+## Bug Fixes (Dec 27, 2025)
+
+### Duplicate AI Analysis Display
+- [x] Remove duplicate AI analysis section from task cards
+- [x] Ensure only one AI badge and analysis section per card
+
