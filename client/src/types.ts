@@ -34,6 +34,10 @@ export interface Task {
   synced?: boolean;
   trelloChecklistId?: string;
   analyzedAt?: string | Date;
+  // Assignment fields
+  assignedTo?: string; // VA ID
+  assignedToName?: string; // VA name
+  assignedToEmail?: string; // VA email
 }
 
 export interface ChecklistItem {

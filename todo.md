@@ -1038,3 +1038,25 @@ Each card now has:
 - [x] Remove duplicate AI analysis section from task cards
 - [x] Ensure only one AI badge and analysis section per card
 
+
+## Task Management Enhancements (Dec 27, 2025)
+
+### Worker Assignment Badges
+- [x] Add worker assignment field to task cards
+- [x] Display worker avatar/badge on task card header
+- [x] Show worker name on hover
+- [ ] Link to worker profile (future enhancement)
+
+### Bulk Task Actions
+- [x] Add checkbox for multi-select on task cards
+- [x] Show bulk action toolbar when items selected
+- [x] Implement bulk mark complete action
+- [x] Implement bulk reassign action
+- [x] Implement bulk reschedule action
+
+### Task Filtering by Worker
+- [x] Add worker filter dropdown to timeline
+- [x] Filter task list by selected worker
+- [x] Show "All Workers" option
+- [ ] Persist filter preference (future enhancement)
+

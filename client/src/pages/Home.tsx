@@ -27,6 +27,7 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { TaskFilters, TaskFiltersState } from "@/components/TaskFilters";
 import { LoadingQueueIndicator } from "@/components/LoadingQueueIndicator";
 import { ConversationDialog } from "@/components/ConversationDialog";
+import { BulkTaskActions } from "@/components/BulkTaskActions";
 
 // No longer using mock data - fetch from Trello API
 
@@ -60,6 +61,9 @@ export default function Home() {
   const [overflowTasks, setOverflowTasks] = useState<any[]>([]);
   const [allExpanded, setAllExpanded] = useState(false);
   const [conversationCard, setConversationCard] = useState<{ cardId: string; cardName: string } | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [workers, setWorkers] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [workerFilter, setWorkerFilter] = useState<string | null>(null);
 
   // Listen for conversation dialog events from TaskCard
   useEffect(() => {
@@ -113,6 +117,11 @@ export default function Home() {
       result = result.filter(t => t.client === filters.client);
     }
     
+    // Apply worker filter
+    if (workerFilter) {
+      result = result.filter(t => t.assignedTo === workerFilter);
+    }
+    
     // Apply sorting
     result.sort((a, b) => {
       let comparison = 0;
@@ -138,7 +147,7 @@ export default function Home() {
     });
     
     return result;
-  }, [tasks, searchQuery, filters]);
+  }, [tasks, searchQuery, filters, workerFilter]);
   const rescheduleMutation = trpc.trello.reschedule.useMutation({
     onSuccess: (data) => {
       toast.success(data.message);

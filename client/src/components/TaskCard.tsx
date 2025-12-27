@@ -395,6 +395,12 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
                     {task.priorityLevel}
                   </Badge>
                   
+                  {/* Worker Assignment Badge */}
+                  {task.assignedToName && (
+                    <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 border-blue-200" title={task.assignedToEmail}>
+                      {task.assignedToName}
+                    </Badge>
+                  )}
 
                 </div>
                 
