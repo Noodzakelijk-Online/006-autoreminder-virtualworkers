@@ -916,3 +916,38 @@ Each card now has:
 - [x] Add client filter dropdown to TaskFilters (with Building2 icon)
 - [x] Group tasks by client in dashboard view (filter by client)
 - [x] Sort by client option (added to sortBy dropdown)
+## Trello Chatbot (@bot) - Project Manager in Comments (Dec 27, 2025)
+
+### Core Infrastructure
+- [x] Create Trello webhook endpoint to receive comment notifications
+- [x] Register webhook with Trello API for comment events
+- [x] Build @bot command parser to detect and parse bot mentions
+- [x] Create bot response service to post comments back to Trello
+- [ ] Store bot conversation history in database (future enhancement)
+
+### Bot Commands
+- [x] @bot status - Show current task progress (steps completed, time tracked)
+- [x] @bot checkin - Ask worker for progress update
+- [x] @bot remind @worker - Send reminder to specific worker
+- [x] @bot time - Show time tracked on this card today
+- [x] @bot help - Show available commands
+- [x] @bot progress - Show overall task completion percentage
+
+### Worker Interactions
+- [x] Parse worker responses to progress check-ins
+- [x] Track worker activity from comments
+- [x] Send automated reminders for overdue steps
+- [x] Notify workers when mentioned in bot responses
+
+### Scheduled Check-ins
+- [x] Configure daily check-in times per worker
+- [x] Auto-post progress questions at scheduled times
+- [x] Summarize daily progress in EOD comment
+- [ ] Track response rates and engagement (future enhancement)
+
+### Integration
+- [x] Connect with time tracking system
+- [x] Connect with step completion data
+- [x] Connect with worker profiles
+- [x] Add chatbot settings to dashboard
+

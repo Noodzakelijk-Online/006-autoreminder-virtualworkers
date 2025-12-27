@@ -6,6 +6,7 @@ import { WorkingHoursSettings } from '@/components/WorkingHoursSettings';
 import { HolidayManagement } from '@/components/HolidayManagement';
 import { PerformanceMetrics } from '@/components/PerformanceMetrics';
 import { NotificationSettings } from '@/components/NotificationSettings';
+import { ChatbotSettings } from '@/components/ChatbotSettings';
 
 export default function Settings() {
   const [country, setCountry] = useState('US');
@@ -27,6 +28,7 @@ export default function Settings() {
       </header>
 
       <main className="container py-4 md:py-8 max-w-4xl space-y-4 md:space-y-6">
+        <ChatbotSettings />
         <NotificationSettings />
         <PerformanceMetrics />
         <WorkingHoursSettings />
