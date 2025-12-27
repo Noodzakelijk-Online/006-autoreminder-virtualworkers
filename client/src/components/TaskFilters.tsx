@@ -1,13 +1,14 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Filter, SortAsc, SortDesc, X } from "lucide-react";
+import { Filter, SortAsc, SortDesc, X, Building2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export interface TaskFiltersState {
   filter: 'all' | 'upcoming' | 'overdue' | 'today';
   taskType: string | null;
   complexity: 'simple' | 'medium' | 'complex' | null;
-  sortBy: 'dueDate' | 'estimatedTime' | 'complexity';
+  client: string | null;
+  sortBy: 'dueDate' | 'estimatedTime' | 'complexity' | 'client';
   sortOrder: 'asc' | 'desc';
 }
 
@@ -15,6 +16,7 @@ interface TaskFiltersProps {
   filters: TaskFiltersState;
   onFiltersChange: (filters: TaskFiltersState) => void;
   taskTypes: { taskType: string; count: number }[];
+  clients?: { client: string; count: number }[];
   totalTasks: number;
   filteredCount: number;
 }
@@ -23,16 +25,18 @@ export function TaskFilters({
   filters, 
   onFiltersChange, 
   taskTypes,
+  clients = [],
   totalTasks,
   filteredCount 
 }: TaskFiltersProps) {
-  const hasActiveFilters = filters.filter !== 'all' || filters.taskType || filters.complexity;
+  const hasActiveFilters = filters.filter !== 'all' || filters.taskType || filters.complexity || filters.client;
 
   const clearFilters = () => {
     onFiltersChange({
       filter: 'all',
       taskType: null,
       complexity: null,
+      client: null,
       sortBy: 'dueDate',
       sortOrder: 'asc',
     });
@@ -64,7 +68,42 @@ export function TaskFilters({
           </SelectContent>
         </Select>
 
+        {/* Client Filter */}
+        {clients.length > 0 && (
+          <Select
+            value={filters.client || "all-clients"}
+            onValueChange={(value) => onFiltersChange({ ...filters, client: value === "all-clients" ? null : value })}
+          >
+            <SelectTrigger className="w-[150px] h-8 text-xs">
+              <Building2 className="h-3 w-3 mr-1" />
+              <SelectValue placeholder="Client" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all-clients">All Clients</SelectItem>
+              {clients.map(({ client, count }) => (
+                <SelectItem key={client} value={client}>
+                  {client} ({count})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
+        {/* Sort By */}
+        <Select
+          value={filters.sortBy}
+          onValueChange={(value) => onFiltersChange({ ...filters, sortBy: value as TaskFiltersState['sortBy'] })}
+        >
+          <SelectTrigger className="w-[130px] h-8 text-xs">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="dueDate">Due Date</SelectItem>
+            <SelectItem value="estimatedTime">Duration</SelectItem>
+            <SelectItem value="complexity">Complexity</SelectItem>
+            <SelectItem value="client">Client</SelectItem>
+          </SelectContent>
+        </Select>
 
         {/* Sort Order Toggle */}
         <Button
@@ -104,6 +143,12 @@ export function TaskFilters({
             {filters.filter !== 'all' && (
               <Badge variant="secondary" className="text-xs py-0">
                 {filters.filter}
+              </Badge>
+            )}
+            {filters.client && (
+              <Badge variant="secondary" className="text-xs py-0">
+                <Building2 className="h-3 w-3 mr-1" />
+                {filters.client}
               </Badge>
             )}
             {filters.taskType && (

@@ -5,8 +5,8 @@ import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb } from '../db';
-import { generationJobs, generationItems, scheduledJobs, userWorkingHours, holidays } from '../../drizzle/schema';
-import { eq, desc, and } from 'drizzle-orm';
+import { generationJobs, generationItems, scheduledJobs, userWorkingHours, holidays, vaProfiles, taskAssignments } from '../../drizzle/schema';
+import { eq, desc, and, inArray } from 'drizzle-orm';
 import { fetchWithRetry } from '../utils/retry';
 import { getCachedTasks, setCachedTasks, invalidateCache } from '../services/trello-cache';
 import { requestQueue } from '../services/request-queue';
@@ -43,13 +43,22 @@ interface SchedulingOptions {
 
 // FIXED VERSION - Prevents overbooking by enforcing daily capacity limits
 // See SCHEDULING_ANALYSIS.md for detailed explanation of all 7 fixes
+// Worker settings type for per-worker scheduling
+interface WorkerSettings {
+  workStartHour: number;
+  workEndHour: number;
+  workingDays: number[];
+  schedulingOptions: Partial<SchedulingOptions>;
+}
+
 function scheduleTasksByTime(
   tasks: any[], 
   workStartHour: number = 9, 
   workEndHour: number = 18, 
   workingDays: number[] = [1, 2, 3, 4, 5], 
   userHolidays: string[] = [],
-  options?: Partial<SchedulingOptions>
+  options?: Partial<SchedulingOptions>,
+  workerSettingsMap?: Map<number, WorkerSettings>
 ) {
   // Working hours configurable per user
   const WORK_START_HOUR = workStartHour;
@@ -90,7 +99,22 @@ function scheduleTasksByTime(
   console.log(`[Scheduling] Daily capacity: ${AVAILABLE_WORK_MINUTES} minutes (flexible: ${DAILY_HOURS_MIN}h-${DAILY_HOURS_MAX}h, weekly target: ${WEEKLY_HOURS_MIN}-${WEEKLY_HOURS_MAX}h)`);
   console.log(`[Scheduling] Work window: ${TOTAL_WORK_MINUTES}min - ${TOTAL_BREAK_MINUTES}min breaks = ${TOTAL_WORK_MINUTES - TOTAL_BREAK_MINUTES}min available`);
 
-  // Group tasks by date
+  // Group tasks by date AND worker (if assigned)
+  // This allows worker-specific scheduling within the same day
+  const tasksByDateAndWorker = new Map<string, any[]>();
+  
+  for (const task of tasks) {
+    // Create a composite key: date|workerId (or date|default for unassigned)
+    const workerId = (task as any).workerId;
+    const key = workerId ? `${task.date}|worker_${workerId}` : `${task.date}|default`;
+    
+    if (!tasksByDateAndWorker.has(key)) {
+      tasksByDateAndWorker.set(key, []);
+    }
+    tasksByDateAndWorker.get(key)!.push(task);
+  }
+  
+  // Legacy grouping for backward compatibility (used in overflow logic)
   const tasksByDate = new Map<string, any[]>();
   for (const task of tasks) {
     if (!tasksByDate.has(task.date)) {
@@ -103,20 +127,52 @@ function scheduleTasksByTime(
   const scheduledTasks: any[] = [];
   const overflowTasks: any[] = [];
   
-  for (const [date, dayTasks] of Array.from(tasksByDate.entries())) {
+  // Process tasks grouped by date AND worker for worker-specific scheduling
+  for (const [compositeKey, dayTasks] of Array.from(tasksByDateAndWorker.entries())) {
+    // Parse composite key: date|worker_X or date|default
+    const [date, workerPart] = compositeKey.split('|');
+    const workerId = workerPart.startsWith('worker_') ? parseInt(workerPart.replace('worker_', '')) : null;
+    
+    // Get worker-specific settings if available
+    const workerSettings = workerId && workerSettingsMap ? workerSettingsMap.get(workerId) : null;
+    
+    // Use worker settings or fall back to defaults
+    const effectiveWorkStart = workerSettings?.workStartHour ?? WORK_START_HOUR;
+    const effectiveWorkEnd = workerSettings?.workEndHour ?? WORK_END_HOUR;
+    const effectiveWorkingDays = workerSettings ? new Set(workerSettings.workingDays) : WORKING_DAYS;
+    const effectiveOptions = workerSettings?.schedulingOptions ?? options;
+    
+    // Calculate effective break times for this worker
+    const effectiveLunchStart = effectiveOptions?.lunchBreakStart ?? LUNCH_START;
+    const effectiveLunchDuration = effectiveOptions?.lunchBreakDuration ?? LUNCH_DURATION;
+    const effectiveBreakfastStart = effectiveOptions?.breakfastBreakStart ?? BREAKFAST_START;
+    const effectiveBreakfastDuration = effectiveOptions?.breakfastBreakDuration ?? BREAKFAST_DURATION;
+    const effectiveDinnerStart = effectiveOptions?.dinnerBreakStart ?? DINNER_START;
+    const effectiveDinnerDuration = effectiveOptions?.dinnerBreakDuration ?? DINNER_DURATION;
+    
+    // Calculate effective daily capacity for this worker
+    const effectiveTotalWorkMinutes = (effectiveWorkEnd - effectiveWorkStart) * 60;
+    const effectiveTotalBreakMinutes = effectiveLunchDuration + (effectiveBreakfastDuration || 0) + (effectiveDinnerDuration || 0);
+    const effectiveAvailableMinutes = Math.min(effectiveTotalWorkMinutes - effectiveTotalBreakMinutes, MAX_DAILY_WORK_MINUTES);
+    
+    if (workerSettings) {
+      console.log(`[Scheduling] Worker ${workerId}: ${effectiveWorkStart}:00-${effectiveWorkEnd}:00, capacity: ${effectiveAvailableMinutes}min`);
+    }
+    
     const taskDate = new Date(date);
     const dayOfWeek = taskDate.getDay();
     const isHoliday = userHolidays.includes(date);
     
-    // Skip non-working days
-    if (!WORKING_DAYS.has(dayOfWeek) || isHoliday) {
+    // Skip non-working days (using worker-specific working days)
+    if (!effectiveWorkingDays.has(dayOfWeek) || isHoliday) {
       const reason = isHoliday ? 'Holiday' : 'Non-working day';
       for (const task of dayTasks) {
         scheduledTasks.push({
           ...task,
           startTime: 'TBD',
           endTime: 'TBD',
-          note: reason
+          note: reason,
+          workerId: workerId
         });
       }
       continue;
@@ -145,9 +201,9 @@ function scheduleTasksByTime(
       return a.stepIndex - b.stepIndex;
     });
 
-    // FIX #3: Track cumulative scheduled time per day
+    // FIX #3: Track cumulative scheduled time per day (using worker-specific capacity)
     let dailyScheduledMinutes = 0;
-    let currentHour = WORK_START_HOUR;
+    let currentHour = effectiveWorkStart;
     let currentMinute = 0;
     let minutesSinceBreak = 0;
     
@@ -158,41 +214,42 @@ function scheduleTasksByTime(
 
     const toMinutes = (h: number, m: number) => h * 60 + m;
     
+    // Use worker-specific meal break times
     const isDuringLunch = (h: number, m: number) => {
       const mins = toMinutes(h, m);
-      const lunchEndMins = toMinutes(LUNCH_START, 0) + LUNCH_DURATION;
-      return mins >= toMinutes(LUNCH_START, 0) && mins < lunchEndMins;
+      const lunchEndMins = toMinutes(effectiveLunchStart, 0) + effectiveLunchDuration;
+      return mins >= toMinutes(effectiveLunchStart, 0) && mins < lunchEndMins;
     };
     
     const isDuringBreakfast = (h: number, m: number) => {
-      if (!BREAKFAST_START || !BREAKFAST_DURATION) return false;
+      if (!effectiveBreakfastStart || !effectiveBreakfastDuration) return false;
       const mins = toMinutes(h, m);
-      const breakfastEndMins = toMinutes(BREAKFAST_START, 0) + BREAKFAST_DURATION;
-      return mins >= toMinutes(BREAKFAST_START, 0) && mins < breakfastEndMins;
+      const breakfastEndMins = toMinutes(effectiveBreakfastStart, 0) + effectiveBreakfastDuration;
+      return mins >= toMinutes(effectiveBreakfastStart, 0) && mins < breakfastEndMins;
     };
     
     const isDuringDinner = (h: number, m: number) => {
-      if (!DINNER_START || !DINNER_DURATION) return false;
+      if (!effectiveDinnerStart || !effectiveDinnerDuration) return false;
       const mins = toMinutes(h, m);
-      const dinnerEndMins = toMinutes(DINNER_START, 0) + DINNER_DURATION;
-      return mins >= toMinutes(DINNER_START, 0) && mins < dinnerEndMins;
+      const dinnerEndMins = toMinutes(effectiveDinnerStart, 0) + effectiveDinnerDuration;
+      return mins >= toMinutes(effectiveDinnerStart, 0) && mins < dinnerEndMins;
     };
     
     const skipMealBreak = () => {
-      if (isDuringBreakfast(currentHour, currentMinute) && BREAKFAST_START) {
-        const breakfastEndMins = toMinutes(BREAKFAST_START, 0) + BREAKFAST_DURATION;
+      if (isDuringBreakfast(currentHour, currentMinute) && effectiveBreakfastStart) {
+        const breakfastEndMins = toMinutes(effectiveBreakfastStart, 0) + effectiveBreakfastDuration;
         currentHour = Math.floor(breakfastEndMins / 60);
         currentMinute = breakfastEndMins % 60;
         minutesSinceBreak = 0;
       }
       if (isDuringLunch(currentHour, currentMinute)) {
-        const lunchEndMins = toMinutes(LUNCH_START, 0) + LUNCH_DURATION;
+        const lunchEndMins = toMinutes(effectiveLunchStart, 0) + effectiveLunchDuration;
         currentHour = Math.floor(lunchEndMins / 60);
         currentMinute = lunchEndMins % 60;
         minutesSinceBreak = 0;
       }
-      if (isDuringDinner(currentHour, currentMinute) && DINNER_START) {
-        const dinnerEndMins = toMinutes(DINNER_START, 0) + DINNER_DURATION;
+      if (isDuringDinner(currentHour, currentMinute) && effectiveDinnerStart) {
+        const dinnerEndMins = toMinutes(effectiveDinnerStart, 0) + effectiveDinnerDuration;
         currentHour = Math.floor(dinnerEndMins / 60);
         currentMinute = dinnerEndMins % 60;
         minutesSinceBreak = 0;
@@ -234,7 +291,7 @@ function scheduleTasksByTime(
         breakMinutesNeeded = SHORT_BREAK_DURATION;
         // Check if break + task would exceed capacity
         const taskMinutes = Math.ceil(task.durationHours * 60);
-        if (dailyScheduledMinutes + breakMinutesNeeded + taskMinutes > AVAILABLE_WORK_MINUTES) {
+        if (dailyScheduledMinutes + breakMinutesNeeded + taskMinutes > effectiveAvailableMinutes) {
           // Task doesn't fit - REJECT it
           overflowTasks.push({
             ...task,
@@ -256,12 +313,13 @@ function scheduleTasksByTime(
       // FIX #5: Calculate task duration and check against remaining capacity
       const taskMinutes = Math.ceil(task.durationHours * 60);
       
-      // CRITICAL CHECK: Does task fit in remaining daily capacity?
-      if (dailyScheduledMinutes + taskMinutes > AVAILABLE_WORK_MINUTES) {
+      // CRITICAL CHECK: Does task fit in remaining daily capacity? (using worker-specific capacity)
+      if (dailyScheduledMinutes + taskMinutes > effectiveAvailableMinutes) {
         // Task doesn't fit - REJECT and move to overflow
         overflowTasks.push({
           ...task,
-          rejectionReason: `Task duration (${taskMinutes}min) exceeds remaining capacity (${AVAILABLE_WORK_MINUTES - dailyScheduledMinutes}min)`
+          rejectionReason: `Task duration (${taskMinutes}min) exceeds remaining capacity (${effectiveAvailableMinutes - dailyScheduledMinutes}min)`,
+          workerId: workerId
         });
         continue;
       }
@@ -325,7 +383,8 @@ function scheduleTasksByTime(
         ...task,
         startTime,
         endTime,
-        schedulingNote: task.durationConfidence === 'low' ? 'Duration estimated' : undefined
+        schedulingNote: task.durationConfidence === 'low' ? 'Duration estimated' : undefined,
+        workerId: workerId
       });
 
       // Update tracking
@@ -335,7 +394,8 @@ function scheduleTasksByTime(
       currentMinute = endMinute;
     }
 
-    console.log(`[Scheduling] ${date}: Scheduled ${scheduledTasks.filter(t => t.date === date && t.startTime !== 'TBD' && t.startTime !== '--:--').length} tasks (${dailyScheduledMinutes}/${AVAILABLE_WORK_MINUTES} minutes)`);
+    const workerInfo = workerId ? ` (Worker ${workerId})` : '';
+    console.log(`[Scheduling] ${date}${workerInfo}: Scheduled ${sortedTasks.filter(t => !t.isCompleted).length - overflowTasks.filter(t => t.date === date).length} tasks (${dailyScheduledMinutes}/${effectiveAvailableMinutes} minutes)`);
   }
 
   // FIX #7: Return structured object with separate scheduled/overflow tasks
@@ -934,6 +994,46 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     }
 
     const tasks: any[] = [];
+    
+    // Client extraction function - parses patterns like "Client | Project", "Client - Project", "Client / Project"
+    const extractClient = (boardName: string, cardName: string): string | undefined => {
+      // Try board name first (most reliable)
+      // Pattern: "Client | Project" or "Client | Category | Project"
+      const boardParts = boardName.split(/\s*[|\-\/]\s*/);
+      if (boardParts.length >= 2) {
+        // First part is usually the client/organization
+        const potentialClient = boardParts[0].trim();
+        // Skip if it looks like a category (e.g., "NO", "Personal", numbers)
+        if (potentialClient.length > 2 && !/^\d/.test(potentialClient) && 
+            !['personal', 'internal', 'admin', 'general'].includes(potentialClient.toLowerCase())) {
+          return potentialClient;
+        }
+        // Try second part if first is a code
+        if (boardParts.length >= 3 && boardParts[1].trim().length > 2) {
+          return boardParts[1].trim();
+        }
+      }
+      
+      // Try card name as fallback
+      const cardParts = cardName.split(/\s*[|\-\/]\s*/);
+      if (cardParts.length >= 2) {
+        const potentialClient = cardParts[0].trim();
+        if (potentialClient.length > 2 && !/^\d/.test(potentialClient)) {
+          return potentialClient;
+        }
+      }
+      
+      // Extract from common patterns like "[Client] Task" or "Client: Task"
+      const bracketMatch = cardName.match(/^\[([^\]]+)\]/);
+      if (bracketMatch) return bracketMatch[1].trim();
+      
+      const colonMatch = cardName.match(/^([^:]+):/);
+      if (colonMatch && colonMatch[1].length > 2 && colonMatch[1].length < 30) {
+        return colonMatch[1].trim();
+      }
+      
+      return undefined;
+    };
 
     // For each board, get cards with checklists
     for (const board of boards) {
@@ -994,6 +1094,8 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
               id: `${card.id}_${item.id}`,
               cardId: card.id,
               cardName: card.name,
+              boardName: board.name,
+              client: extractClient(board.name, card.name),
               checklistId: aptlssChecklist.id,
               checkItemId: item.id,
               stepIndex: index,
@@ -1099,8 +1201,88 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
       }
     }
     
+    // Worker-specific scheduling: Check if tasks are assigned to workers and use their settings
+    // This allows different workers to have different schedules
+    let workerSettingsMap: Map<number, {
+      workStartHour: number;
+      workEndHour: number;
+      workingDays: number[];
+      schedulingOptions: Partial<SchedulingOptions>;
+    }> = new Map();
+    
+    if (req.user) {
+      try {
+        const db = await getDb();
+        if (db) {
+          // Get all task IDs to check for assignments
+          const taskIds = tasks.map(t => t.id);
+          
+          // Fetch task assignments for these tasks
+          const assignments = await db.select()
+            .from(taskAssignments)
+            .where(inArray(taskAssignments.taskId, taskIds));
+          
+          if (assignments.length > 0) {
+            // Get unique worker IDs
+            const workerIds = Array.from(new Set(assignments.map(a => a.vaId)));
+            
+            // Fetch worker profiles
+            const workers = await db.select()
+              .from(vaProfiles)
+              .where(inArray(vaProfiles.id, workerIds));
+            
+            // Build worker settings map
+            for (const worker of workers) {
+              const workerWorkingDays = worker.workingDays
+                .split(',')
+                .filter(d => d)
+                .map(d => parseInt(d));
+              
+              const workerOptions: Partial<SchedulingOptions> = {};
+              
+              if (worker.lunchTime !== null) {
+                workerOptions.lunchBreakStart = worker.lunchTime;
+                workerOptions.lunchBreakDuration = worker.lunchDuration || 60;
+              }
+              if (worker.breakfastTime !== null) {
+                workerOptions.breakfastBreakStart = worker.breakfastTime;
+                workerOptions.breakfastBreakDuration = worker.breakfastDuration || 30;
+              }
+              if (worker.dinnerTime !== null) {
+                workerOptions.dinnerBreakStart = worker.dinnerTime;
+                workerOptions.dinnerBreakDuration = worker.dinnerDuration || 30;
+              }
+              
+              workerSettingsMap.set(worker.id, {
+                workStartHour: worker.workStartHour,
+                workEndHour: worker.workEndHour,
+                workingDays: workerWorkingDays,
+                schedulingOptions: workerOptions
+              });
+            }
+            
+            // Create assignment lookup
+            const assignmentLookup = new Map(assignments.map(a => [a.taskId, a.vaId]));
+            
+            // Add worker ID to each task for scheduling
+            for (const task of tasks) {
+              const workerId = assignmentLookup.get(task.id);
+              if (workerId) {
+                (task as any).workerId = workerId;
+              }
+            }
+            
+            console.log(`[Scheduling] Found ${assignments.length} task assignments across ${workerIds.length} workers`);
+          }
+        }
+      } catch (error) {
+        console.warn('Could not fetch worker assignments, using default settings:', error);
+      }
+    }
+    
     // Schedule tasks with proper time slots (including meal break options)
-    const schedulingResult = scheduleTasksByTime(tasks, workStartHour, workEndHour, workingDays, userHolidays, schedulingOptions);
+    // If tasks have worker assignments, they will be scheduled according to worker settings
+    const schedulingResult = scheduleTasksByTime(tasks, workStartHour, workEndHour, workingDays, userHolidays, schedulingOptions, workerSettingsMap);
     
     // Get user's timezone for client-side conversion
     let userTimezone = 'UTC';

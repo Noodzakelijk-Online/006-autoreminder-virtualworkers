@@ -47,10 +47,12 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [taskTypes, setTaskTypes] = useState<{ taskType: string; count: number }[]>([]);
+  const [clients, setClients] = useState<{ client: string; count: number }[]>([]);
   const [filters, setFilters] = useState<TaskFiltersState>({
     filter: 'all',
     taskType: null,
     complexity: null,
+    client: null,
     sortBy: 'dueDate',
     sortOrder: 'asc',
   });
@@ -95,6 +97,11 @@ export default function Home() {
       result = result.filter(t => t.complexity === filters.complexity);
     }
     
+    // Apply client filter
+    if (filters.client) {
+      result = result.filter(t => t.client === filters.client);
+    }
+    
     // Apply sorting
     result.sort((a, b) => {
       let comparison = 0;
@@ -110,6 +117,10 @@ export default function Home() {
         const orderA = a.complexity ? complexityOrder[a.complexity] : 2;
         const orderB = b.complexity ? complexityOrder[b.complexity] : 2;
         comparison = orderA - orderB;
+      } else if (filters.sortBy === 'client') {
+        const clientA = a.client || 'zzz'; // Put tasks without client at end
+        const clientB = b.client || 'zzz';
+        comparison = clientA.localeCompare(clientB);
       }
       
       return filters.sortOrder === 'asc' ? comparison : -comparison;
@@ -201,6 +212,18 @@ export default function Home() {
               synced: false, // Will be updated from sync status
             }));
             setTasks(atisTasks);
+            
+            // Extract unique clients for filtering
+            const clientCounts = new Map<string, number>();
+            atisTasks.forEach(t => {
+              if (t.client) {
+                clientCounts.set(t.client, (clientCounts.get(t.client) || 0) + 1);
+              }
+            });
+            const clientsList = Array.from(clientCounts.entries())
+              .map(([client, count]) => ({ client, count }))
+              .sort((a, b) => b.count - a.count);
+            setClients(clientsList);
             
             // Calculate stats from ATIS data (using metrics from API)
             const metrics = atisData.metrics || {};
@@ -512,6 +535,7 @@ export default function Home() {
                     filters={filters}
                     onFiltersChange={setFilters}
                     taskTypes={taskTypes}
+                    clients={clients}
                     totalTasks={tasks.length}
                     filteredCount={filteredTasks.length}
                   />

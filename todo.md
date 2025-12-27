@@ -893,3 +893,26 @@ Each card now has:
 - [x] Add persistent loading queue status indicator in header (LoadingQueueIndicator component)
 - [x] Show loading progress across pages (LoadingQueueContext + integration with APTLSS)
 - [ ] Test all enhancements (manual testing)
+
+## Worker-Specific Scheduling Implementation (Dec 27, 2025)
+- [x] Fetch worker settings when task is assigned to a worker (via taskAssignments + vaProfiles)
+- [x] Use worker's work hours (start/end) for scheduling their tasks
+- [x] Use worker's meal breaks (breakfast/lunch/dinner) in scheduling
+- [x] Use worker's working days for scheduling
+- [x] Fall back to founder settings if no worker assigned
+
+## Worker Dashboard View (Dec 27, 2025)
+- [x] Create WorkerDashboard page component (WorkerDashboard.tsx at /worker)
+- [x] Show only tasks assigned to the logged-in worker
+- [x] Include time tracking timer for each task (via Timer component)
+- [x] Show daily schedule with task slots (Today/Upcoming/Completed tabs)
+- [x] Add task completion checkboxes
+- [x] Simplified UI focused on task execution (stats + task list)
+
+## Client/Project Grouping (Dec 27, 2025)
+- [x] Extract client name from Trello board/card names (extractClient function in aptlss.ts)
+- [x] Create client extraction algorithm (parse patterns like "Client | Project", "[Client]", "Client:")
+- [x] Add client field to Task type (types.ts)
+- [x] Add client filter dropdown to TaskFilters (with Building2 icon)
+- [x] Group tasks by client in dashboard view (filter by client)
+- [x] Sort by client option (added to sortBy dropdown)

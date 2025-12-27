@@ -25,6 +25,7 @@ export interface Task {
   complexity?: 'simple' | 'medium' | 'complex';
   boardName?: string;
   listName?: string;
+  client?: string;
   url?: string;
   checklist?: ChecklistItem[];
   hasUnderstanding?: boolean;
