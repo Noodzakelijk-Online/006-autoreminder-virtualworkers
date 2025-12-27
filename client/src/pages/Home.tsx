@@ -26,6 +26,7 @@ import { MobileNav } from "@/components/MobileNav";
 import { NotificationBell } from "@/components/NotificationBell";
 import { TaskFilters, TaskFiltersState } from "@/components/TaskFilters";
 import { LoadingQueueIndicator } from "@/components/LoadingQueueIndicator";
+import { ConversationDialog } from "@/components/ConversationDialog";
 
 // No longer using mock data - fetch from Trello API
 
@@ -58,6 +59,16 @@ export default function Home() {
   });
   const [overflowTasks, setOverflowTasks] = useState<any[]>([]);
   const [allExpanded, setAllExpanded] = useState(false);
+  const [conversationCard, setConversationCard] = useState<{ cardId: string; cardName: string } | null>(null);
+
+  // Listen for conversation dialog events from TaskCard
+  useEffect(() => {
+    const handleOpenConversations = (e: CustomEvent<{ cardId: string; cardName: string }>) => {
+      setConversationCard(e.detail);
+    };
+    window.addEventListener('openConversations', handleOpenConversations as EventListener);
+    return () => window.removeEventListener('openConversations', handleOpenConversations as EventListener);
+  }, []);
   
   // Filter and sort tasks based on search query and filters
   const filteredTasks = useMemo(() => {
@@ -600,6 +611,14 @@ export default function Home() {
           </div>
         </div>
       </main>
+
+      {/* Conversation Dialog */}
+      <ConversationDialog
+        open={!!conversationCard}
+        onOpenChange={(open) => !open && setConversationCard(null)}
+        cardId={conversationCard?.cardId || null}
+        cardName={conversationCard?.cardName || null}
+      />
     </div>
   );
 }

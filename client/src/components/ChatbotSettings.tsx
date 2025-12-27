@@ -78,11 +78,32 @@ export function ChatbotSettings() {
   const [engagement, setEngagement] = useState<WorkerEngagement[]>([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  
+  // Webhook status state
+  const [webhookStatus, setWebhookStatus] = useState<{
+    callbackUrl: string | null;
+    publicUrl: string | null;
+    isConfigured: boolean;
+    isReachable: boolean;
+    recommendation: string;
+  } | null>(null);
 
   // Get the callback URL for webhooks
   const callbackUrl = typeof window !== 'undefined' 
     ? `${window.location.origin}/api/trello-webhook`
     : '';
+
+  const loadWebhookStatus = async () => {
+    try {
+      const response = await fetch('/api/trello-webhook/status');
+      if (response.ok) {
+        const data = await response.json();
+        setWebhookStatus(data.status);
+      }
+    } catch (error) {
+      console.error('Error loading webhook status:', error);
+    }
+  };
 
   const loadWebhooks = async () => {
     setLoading(true);
@@ -238,6 +259,7 @@ export function ChatbotSettings() {
   useEffect(() => {
     loadWebhooks();
     loadAnalytics();
+    loadWebhookStatus();
   }, []);
 
   return (
@@ -254,6 +276,51 @@ export function ChatbotSettings() {
           </p>
         </div>
       </div>
+
+      {/* Webhook Status */}
+      {webhookStatus && (
+        <Card className={webhookStatus.isReachable ? 'border-green-500/30' : 'border-yellow-500/30'}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Zap className="h-4 w-4" />
+              Webhook Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                {webhookStatus.isReachable ? (
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-yellow-500" />
+                )}
+                <span className="text-sm">
+                  {webhookStatus.isReachable ? 'Webhooks are configured and reachable' : 'Webhooks may not be reachable'}
+                </span>
+              </div>
+              
+              <div className="p-3 bg-muted/50 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Callback URL:</span>
+                  <code className="text-xs font-mono truncate max-w-[300px]">
+                    {webhookStatus.callbackUrl || 'Not set'}
+                  </code>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">PUBLIC_URL:</span>
+                  <code className="text-xs font-mono">
+                    {webhookStatus.publicUrl || 'Not set'}
+                  </code>
+                </div>
+              </div>
+              
+              <p className="text-xs text-muted-foreground">
+                {webhookStatus.recommendation}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Available Commands */}
       <Card>

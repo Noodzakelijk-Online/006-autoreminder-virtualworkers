@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
+import { TimezoneDisplay } from '@/components/TimezoneDisplay';
 import DependencyGraph from '@/components/DependencyGraph';
 import { ReanalysisProgressModal } from '@/components/ReanalysisProgressModal';
 
@@ -1106,10 +1107,12 @@ export default function FounderDashboard() {
                               <span className="truncate max-w-[150px]">{item.worker.email}</span>
                             </div>
                           )}
-                          <div className="flex items-center gap-1">
-                            <Globe className="h-3 w-3" />
-                            <span>{item.worker.timezone.split('/')[1]?.replace('_', ' ') || item.worker.timezone}</span>
-                          </div>
+                          <TimezoneDisplay
+                            workerId={item.worker.id}
+                            currentTimezone={item.worker.timezone}
+                            compact
+                            onTimezoneChange={() => fetchWorkload()}
+                          />
                           {item.worker.hourlyRate && (
                             <div className="flex items-center gap-1">
                               <DollarSign className="h-3 w-3" />

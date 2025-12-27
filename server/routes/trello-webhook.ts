@@ -349,6 +349,48 @@ router.get('/history/:cardId', async (req, res) => {
 });
 
 /**
+ * GET /api/trello-webhook/status
+ * Get webhook configuration status including callback URL
+ */
+router.get('/status', async (req, res) => {
+  try {
+    const { getWebhookCallbackUrl } = await import('../services/webhook-auto-register');
+    const callbackUrl = getWebhookCallbackUrl();
+    const publicUrl = process.env.PUBLIC_URL;
+    
+    // Check if URL is reachable (basic check)
+    let isReachable = false;
+    if (callbackUrl) {
+      try {
+        // Just check if it's a valid URL format
+        new URL(callbackUrl);
+        isReachable = !callbackUrl.includes('localhost');
+      } catch {
+        isReachable = false;
+      }
+    }
+    
+    res.json({
+      success: true,
+      status: {
+        callbackUrl,
+        publicUrl,
+        isConfigured: !!callbackUrl,
+        isReachable,
+        recommendation: !publicUrl 
+          ? 'Set PUBLIC_URL environment variable to your deployed URL (e.g., https://your-app.manus.space)'
+          : isReachable 
+            ? 'Webhook URL is configured and should be reachable by Trello'
+            : 'Webhook URL may not be reachable - ensure your app is publicly deployed',
+      },
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/trello-webhook/stored-webhooks
  * Get all webhooks stored in database
  */

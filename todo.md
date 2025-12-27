@@ -994,3 +994,21 @@ Each card now has:
 - [x] Add to card detail view or modal (ConversationBrowser in Settings)
 - [x] Show worker responses and bot replies
 
+
+## Chatbot Final Enhancements (Dec 27, 2025)
+
+### PUBLIC_URL Configuration
+- [x] Document PUBLIC_URL env var requirement
+- [x] Auto-detect public URL from request headers if not set
+- [x] Show webhook URL status in Settings
+
+### Timezone Display in VA Profiles
+- [x] Add timezone field to VA profile card
+- [x] Show detected vs manual timezone indicator
+- [x] Add timezone edit capability
+
+### Conversation Thread on Task Cards
+- [x] Add "View Conversations" button to task cards
+- [ ] Show conversation count badge (future enhancement)
+- [x] Quick access from dashboard task list
+

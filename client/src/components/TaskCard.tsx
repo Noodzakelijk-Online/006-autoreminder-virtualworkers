@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronRight, RefreshCw, Check, CloudUpload, Play, ListChecks, Loader2 } from "lucide-react";
+import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronRight, RefreshCw, Check, CloudUpload, Play, ListChecks, Loader2, MessageSquare } from "lucide-react";
 import { Timer } from "@/components/Timer";
 import { toast } from "sonner";
 import { Task } from "@/types";
@@ -633,6 +633,25 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
                       Sync to Trello
                     </>
                   )}
+                </Button>
+              )}
+
+              {/* View Conversations button */}
+              {task.cardId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs gap-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Open conversation dialog - dispatch custom event
+                    window.dispatchEvent(new CustomEvent('openConversations', { 
+                      detail: { cardId: task.cardId, cardName: task.cardName } 
+                    }));
+                  }}
+                >
+                  <MessageSquare className="h-3 w-3" />
+                  Conversations
                 </Button>
               )}
 

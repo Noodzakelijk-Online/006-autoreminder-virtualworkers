@@ -155,6 +155,108 @@ router.delete('/vas/:id', async (req: any, res) => {
 });
 
 // ============================================
+// TIMEZONE DETECTION
+// ============================================
+
+// Get detected timezone for a VA
+router.get('/vas/:id/timezone', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const vaId = parseInt(req.params.id);
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Get VA profile
+    const va = await db.select().from(vaProfiles).where(
+      and(eq(vaProfiles.id, vaId), eq(vaProfiles.founderId, user.id))
+    ).limit(1);
+
+    if (va.length === 0) {
+      return res.status(404).json({ error: 'VA not found' });
+    }
+
+    const profile = va[0];
+    
+    // Import timezone detection
+    const { getVATimezone, detectTimezoneFromLocation, detectTimezoneFromEmail } = 
+      await import('../services/timezone-detection');
+    
+    // Get detected timezone
+    const detectedTimezone = await getVATimezone(vaId);
+    
+    // Get detection sources for display
+    // Note: vaProfiles doesn't have a location field, so we use name as a fallback
+    const nameTimezone = profile.name ? detectTimezoneFromLocation(profile.name) : null;
+    const emailTimezone = profile.email ? detectTimezoneFromEmail(profile.email) : null;
+    
+    res.json({
+      vaId,
+      vaName: profile.name,
+      currentTimezone: profile.timezone,
+      detectedTimezone,
+      detectionSources: {
+        fromName: nameTimezone,
+        fromEmail: emailTimezone,
+        name: profile.name,
+        email: profile.email,
+      },
+      isManuallySet: profile.timezone && 
+        profile.timezone !== 'Asia/Manila' && 
+        profile.timezone !== detectedTimezone,
+    });
+  } catch (error) {
+    console.error('Error getting VA timezone:', error);
+    res.status(500).json({ error: 'Failed to get timezone' });
+  }
+});
+
+// Update VA timezone
+router.put('/vas/:id/timezone', async (req: any, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const vaId = parseInt(req.params.id);
+    const { timezone } = req.body;
+    
+    if (!timezone) {
+      return res.status(400).json({ error: 'Timezone is required' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Verify ownership
+    const existing = await db.select().from(vaProfiles).where(
+      and(eq(vaProfiles.id, vaId), eq(vaProfiles.founderId, user.id))
+    );
+
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'VA not found' });
+    }
+
+    await db.update(vaProfiles)
+      .set({ timezone })
+      .where(eq(vaProfiles.id, vaId));
+
+    res.json({ success: true, timezone });
+  } catch (error) {
+    console.error('Error updating VA timezone:', error);
+    res.status(500).json({ error: 'Failed to update timezone' });
+  }
+});
+
+// ============================================
 // USER LINKING
 // ============================================
 
