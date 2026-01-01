@@ -1,33 +1,66 @@
 /**
- * AI Service - Provides intelligent responses using Groq (free tier) or Ollama (self-hosted)
+ * AI Service - Provides intelligent responses using latest Q4 2025 open-source models
  * 
- * This service powers the AI Project Manager bot with:
- * - Context-aware responses to VA questions
- * - Professional PM personality
- * - Support for both cloud (Groq) and self-hosted (Ollama) AI providers
+ * Supported Providers:
+ * - Groq (free tier) - Llama 3.3, Qwen 3
+ * - Together.ai (free tier) - DeepSeek V3.2, DeepSeek V3.2 Speciale
+ * - OpenRouter - Access to multiple models
+ * - Ollama (self-hosted) - Any open-source model locally
  */
 
 import { getDb } from '../db';
 
-// AI Provider types
-export type AIProvider = 'groq' | 'ollama';
+// AI Provider types - expanded for Q4 2025 models
+export type AIProvider = 'groq' | 'together' | 'openrouter' | 'ollama';
+
+// Available models per provider (Q4 2025)
+export const AVAILABLE_MODELS = {
+  groq: [
+    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', description: 'Latest Meta model, excellent all-around', released: 'Dec 2024' },
+    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', description: 'Fast, lightweight model', released: 'Jul 2024' },
+    { id: 'qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', description: 'Strong multilingual support', released: 'Nov 2024' },
+    { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', description: 'Efficient mixture of experts', released: 'Dec 2023' }
+  ],
+  together: [
+    { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3.2', description: 'Matches GPT-5, best value (Dec 2025)', released: 'Dec 2025' },
+    { id: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek R1', description: 'Advanced reasoning model', released: 'Nov 2025' },
+    { id: 'Qwen/Qwen2.5-72B-Instruct-Turbo', name: 'Qwen 2.5 72B Turbo', description: 'Fast Qwen variant', released: 'Nov 2024' },
+    { id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', name: 'Llama 3.3 70B Turbo', description: 'Optimized Llama 3.3', released: 'Dec 2024' }
+  ],
+  openrouter: [
+    { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3.2', description: 'Latest DeepSeek via OpenRouter', released: 'Dec 2025' },
+    { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', description: 'Alibaba\'s latest', released: 'Nov 2024' },
+    { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', description: 'Meta\'s latest open model', released: 'Dec 2024' },
+    { id: 'mistralai/mistral-large-2411', name: 'Mistral Large', description: 'Mistral\'s flagship', released: 'Nov 2024' }
+  ],
+  ollama: [
+    { id: 'qwen2.5:72b', name: 'Qwen 2.5 72B', description: 'Full Qwen 2.5 locally', released: 'Nov 2024' },
+    { id: 'qwen2.5:32b', name: 'Qwen 2.5 32B', description: 'Balanced Qwen variant', released: 'Nov 2024' },
+    { id: 'llama3.3:70b', name: 'Llama 3.3 70B', description: 'Latest Llama locally', released: 'Dec 2024' },
+    { id: 'deepseek-v3:latest', name: 'DeepSeek V3', description: 'DeepSeek locally (when available)', released: 'Dec 2025' },
+    { id: 'mistral:latest', name: 'Mistral', description: 'Lightweight and fast', released: '2024' }
+  ]
+} as const;
 
 // Configuration interface
 interface AIConfig {
   provider: AIProvider;
+  model: string;
+  // Provider-specific settings
   groqApiKey?: string;
-  groqModel: string;
+  togetherApiKey?: string;
+  openrouterApiKey?: string;
   ollamaUrl: string;
-  ollamaModel: string;
 }
 
-// Default configuration
+// Default configuration - using DeepSeek V3.2 as default (best free option Dec 2025)
 let aiConfig: AIConfig = {
-  provider: 'groq',
+  provider: 'together',
+  model: 'deepseek-ai/DeepSeek-V3',
   groqApiKey: process.env.GROQ_API_KEY || '',
-  groqModel: 'llama-3.1-8b-instant', // Free tier model
-  ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434',
-  ollamaModel: 'llama3.1:8b'
+  togetherApiKey: process.env.TOGETHER_API_KEY || '',
+  openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
+  ollamaUrl: process.env.OLLAMA_URL || 'http://localhost:11434'
 };
 
 // Professional PM System Prompt
@@ -79,10 +112,30 @@ export function setAIConfig(config: Partial<AIConfig>): void {
 }
 
 /**
- * Set the AI provider (groq or ollama)
+ * Set the AI provider
  */
 export function setAIProvider(provider: AIProvider): void {
   aiConfig.provider = provider;
+  // Set default model for the provider
+  const models = AVAILABLE_MODELS[provider];
+  if (models && models.length > 0) {
+    aiConfig.model = models[0].id;
+  }
+}
+
+/**
+ * Set the model for current provider
+ */
+export function setAIModel(model: string): void {
+  aiConfig.model = model;
+}
+
+/**
+ * Get available models for a provider
+ */
+export function getAvailableModels(provider?: AIProvider) {
+  const p = provider || aiConfig.provider;
+  return AVAILABLE_MODELS[p] || [];
 }
 
 /**
@@ -90,7 +143,7 @@ export function setAIProvider(provider: AIProvider): void {
  */
 async function callGroq(messages: Array<{ role: string; content: string }>): Promise<string> {
   if (!aiConfig.groqApiKey) {
-    throw new Error('Groq API key not configured. Please add GROQ_API_KEY to your environment or configure it in settings.');
+    throw new Error('Groq API key not configured. Get a free key at console.groq.com');
   }
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -100,7 +153,7 @@ async function callGroq(messages: Array<{ role: string; content: string }>): Pro
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: aiConfig.groqModel,
+      model: aiConfig.model,
       messages,
       temperature: 0.7,
       max_tokens: 500,
@@ -120,6 +173,75 @@ async function callGroq(messages: Array<{ role: string; content: string }>): Pro
 }
 
 /**
+ * Call Together.ai API for AI response (DeepSeek V3.2, etc.)
+ */
+async function callTogether(messages: Array<{ role: string; content: string }>): Promise<string> {
+  if (!aiConfig.togetherApiKey) {
+    throw new Error('Together.ai API key not configured. Get a free key at api.together.xyz');
+  }
+
+  const response = await fetch('https://api.together.xyz/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${aiConfig.togetherApiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: aiConfig.model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 500,
+      top_p: 1,
+      stream: false
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('[AI Service] Together.ai API error:', error);
+    throw new Error(`Together.ai API error: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.';
+}
+
+/**
+ * Call OpenRouter API for AI response
+ */
+async function callOpenRouter(messages: Array<{ role: string; content: string }>): Promise<string> {
+  if (!aiConfig.openrouterApiKey) {
+    throw new Error('OpenRouter API key not configured. Get a key at openrouter.ai');
+  }
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${aiConfig.openrouterApiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://va-dashboard.manus.space',
+      'X-Title': 'VA Dashboard'
+    },
+    body: JSON.stringify({
+      model: aiConfig.model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 500,
+      top_p: 1
+    })
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error('[AI Service] OpenRouter API error:', error);
+    throw new Error(`OpenRouter API error: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0]?.message?.content || 'I apologize, but I was unable to generate a response. Please try again.';
+}
+
+/**
  * Call Ollama API for AI response (self-hosted)
  */
 async function callOllama(messages: Array<{ role: string; content: string }>): Promise<string> {
@@ -130,7 +252,7 @@ async function callOllama(messages: Array<{ role: string; content: string }>): P
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: aiConfig.ollamaModel,
+        model: aiConfig.model,
         messages,
         stream: false,
         options: {
@@ -169,32 +291,29 @@ export async function generateAIResponse(
     { role: 'user', content: userMessage }
   ];
 
-  try {
-    if (aiConfig.provider === 'groq') {
-      return await callGroq(messages);
-    } else {
-      return await callOllama(messages);
-    }
-  } catch (error) {
-    console.error(`[AI Service] ${aiConfig.provider} failed:`, error);
-    
-    // Try fallback to other provider
-    const fallbackProvider = aiConfig.provider === 'groq' ? 'ollama' : 'groq';
-    console.log(`[AI Service] Attempting fallback to ${fallbackProvider}...`);
-    
+  const providerCalls: Record<AIProvider, () => Promise<string>> = {
+    groq: () => callGroq(messages),
+    together: () => callTogether(messages),
+    openrouter: () => callOpenRouter(messages),
+    ollama: () => callOllama(messages)
+  };
+
+  // Define fallback order
+  const fallbackOrder: AIProvider[] = ['together', 'groq', 'openrouter', 'ollama'];
+  const orderedProviders = [aiConfig.provider, ...fallbackOrder.filter(p => p !== aiConfig.provider)];
+
+  for (const provider of orderedProviders) {
     try {
-      if (fallbackProvider === 'groq') {
-        return await callGroq(messages);
-      } else {
-        return await callOllama(messages);
-      }
-    } catch (fallbackError) {
-      console.error(`[AI Service] Fallback to ${fallbackProvider} also failed:`, fallbackError);
-      
-      // Return a helpful error message
-      return `I'm currently unable to process your request due to a technical issue. Please try again in a moment, or contact support if the problem persists.\n\nError: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      console.log(`[AI Service] Trying ${provider} with model ${aiConfig.model}...`);
+      return await providerCalls[provider]();
+    } catch (error) {
+      console.error(`[AI Service] ${provider} failed:`, error);
+      // Continue to next provider
     }
   }
+
+  // All providers failed
+  return `I'm currently unable to process your request due to a technical issue. Please check your AI provider settings or try again later.`;
 }
 
 /**
@@ -237,7 +356,7 @@ export async function generateStuckGuidance(
 /**
  * Test AI connection
  */
-export async function testAIConnection(): Promise<{ success: boolean; provider: AIProvider; message: string }> {
+export async function testAIConnection(): Promise<{ success: boolean; provider: AIProvider; model: string; message: string }> {
   const testMessage = 'Hello, please respond with "Connection successful" to confirm you are working.';
   
   try {
@@ -245,12 +364,14 @@ export async function testAIConnection(): Promise<{ success: boolean; provider: 
     return {
       success: true,
       provider: aiConfig.provider,
-      message: `${aiConfig.provider} is working. Response: ${response.substring(0, 100)}...`
+      model: aiConfig.model,
+      message: `${aiConfig.provider} (${aiConfig.model}) is working. Response: ${response.substring(0, 100)}...`
     };
   } catch (error) {
     return {
       success: false,
       provider: aiConfig.provider,
+      model: aiConfig.model,
       message: error instanceof Error ? error.message : 'Unknown error'
     };
   }
@@ -260,9 +381,12 @@ export default {
   getAIConfig,
   setAIConfig,
   setAIProvider,
+  setAIModel,
+  getAvailableModels,
   generateAIResponse,
   generateCheckInMessage,
   generateQuestionResponse,
   generateStuckGuidance,
-  testAIConnection
+  testAIConnection,
+  AVAILABLE_MODELS
 };

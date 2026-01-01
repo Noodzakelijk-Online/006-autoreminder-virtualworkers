@@ -1100,3 +1100,41 @@ Each card now has:
 - [x] Add compliance trend visualization
 - [ ] Include in worker profile cards
 
+
+## Latest AI Models Support (Jan 1, 2026)
+
+### Together.ai Integration
+- [ ] Add Together.ai as AI provider option
+- [ ] Support DeepSeek V3 model
+- [ ] Support Llama 3.3 70B model
+- [ ] Add free tier handling
+
+### Ollama Model Updates
+- [ ] Update default model to Llama 3.3
+- [ ] Add Qwen 2.5 as option
+- [ ] Add DeepSeek V3 as option
+- [ ] Add model selector dropdown
+
+### UI Updates
+- [ ] Add Together.ai option in provider settings
+- [ ] Add model dropdown for each provider
+- [ ] Show model descriptions and capabilities
+
+
+## Q4 2025 Open-Source AI Models (Jan 2, 2026)
+
+### DeepSeek V3.2 Integration
+- [x] Add Together.ai as provider for DeepSeek V3.2
+- [x] Add OpenRouter as provider option
+- [x] Support DeepSeek R1 for reasoning tasks
+
+### Qwen 3 Integration
+- [x] Add Qwen 2.5 to Ollama model options
+- [x] Add Qwen 2.5 to Groq model options
+- [x] Support multiple model variants
+
+### UI Updates
+- [x] Add model selector with latest 2025 models
+- [x] Show model release dates and capabilities
+- [x] Add provider-specific model dropdowns
+

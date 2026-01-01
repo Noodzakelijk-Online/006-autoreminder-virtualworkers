@@ -598,14 +598,19 @@ router.get('/ai-settings', async (req, res) => {
     const { getAIConfig } = await import('../services/ai-service');
     const config = getAIConfig();
     
+    const { getAvailableModels } = await import('../services/ai-service');
+    
     res.json({
       success: true,
       config: {
         provider: config.provider,
+        model: config.model,
         groqApiKey: config.groqApiKey ? '***configured***' : null,
+        togetherApiKey: config.togetherApiKey ? '***configured***' : null,
+        openrouterApiKey: config.openrouterApiKey ? '***configured***' : null,
         ollamaUrl: config.ollamaUrl,
-        ollamaModel: config.ollamaModel,
       },
+      availableModels: getAvailableModels(config.provider),
     });
   } catch (error: any) {
     console.error('[TrelloWebhook] Error getting AI settings:', error);
@@ -619,15 +624,17 @@ router.get('/ai-settings', async (req, res) => {
  */
 router.post('/ai-settings', async (req, res) => {
   try {
-    const { provider, groqApiKey, ollamaUrl, ollamaModel } = req.body;
+    const { provider, model, groqApiKey, togetherApiKey, openrouterApiKey, ollamaUrl } = req.body;
     
     const { setAIConfig } = await import('../services/ai-service');
     
     setAIConfig({
       provider,
+      model,
       groqApiKey,
+      togetherApiKey,
+      openrouterApiKey,
       ollamaUrl,
-      ollamaModel,
     });
     
     res.json({
