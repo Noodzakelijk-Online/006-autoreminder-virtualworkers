@@ -1060,3 +1060,43 @@ Each card now has:
 - [x] Show "All Workers" option
 - [ ] Persist filter preference (future enhancement)
 
+
+## AI-Powered Project Manager Bot (Dec 27, 2025)
+
+### AI Service Integration
+- [x] Create AI service with Groq API support (free tier)
+- [x] Add Ollama support for self-hosted option
+- [x] Implement provider toggle in settings
+- [x] Add fallback handling between providers
+
+### Context Aggregator
+- [x] Pull full card data (description, checklist, comments)
+- [x] Include ATIS steps and completion status
+- [x] Include time entries for the card
+- [x] Include worker profile information
+- [x] Build context summary for AI prompt
+
+### Intelligent Response Generator
+- [x] Create professional PM personality system prompt
+- [x] Generate context-aware responses to VA questions
+- [x] Handle natural language queries (e.g., "What should I do next?")
+- [x] Provide helpful guidance when VA is stuck
+
+### Smart Proactive Follow-ups
+- [x] Implement grace period system (configurable, default 15 min)
+- [x] Only follow up after grace period expires
+- [x] Track when updates are expected vs received
+- [x] Avoid micromanaging - respect work boundaries
+
+### Compliance Tracking
+- [x] Log missed responses per worker
+- [x] Track response times
+- [x] Calculate response rate percentage
+- [x] Store compliance history in database
+
+### Dashboard Metrics
+- [x] Display response rate per worker
+- [x] Show missed check-ins count
+- [x] Add compliance trend visualization
+- [ ] Include in worker profile cards
+

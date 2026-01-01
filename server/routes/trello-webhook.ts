@@ -530,4 +530,139 @@ router.post('/checkin-settings', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/trello-webhook/compliance
+ * Get compliance metrics for all workers
+ */
+router.get('/compliance', async (req, res) => {
+  try {
+    const { getAllWorkerComplianceSummaries, getDailyComplianceStats } = await import('../services/compliance-tracking');
+    
+    const summaries = await getAllWorkerComplianceSummaries();
+    const dailyStats = getDailyComplianceStats();
+    
+    res.json({
+      success: true,
+      workers: summaries,
+      daily: dailyStats,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting compliance metrics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/trello-webhook/compliance/:vaId
+ * Get compliance metrics for a specific worker
+ */
+router.get('/compliance/:vaId', async (req, res) => {
+  try {
+    const vaId = parseInt(req.params.vaId);
+    
+    if (isNaN(vaId)) {
+      return res.status(400).json({ error: 'Invalid vaId' });
+    }
+    
+    const { getWorkerComplianceSummary, getRecentComplianceEvents } = await import('../services/compliance-tracking');
+    
+    const summary = await getWorkerComplianceSummary(vaId);
+    const recentEvents = getRecentComplianceEvents(vaId, 20);
+    
+    if (!summary) {
+      return res.json({
+        success: true,
+        summary: null,
+        events: [],
+        message: 'No compliance data found for this worker',
+      });
+    }
+    
+    res.json({
+      success: true,
+      summary,
+      events: recentEvents,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting worker compliance:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/trello-webhook/ai-settings
+ * Get AI provider settings
+ */
+router.get('/ai-settings', async (req, res) => {
+  try {
+    const { getAIConfig } = await import('../services/ai-service');
+    const config = getAIConfig();
+    
+    res.json({
+      success: true,
+      config: {
+        provider: config.provider,
+        groqApiKey: config.groqApiKey ? '***configured***' : null,
+        ollamaUrl: config.ollamaUrl,
+        ollamaModel: config.ollamaModel,
+      },
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting AI settings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/trello-webhook/ai-settings
+ * Update AI provider settings
+ */
+router.post('/ai-settings', async (req, res) => {
+  try {
+    const { provider, groqApiKey, ollamaUrl, ollamaModel } = req.body;
+    
+    const { setAIConfig } = await import('../services/ai-service');
+    
+    setAIConfig({
+      provider,
+      groqApiKey,
+      ollamaUrl,
+      ollamaModel,
+    });
+    
+    res.json({
+      success: true,
+      message: 'AI settings updated',
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error updating AI settings:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/trello-webhook/test-ai
+ * Test AI connection and response
+ */
+router.post('/test-ai', async (req, res) => {
+  try {
+    const { generateAIResponse } = await import('../services/ai-service');
+    
+    const testPrompt = 'Say "Hello! AI is working correctly." in exactly those words.';
+    const response = await generateAIResponse(testPrompt, 'Test context');
+    
+    res.json({
+      success: true,
+      response,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error testing AI:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message,
+      hint: 'Check your AI provider settings and API key',
+    });
+  }
+});
+
 export default router;

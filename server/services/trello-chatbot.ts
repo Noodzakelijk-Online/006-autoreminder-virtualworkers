@@ -550,28 +550,54 @@ export async function handleTrelloWebhook(payload: any): Promise<void> {
 
     // Parse the command
     const cmd = parseBotCommand(comment, cardId, commentId, authorId, authorName);
-    if (!cmd) {
+    
+    // Import AI handler for natural language queries
+    const { isNaturalLanguageQuery, handleNaturalLanguageQuery } = await import('./ai-chatbot-handler');
+    
+    // Store conversation in history
+    const { storeConversation, updateConversationResponse } = await import('./chatbot-history');
+    
+    let response: BotResponse;
+    let commandType = 'unknown';
+    
+    // Check if this is a natural language query (not a command)
+    if (isNaturalLanguageQuery(comment)) {
+      console.log('[TrelloChatbot] Detected natural language query, using AI response');
+      commandType = 'ai_query';
+      
+      // Create a pseudo-command for the AI handler
+      const aiCmd: BotCommand = {
+        command: 'ai_query',
+        args: comment.replace(/@bot\s*/i, '').trim().split(/\s+/),
+        rawArgs: comment.replace(/@bot\s*/i, '').trim(),
+        cardId,
+        commentId,
+        authorId,
+        authorName,
+      };
+      
+      response = await handleNaturalLanguageQuery(aiCmd);
+    } else if (cmd) {
+      // Process as a standard command
+      commandType = cmd.command;
+      response = await processBotCommand(cmd);
+    } else {
       console.log('[TrelloChatbot] Could not parse command from comment');
       return;
     }
-
-    // Store conversation in history
-    const { storeConversation, updateConversationResponse } = await import('./chatbot-history');
+    
     const conversationId = await storeConversation({
       cardTrelloId: cardId,
       cardName: cardName,
       boardTrelloId: boardId,
-      command: cmd.command,
-      commandArgs: cmd.args,
+      command: commandType,
+      commandArgs: cmd?.args || [],
       authorTrelloId: authorId,
       authorName: authorName,
       incomingCommentId: commentId,
       responseStatus: 'pending',
       receivedAt: new Date(),
     });
-
-    // Process the command
-    const response = await processBotCommand(cmd);
 
     // Post response as comment
     const posted = await postTrelloComment(cardId, response.text);

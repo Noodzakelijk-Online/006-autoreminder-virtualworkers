@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ConversationBrowser } from './ConversationBrowser';
 import { CheckinScheduleSettings } from './CheckinScheduleSettings';
+import { AISettings } from './AISettings';
+import { ComplianceDashboard } from './ComplianceDashboard';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -724,6 +726,12 @@ export function ChatbotSettings() {
           )}
         </CardContent>
       </Card>
+
+      {/* AI Provider Settings */}
+      <AISettings />
+
+      {/* Worker Compliance Dashboard */}
+      <ComplianceDashboard />
 
       {/* Scheduled Check-ins */}
       <CheckinScheduleSettings />
