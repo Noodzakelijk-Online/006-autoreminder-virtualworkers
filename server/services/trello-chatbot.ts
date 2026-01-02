@@ -63,10 +63,20 @@ export function parseBotCommand(
   };
 }
 
+// GLOBAL KILL SWITCH - Set to false to disable all automated notifications
+// This prevents the bot from posting any comments to Trello
+const NOTIFICATIONS_ENABLED = false;
+
 /**
  * Post a comment to a Trello card
  */
 export async function postTrelloComment(cardId: string, text: string): Promise<boolean> {
+  // Check global kill switch
+  if (!NOTIFICATIONS_ENABLED) {
+    console.log('[TrelloChatbot] NOTIFICATIONS DISABLED - would have posted:', text.substring(0, 100) + '...');
+    return false;
+  }
+  
   try {
     const response = await fetch(
       `https://api.trello.com/1/cards/${cardId}/actions/comments?key=${TRELLO_API_KEY}&token=${TRELLO_TOKEN}`,

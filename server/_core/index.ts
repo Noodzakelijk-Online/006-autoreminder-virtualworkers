@@ -102,21 +102,22 @@ async function startServer() {
   // Initialize WebSocket server
   websocketService.initialize(server);
 
-  // Start digest scheduler for daily email summaries
-  startDigestScheduler();
+  // DISABLED: Digest scheduler for daily email summaries
+  // startDigestScheduler();
+  console.log('[Server] Digest scheduler DISABLED - notifications turned off');
 
   server.listen(port, async () => {
     console.log(`Server running on http://localhost:${port}/`);
     
-    // Initialize webhook auto-registration for chatbot
-    // Use the public URL if available, otherwise construct from port
-    const publicUrl = process.env.PUBLIC_URL || `http://localhost:${port}`;
-    try {
-      await initializeWebhookAutoRegister(publicUrl);
-      console.log('[Server] Webhook auto-register initialized');
-    } catch (error) {
-      console.error('[Server] Failed to initialize webhook auto-register:', error);
-    }
+    // DISABLED: Webhook auto-registration for chatbot
+    // const publicUrl = process.env.PUBLIC_URL || `http://localhost:${port}`;
+    // try {
+    //   await initializeWebhookAutoRegister(publicUrl);
+    //   console.log('[Server] Webhook auto-register initialized');
+    // } catch (error) {
+    //   console.error('[Server] Failed to initialize webhook auto-register:', error);
+    // }
+    console.log('[Server] Webhook auto-register DISABLED - notifications turned off');
   });
 }
 

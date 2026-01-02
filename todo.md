@@ -1,5 +1,12 @@
 # Project TODO
 
+## URGENT: Disable All Automated Notifications (Jan 2, 2026)
+- [x] Disable digest scheduler (daily email summaries)
+- [x] Disable webhook auto-registration
+- [x] Disable chatbot scheduler (scheduled check-ins)
+- [x] Disable proactive follow-up processor
+- [x] Add global NOTIFICATIONS_ENABLED flag (default: false)
+
 - [x] Enforce strict tag filtering in dashboard generation (Backend)
 - [x] Implement Visual Utilization Heatmap (Frontend)
 - [x] Implement Reschedule API (Backend)

@@ -1,5 +1,8 @@
 import sgMail from '@sendgrid/mail';
 
+// GLOBAL KILL SWITCH - Set to false to disable all email notifications
+const EMAIL_NOTIFICATIONS_ENABLED = false;
+
 // Initialize SendGrid with API key
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
 if (SENDGRID_API_KEY) {
@@ -14,6 +17,12 @@ interface EmailOptions {
 }
 
 export async function sendEmail(options: EmailOptions): Promise<boolean> {
+  // Check global kill switch
+  if (!EMAIL_NOTIFICATIONS_ENABLED) {
+    console.log(`[Email] NOTIFICATIONS DISABLED - would have sent to ${options.to}: ${options.subject}`);
+    return false;
+  }
+  
   if (!SENDGRID_API_KEY) {
     console.warn('SendGrid API key not configured, email not sent');
     return false;
