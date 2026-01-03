@@ -1145,3 +1145,20 @@ Each card now has:
 - [x] Show model release dates and capabilities
 - [x] Add provider-specific model dropdowns
 
+
+## Smart APTLSS Generation with Pre-Interview Analysis (Jan 2, 2026)
+- [x] Create pre-interview analysis service (extract evidence, people, amounts, dates from card)
+- [x] Create conversational interview service (AI probes deeply, not just Q&A)
+- [ ] Update ATIS understanding prompt to use "unknowns-first" framework
+- [x] Build interview UI (chat-style, not form-style)
+- [x] Add goal proposal + confirmation step before generating execution plan
+- [x] Integrate pre-analysis → interview → goal approval → execution plan flow
+- [x] Add "Start Goal Interview" button to APTLSS Management page
+- [ ] Test with real Trello cards and iterate based on results
+
+## Error-Proof Interview System - Phase 1 (Jan 2, 2026)
+- [x] Implement forced specificity (reject vague answers like "the client", "follow up", "ASAP")
+- [x] Add validation layers (check if answer is action vs outcome, measurable, specific)
+- [x] Implement confidence scoring (0-100%) with escalation thresholds
+- [x] Add answer validation after each response (too vague? missing info? contradictory?)
+- [x] Create validation checklist (outcome-focused? measurable? who involved? why?)

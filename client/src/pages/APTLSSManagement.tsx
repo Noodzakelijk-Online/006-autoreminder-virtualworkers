@@ -23,8 +23,10 @@ import {
   ArrowLeft,
   Trash2,
   Clock,
-  CheckSquare
+  CheckSquare,
+  MessageSquare
 } from 'lucide-react';
+import { GoalInterviewDialog } from '@/components/GoalInterviewDialog';
 import { Link } from 'wouter';
 import { useLoadingQueue } from '@/contexts/LoadingQueueContext';
 
@@ -95,6 +97,8 @@ export default function APTLSSManagement() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobDetails, setJobDetails] = useState<any>(null);
   const [loadingProgress, setLoadingProgress] = useState<{current: number; total: number; message: string} | null>(null);
+  const [interviewCardId, setInterviewCardId] = useState<string | null>(null);
+  const [interviewCardName, setInterviewCardName] = useState<string>('');
   
   // Auto-load all cards state
   const [autoLoadProgress, setAutoLoadProgress] = useState<{
@@ -1512,6 +1516,21 @@ export default function APTLSSManagement() {
                             </Badge>
                           )}
                         </div>
+                        <div className="mt-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setInterviewCardId(card.id);
+                              setInterviewCardName(card.name);
+                            }}
+                            className="gap-2"
+                          >
+                            <MessageSquare className="h-3 w-3" />
+                            Start Goal Interview
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -1899,6 +1918,24 @@ export default function APTLSSManagement() {
           </CardContent>
         </Card>
       </Tabs>
+
+      {/* Goal Interview Dialog */}
+      <GoalInterviewDialog
+        open={interviewCardId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInterviewCardId(null);
+            setInterviewCardName('');
+          }
+        }}
+        cardId={interviewCardId || ''}
+        cardName={interviewCardName}
+        onComplete={(finalGoal) => {
+          console.log('Interview complete, final goal:', finalGoal);
+          toast.success('Goal clarified! You can now generate APTLSS based on this goal.');
+          // TODO: Use finalGoal to generate APTLSS with the new system
+        }}
+      />
     </div>
   );
 }
