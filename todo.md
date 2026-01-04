@@ -1162,3 +1162,14 @@ Each card now has:
 - [x] Implement confidence scoring (0-100%) with escalation thresholds
 - [x] Add answer validation after each response (too vague? missing info? contradictory?)
 - [x] Create validation checklist (outcome-focused? measurable? who involved? why?)
+
+## Software Developer Tasks - Interview System Completion (7 Days)
+- [ ] Day 1: Local setup, test backend/frontend, fix integration issues
+- [ ] Day 2: End-to-end interview testing, refine AI prompts and validation
+- [ ] Day 3: Enhance pre-analysis, handle edge cases, improve confidence algorithm
+- [ ] Day 4: Update ATIS understanding to use "unknowns-first" framework (3-6 steps, not 21)
+- [ ] Day 5: Integrate interview output with APTLSS generation (full flow)
+- [ ] Day 6: Write unit tests, polish UI, create developer documentation
+- [ ] Day 7: Performance optimization, monitoring, security review, deployment prep
+
+**See:** DEV_PLAN_INTERVIEW_SYSTEM.md and SETUP_GUIDE.md for detailed instructions
