@@ -958,9 +958,9 @@ router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
 
     // Get card understanding with checklist
     const result = await db.execute(sql`
-      SELECT c.trello_id, u.checklist
+      SELECT c.trello_id, u.aptlssChecklist
       FROM atis_cards c
-      LEFT JOIN atis_card_understanding u ON c.id = u.card_id
+      LEFT JOIN atis_card_understanding u ON c.id = u.cardId
       WHERE c.id = ${cardId}
     `);
 
@@ -976,7 +976,7 @@ router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
 
     let checklist: any[] = [];
     try {
-      checklist = card.checklist ? JSON.parse(card.checklist) : [];
+      checklist = card.aptlssChecklist ? JSON.parse(card.aptlssChecklist) : [];
     } catch (e) {
       return res.status(400).json({ error: 'Invalid checklist data' });
     }
@@ -1018,20 +1018,20 @@ router.post('/sync-checklists/bulk', async (req: Request, res: Response) => {
     if (cardIds && cardIds.length > 0) {
       const idList = cardIds.map((id: number) => id).join(',');
       result = await db.execute(sql`
-        SELECT c.id, c.trello_id, u.checklist
+        SELECT c.id, c.trello_id, u.aptlssChecklist
         FROM atis_cards c
-        JOIN atis_card_understanding u ON c.id = u.card_id
+        JOIN atis_card_understanding u ON c.id = u.cardId
         WHERE c.id IN (${sql.raw(idList)})
-        AND u.checklist IS NOT NULL
+        AND u.aptlssChecklist IS NOT NULL
         AND c.trello_id IS NOT NULL
         LIMIT ${limit}
       `);
     } else {
       result = await db.execute(sql`
-        SELECT c.id, c.trello_id, u.checklist
+        SELECT c.id, c.trello_id, u.aptlssChecklist
         FROM atis_cards c
-        JOIN atis_card_understanding u ON c.id = u.card_id
-        WHERE u.checklist IS NOT NULL
+        JOIN atis_card_understanding u ON c.id = u.cardId
+        WHERE u.aptlssChecklist IS NOT NULL
         AND c.trello_id IS NOT NULL
         AND c.is_archived = 0
         LIMIT ${limit}
@@ -1048,7 +1048,7 @@ router.post('/sync-checklists/bulk', async (req: Request, res: Response) => {
     const cardsToSync = rows.map((row: any) => {
       let checklist: any[] = [];
       try {
-        checklist = row.checklist ? JSON.parse(row.checklist) : [];
+        checklist = row.aptlssChecklist ? JSON.parse(row.aptlssChecklist) : [];
       } catch (e) {
         checklist = [];
       }
@@ -1057,7 +1057,7 @@ router.post('/sync-checklists/bulk', async (req: Request, res: Response) => {
         trelloId: row.trello_id,
         checklist,
       };
-    }).filter((c: any) => c.checklist.length > 0);
+    }).filter((c: any) => c.aptlssChecklist && c.aptlssChecklist.length > 0);
 
     // Sync to Trello
     const syncService = createChecklistSyncService();
