@@ -352,22 +352,49 @@ export default function Home() {
     ));
 
     try {
-      // Sync to Trello
-      const response = await fetch(`/api/trello/tasks/${id}/complete`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          isCompleted: newCompletedState,
-          cardId: task.cardId,
-          checklistId: task.checklistId,
-          checkItemId: task.checkItemId,
-        }),
-      });
+      // Check if we have required Trello fields
+      if (!task.cardId) {
+        console.warn('Task missing cardId, updating locally only');
+        toast.success(newCompletedState ? 'Task completed!' : 'Task marked incomplete');
+        return;
+      }
 
-      if (!response.ok) {
-        throw new Error('Failed to update task in Trello');
+      // If we have checklist fields, sync to Trello
+      if (task.checklistId && task.checkItemId) {
+        const response = await fetch(`/api/trello/tasks/${id}/complete`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            isCompleted: newCompletedState,
+            cardId: task.cardId,
+            checklistId: task.checklistId,
+            checkItemId: task.checkItemId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to update task in Trello');
+        }
+      } else {
+        // Fallback: update card status directly if no checklist
+        console.warn('Task missing checklist fields, updating card status directly');
+        const response = await fetch(`/api/trello/cards/${task.cardId}/status`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            isCompleted: newCompletedState,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to update card status');
+        }
       }
 
       toast.success(newCompletedState ? 'Task completed!' : 'Task marked incomplete');
@@ -377,7 +404,7 @@ export default function Home() {
       setTasks(tasks.map(t => 
         t.id === id ? { ...t, isCompleted: !newCompletedState } : t
       ));
-      toast.error('Failed to sync with Trello. Please try again.');
+      toast.error(`Failed to sync with Trello: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -493,7 +520,7 @@ export default function Home() {
           {/* Left Sidebar - Stats */}
           <div className="lg:col-span-4 space-y-4 md:space-y-8 order-2 lg:order-1">
             <div className="bg-card rounded-2xl p-4 md:p-6 shadow-sm border relative overflow-hidden">
-              <div className="absolute inset-0 opacity-10 bg-[url('/images/card-bg.png')] bg-cover" />
+              <div className="absolute inset-0 opacity-10 bg-[url('https://files.manuscdn.com/user_upload_by_module/session_file/90835377/PeIgsaffrafnabpl.png')] bg-cover" />
               <div className="relative z-10">
                 <h2 className="text-xl md:text-2xl font-bold mb-2">
                   {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'}, {user?.name?.split(' ')[0] || 'there'}! {new Date().getHours() < 12 ? '☀️' : new Date().getHours() < 17 ? '🌤️' : '🌙'}
@@ -539,7 +566,7 @@ export default function Home() {
           {/* Main Content - Timeline */}
           <div className="lg:col-span-8 order-1 lg:order-2">
             <div className="timeline-section bg-card rounded-2xl shadow-sm border min-h-[400px] md:min-h-[600px] relative overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-20 md:h-32 bg-[url('/images/hero-bg.png')] bg-cover opacity-20" />
+              <div className="absolute top-0 left-0 right-0 h-20 md:h-32 bg-[url('https://files.manuscdn.com/user_upload_by_module/session_file/90835377/juXmFpmTtEuXvBVT.png')] bg-cover opacity-20" />
               <div className="relative z-10 p-4 md:p-6">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 mb-4">
                   <h2 className="text-lg md:text-xl font-bold">Workload Timeline</h2>
