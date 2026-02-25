@@ -576,33 +576,37 @@ router.get('/cards/by-trello/:trelloId', async (req: Request, res: Response) => 
  * Get tasks for the dashboard timeline with AI understanding and checklists
  */
 router.get('/timeline-tasks', async (req: Request, res: Response) => {
-  try {
-    const db = await getDb();
-    if (!db) {
-      return res.status(500).json({ error: 'Database not available' });
-    }
+  const maxRetries = 3;
+  let lastError: any;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const db = await getDb();
+      if (!db) {
+        return res.status(500).json({ error: 'Database not available' });
+      }
 
-    const { 
-      limit = 50,
-      offset = 0,
-      filter = 'upcoming', // upcoming, overdue, all, today
-      taskType, // admin, creation, technical, etc.
-      complexity, // simple, medium, complex
-      sortBy = 'dueDate', // dueDate, estimatedTime, complexity
-      sortOrder = 'asc',
-    } = req.query;
+      const { 
+        limit = 50,
+        offset = 0,
+        filter = 'upcoming', // upcoming, overdue, all, today
+        taskType, // admin, creation, technical, etc.
+        complexity, // simple, medium, complex
+        sortBy = 'dueDate', // dueDate, estimatedTime, complexity
+        sortOrder = 'asc',
+      } = req.query;
 
-    // Build query conditions
-    const conditions = [
-      eq(atisCards.isArchived, 0), // Only non-archived cards
-    ];
+      // Build query conditions
+      const conditions = [
+        eq(atisCards.isArchived, 0), // Only non-archived cards
+      ];
 
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 
-    // Get cards with their understanding
-    const cards = await db.select({
+      // Get cards with their understanding
+      const cards = await db.select({
       id: atisCards.id,
       trelloId: atisCards.trelloId,
       name: atisCards.name,
@@ -800,10 +804,52 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
         sortOrder,
       },
     });
-  } catch (error: any) {
-    console.error('[ATIS] Timeline tasks error:', error);
-    res.status(500).json({ error: error.message });
+      res.json({
+        scheduled,
+        overflow,
+        metrics: {
+          totalScheduled: scheduled.length,
+          totalOverflow: overflow.length,
+          totalScheduledMinutes,
+          totalOverflowMinutes,
+          dailyCapacityMinutes,
+          averageDailyLoad: scheduled.length > 0 ? (totalScheduledMinutes / 5) : 0,
+        },
+        pagination: {
+          total: Number(totalResult?.count) || 0,
+          limit: Number(limit),
+          offset: Number(offset),
+          hasMore: tasks.length === Number(limit),
+        },
+        filters: {
+          filter,
+          taskType,
+          complexity,
+          sortBy,
+          sortOrder,
+        },
+      });
+      return; // Success - exit retry loop
+    } catch (error: any) {
+      lastError = error;
+      console.error(`[ATIS] Timeline tasks error (attempt ${attempt}/${maxRetries}):`, error);
+      
+      // If it's a connection error and we have retries left, wait and retry
+      if ((error.message?.includes('ECONNRESET') || error.message?.includes('ETIMEDOUT')) && attempt < maxRetries) {
+        const waitTime = Math.pow(2, attempt) * 100; // Exponential backoff: 200ms, 400ms, 800ms
+        console.log(`[ATIS] Retrying in ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+      
+      // If it's the last attempt or a non-retryable error, return error
+      break;
+    }
   }
+  
+  // All retries exhausted
+  console.error('[ATIS] All retry attempts failed:', lastError);
+  res.status(500).json({ error: lastError?.message || 'Failed to fetch timeline tasks after multiple attempts' });
 });
 
 /**

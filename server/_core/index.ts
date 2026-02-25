@@ -20,6 +20,7 @@ import notificationPreferencesRoutes from "../routes/notification-preferences.js
 import notificationHistoryRoutes from "../routes/notification-history.js";
 import timeTrackingRoutes from "../routes/time-tracking.js";
 import trelloWebhookRoutes from "../routes/trello-webhook.js";
+import trelloConfigRoutes from "../routes/trello-config.js";
 import { websocketService } from "../services/websocket.js";
 import { startDigestScheduler } from "../services/digest-scheduler.js";
 import { initializeWebhookAutoRegister } from "../services/webhook-auto-register.js";
@@ -77,6 +78,8 @@ async function startServer() {
   app.use("/api", timeTrackingRoutes);
   // Trello Webhook API (for chatbot)
   app.use("/api/trello-webhook", trelloWebhookRoutes);
+  // Trello Configuration API
+  app.use("/api/trello", trelloConfigRoutes);
   // tRPC API
   app.use(
     "/api/trpc",

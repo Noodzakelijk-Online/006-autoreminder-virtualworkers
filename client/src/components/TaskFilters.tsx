@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 
 export interface TaskFiltersState {
   filter: 'all' | 'upcoming' | 'overdue' | 'today';
+  completionStatus: 'all' | 'completed' | 'incomplete';
   taskType: string | null;
   complexity: 'simple' | 'medium' | 'complex' | null;
   client: string | null;
@@ -29,11 +30,12 @@ export function TaskFilters({
   totalTasks,
   filteredCount 
 }: TaskFiltersProps) {
-  const hasActiveFilters = filters.filter !== 'all' || filters.taskType || filters.complexity || filters.client;
+  const hasActiveFilters = filters.filter !== 'all' || filters.completionStatus !== 'all' || filters.taskType || filters.complexity || filters.client;
 
   const clearFilters = () => {
     onFiltersChange({
       filter: 'all',
+      completionStatus: 'all',
       taskType: null,
       complexity: null,
       client: null,
@@ -65,6 +67,21 @@ export function TaskFilters({
             <SelectItem value="today">Due Today</SelectItem>
             <SelectItem value="upcoming">Upcoming</SelectItem>
             <SelectItem value="overdue">Overdue</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Completion Status Filter */}
+        <Select
+          value={filters.completionStatus}
+          onValueChange={(value) => onFiltersChange({ ...filters, completionStatus: value as TaskFiltersState['completionStatus'] })}
+        >
+          <SelectTrigger className="w-[130px] h-8 text-xs">
+            <SelectValue placeholder="Completion" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Tasks</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="incomplete">Incomplete</SelectItem>
           </SelectContent>
         </Select>
 
@@ -159,6 +176,11 @@ export function TaskFilters({
             {filters.complexity && (
               <Badge variant="secondary" className="text-xs py-0 capitalize">
                 {filters.complexity}
+              </Badge>
+            )}
+            {filters.completionStatus !== 'all' && (
+              <Badge variant="secondary" className="text-xs py-0 capitalize">
+                {filters.completionStatus}
               </Badge>
             )}
           </div>

@@ -52,6 +52,7 @@ export default function Home() {
   const [clients, setClients] = useState<{ client: string; count: number }[]>([]);
   const [filters, setFilters] = useState<TaskFiltersState>({
     filter: 'all',
+    completionStatus: 'all',
     taskType: null,
     complexity: null,
     client: null,
@@ -330,8 +331,13 @@ export default function Home() {
         });
       } catch (error) {
         console.error('Error fetching tasks:', error);
+        // Log more detailed error information
+        if (error instanceof Error) {
+          console.error('Error details:', error.message, error.stack);
+        }
         // Fallback to empty state on error
         setTasks([]);
+        toast.error('Failed to load tasks. Please refresh the page.');
       } finally {
         setIsLoadingTasks(false);
       }
