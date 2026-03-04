@@ -44,9 +44,27 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+let activeConnections = 0;
+const MAX_CONNECTIONS = 100;
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  
+  // Connection tracking middleware
+  app.use((req, res, next) => {
+    activeConnections++;
+    if (activeConnections > MAX_CONNECTIONS) {
+      console.warn(`[Server] Too many connections: ${activeConnections}`);
+      res.status(503).json({ error: 'Server overloaded' });
+      return;
+    }
+    res.on('finish', () => {
+      activeConnections--;
+    });
+    next();
+  });
+  
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -122,6 +140,47 @@ async function startServer() {
     // }
     console.log('[Server] Webhook auto-register DISABLED - notifications turned off');
   });
+
+  // Graceful shutdown handling
+  const gracefulShutdown = async () => {
+    console.log('[Server] Shutting down gracefully...');
+    
+    // Close WebSocket connections
+    const io = websocketService.getIO();
+    if (io) {
+      io.close();
+      console.log('[Server] WebSocket server closed');
+    }
+    
+    // Close HTTP server
+    server.close(() => {
+      console.log('[Server] HTTP server closed');
+      process.exit(0);
+    });
+    
+    // Force exit after 10 seconds
+    setTimeout(() => {
+      console.error('[Server] Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', gracefulShutdown);
+  process.on('SIGINT', gracefulShutdown);
+  
+  // Handle uncaught exceptions
+  process.on('uncaughtException', (error) => {
+    console.error('[Server] Uncaught exception:', error);
+    gracefulShutdown();
+  });
+  
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Server] Unhandled rejection at:', promise, 'reason:', reason);
+  });
 }
 
-startServer().catch(console.error);
+startServer().catch((error) => {
+  console.error('[Server] Failed to start:', error);
+  process.exit(1);
+});

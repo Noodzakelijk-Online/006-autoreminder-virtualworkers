@@ -13,6 +13,13 @@ class WebSocketService {
   private clients: Map<string, ConnectedClient> = new Map();
 
   /**
+   * Get the Socket.IO server instance (for shutdown)
+   */
+  getIO(): SocketIOServer | null {
+    return this.io;
+  }
+
+  /**
    * Initialize WebSocket server
    */
   initialize(httpServer: HTTPServer): void {

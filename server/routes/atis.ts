@@ -804,31 +804,6 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
         sortOrder,
       },
     });
-      res.json({
-        scheduled,
-        overflow,
-        metrics: {
-          totalScheduled: scheduled.length,
-          totalOverflow: overflow.length,
-          totalScheduledMinutes,
-          totalOverflowMinutes,
-          dailyCapacityMinutes,
-          averageDailyLoad: scheduled.length > 0 ? (totalScheduledMinutes / 5) : 0,
-        },
-        pagination: {
-          total: Number(totalResult?.count) || 0,
-          limit: Number(limit),
-          offset: Number(offset),
-          hasMore: tasks.length === Number(limit),
-        },
-        filters: {
-          filter,
-          taskType,
-          complexity,
-          sortBy,
-          sortOrder,
-        },
-      });
       return; // Success - exit retry loop
     } catch (error: any) {
       lastError = error;
