@@ -5,13 +5,12 @@ import { Search, X, ChevronDown } from 'lucide-react';
 
 interface Task {
   id: string;
-  name: string;
+  cardName: string;
   description?: string;
-  priority?: 'low' | 'medium' | 'high' | 'critical';
+  priorityLevel?: 'CRITICAL' | 'URGENT' | 'HIGH' | 'NORMAL';
   complexity?: 'simple' | 'medium' | 'complex';
-  assignedWorker?: string;
-  dueDate?: string;
-  createdAt?: string;
+  assignedToName?: string;
+  date?: string;
 }
 
 interface TaskSearchFiltersProps {
@@ -31,39 +30,34 @@ export function TaskSearchFilters({ tasks, onFiltered }: TaskSearchFiltersProps)
 
   // Get unique values for filter options
   const uniqueWorkers = useMemo(() => {
-    return Array.from(new Set(tasks.map(t => t.assignedWorker).filter(Boolean))) as string[];
+    return Array.from(new Set(tasks.map(t => t.assignedToName).filter(Boolean))) as string[];
   }, [tasks]);
 
   // Filter tasks based on search and filters
   const filteredTasks = useMemo(() => {
     return tasks.filter(task => {
-      // Search filter (full-text search on name and description)
+      // Search filter (full-text search on cardName and description)
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const matchesSearch =
-          task.name.toLowerCase().includes(query) ||
+          task.cardName.toLowerCase().includes(query) ||
           (task.description?.toLowerCase().includes(query) ?? false);
         if (!matchesSearch) return false;
       }
 
       // Priority filter
-      if (filters.priority.length > 0 && !filters.priority.includes(task.priority || '')) {
-        return false;
-      }
-
-      // Complexity filter
-      if (filters.complexity.length > 0 && !filters.complexity.includes(task.complexity || '')) {
+      if (filters.priority.length > 0 && !filters.priority.includes(task.priorityLevel || 'NORMAL')) {
         return false;
       }
 
       // Assigned worker filter
-      if (filters.assignedWorker.length > 0 && !filters.assignedWorker.includes(task.assignedWorker || '')) {
+      if (filters.assignedWorker.length > 0 && !filters.assignedWorker.includes(task.assignedToName || '')) {
         return false;
       }
 
       // Date range filter
-      if (filters.dateRange !== 'all' && task.dueDate) {
-        const dueDate = new Date(task.dueDate);
+      if (filters.dateRange !== 'all' && task.date) {
+        const dueDate = new Date(task.date);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
@@ -208,7 +202,7 @@ export function TaskSearchFilters({ tasks, onFiltered }: TaskSearchFiltersProps)
                 {uniqueWorkers.map(worker => (
                   <button
                     key={worker}
-                    onClick={() => toggleFilter('assignedWorker', worker)}
+                    onClick={() => toggleFilter('assignedToName', worker)}
                     className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
                       filters.assignedWorker.includes(worker)
                         ? 'bg-blue-600 text-white'

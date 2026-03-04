@@ -6,8 +6,8 @@ import { trpc } from '@/lib/trpc';
 
 interface Task {
   id: string;
-  name: string;
-  trelloId?: string;
+  cardName: string;
+  cardId: string;
   checklistId?: string;
   checkItemId?: string;
 }
@@ -138,9 +138,9 @@ export function TaskBulkActions({ tasks, onTasksUpdated }: TaskBulkActionsProps)
             <Checkbox
               checked={selectedTasks.has(task.id)}
               onCheckedChange={() => toggleTaskSelection(task.id)}
-              aria-label={`Select task: ${task.name}`}
+              aria-label={`Select task: ${task.cardName}`}
             />
-            <span className="text-sm text-gray-700 flex-1 truncate">{task.name}</span>
+            <span className="text-sm text-gray-700 flex-1 truncate">{task.cardName}</span>
           </div>
         ))}
       </div>
