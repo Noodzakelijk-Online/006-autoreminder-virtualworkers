@@ -698,6 +698,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       return {
         id: card.id,
         atisCardId: card.id, // For sync operations
+        cardId: card.trelloId, // Trello card ID for API calls
         trelloId: card.trelloId,
         name: card.name,
         description: card.description,

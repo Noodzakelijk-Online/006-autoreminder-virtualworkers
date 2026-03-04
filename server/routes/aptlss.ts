@@ -1399,15 +1399,51 @@ router.put('/trello/cards/:cardId/status', async (req: Request, res: Response) =
       return res.status(400).json({ error: 'Missing cardId' });
     }
 
-    // Update card status by adding a label
-    const label = isCompleted ? 'completed' : 'incomplete';
-    const updateUrl = `https://api.trello.com/1/cards/${cardId}?idLabels=${label}&key=${apiKey}&token=${apiToken}`;
+    // Update card status using Trello API
+    // First, get the card to see its current labels
+    const getCardUrl = `https://api.trello.com/1/cards/${cardId}?fields=labels&key=${apiKey}&token=${apiToken}`;
+    const getResponse = await fetch(getCardUrl);
     
+    if (!getResponse.ok) {
+      const errorText = await getResponse.text();
+      console.error('Trello API error (get card):', errorText);
+      return res.status(getResponse.status).json({ error: 'Failed to fetch card', details: errorText });
+    }
+    
+    const cardData = await getResponse.json();
+    const existingLabels = cardData.labels || [];
+    
+    // Determine which label to add/remove
+    const completedLabelId = 'completed'; // You may need to get the actual label ID from Trello
+    const incompleteLabelId = 'incomplete';
+    
+    // Build the new labels list
+    let newLabels = existingLabels.map((l: any) => l.id || l);
+    
+    if (isCompleted) {
+      // Remove 'incomplete' label, add 'completed' label
+      newLabels = newLabels.filter((id: string) => id !== incompleteLabelId);
+      if (!newLabels.includes(completedLabelId)) {
+        newLabels.push(completedLabelId);
+      }
+    } else {
+      // Remove 'completed' label, add 'incomplete' label
+      newLabels = newLabels.filter((id: string) => id !== completedLabelId);
+      if (!newLabels.includes(incompleteLabelId)) {
+        newLabels.push(incompleteLabelId);
+      }
+    }
+    
+    // Update the card with new labels
+    const updateUrl = `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${apiToken}`;
     const response = await fetch(updateUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
       },
+      body: JSON.stringify({
+        idLabels: newLabels
+      })
     });
 
     if (!response.ok) {
