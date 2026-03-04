@@ -103,4 +103,139 @@ router.post('/completion-labels', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * PUT /api/trello/tasks/:taskId/complete
+ * Update task completion status via Trello checklist item
+ */
+router.put('/tasks/:taskId/complete', async (req: Request, res: Response) => {
+  try {
+    const { taskId } = req.params;
+    const { isCompleted, cardId, checklistId, checkItemId } = req.body;
+
+    if (!cardId || !checklistId || !checkItemId) {
+      return res.status(400).json({ error: 'Missing required fields: cardId, checklistId, checkItemId' });
+    }
+
+    const apiKey = process.env.TRELLO_API_KEY;
+    const apiToken = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !apiToken) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    // Update the checklist item state
+    const updateUrl = `https://api.trello.com/1/checklists/${checklistId}/checkItems/${checkItemId}?key=${apiKey}&token=${apiToken}`;
+    
+    const updateResponse = await fetchWithRetry(updateUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        state: isCompleted ? 'complete' : 'incomplete',
+      }),
+    });
+
+    if (!updateResponse.ok) {
+      const errorText = await updateResponse.text();
+      console.error('[Trello] Failed to update checklist item:', errorText);
+      return res.status(updateResponse.status).json({ 
+        error: `Failed to update checklist item: ${updateResponse.statusText}` 
+      });
+    }
+
+    const result = await updateResponse.json();
+
+    res.json({
+      success: true,
+      taskId,
+      isCompleted,
+      checkItemId,
+      message: `Task marked as ${isCompleted ? 'complete' : 'incomplete'} in Trello`,
+    });
+  } catch (error) {
+    console.error('[Trello] Error updating task completion:', error);
+    res.status(500).json({ 
+      error: `Failed to update task completion: ${error instanceof Error ? error.message : 'Unknown error'}` 
+    });
+  }
+});
+
+/**
+ * PUT /api/trello/cards/:cardId/status
+ * Update card status directly (fallback when checklist data is unavailable)
+ */
+router.put('/cards/:cardId/status', async (req: Request, res: Response) => {
+  try {
+    const { cardId } = req.params;
+    const { isCompleted } = req.body;
+
+    if (!cardId) {
+      return res.status(400).json({ error: 'Missing required field: cardId' });
+    }
+
+    const apiKey = process.env.TRELLO_API_KEY;
+    const apiToken = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !apiToken) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    // Fetch the card to get its current labels
+    const cardUrl = `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${apiToken}&fields=labels,idLabels`;
+    const cardResponse = await fetchWithRetry(cardUrl);
+
+    if (!cardResponse.ok) {
+      console.error('[Trello] Failed to fetch card:', cardResponse.statusText);
+      return res.status(404).json({ error: 'Card not found' });
+    }
+
+    const card = await cardResponse.json();
+    const currentLabels = card.idLabels || [];
+    
+    // Get the completion label ID (from config or use a default)
+    const completionLabelId = 'completed'; // This should be configurable
+    
+    // Update labels based on completion status
+    let newLabels = currentLabels;
+    if (isCompleted && !currentLabels.includes(completionLabelId)) {
+      newLabels = [...currentLabels, completionLabelId];
+    } else if (!isCompleted && currentLabels.includes(completionLabelId)) {
+      newLabels = currentLabels.filter((id: string) => id !== completionLabelId);
+    }
+
+    // Update the card with new labels
+    const updateUrl = `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${apiToken}`;
+    const updateResponse = await fetchWithRetry(updateUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        idLabels: newLabels,
+      }),
+    });
+
+    if (!updateResponse.ok) {
+      const errorText = await updateResponse.text();
+      console.error('[Trello] Failed to update card status:', errorText);
+      return res.status(updateResponse.status).json({ 
+        error: `Failed to update card status: ${updateResponse.statusText}` 
+      });
+    }
+
+    res.json({
+      success: true,
+      cardId,
+      isCompleted,
+      message: `Card status updated to ${isCompleted ? 'complete' : 'incomplete'}`,
+    });
+  } catch (error) {
+    console.error('[Trello] Error updating card status:', error);
+    res.status(500).json({ 
+      error: `Failed to update card status: ${error instanceof Error ? error.message : 'Unknown error'}` 
+    });
+  }
+});
+
 export default router;

@@ -1194,3 +1194,13 @@ Each card now has:
 - [x] Task Bulk Actions - UI to select multiple tasks and mark complete/incomplete
 - [x] Real-Time Task Notifications - Toast notifications via WebSocket
 - [x] Task Search & Advanced Filters - Full-text search and advanced filtering
+
+
+## Trello Sync Fix (Mar 4, 2026)
+- [x] Identify root cause: Missing API endpoints for task completion sync
+- [x] Create PUT /api/trello/tasks/:taskId/complete endpoint for checklist item updates
+- [x] Create PUT /api/trello/cards/:cardId/status endpoint for fallback card status updates
+- [x] Add proper error handling and Trello API validation
+- [x] Test endpoints with curl to verify they work correctly
+- [x] Verify frontend error handling displays Trello API errors properly
+- [x] All TypeScript errors resolved (0 errors)
