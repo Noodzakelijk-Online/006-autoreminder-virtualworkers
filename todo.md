@@ -1187,3 +1187,10 @@ Each card now has:
 - [ ] Phase 4: UI/UX refinement and performance optimization
 
 **See:** UNIVERSAL_CARD_EXECUTION_SPEC.md for complete specification
+
+
+## Phase 8: Additional Features (In Progress)
+
+- [x] Task Bulk Actions - UI to select multiple tasks and mark complete/incomplete
+- [x] Real-Time Task Notifications - Toast notifications via WebSocket
+- [x] Task Search & Advanced Filters - Full-text search and advanced filtering

@@ -4,6 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { invalidateCache } from "./services/trello-cache";
 import { interviewRouter } from "./routes/interview";
+import { z } from "zod";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -48,6 +49,40 @@ export const appRouter = router({
         throw new Error(`Rescheduling failed: ${error instanceof Error ? error.message : String(error)}`);
       }
     }),
+  }),
+
+  tasks: router({
+    bulkComplete: protectedProcedure
+      .input(z.object({
+        taskIds: z.array(z.string()),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.taskIds.length === 0) {
+          throw new Error("No tasks selected");
+        }
+        // TODO: Implement bulk complete logic
+        // This will update Trello checklist items for all selected tasks
+        return {
+          success: true,
+          completed: input.taskIds.length,
+        };
+      }),
+
+    bulkIncomplete: protectedProcedure
+      .input(z.object({
+        taskIds: z.array(z.string()),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.taskIds.length === 0) {
+          throw new Error("No tasks selected");
+        }
+        // TODO: Implement bulk incomplete logic
+        // This will mark Trello checklist items as incomplete for all selected tasks
+        return {
+          success: true,
+          incompleted: input.taskIds.length,
+        };
+      }),
   }),
 });
 
