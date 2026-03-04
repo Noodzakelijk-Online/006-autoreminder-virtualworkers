@@ -28,11 +28,6 @@ import { TaskFilters, TaskFiltersState } from "@/components/TaskFilters";
 import { LoadingQueueIndicator } from "@/components/LoadingQueueIndicator";
 import { ConversationDialog } from "@/components/ConversationDialog";
 import { BulkTaskActions } from "@/components/BulkTaskActions";
-import { TaskBulkActions } from "@/components/TaskBulkActions";
-import { TaskSearchFilters } from "@/components/TaskSearchFilters";
-import { ToastContainer } from "@/components/ToastContainer";
-import { useToast } from "@/hooks/useToast";
-import { useWebSocketNotifications } from "@/hooks/useWebSocketNotifications";
 
 // No longer using mock data - fetch from Trello API
 
@@ -70,8 +65,6 @@ export default function Home() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [workers, setWorkers] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [workerFilter, setWorkerFilter] = useState<string | null>(null);
-  const { toasts, removeToast } = useToast();
-  useWebSocketNotifications();
 
   // Listen for conversation dialog events from TaskCard
   useEffect(() => {
@@ -589,19 +582,7 @@ export default function Home() {
                   </div>
                 </div>
                 
-                {/* Task Bulk Actions */}
-                {filteredTasks.length > 0 && (
-                  <div className="mb-6">
-                    <TaskBulkActions
-                      tasks={filteredTasks}
-                      onTasksUpdated={() => {
-                        // Refresh tasks after bulk action
-                        const event = new CustomEvent('tasksUpdated');
-                        window.dispatchEvent(event);
-                      }}
-                    />
-                  </div>
-                )}
+
 
                 {/* Original Task Filters */}
                 <div className="mb-4">
