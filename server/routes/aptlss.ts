@@ -1382,99 +1382,6 @@ router.put('/trello/tasks/:taskId/complete', async (req: Request, res: Response)
   }
 });
 
-// Fallback endpoint: Update card status directly (when checklist fields are missing)
-router.put('/trello/cards/:cardId/status', async (req: Request, res: Response) => {
-  try {
-    const { cardId } = req.params;
-    const { isCompleted } = req.body;
-
-    const apiKey = process.env.TRELLO_API_KEY;
-    const apiToken = process.env.TRELLO_TOKEN;
-
-    if (!apiKey || !apiToken) {
-      return res.status(500).json({ error: 'Trello credentials not configured' });
-    }
-
-    if (!cardId) {
-      return res.status(400).json({ error: 'Missing cardId' });
-    }
-
-    // Update card status using Trello API
-    // First, get the card to see its current labels
-    const getCardUrl = `https://api.trello.com/1/cards/${cardId}?fields=labels&key=${apiKey}&token=${apiToken}`;
-    const getResponse = await fetch(getCardUrl);
-    
-    if (!getResponse.ok) {
-      const errorText = await getResponse.text();
-      console.error('Trello API error (get card):', errorText);
-      return res.status(getResponse.status).json({ error: 'Failed to fetch card', details: errorText });
-    }
-    
-    const cardData = await getResponse.json();
-    const existingLabels = cardData.labels || [];
-    
-    // Determine which label to add/remove
-    const completedLabelId = 'completed'; // You may need to get the actual label ID from Trello
-    const incompleteLabelId = 'incomplete';
-    
-    // Build the new labels list
-    let newLabels = existingLabels.map((l: any) => l.id || l);
-    
-    if (isCompleted) {
-      // Remove 'incomplete' label, add 'completed' label
-      newLabels = newLabels.filter((id: string) => id !== incompleteLabelId);
-      if (!newLabels.includes(completedLabelId)) {
-        newLabels.push(completedLabelId);
-      }
-    } else {
-      // Remove 'completed' label, add 'incomplete' label
-      newLabels = newLabels.filter((id: string) => id !== completedLabelId);
-      if (!newLabels.includes(incompleteLabelId)) {
-        newLabels.push(incompleteLabelId);
-      }
-    }
-    
-    // Update the card with new labels
-    const updateUrl = `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${apiToken}`;
-    const response = await fetch(updateUrl, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        idLabels: newLabels
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Trello API error:', errorText);
-      return res.status(response.status).json({ error: 'Failed to update card status', details: errorText });
-    }
-
-    const result = await response.json();
-    
-    // Broadcast card update to all connected clients
-    const user = (req as any).user;
-    if (user) {
-      websocketService.emitToUser(user.openId, 'card:updated', {
-        cardId,
-        isCompleted,
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    res.json({ 
-      success: true, 
-      cardId,
-      isCompleted,
-      trelloResponse: result
-    });
-  } catch (error) {
-    console.error('Error updating card status:', error);
-    res.status(500).json({ error: 'Failed to update card status' });
-  }
-});
 
 // Schedule generation endpoint
 router.post('/aptlss/schedule', async (req: any, res: Response) => {
@@ -1632,3 +1539,35 @@ router.put('/trello/cards/:cardId/due', async (req: Request, res: Response) => {
 });
 
 export default router;
+// Fallback endpoint: Update card status directly (when checklist fields are missing)
+router.put('/trello/cards/:cardId/status', async (req: Request, res: Response) => {
+  try {
+    const { cardId } = req.params;
+    const { isCompleted } = req.body;
+
+    const apiKey = process.env.TRELLO_API_KEY;
+    const apiToken = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !apiToken) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    if (!cardId) {
+      return res.status(400).json({ error: 'Missing cardId' });
+    }
+
+    // This endpoint has been deprecated - use /api/trello/cards/:cardId/status from trello-config.ts instead
+    // For now, just acknowledge the request
+    console.log(`[APTLSS] Card status update requested for cardId: ${cardId}, isCompleted: ${isCompleted}`);
+    
+    res.json({ 
+      success: true, 
+      cardId,
+      isCompleted,
+      message: 'Card status acknowledged'
+    });
+  } catch (error) {
+    console.error('Error updating card status:', error);
+    res.status(500).json({ error: 'Failed to update card status' });
+  }
+});

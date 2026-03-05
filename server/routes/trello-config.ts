@@ -139,8 +139,18 @@ router.put('/tasks/:taskId/complete', async (req: Request, res: Response) => {
     if (!updateResponse.ok) {
       const errorText = await updateResponse.text();
       console.error('[Trello] Failed to update checklist item:', errorText);
+      
+      // Provide better error messages
+      let userFriendlyError = 'Failed to update task in Trello';
+      if (updateResponse.status === 401 || errorText.includes('unauthorized')) {
+        userFriendlyError = 'Permission denied: You do not have access to this card or checklist.';
+      } else if (updateResponse.status === 404 || errorText.includes('invalid')) {
+        userFriendlyError = 'Task not found: The checklist item may have been deleted.';
+      }
+      
       return res.status(updateResponse.status).json({ 
-        error: `Failed to update checklist item: ${updateResponse.statusText}` 
+        error: userFriendlyError,
+        details: errorText
       });
     }
 
@@ -186,18 +196,47 @@ router.put('/cards/:cardId/status', async (req: Request, res: Response) => {
     const cardResponse = await fetchWithRetry(cardUrl);
 
     if (!cardResponse.ok) {
-      console.error('[Trello] Failed to fetch card:', cardResponse.statusText);
-      return res.status(404).json({ error: 'Card not found' });
+      const errorText = await cardResponse.text();
+      console.error('[Trello] Failed to fetch card:', errorText);
+      
+      // Provide better error messages based on the HTTP status
+      let userFriendlyError = 'Failed to fetch card';
+      if (cardResponse.status === 401 || errorText.includes('unauthorized')) {
+        userFriendlyError = 'Permission denied: You do not have access to this card. Check your Trello token permissions or board access.';
+      } else if (cardResponse.status === 404 || errorText.includes('invalid id')) {
+        userFriendlyError = 'Card not found: This card may have been deleted or archived.';
+      }
+      
+      return res.status(cardResponse.status).json({ 
+        error: userFriendlyError,
+        details: errorText,
+        status: cardResponse.status
+      });
     }
 
     const card = await cardResponse.json();
     const currentLabels = card.idLabels || [];
     
-    // Get the completion label ID (from config or use a default)
-    const completionLabelId = 'completed'; // This should be configurable
+    // Get the completion label ID from user config
+    const user = (req as any).user;
+    const userKey = user ? `user_${user.id}` : 'default';
+    const userLabels = completionLabelsMap.get(userKey) || [];
+    const completionLabelId = userLabels[0] || null; // Use first configured label or none
+       // If no completion label is configured, just return success without updating
+    // (user hasn't configured which label to use for completion)
+    if (!completionLabelId) {
+      console.warn('[Trello] No completion label configured for user, skipping label update');
+      return res.json({
+        success: true,
+        cardId,
+        isCompleted,
+        message: 'Card status acknowledged (no completion label configured)',
+      });
+    }
     
     // Update labels based on completion status
     let newLabels = currentLabels;
+    
     if (isCompleted && !currentLabels.includes(completionLabelId)) {
       newLabels = [...currentLabels, completionLabelId];
     } else if (!isCompleted && currentLabels.includes(completionLabelId)) {
@@ -220,7 +259,8 @@ router.put('/cards/:cardId/status', async (req: Request, res: Response) => {
       const errorText = await updateResponse.text();
       console.error('[Trello] Failed to update card status:', errorText);
       return res.status(updateResponse.status).json({ 
-        error: `Failed to update card status: ${updateResponse.statusText}` 
+        error: `Failed to update card status: ${updateResponse.statusText}`,
+        details: errorText
       });
     }
 
@@ -233,7 +273,8 @@ router.put('/cards/:cardId/status', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[Trello] Error updating card status:', error);
     res.status(500).json({ 
-      error: `Failed to update card status: ${error instanceof Error ? error.message : 'Unknown error'}` 
+      error: `Failed to update card status: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      details: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });

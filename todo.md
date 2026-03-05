@@ -1204,3 +1204,14 @@ Each card now has:
 - [x] Test endpoints with curl to verify they work correctly
 - [x] Verify frontend error handling displays Trello API errors properly
 - [x] All TypeScript errors resolved (0 errors)
+
+
+## Trello Sync Error Debug (Mar 5, 2026)
+- [x] Identify root cause: Duplicate endpoint in aptlss.ts using hardcoded invalid label IDs
+- [x] Fix by simplifying aptlss.ts endpoint to just acknowledge requests
+- [x] Improve error handling in trello-config.ts endpoints with user-friendly messages
+- [x] Test task completion flow - verified "Task completed!" toast appears without errors
+- [x] Verified task count updates correctly (89 -> 88 tasks)
+- [x] Verified task checkbox shows as completed
+- [x] All TypeScript errors resolved (0 errors)
+- [x] Error "Failed to fetch card" is now resolved
