@@ -1,0 +1,364 @@
+/**
+ * Enhanced Interview Route
+ * 
+ * Handles all ATIS interview phases (1-10) with database persistence.
+ * Replaces the in-memory interview system with persistent storage.
+ */
+
+import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import {
+  createInterviewSession,
+  getInterviewSession,
+  recordInterviewResponse,
+  completeInterview,
+  getInterviewHistory,
+  getInterviewResults,
+  getUserInterviewSessions,
+  getCardInterviewSessions,
+  abandonInterviewSession,
+  getUserInterviewStats,
+} from '../services/interview-persistence';
+import { analyzeCardBeforeInterview } from '../services/pre-interview-analysis';
+import { startInterview, processResponse } from '../services/conversational-interview';
+import { invokeLLM } from '../_core/llm';
+
+const router = Router();
+
+const TRELLO_API_KEY = process.env.TRELLO_API_KEY;
+const TRELLO_TOKEN = process.env.TRELLO_TOKEN;
+
+/**
+ * Helper to get Trello card with all details
+ */
+async function getTrelloCard(cardId: string) {
+  const cardResponse = await fetch(
+    `https://api.trello.com/1/cards/${cardId}?key=${TRELLO_API_KEY}&token=${TRELLO_TOKEN}&attachments=true&checklists=all`
+  );
+
+  if (!cardResponse.ok) {
+    throw new Error(`Failed to fetch card: ${cardResponse.statusText}`);
+  }
+
+  const card = await cardResponse.json();
+
+  // Get comments
+  const actionsResponse = await fetch(
+    `https://api.trello.com/1/cards/${cardId}/actions?key=${TRELLO_API_KEY}&token=${TRELLO_TOKEN}&filter=commentCard`
+  );
+
+  const comments = actionsResponse.ok ? await actionsResponse.json() : [];
+
+  return {
+    ...card,
+    comments,
+  };
+}
+
+/**
+ * POST /api/interview/start
+ * Start a new interview session for a card
+ */
+router.post('/start', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { cardId } = req.body;
+    if (!cardId) {
+      return res.status(400).json({ error: 'Missing cardId' });
+    }
+
+    // Get card data from Trello
+    const card = await getTrelloCard(cardId);
+    if (!card) {
+      return res.status(404).json({ error: 'Card not found' });
+    }
+
+    // Perform pre-interview analysis
+    const preAnalysis = await analyzeCardBeforeInterview(card);
+
+    // Create interview session in database
+    const sessionId = await createInterviewSession(
+      cardId,
+      user.id,
+      user.openId,
+      preAnalysis.summary
+    );
+
+    // Start interview conversation
+    const { state, firstMessage } = await startInterview(card.name, preAnalysis);
+
+    return res.json({
+      sessionId,
+      firstMessage,
+      confidence: state.overallConfidence,
+      preAnalysisSummary: preAnalysis.summary,
+      phase: 1,
+    });
+  } catch (error) {
+    console.error('[Interview] Error starting interview:', error);
+    return res.status(500).json({ error: 'Failed to start interview' });
+  }
+});
+
+/**
+ * POST /api/interview/:sessionId/respond
+ * Process user response and get next question
+ */
+router.post('/:sessionId/respond', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { sessionId } = req.params;
+    const { response } = req.body;
+
+    if (!response) {
+      return res.status(400).json({ error: 'Missing response' });
+    }
+
+    // Get session
+    const session = await getInterviewSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Interview session not found' });
+    }
+
+    if (session.userOpenId !== user.openId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Get card for context
+    const card = await getTrelloCard(session.cardId);
+    const preAnalysis = await analyzeCardBeforeInterview(card);
+
+    // Parse stored session data
+    const sessionData = session.sessionData ? JSON.parse(session.sessionData) : {};
+
+    // Process response
+    const result = await processResponse(sessionData, response, preAnalysis);
+
+    // Record response in database
+    await recordInterviewResponse(
+      sessionId,
+      session.currentPhase || 1,
+      session.currentQuestion || 0,
+      result.nextMessage || '',
+      response,
+      true,
+      75,
+      undefined,
+      50,
+      false
+    );
+
+    // Check if interview is complete
+    if (result.isComplete && result.finalGoal) {
+      // Complete the interview
+      await completeInterview(
+        sessionId,
+        result.finalGoal.goal || '',
+        result.finalGoal.successCriteria?.join('; ') || '',
+        [], // APTLSS checklist will be generated separately
+        result.finalGoal.confidence || 0,
+        0, // clarity score
+        0, // completeness score
+        result.finalGoal,
+        0 // estimated duration
+      );
+
+      return res.json({
+        isComplete: true,
+        finalGoal: result.finalGoal,
+        message: 'Interview completed successfully',
+      });
+    }
+
+    return res.json({
+      isComplete: false,
+      nextMessage: result.nextMessage,
+      message: result.nextMessage,
+    });
+  } catch (error) {
+    console.error('[Interview] Error processing response:', error);
+    return res.status(500).json({ error: 'Failed to process response' });
+  }
+});
+
+/**
+ * GET /api/interview/:sessionId
+ * Get interview session details
+ */
+router.get('/:sessionId', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { sessionId } = req.params;
+    const session = await getInterviewSession(sessionId);
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.userOpenId !== user.openId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    return res.json(session);
+  } catch (error) {
+    console.error('[Interview] Error fetching session:', error);
+    return res.status(500).json({ error: 'Failed to fetch session' });
+  }
+});
+
+/**
+ * GET /api/interview/:sessionId/history
+ * Get interview history (all questions and responses)
+ */
+router.get('/:sessionId/history', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { sessionId } = req.params;
+    const session = await getInterviewSession(sessionId);
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.userOpenId !== user.openId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const history = await getInterviewHistory(sessionId);
+    return res.json(history);
+  } catch (error) {
+    console.error('[Interview] Error fetching history:', error);
+    return res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
+/**
+ * GET /api/interview/:sessionId/results
+ * Get interview results
+ */
+router.get('/:sessionId/results', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { sessionId } = req.params;
+    const session = await getInterviewSession(sessionId);
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.userOpenId !== user.openId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    const results = await getInterviewResults(sessionId);
+    return res.json(results);
+  } catch (error) {
+    console.error('[Interview] Error fetching results:', error);
+    return res.status(500).json({ error: 'Failed to fetch results' });
+  }
+});
+
+/**
+ * GET /api/interview/user/sessions
+ * Get all interview sessions for current user
+ */
+router.get('/user/sessions', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const sessions = await getUserInterviewSessions(user.openId);
+    return res.json(sessions);
+  } catch (error) {
+    console.error('[Interview] Error fetching user sessions:', error);
+    return res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
+});
+
+/**
+ * GET /api/interview/user/stats
+ * Get interview statistics for current user
+ */
+router.get('/user/stats', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const stats = await getUserInterviewStats(user.openId);
+    return res.json(stats);
+  } catch (error) {
+    console.error('[Interview] Error fetching stats:', error);
+    return res.status(500).json({ error: 'Failed to fetch statistics' });
+  }
+});
+
+/**
+ * GET /api/interview/card/:cardId/sessions
+ * Get all interview sessions for a card
+ */
+router.get('/card/:cardId/sessions', async (req: Request, res: Response) => {
+  try {
+    const { cardId } = req.params;
+    const sessions = await getCardInterviewSessions(cardId);
+    return res.json(sessions);
+  } catch (error) {
+    console.error('[Interview] Error fetching card sessions:', error);
+    return res.status(500).json({ error: 'Failed to fetch sessions' });
+  }
+});
+
+/**
+ * POST /api/interview/:sessionId/abandon
+ * Abandon an interview session
+ */
+router.post('/:sessionId/abandon', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { sessionId } = req.params;
+    const session = await getInterviewSession(sessionId);
+
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.userOpenId !== user.openId) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    await abandonInterviewSession(sessionId);
+    return res.json({ message: 'Interview session abandoned' });
+  } catch (error) {
+    console.error('[Interview] Error abandoning session:', error);
+    return res.status(500).json({ error: 'Failed to abandon session' });
+  }
+});
+
+export default router;

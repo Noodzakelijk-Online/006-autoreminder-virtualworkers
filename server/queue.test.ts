@@ -84,9 +84,10 @@ describe('Request Queue Service', () => {
 
       const results = await Promise.all(promises);
 
-      // All should get different results
-      expect(results[0]).not.toBe(results[1]);
-      expect(results[1]).not.toBe(results[2]);
+      // All should get different results (not equal)
+      expect(results[0]).not.toEqual(results[1]);
+      expect(results[1]).not.toEqual(results[2]);
+      expect(results[0]).not.toEqual(results[2]);
       
       // Executor should run 3 times
       expect(executionCount).toBe(3);

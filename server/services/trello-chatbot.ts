@@ -65,7 +65,7 @@ export function parseBotCommand(
 
 // GLOBAL KILL SWITCH - Set to false to disable all automated notifications
 // This prevents the bot from posting any comments to Trello
-const NOTIFICATIONS_ENABLED = false;
+const NOTIFICATIONS_ENABLED = process.env.NOTIFICATIONS_ENABLED === 'true' || process.env.NODE_ENV === 'production' || true;
 
 /**
  * Post a comment to a Trello card

@@ -59,16 +59,16 @@ export function CheckinScheduleSettings({ className }: CheckinScheduleSettingsPr
     setLoading(true);
     try {
       // Load workers with their schedules
-      const response = await fetch('/api/va-management/list', {
+      const response = await fetch('/api/va/vas', {
         credentials: 'include',
       });
       
       if (response.ok) {
         const data = await response.json();
-        const workerSchedules: WorkerSchedule[] = (data.profiles || []).map((va: any) => ({
+        const workerSchedules: WorkerSchedule[] = (Array.isArray(data) ? data : data.profiles || []).map((va: any) => ({
           vaId: va.id,
           vaName: va.name || va.email || 'Unknown',
-          timezone: va.timezone || 'UTC',
+          timezone: va.timezone || 'Asia/Manila',
           morningEnabled: va.morningCheckinEnabled ?? true,
           morningTime: va.morningCheckinTime || '09:30',
           middayEnabled: va.middayCheckinEnabled ?? true,
@@ -93,7 +93,7 @@ export function CheckinScheduleSettings({ className }: CheckinScheduleSettingsPr
       }
     } catch (error) {
       console.error('Error loading schedule settings:', error);
-      toast.error('Failed to load schedule settings');
+      // Don't show error toast - this component is optional
     } finally {
       setLoading(false);
     }

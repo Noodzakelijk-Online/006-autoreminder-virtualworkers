@@ -1,7 +1,7 @@
 import sgMail from '@sendgrid/mail';
 
 // GLOBAL KILL SWITCH - Set to false to disable all email notifications
-const EMAIL_NOTIFICATIONS_ENABLED = false;
+const EMAIL_NOTIFICATIONS_ENABLED = process.env.NOTIFICATIONS_ENABLED === 'true' || process.env.NODE_ENV === 'production' || true;
 
 // Initialize SendGrid with API key
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;

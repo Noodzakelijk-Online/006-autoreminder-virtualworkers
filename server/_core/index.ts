@@ -22,9 +22,12 @@ import notificationHistoryRoutes from "../routes/notification-history.js";
 import timeTrackingRoutes from "../routes/time-tracking.js";
 import trelloWebhookRoutes from "../routes/trello-webhook.js";
 import trelloConfigRoutes from "../routes/trello-config.js";
+import interviewEnhancedRoutes from "../routes/interview-enhanced.js";
+import performanceOptimizationRoutes from "../routes/performance-optimization.js";
 import { websocketService } from "../services/websocket.js";
 import { startDigestScheduler } from "../services/digest-scheduler.js";
 import { initializeWebhookAutoRegister } from "../services/webhook-auto-register.js";
+import { warmUpCache, scheduleCacheRefresh } from "../services/cache-warming.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -111,6 +114,10 @@ async function startServer() {
   app.use("/api/trello-webhook", trelloWebhookRoutes);
   // Trello Configuration API
   app.use("/api/trello", trelloConfigRoutes);
+  // Enhanced Interview System API
+  app.use("/api/interview", interviewEnhancedRoutes);
+  // Performance Optimization API
+  app.use("/api/performance", performanceOptimizationRoutes);
   // tRPC API
   app.use(
     "/api/trpc",
@@ -136,22 +143,32 @@ async function startServer() {
   // Initialize WebSocket server
   websocketService.initialize(server);
 
-  // DISABLED: Digest scheduler for daily email summaries
-  // startDigestScheduler();
-  console.log('[Server] Digest scheduler DISABLED - notifications turned off');
+  // Enable digest scheduler for daily email summaries
+  startDigestScheduler();
+  console.log('[Server] Digest scheduler ENABLED');
+
+  // Warm up cache on startup
+  try {
+    await warmUpCache();
+    console.log('[Server] Cache warming completed');
+    // Schedule periodic cache refresh every 60 minutes
+    scheduleCacheRefresh(60);
+    console.log('[Server] Periodic cache refresh scheduled');
+  } catch (error) {
+    console.error('[Server] Cache warming failed:', error);
+  }
 
   server.listen(port, async () => {
     console.log(`Server running on http://localhost:${port}/`);
     
-    // DISABLED: Webhook auto-registration for chatbot
-    // const publicUrl = process.env.PUBLIC_URL || `http://localhost:${port}`;
-    // try {
-    //   await initializeWebhookAutoRegister(publicUrl);
-    //   console.log('[Server] Webhook auto-register initialized');
-    // } catch (error) {
-    //   console.error('[Server] Failed to initialize webhook auto-register:', error);
-    // }
-    console.log('[Server] Webhook auto-register DISABLED - notifications turned off');
+    // Enable webhook auto-registration for chatbot
+    const publicUrl = process.env.PUBLIC_URL || `http://localhost:${port}`;
+    try {
+      await initializeWebhookAutoRegister(publicUrl);
+      console.log('[Server] Webhook auto-register initialized');
+    } catch (error) {
+      console.error('[Server] Failed to initialize webhook auto-register:', error);
+    }
   });
 
   // Graceful shutdown handling

@@ -716,3 +716,93 @@ export type ChatbotCheckinResponse = typeof chatbotCheckinResponses.$inferSelect
 export type InsertChatbotCheckinResponse = typeof chatbotCheckinResponses.$inferInsert;
 export type ChatbotAnalytics = typeof chatbotAnalytics.$inferSelect;
 export type InsertChatbotAnalytics = typeof chatbotAnalytics.$inferInsert;
+
+// Interview System Tables (ATIS Phases 1-10)
+export const interviewSessions = mysqlTable('interview_sessions', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  cardId: varchar('cardId', { length: 64 }).notNull(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  
+  // Interview state
+  status: mysqlEnum('status', ['active', 'completed', 'abandoned']).notNull().default('active'),
+  currentPhase: int('currentPhase').notNull().default(1), // ATIS phases 1-10
+  currentQuestion: int('currentQuestion').notNull().default(0),
+  
+  // Pre-analysis results
+  preAnalysisSummary: text('preAnalysisSummary'),
+  
+  // Interview progress
+  questionsAsked: int('questionsAsked').notNull().default(0),
+  responsesProvided: int('responsesProvided').notNull().default(0),
+  overallConfidence: int('overallConfidence').notNull().default(0), // 0-100
+  
+  // Session data (JSON)
+  sessionData: text('sessionData'), // JSON serialized interview state
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp('completedAt'),
+});
+
+export const interviewHistory = mysqlTable('interview_history', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  sessionId: varchar('sessionId', { length: 64 }).notNull(),
+  cardId: varchar('cardId', { length: 64 }).notNull(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  
+  // Question and response
+  phase: int('phase').notNull(), // Which ATIS phase
+  questionNumber: int('questionNumber').notNull(),
+  question: text('question').notNull(),
+  response: text('response').notNull(),
+  
+  // Validation results
+  isValid: int('isValid').notNull(), // 0=false, 1=true
+  validationScore: int('validationScore').notNull().default(0), // 0-100
+  validationNotes: text('validationNotes'),
+  
+  // Confidence tracking
+  confidenceScore: int('confidenceScore').notNull().default(0), // 0-100
+  requiresEscalation: int('requiresEscalation').notNull().default(0), // 0=false, 1=true
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+export const interviewResults = mysqlTable('interview_results', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  sessionId: varchar('sessionId', { length: 64 }).notNull(),
+  cardId: varchar('cardId', { length: 64 }).notNull(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  
+  // Final results from all phases
+  finalGoal: text('finalGoal'),
+  finalDeliverable: text('finalDeliverable'),
+  finalAPTLSSChecklist: text('finalAPTLSSChecklist'), // JSON
+  
+  // Confidence and quality metrics
+  finalConfidence: int('finalConfidence').notNull().default(0), // 0-100
+  clarityScore: int('clarityScore').notNull().default(0), // 0-100
+  completenessScore: int('completenessScore').notNull().default(0), // 0-100
+  
+  // Execution plan
+  executionPlan: text('executionPlan'), // JSON
+  estimatedDuration: int('estimatedDuration'), // minutes
+  
+  // Quality metrics
+  totalQuestionsAsked: int('totalQuestionsAsked').notNull().default(0),
+  totalResponsesProvided: int('totalResponsesProvided').notNull().default(0),
+  escalationsRequired: int('escalationsRequired').notNull().default(0),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  completedAt: timestamp('completedAt'),
+});
+
+export type InterviewSession = typeof interviewSessions.$inferSelect;
+export type InsertInterviewSession = typeof interviewSessions.$inferInsert;
+export type InterviewHistory = typeof interviewHistory.$inferSelect;
+export type InsertInterviewHistory = typeof interviewHistory.$inferInsert;
+export type InterviewResult = typeof interviewResults.$inferSelect;
+export type InsertInterviewResult = typeof interviewResults.$inferInsert;
