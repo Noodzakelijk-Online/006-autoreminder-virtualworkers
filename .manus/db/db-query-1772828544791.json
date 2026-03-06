@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `interview_history` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `sessionId` varchar(64) NOT NULL,\n  `cardId` varchar(64) NOT NULL,\n  `phase` int NOT NULL,\n  `question` text NOT NULL,\n  `userResponse` text,\n  `aiAnalysis` text,\n  `confidence` decimal(5,2),\n  `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`),\n  KEY `sessionId` (`sessionId`),\n  KEY `cardId` (`cardId`),\n  KEY `phase` (`phase`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute CREATE TABLE IF NOT EXISTS `interview_history` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `sessionId` varchar(64) NOT NULL,\n  `cardId` varchar(64) NOT NULL,\n  `phase` int NOT NULL,\n  `question` text NOT NULL,\n  `userResponse` text,\n  `aiAnalysis` text,\n  `confidence` decimal(5,2),\n  `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`),\n  KEY `sessionId` (`sessionId`),\n  KEY `cardId` (`cardId`),\n  KEY `phase` (`phase`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 483
+}

@@ -69,9 +69,10 @@ export function GoalInterviewDialog({
       setConfidence(data.confidence || 0);
     } catch (error) {
       console.error('Failed to start interview:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       setMessages([{
         role: 'assistant',
-        content: 'Sorry, I encountered an error starting the interview. Please try again.',
+        content: `Sorry, I encountered an error starting the interview: ${errorMsg}. Please try again.`,
         timestamp: new Date(),
       }]);
     } finally {
