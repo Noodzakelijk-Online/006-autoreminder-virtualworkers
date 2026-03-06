@@ -1215,3 +1215,12 @@ Each card now has:
 - [x] Verified task checkbox shows as completed
 - [x] All TypeScript errors resolved (0 errors)
 - [x] Error "Failed to fetch card" is now resolved
+
+
+## Calendar Page API Fixes (Mar 6, 2026)
+- [x] Fix "Unexpected token '<'" error - Added missing GET /api/holidays endpoint
+- [x] Fix notification unread count error - Endpoint already exists, just needed server restart
+- [x] Fix working hours settings error - Endpoint already exists, just needed server restart
+- [x] Verify calendar page loads without errors
+- [x] Verify all API endpoints return JSON (not HTML)
+- [x] Test calendar refresh functionality

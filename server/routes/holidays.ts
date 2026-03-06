@@ -85,6 +85,37 @@ router.get('/fetch/:country/:year', async (req: any, res: Response) => {
 });
 
 /**
+ * GET /api/holidays
+ * Get user's active holidays (main endpoint for calendar)
+ */
+router.get('/', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const userHolidays = await db.select()
+      .from(holidays)
+      .where(and(
+        eq(holidays.userOpenId, user.openId),
+        eq(holidays.isActive, 1)
+      ))
+      .orderBy(holidays.date);
+
+    res.json(userHolidays);
+  } catch (error) {
+    console.error('Error fetching holidays:', error);
+    res.status(500).json({ error: 'Failed to fetch holidays' });
+  }
+});
+
+/**
  * GET /api/holidays/list
  * Get user's stored holidays
  */
