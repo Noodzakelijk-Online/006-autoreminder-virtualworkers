@@ -53,7 +53,7 @@ export default function Calendar() {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('/api/working-hours', {
+      const response = await fetch('/api/working-hours/settings', {
         credentials: 'include'
       });
       
@@ -70,13 +70,15 @@ export default function Calendar() {
 
   const fetchHolidays = async () => {
     try {
-      const response = await fetch('/api/holidays', {
+      const response = await fetch('/api/aptlss/trello/tasks', {
         credentials: 'include'
       });
       
       if (response.ok) {
         const data = await response.json();
-        setHolidays(data.map((h: any) => h.date));
+        // Extract dates from tasks for calendar view
+        const dates = data.map((task: any) => task.date);
+        setHolidays(dates);
       }
     } catch (error) {
       console.error('Error fetching holidays:', error);
