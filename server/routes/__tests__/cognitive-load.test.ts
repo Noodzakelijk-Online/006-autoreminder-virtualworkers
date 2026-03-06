@@ -84,6 +84,9 @@ function scheduleTasksByTime(
 
     // NEW: Cognitive Load Heuristic - track distinct tasks per day
     const scheduledCardNames = new Set<string>();
+    
+    // Check if ANY task in this day is CRITICAL or URGENT
+    const hasCriticalOrUrgent = sortedTasks.some(t => t.priorityLevel === 'CRITICAL' || t.priorityLevel === 'URGENT');
 
     const toMinutes = (h: number, m: number) => h * 60 + m;
     
@@ -117,7 +120,7 @@ function scheduleTasksByTime(
       
       // NEW: Cognitive Load Heuristic - check if adding this task would exceed distinct task limit
       const isNewCard = !scheduledCardNames.has(task.cardName);
-      const maxDistinctTasks = (task.priorityLevel === 'CRITICAL' || task.priorityLevel === 'URGENT') 
+      const maxDistinctTasks = hasCriticalOrUrgent 
         ? MAX_DISTINCT_TASKS_CRITICAL 
         : MAX_DISTINCT_TASKS_NORMAL;
       
