@@ -52,7 +52,7 @@ export function GoalInterviewDialog({
   const startInterview = async () => {
     setIsStarting(true);
     try {
-      const response = await fetch('/api/trpc/interview.start', {
+      const response = await fetch('/api/interview/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cardId }),
@@ -63,10 +63,10 @@ export function GoalInterviewDialog({
       const data = await response.json();
       setMessages([{
         role: 'assistant',
-        content: data.result.data.firstMessage,
+        content: data.firstMessage || 'Interview started. Please answer the following questions.',
         timestamp: new Date(),
       }]);
-      setConfidence(data.result.data.confidence || 0);
+      setConfidence(data.confidence || 0);
     } catch (error) {
       console.error('Failed to start interview:', error);
       setMessages([{

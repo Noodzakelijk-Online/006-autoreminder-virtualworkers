@@ -250,7 +250,15 @@ export default function APTLSSManagement() {
 
   // Filter cards based on search and board filter
   useEffect(() => {
-    let filtered = cards;
+    // Deduplicate cards by ID to prevent duplicate key errors
+    const seenIds = new Set();
+    let filtered = cards.filter(card => {
+      if (seenIds.has(card.id)) {
+        return false; // Skip duplicate
+      }
+      seenIds.add(card.id);
+      return true;
+    });
 
     if (searchTerm) {
       filtered = filtered.filter(card =>
@@ -265,6 +273,7 @@ export default function APTLSSManagement() {
 
     setFilteredCards(filtered);
   }, [cards, searchTerm, filterBoard]);
+
 
   const loadWorkspaces = async () => {
     setLoading(true);
@@ -1285,8 +1294,8 @@ export default function APTLSSManagement() {
                     <div className="mt-4 border-t pt-4">
                       <p className="text-sm font-medium text-red-600 mb-2">Failed Boards:</p>
                       <div className="max-h-32 overflow-y-auto space-y-1">
-                        {autoLoadProgress.failedBoards.map((board, idx) => (
-                          <div key={idx} className="text-xs text-muted-foreground flex items-center justify-between bg-red-50 dark:bg-red-950/20 px-2 py-1 rounded">
+                        {autoLoadProgress.failedBoards.map((board) => (
+                          <div key={`${board.id}-${board.workspaceName}`} className="text-xs text-muted-foreground flex items-center justify-between bg-red-50 dark:bg-red-950/20 px-2 py-1 rounded">
                             <span>{board.workspaceName} / {board.name}</span>
                             <Button
                               size="sm"
