@@ -1282,3 +1282,11 @@ Each card now has:
 - [ ] Search/filter for workspaces in APTLSS
 
 **Next Step:** Take project locally for testing using the provided .env configuration file.
+
+## Worker Creation Authentication Fix (Mar 6, 2026)
+- [x] Identified root cause: Authentication middleware not applied to /api routes
+- [x] Added authentication middleware to server/_core/index.ts
+- [x] Fixed 401 Unauthorized error when adding workers
+- [x] Tested worker creation - Sarah Johnson successfully added
+- [x] Verified worker card displays correctly with all details
+- [x] TypeScript: 0 errors after fix

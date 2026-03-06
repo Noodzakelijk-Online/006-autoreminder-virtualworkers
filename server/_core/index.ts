@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { sdk } from "./sdk";
 import { serveStatic, setupVite } from "./vite";
 import aptlssRoutes from "../routes/aptlss.js";
 import workingHoursRoutes from "../routes/working-hours.js";
@@ -68,6 +69,18 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  
+  // Authentication middleware for all /api routes
+  app.use('/api', async (req: any, res, next) => {
+    try {
+      req.user = await sdk.authenticateRequest(req);
+    } catch (error) {
+      // Authentication is optional, continue without user
+      req.user = null;
+    }
+    next();
+  });
+  
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
   // APTLSS Management API
