@@ -1220,7 +1220,7 @@ Each card now has:
 ## Calendar Page API Fixes (Mar 6, 2026)
 - [x] Fix "Unexpected token '<'" error - Added missing GET /api/holidays endpoint
 - [x] Fix notification unread count error - Endpoint already exists, just needed server restart
-- [x] Fix working hours settings error - Endpoint already exists, just needed server restart
+- [x] Fix working hours settings error - Added missing GET /api/working-hours root endpoint
 - [x] Verify calendar page loads without errors
 - [x] Verify all API endpoints return JSON (not HTML)
 - [x] Test calendar refresh functionality
