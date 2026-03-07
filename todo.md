@@ -1345,3 +1345,78 @@ Each card now has:
 - [ ] Test email notifications
 - [ ] Performance testing with load
 - [ ] Security audit
+
+
+## PHASE 1: ADVANCED SCHEDULING (Mar 7, 2026)
+
+### Database Schema Updates
+- [ ] Add scheduledStartTime to tasks table
+- [ ] Add scheduledEndTime to tasks table
+- [ ] Add lastRescheduledAt to tasks table
+- [ ] Add lastRescheduledBy to tasks table
+- [ ] Add rescheduleReason to tasks table
+- [ ] Create task_schedule_history table
+- [ ] Create batch_operations table
+- [ ] Run database migrations
+
+### Backend - Drag-and-Drop Calendar
+- [ ] Create reschedule-single API endpoint
+- [ ] Implement validation for time slots
+- [ ] Implement conflict detection
+- [ ] Implement Trello sync on reschedule
+- [ ] Create undo-reschedule endpoint
+- [ ] Create schedule-history endpoint
+- [ ] Add error handling and logging
+
+### Backend - Batch Re-Analysis
+- [ ] Create batch-re-analyze endpoint
+- [ ] Implement batch job tracking
+- [ ] Create progress tracking API
+- [ ] Implement WebSocket for real-time updates
+- [ ] Create batch results endpoint
+- [ ] Add job status persistence
+
+### Backend - Keyboard Shortcuts
+- [ ] Create shortcuts configuration service
+- [ ] Create shortcuts API endpoint
+- [ ] Implement shortcut validation
+
+### Frontend - Calendar View
+- [ ] Create CalendarView component
+- [ ] Create CalendarGrid component
+- [ ] Create DraggableTaskCard component
+- [ ] Create DropZone component
+- [ ] Implement drag-and-drop logic
+- [ ] Implement validation UI feedback
+- [ ] Add conflict warning UI
+- [ ] Add undo functionality
+
+### Frontend - Batch Re-Analysis
+- [ ] Create BatchReAnalysisDialog component
+- [ ] Create ProgressTracker component
+- [ ] Create ReAnalysisResults component
+- [ ] Implement real-time progress updates
+- [ ] Add results display and actions
+- [ ] Add error handling UI
+
+### Frontend - Keyboard Shortcuts
+- [ ] Create useKeyboardShortcuts hook
+- [ ] Create KeyboardShortcutsHelp component
+- [ ] Implement all 15+ shortcuts
+- [ ] Add settings for customization
+- [ ] Add shortcut conflict detection
+
+### Testing
+- [ ] Test drag-and-drop functionality
+- [ ] Test validation and conflict detection
+- [ ] Test Trello sync
+- [ ] Test batch operations with 100+ tasks
+- [ ] Test keyboard shortcuts
+- [ ] Test error scenarios
+- [ ] Performance testing
+
+### Documentation
+- [ ] Document calendar drag-and-drop usage
+- [ ] Document batch re-analysis workflow
+- [ ] Document keyboard shortcuts
+- [ ] Create user guide

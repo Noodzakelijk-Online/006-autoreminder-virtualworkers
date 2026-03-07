@@ -806,3 +806,95 @@ export type InterviewHistory = typeof interviewHistory.$inferSelect;
 export type InsertInterviewHistory = typeof interviewHistory.$inferInsert;
 export type InterviewResult = typeof interviewResults.$inferSelect;
 export type InsertInterviewResult = typeof interviewResults.$inferInsert;
+
+// ============================================
+// ADVANCED SCHEDULING TABLES
+// ============================================
+
+// Task schedule history - track all rescheduling events
+export const taskScheduleHistory = mysqlTable('task_schedule_history', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  cardTrelloId: varchar('cardTrelloId', { length: 64 }),
+  
+  // Previous schedule
+  previousStartTime: timestamp('previousStartTime'),
+  previousEndTime: timestamp('previousEndTime'),
+  
+  // New schedule
+  newStartTime: timestamp('newStartTime'),
+  newEndTime: timestamp('newEndTime'),
+  
+  // Change details
+  changedBy: varchar('changedBy', { length: 64 }).notNull(), // User openId
+  reason: varchar('reason', { length: 255 }), // Why was it rescheduled?
+  source: mysqlEnum('source', ['manual', 'auto', 'batch', 'conflict_resolution']).default('manual').notNull(),
+  
+  // Conflict info
+  hadConflicts: int('hadConflicts').default(0).notNull(), // 0=false, 1=true
+  conflictDetails: text('conflictDetails'), // JSON array of conflicts
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Batch operations tracking
+export const batchOperations = mysqlTable('batch_operations', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  userId: varchar('userId', { length: 64 }).notNull(), // User openId
+  
+  // Operation details
+  operationType: mysqlEnum('operationType', ['re_analyze', 'reschedule', 'conflict_resolution', 'optimization']).notNull(),
+  description: varchar('description', { length: 255 }),
+  
+  // Task scope
+  totalTasks: int('totalTasks').notNull(),
+  completedTasks: int('completedTasks').notNull().default(0),
+  failedTasks: int('failedTasks').notNull().default(0),
+  
+  // Progress tracking
+  status: mysqlEnum('status', ['pending', 'running', 'completed', 'failed', 'cancelled']).default('pending').notNull(),
+  progress: decimal('progress', { precision: 5, scale: 2 }).default('0.00').notNull(), // 0-100%
+  currentTaskIndex: int('currentTaskIndex').default(0),
+  currentTaskName: varchar('currentTaskName', { length: 255 }),
+  
+  // Timing
+  estimatedTimeSeconds: int('estimatedTimeSeconds'),
+  elapsedTimeSeconds: int('elapsedTimeSeconds').default(0),
+  
+  // Results
+  results: text('results'), // JSON with operation results
+  errorLog: text('errorLog'), // JSON array of errors
+  
+  // Metadata
+  parameters: text('parameters'), // JSON with operation parameters
+  
+  startedAt: timestamp('startedAt'),
+  completedAt: timestamp('completedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Keyboard shortcuts configuration
+export const keyboardShortcuts = mysqlTable('keyboard_shortcuts', {
+  id: int('id').primaryKey().autoincrement(),
+  userId: varchar('userId', { length: 64 }).notNull(), // User openId
+  
+  // Shortcut details
+  shortcutKey: varchar('shortcutKey', { length: 50 }).notNull(), // e.g., 'Ctrl+D', 'Ctrl+R'
+  action: varchar('action', { length: 100 }).notNull(), // e.g., 'open_calendar', 'batch_reanalyze'
+  description: varchar('description', { length: 255 }),
+  
+  // Customization
+  isCustom: int('isCustom').default(0).notNull(), // 0=default, 1=custom
+  isEnabled: int('isEnabled').default(1).notNull(), // 0=disabled, 1=enabled
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+export type TaskScheduleHistory = typeof taskScheduleHistory.$inferSelect;
+export type InsertTaskScheduleHistory = typeof taskScheduleHistory.$inferInsert;
+export type BatchOperation = typeof batchOperations.$inferSelect;
+export type InsertBatchOperation = typeof batchOperations.$inferInsert;
+export type KeyboardShortcut = typeof keyboardShortcuts.$inferSelect;
+export type InsertKeyboardShortcut = typeof keyboardShortcuts.$inferInsert;
