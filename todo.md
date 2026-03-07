@@ -1804,3 +1804,14 @@ Each card now has:
 - [ ] Test loading states
 - [ ] Test data persistence across page reloads
 - [ ] Test cross-device sync scenarios
+
+
+## Debounced Auto-Save Feature (Mar 7, 2026)
+
+- [x] Create useDebounce custom hook
+- [ ] Update ConflictDetectionSettings with auto-save
+- [ ] Update BatchOperationDefaults with auto-save
+- [ ] Update KeyboardShortcutsSettings with auto-save
+- [ ] Update PerformanceMetrics with auto-save
+- [ ] Add auto-save status indicators
+- [ ] Write auto-save tests
