@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { CheckCircle } from 'lucide-react';
+import { CheckCircle, Loader2 } from 'lucide-react';
+import { useBatchOperationDefaults } from '@/hooks/useSettings';
 
 export interface BatchOperationDefaultsConfig {
   defaultOperationType: 're_analyze' | 'reschedule' | 'conflict_resolution' | 'optimization';
@@ -32,40 +33,38 @@ const DEFAULT_CONFIG: BatchOperationDefaultsConfig = {
 interface BatchOperationDefaultsProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (config: BatchOperationDefaultsConfig) => Promise<void>;
 }
 
 export function BatchOperationDefaults({
   open,
   onOpenChange,
-  onSave,
 }: BatchOperationDefaultsProps) {
+  const { defaults, isLoading, isSaving, save } = useBatchOperationDefaults();
   const [config, setConfig] = useState<BatchOperationDefaultsConfig>(DEFAULT_CONFIG);
-  const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem('batchOperationDefaults');
-    if (saved) {
-      try {
-        setConfig(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to parse batch operation defaults:', e);
-      }
+    if (defaults) {
+      setConfig({
+        defaultOperationType: (defaults.defaultOperationType as any) || 're_analyze',
+        defaultPriority: (defaults.defaultPriority as any) || 'normal',
+        autoStartOnQueue: Boolean(defaults.autoStartOnQueue),
+        maxConcurrentOperations: Number(defaults.maxConcurrentOperations),
+        retryFailedTasks: Boolean(defaults.retryFailedTasks),
+        maxRetries: Number(defaults.maxRetries),
+        notifyOnCompletion: Boolean(defaults.notifyOnCompletion),
+        notifyOnFailure: Boolean(defaults.notifyOnFailure),
+      });
     }
-  }, [open]);
+  }, [defaults, open]);
 
   const handleSave = async () => {
     try {
-      setIsSaving(true);
-      await onSave(config);
-      localStorage.setItem('batchOperationDefaults', JSON.stringify(config));
+      await save(config);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (error) {
       console.error('Failed to save batch operation defaults:', error);
-    } finally {
-      setIsSaving(false);
     }
   };
 

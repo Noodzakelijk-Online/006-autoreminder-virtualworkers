@@ -329,26 +329,16 @@ export default function AdvancedScheduling() {
       <BatchOperationDefaults
         open={showBatchDefaults}
         onOpenChange={setShowBatchDefaults}
-        onSave={async (config: BatchOperationDefaultsConfig) => {
-          console.log('Batch operation defaults saved:', config);
-        }}
       />
 
       <KeyboardShortcutsSettings
         open={showKeyboardSettings}
         onOpenChange={setShowKeyboardSettings}
-        onSave={async (shortcuts: KeyboardShortcut[]) => {
-          setShortcuts(shortcuts);
-          console.log('Keyboard shortcuts saved:', shortcuts);
-        }}
       />
 
       <PerformanceMetrics
         open={showPerformanceMetrics}
         onOpenChange={setShowPerformanceMetrics}
-        onExport={async () => {
-          console.log('Exporting performance metrics');
-        }}
       />
     </div>
   );

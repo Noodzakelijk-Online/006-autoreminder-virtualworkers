@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { CheckCircle, RotateCcw } from 'lucide-react';
+import { CheckCircle, RotateCcw, Loader2 } from 'lucide-react';
+import { useKeyboardShortcuts } from '@/hooks/useSettings';
 
 export interface KeyboardShortcut {
   action: string;
@@ -42,42 +43,31 @@ const DEFAULT_SHORTCUTS: KeyboardShortcut[] = [
 interface KeyboardShortcutsSettingsProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (shortcuts: KeyboardShortcut[]) => Promise<void>;
 }
 
 export function KeyboardShortcutsSettings({
   open,
   onOpenChange,
-  onSave,
 }: KeyboardShortcutsSettingsProps) {
+  const { shortcuts: savedShortcuts, isLoading, isSaving, save } = useKeyboardShortcuts();
   const [shortcuts, setShortcuts] = useState<KeyboardShortcut[]>(DEFAULT_SHORTCUTS);
-  const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [editingAction, setEditingAction] = useState<string | null>(null);
   const [editingKeys, setEditingKeys] = useState('');
 
   useEffect(() => {
-    const saved = localStorage.getItem('keyboardShortcuts');
-    if (saved) {
-      try {
-        setShortcuts(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to parse keyboard shortcuts:', e);
-      }
+    if (savedShortcuts && Array.isArray(savedShortcuts)) {
+      setShortcuts(savedShortcuts);
     }
-  }, [open]);
+  }, [savedShortcuts, open]);
 
   const handleSave = async () => {
     try {
-      setIsSaving(true);
-      await onSave(shortcuts);
-      localStorage.setItem('keyboardShortcuts', JSON.stringify(shortcuts));
+      await save(shortcuts);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (error) {
       console.error('Failed to save keyboard shortcuts:', error);
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -92,17 +82,13 @@ export function KeyboardShortcutsSettings({
 
   const handleSaveShortcut = () => {
     if (editingAction && editingKeys) {
-      setShortcuts(
-        shortcuts.map(s =>
-          s.action === editingAction ? { ...s, keys: editingKeys } : s
-        )
-      );
+      setShortcuts(shortcuts.map(s =>
+        s.action === editingAction ? { ...s, keys: editingKeys } : s
+      ));
       setEditingAction(null);
       setEditingKeys('');
     }
   };
-
-  const categories = ['navigation', 'scheduling', 'batch', 'general'] as const;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -114,93 +100,116 @@ export function KeyboardShortcutsSettings({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="navigation" className="w-full py-4">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="navigation">Navigation</TabsTrigger>
-            <TabsTrigger value="scheduling">Scheduling</TabsTrigger>
-            <TabsTrigger value="batch">Batch Ops</TabsTrigger>
-            <TabsTrigger value="general">General</TabsTrigger>
-          </TabsList>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        ) : (
+          <div className="space-y-6 py-4">
+            <Tabs defaultValue="navigation" className="w-full">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="navigation">Navigation</TabsTrigger>
+                <TabsTrigger value="scheduling">Scheduling</TabsTrigger>
+                <TabsTrigger value="batch">Batch</TabsTrigger>
+                <TabsTrigger value="general">General</TabsTrigger>
+              </TabsList>
 
-          {categories.map(category => (
-            <TabsContent key={category} value={category} className="space-y-4">
-              {shortcuts
-                .filter(s => s.category === category)
-                .map(shortcut => (
-                  <Card key={shortcut.action}>
-                    <CardContent className="pt-6">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{shortcut.description}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{shortcut.action}</p>
-                        </div>
-                        {editingAction === shortcut.action ? (
-                          <div className="flex items-center gap-2">
-                            <Input
-                              value={editingKeys}
-                              onChange={(e) => setEditingKeys(e.target.value)}
-                              placeholder="e.g., Ctrl+K"
-                              className="w-32"
-                            />
-                            <Button
-                              size="sm"
-                              onClick={handleSaveShortcut}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setEditingAction(null)}
-                            >
-                              Cancel
-                            </Button>
+              {['navigation', 'scheduling', 'batch', 'general'].map(category => (
+                <TabsContent key={category} value={category} className="space-y-4">
+                  {shortcuts
+                    .filter(s => s.category === category)
+                    .map(shortcut => (
+                      <Card key={shortcut.action}>
+                        <CardContent className="pt-6">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium">{shortcut.description}</p>
+                              <p className="text-sm text-muted-foreground">{shortcut.action}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <kbd className="px-3 py-1 bg-secondary border rounded text-sm font-mono">
+                                {shortcut.keys}
+                              </kbd>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEditShortcut(shortcut.action, shortcut.keys)}
+                              >
+                                Edit
+                              </Button>
+                            </div>
                           </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <kbd className="px-3 py-1 bg-secondary border rounded text-sm font-mono">
-                              {shortcut.keys}
-                            </kbd>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleEditShortcut(shortcut.action, shortcut.keys)}
-                            >
-                              Edit
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-            </TabsContent>
-          ))}
-        </Tabs>
+                        </CardContent>
+                      </Card>
+                    ))}
+                </TabsContent>
+              ))}
+            </Tabs>
 
-        <DialogFooter className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {saveSuccess && (
-              <>
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <span className="text-sm text-green-600">Settings saved</span>
-              </>
+            {editingAction && (
+              <Card className="border-blue-200 bg-blue-50 dark:bg-blue-950">
+                <CardHeader>
+                  <CardTitle className="text-base">Edit Shortcut</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label>New Keyboard Shortcut</Label>
+                    <Input
+                      value={editingKeys}
+                      onChange={(e) => setEditingKeys(e.target.value)}
+                      placeholder="e.g., Ctrl+Shift+S"
+                      className="mt-2"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={handleSaveShortcut}
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditingAction(null)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </div>
+        )}
+
+        <DialogFooter className="flex gap-2 justify-between">
+          <Button
+            variant="outline"
+            onClick={handleReset}
+            disabled={isSaving}
+          >
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Reset to Defaults
+          </Button>
           <div className="flex gap-2">
+            {saveSuccess && (
+              <div className="flex items-center gap-2 text-green-600">
+                <CheckCircle className="h-4 w-4" />
+                Saved!
+              </div>
+            )}
             <Button
-              variant="outline"
-              onClick={handleReset}
-              title="Reset to default shortcuts"
+              onClick={handleSave}
+              disabled={isSaving}
             >
-              <RotateCcw className="h-4 w-4 mr-2" />
-              Reset
-            </Button>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={isSaving}>
-              {isSaving ? 'Saving...' : 'Save Shortcuts'}
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save Shortcuts'
+              )}
             </Button>
           </div>
         </DialogFooter>
