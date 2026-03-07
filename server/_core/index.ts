@@ -24,6 +24,7 @@ import trelloWebhookRoutes from "../routes/trello-webhook.js";
 import trelloConfigRoutes from "../routes/trello-config.js";
 import interviewEnhancedRoutes from "../routes/interview-enhanced.js";
 import performanceOptimizationRoutes from "../routes/performance-optimization.js";
+import advancedSchedulingRoutes from "../routes/advanced-scheduling.js";
 import { websocketService } from "../services/websocket.js";
 import { startDigestScheduler } from "../services/digest-scheduler.js";
 import { initializeWebhookAutoRegister } from "../services/webhook-auto-register.js";
@@ -118,6 +119,8 @@ async function startServer() {
   app.use("/api/interview", interviewEnhancedRoutes);
   // Performance Optimization API
   app.use("/api/performance", performanceOptimizationRoutes);
+  // Advanced Scheduling API
+  app.use("/api/scheduling", advancedSchedulingRoutes);
   // tRPC API
   app.use(
     "/api/trpc",
