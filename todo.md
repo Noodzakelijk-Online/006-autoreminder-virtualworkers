@@ -1822,3 +1822,6 @@ Each card now has:
 - [x] Fix /calendar page - Error fetching tasks: Added JSON parsing with fallback
 - [x] Fix /calendar page - Error fetching holidays: Changed endpoint to /api/holidays with multiple format handling
 - [x] Fix /calendar page - Error fetching settings: Added JSON parsing with error handling
+
+- [x] Fix /calendar page - Error fetching tasks: Added retry logic with exponential backoff and proper error handling
+- [x] Fix /calendar page - Error parsing settings JSON: Added robust JSON parsing with multiple format support and defaults

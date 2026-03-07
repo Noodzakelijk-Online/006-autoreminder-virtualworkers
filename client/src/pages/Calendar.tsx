@@ -20,44 +20,91 @@ interface Task {
   taskType?: string;
 }
 
+const DEFAULT_SETTINGS = {
+  workingDays: [1, 2, 3, 4, 5],
+  workStartHour: 9,
+  workEndHour: 18,
+};
+
 export default function Calendar() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [holidays, setHolidays] = useState<string[]>([]);
-  const [workingDays, setWorkingDays] = useState<number[]>([1, 2, 3, 4, 5]);
+  const [workingDays, setWorkingDays] = useState<number[]>(DEFAULT_SETTINGS.workingDays);
+
+  // Retry logic with exponential backoff
+  const retryFetch = async (
+    url: string,
+    maxRetries = 3,
+    initialDelayMs = 500
+  ): Promise<Response | null> => {
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const response = await fetch(url, {
+          credentials: 'include',
+          signal: AbortSignal.timeout(10000), // 10 second timeout
+        });
+        return response;
+      } catch (error) {
+        lastError = error as Error;
+        if (attempt < maxRetries - 1) {
+          const delayMs = initialDelayMs * Math.pow(2, attempt);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+      }
+    }
+
+    if (lastError) throw lastError;
+    return null;
+  };
 
   const fetchTasks = async () => {
     setIsLoading(true);
     try {
-      // Try the main tasks endpoint first
-      const response = await fetch('/api/trello/tasks', {
-        credentials: 'include'
-      });
-      
+      const response = await retryFetch('/api/aptlss/trello/tasks');
+
+      if (!response) {
+        console.error('No response from tasks endpoint');
+        setTasks([]);
+        return;
+      }
+
       if (!response.ok) {
         if (response.status === 401) {
+          console.log('Unauthorized - user not logged in');
           return;
         }
-        throw new Error('Failed to fetch tasks');
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const text = await response.text();
       if (!text) {
+        console.log('Empty response from tasks endpoint');
         setTasks([]);
         return;
       }
 
       try {
         const data = JSON.parse(text);
-        setTasks(data.tasks || data || []);
+        // Handle different response formats
+        if (Array.isArray(data)) {
+          setTasks(data);
+        } else if (data.tasks && Array.isArray(data.tasks)) {
+          setTasks(data.tasks);
+        } else {
+          console.warn('Unexpected tasks response format:', data);
+          setTasks([]);
+        }
       } catch (parseError) {
-        console.error('Error parsing tasks JSON:', parseError);
+        console.error('Error parsing tasks JSON:', parseError, 'Response:', text.substring(0, 100));
         setTasks([]);
       }
     } catch (error) {
       console.error('Error fetching tasks:', error);
-      toast.error('Failed to load tasks');
+      toast.error('Failed to load tasks - using empty list');
       setTasks([]);
     } finally {
       setIsLoading(false);
@@ -66,62 +113,103 @@ export default function Calendar() {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('/api/working-hours/settings', {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const text = await response.text();
-        if (!text) return;
+      const response = await retryFetch('/api/working-hours/settings');
 
-        try {
-          const data = JSON.parse(text);
-          if (data.workingDays) {
-            const parsed = typeof data.workingDays === 'string' 
-              ? JSON.parse(data.workingDays) 
-              : data.workingDays;
-            setWorkingDays(Array.isArray(parsed) ? parsed : [1, 2, 3, 4, 5]);
-          }
-        } catch (parseError) {
-          console.error('Error parsing settings JSON:', parseError);
+      if (!response) {
+        console.log('No response from settings endpoint');
+        return;
+      }
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          console.log('Unauthorized - using default settings');
+          return;
         }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const text = await response.text();
+      if (!text) {
+        console.log('Empty response from settings endpoint');
+        return;
+      }
+
+      try {
+        const data = JSON.parse(text);
+        
+        // Parse workingDays - handle both string and array formats
+        if (data.workingDays) {
+          let parsedDays: number[];
+          if (typeof data.workingDays === 'string') {
+            parsedDays = data.workingDays
+              .split(',')
+              .map((d: string) => parseInt(d.trim(), 10))
+              .filter((d: number) => !isNaN(d));
+          } else if (Array.isArray(data.workingDays)) {
+            parsedDays = data.workingDays.map((d: any) => 
+              typeof d === 'string' ? parseInt(d, 10) : d
+            );
+          } else {
+            parsedDays = DEFAULT_SETTINGS.workingDays;
+          }
+          
+          setWorkingDays(parsedDays.length > 0 ? parsedDays : DEFAULT_SETTINGS.workingDays);
+        }
+      } catch (parseError) {
+        console.error('Error parsing settings JSON:', parseError, 'Response:', text.substring(0, 100));
+        // Use defaults on parse error
+        setWorkingDays(DEFAULT_SETTINGS.workingDays);
       }
     } catch (error) {
       console.error('Error fetching settings:', error);
+      // Use defaults on fetch error
+      setWorkingDays(DEFAULT_SETTINGS.workingDays);
     }
   };
 
   const fetchHolidays = async () => {
     try {
-      // Use the holidays endpoint instead of tasks endpoint
-      const response = await fetch('/api/holidays', {
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const text = await response.text();
-        if (!text) {
-          setHolidays([]);
-          return;
-        }
+      const response = await retryFetch('/api/holidays');
 
-        try {
-          const data = JSON.parse(text);
-          // Handle different response formats
-          if (Array.isArray(data)) {
-            setHolidays(data.map((h: any) => h.date || h));
-          } else if (data.holidays && Array.isArray(data.holidays)) {
-            setHolidays(data.holidays.map((h: any) => h.date || h));
-          } else if (data.dates && Array.isArray(data.dates)) {
-            setHolidays(data.dates);
-          } else {
-            setHolidays([]);
-          }
-        } catch (parseError) {
-          console.error('Error parsing holidays JSON:', parseError);
+      if (!response) {
+        console.log('No response from holidays endpoint');
+        setHolidays([]);
+        return;
+      }
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.log('Holidays endpoint not found');
+        }
+        setHolidays([]);
+        return;
+      }
+
+      const text = await response.text();
+      if (!text) {
+        console.log('Empty response from holidays endpoint');
+        setHolidays([]);
+        return;
+      }
+
+      try {
+        const data = JSON.parse(text);
+        
+        // Handle different response formats
+        if (Array.isArray(data)) {
+          setHolidays(data.map((h: any) => 
+            typeof h === 'string' ? h : h.date || h
+          ));
+        } else if (data.holidays && Array.isArray(data.holidays)) {
+          setHolidays(data.holidays.map((h: any) => h.date || h));
+        } else if (data.dates && Array.isArray(data.dates)) {
+          setHolidays(data.dates);
+        } else {
+          console.warn('Unexpected holidays response format:', data);
           setHolidays([]);
         }
-      } else {
+      } catch (parseError) {
+        console.error('Error parsing holidays JSON:', parseError);
         setHolidays([]);
       }
     } catch (error) {
@@ -132,15 +220,32 @@ export default function Calendar() {
 
   useEffect(() => {
     if (user) {
-      fetchTasks();
-      fetchSettings();
-      fetchHolidays();
+      // Run all fetches in parallel
+      Promise.all([
+        fetchTasks(),
+        fetchSettings(),
+        fetchHolidays(),
+      ]).catch(error => {
+        console.error('Error in parallel fetches:', error);
+      });
     }
   }, [user]);
 
   const handleRefresh = async () => {
-    await fetchTasks();
-    toast.success('Calendar refreshed');
+    setIsLoading(true);
+    try {
+      await Promise.all([
+        fetchTasks(),
+        fetchSettings(),
+        fetchHolidays(),
+      ]);
+      toast.success('Calendar refreshed');
+    } catch (error) {
+      console.error('Error refreshing calendar:', error);
+      toast.error('Failed to refresh calendar');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (!user) {
