@@ -898,3 +898,271 @@ export type BatchOperation = typeof batchOperations.$inferSelect;
 export type InsertBatchOperation = typeof batchOperations.$inferInsert;
 export type KeyboardShortcut = typeof keyboardShortcuts.$inferSelect;
 export type InsertKeyboardShortcut = typeof keyboardShortcuts.$inferInsert;
+
+
+// ============================================
+// ATIS PHASES 3-10 TABLES
+// ============================================
+
+// Phase 3: Task Decomposition - Subtasks
+export const taskSubtasks = mysqlTable('task_subtasks', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(), // References tasks/cards
+  userId: varchar('userId', { length: 64 }).notNull(), // User openId
+  
+  // Subtask details
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description'),
+  estimatedHours: decimal('estimatedHours', { precision: 10, scale: 2 }),
+  sequence: int('sequence').notNull().default(0), // Order in decomposition
+  
+  // Status tracking
+  status: mysqlEnum('status', ['pending', 'in_progress', 'completed', 'blocked']).default('pending').notNull(),
+  
+  // Metadata
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Phase 3: Subtask Dependencies
+export const subtaskDependencies = mysqlTable('subtask_dependencies', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  subtaskId: varchar('subtaskId', { length: 36 }).notNull(), // References taskSubtasks.id
+  dependsOnSubtaskId: varchar('dependsOnSubtaskId', { length: 36 }).notNull(), // References taskSubtasks.id
+  
+  // Dependency type
+  dependencyType: mysqlEnum('dependencyType', ['sequential', 'parallel', 'blocking']).default('sequential').notNull(),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Phase 3: Critical Path Analysis
+export const criticalPathAnalysis = mysqlTable('critical_path_analysis', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  userId: varchar('userId', { length: 64 }).notNull(),
+  
+  // Critical path data
+  criticalPath: text('criticalPath').notNull(), // JSON array of subtask IDs
+  totalDurationHours: decimal('totalDurationHours', { precision: 10, scale: 2 }).notNull(),
+  parallelizationOpportunities: int('parallelizationOpportunities').default(0),
+  
+  // Analysis metadata
+  analysisData: text('analysisData'), // JSON with detailed analysis
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Phase 4: Risk Assessment
+export const taskRisks = mysqlTable('task_risks', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  userId: varchar('userId', { length: 64 }).notNull(),
+  
+  // Risk details
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description'),
+  category: mysqlEnum('category', ['technical', 'resource', 'schedule', 'external']).notNull(),
+  
+  // Risk scoring
+  probability: int('probability').notNull(), // 1-10
+  impact: int('impact').notNull(), // 1-10
+  priority: int('priority').notNull(), // probability * impact
+  
+  // Status
+  status: mysqlEnum('status', ['identified', 'mitigated', 'resolved']).default('identified').notNull(),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Phase 4: Risk Mitigations
+export const riskMitigations = mysqlTable('risk_mitigations', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  riskId: varchar('riskId', { length: 36 }).notNull(), // References taskRisks.id
+  
+  // Mitigation strategy
+  strategy: varchar('strategy', { length: 255 }).notNull(),
+  effort: varchar('effort', { length: 50 }), // e.g., 'low', 'medium', 'high'
+  owner: varchar('owner', { length: 255 }),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Phase 5: Resource Requirements
+export const taskResourceRequirements = mysqlTable('task_resource_requirements', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  userId: varchar('userId', { length: 64 }).notNull(),
+  
+  // Resource type
+  resourceType: mysqlEnum('resourceType', ['skill', 'tool', 'training']).notNull(),
+  resourceName: varchar('resourceName', { length: 255 }).notNull(),
+  
+  // Proficiency level (for skills)
+  proficiencyLevel: mysqlEnum('proficiencyLevel', ['beginner', 'intermediate', 'expert']),
+  
+  // Cost estimation
+  estimatedCost: decimal('estimatedCost', { precision: 10, scale: 2 }),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Phase 6: Timeline Optimization
+export const taskTimeline = mysqlTable('task_timeline', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  userId: varchar('userId', { length: 64 }).notNull(),
+  
+  // Timeline data
+  startDate: varchar('startDate', { length: 10 }), // YYYY-MM-DD
+  endDate: varchar('endDate', { length: 10 }), // YYYY-MM-DD
+  bufferDays: int('bufferDays').default(0),
+  totalDays: int('totalDays'),
+  
+  // Optimization metadata
+  optimizationData: text('optimizationData'), // JSON with optimization details
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Phase 6: Task Milestones
+export const taskMilestones = mysqlTable('task_milestones', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  
+  // Milestone details
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  dueDate: varchar('dueDate', { length: 10 }).notNull(), // YYYY-MM-DD
+  
+  // Status
+  status: mysqlEnum('status', ['pending', 'completed']).default('pending').notNull(),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Phase 7: QA Strategy
+export const taskQAStrategy = mysqlTable('task_qa_strategy', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  userId: varchar('userId', { length: 64 }).notNull(),
+  
+  // QA strategy
+  strategy: text('strategy').notNull(),
+  testingPhases: text('testingPhases'), // JSON array of testing phases
+  qualityMetrics: text('qualityMetrics'), // JSON with quality metrics
+  acceptanceCriteria: text('acceptanceCriteria'), // JSON with acceptance criteria
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Phase 8: Documentation Requirements
+export const taskDocumentationRequirements = mysqlTable('task_documentation_requirements', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  userId: varchar('userId', { length: 64 }).notNull(),
+  
+  // Documentation details
+  docType: varchar('docType', { length: 100 }).notNull(), // e.g., 'user_guide', 'api_docs', 'technical_spec'
+  audience: varchar('audience', { length: 255 }), // e.g., 'end_users', 'developers', 'stakeholders'
+  estimatedEffort: decimal('estimatedEffort', { precision: 10, scale: 2 }), // Hours
+  
+  // Content outline
+  contentOutline: text('contentOutline'), // JSON with outline structure
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+// Phase 9: External Dependencies
+export const taskExternalDependencies = mysqlTable('task_external_dependencies', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  userId: varchar('userId', { length: 64 }).notNull(),
+  
+  // Dependency details
+  dependencyType: mysqlEnum('dependencyType', ['approval', 'third_party', 'regulatory']).notNull(),
+  description: text('description').notNull(),
+  owner: varchar('owner', { length: 255 }),
+  dueDate: varchar('dueDate', { length: 10 }), // YYYY-MM-DD
+  
+  // Status
+  status: mysqlEnum('status', ['pending', 'completed']).default('pending').notNull(),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Phase 10: Execution Plan
+export const taskExecutionPlan = mysqlTable('task_execution_plan', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  userId: varchar('userId', { length: 64 }).notNull(),
+  
+  // Execution plan data
+  roadmap: text('roadmap'), // JSON with step-by-step roadmap
+  successMetrics: text('successMetrics'), // JSON with success metrics
+  communicationPlan: text('communicationPlan'), // Communication strategy
+  escalationPath: text('escalationPath'), // JSON with escalation procedures
+  preExecutionChecklist: text('preExecutionChecklist'), // JSON with checklist items
+  
+  // Final APTLSS checklist
+  aptlssChecklist: text('aptlssChecklist'), // JSON with final APTLSS checklist
+  confidenceScore: decimal('confidenceScore', { precision: 5, scale: 2 }), // 0-100%
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// ATIS Analysis Session - tracks the overall analysis process
+export const atisAnalysisSessions = mysqlTable('atis_analysis_sessions', {
+  id: varchar('id', { length: 36 }).primaryKey(),
+  taskId: varchar('taskId', { length: 128 }).notNull(),
+  userId: varchar('userId', { length: 64 }).notNull(),
+  
+  // Session tracking
+  status: mysqlEnum('status', ['pending', 'in_progress', 'completed', 'failed']).default('pending').notNull(),
+  currentPhase: int('currentPhase').default(3), // Current phase (3-10)
+  
+  // Progress tracking
+  phasesCompleted: int('phasesCompleted').default(0),
+  
+  // Session data
+  sessionData: text('sessionData'), // JSON with all phase results
+  
+  startedAt: timestamp('startedAt'),
+  completedAt: timestamp('completedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Type exports
+export type TaskSubtask = typeof taskSubtasks.$inferSelect;
+export type InsertTaskSubtask = typeof taskSubtasks.$inferInsert;
+export type SubtaskDependency = typeof subtaskDependencies.$inferSelect;
+export type InsertSubtaskDependency = typeof subtaskDependencies.$inferInsert;
+export type CriticalPathAnalysis = typeof criticalPathAnalysis.$inferSelect;
+export type InsertCriticalPathAnalysis = typeof criticalPathAnalysis.$inferInsert;
+export type TaskRisk = typeof taskRisks.$inferSelect;
+export type InsertTaskRisk = typeof taskRisks.$inferInsert;
+export type RiskMitigation = typeof riskMitigations.$inferSelect;
+export type InsertRiskMitigation = typeof riskMitigations.$inferInsert;
+export type TaskResourceRequirement = typeof taskResourceRequirements.$inferSelect;
+export type InsertTaskResourceRequirement = typeof taskResourceRequirements.$inferInsert;
+export type TaskTimeline = typeof taskTimeline.$inferSelect;
+export type InsertTaskTimeline = typeof taskTimeline.$inferInsert;
+export type TaskMilestone = typeof taskMilestones.$inferSelect;
+export type InsertTaskMilestone = typeof taskMilestones.$inferInsert;
+export type TaskQAStrategy = typeof taskQAStrategy.$inferSelect;
+export type InsertTaskQAStrategy = typeof taskQAStrategy.$inferInsert;
+export type TaskDocumentationRequirement = typeof taskDocumentationRequirements.$inferSelect;
+export type InsertTaskDocumentationRequirement = typeof taskDocumentationRequirements.$inferInsert;
+export type TaskExternalDependency = typeof taskExternalDependencies.$inferSelect;
+export type InsertTaskExternalDependency = typeof taskExternalDependencies.$inferInsert;
+export type TaskExecutionPlan = typeof taskExecutionPlan.$inferSelect;
+export type InsertTaskExecutionPlan = typeof taskExecutionPlan.$inferInsert;
+export type AtisAnalysisSession = typeof atisAnalysisSessions.$inferSelect;
+export type InsertAtisAnalysisSession = typeof atisAnalysisSessions.$inferInsert;

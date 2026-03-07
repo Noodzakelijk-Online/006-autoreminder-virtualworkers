@@ -25,6 +25,7 @@ import trelloConfigRoutes from "../routes/trello-config.js";
 import interviewEnhancedRoutes from "../routes/interview-enhanced.js";
 import performanceOptimizationRoutes from "../routes/performance-optimization.js";
 import advancedSchedulingRoutes from "../routes/advanced-scheduling.js";
+import atisPhasesRoutes from "../routes/atis-phases.js";
 import { websocketService } from "../services/websocket.js";
 import { startDigestScheduler } from "../services/digest-scheduler.js";
 import { initializeWebhookAutoRegister } from "../services/webhook-auto-register.js";
@@ -121,6 +122,8 @@ async function startServer() {
   app.use("/api/performance", performanceOptimizationRoutes);
   // Advanced Scheduling API
   app.use("/api/scheduling", advancedSchedulingRoutes);
+  // ATIS Phases 3-10 API
+  app.use("/api/atis/phases", atisPhasesRoutes);
   // tRPC API
   app.use(
     "/api/trpc",

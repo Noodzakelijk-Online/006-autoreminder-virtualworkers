@@ -1420,3 +1420,118 @@ Each card now has:
 - [ ] Document batch re-analysis workflow
 - [ ] Document keyboard shortcuts
 - [ ] Create user guide
+
+
+## ATIS Phases 3-10: Advanced Task Analysis (Mar 7, 2026)
+
+### Phase 3: Task Decomposition
+- [x] Create taskSubtasks database table with sequence and status tracking
+- [x] Create subtaskDependencies table for tracking task dependencies
+- [x] Create criticalPathAnalysis table for storing decomposition results
+- [x] Implement LLM-based task decomposition service (analyzePhase3Decomposition)
+- [x] Generate subtasks with estimated hours and dependencies
+- [x] Calculate critical path and parallelization opportunities
+- [x] Create API endpoint POST /api/atis/phases/phase3
+- [x] Unit tests for Phase 3 (✓ passing)
+
+### Phase 4: Risk Assessment
+- [x] Create taskRisks database table with probability/impact scoring
+- [x] Create riskMitigations table for storing mitigation strategies
+- [x] Implement LLM-based risk assessment service (analyzePhase4RiskAssessment)
+- [x] Identify risks by category (technical, resource, schedule, external)
+- [x] Generate mitigation strategies with effort estimates
+- [x] Create API endpoint POST /api/atis/phases/phase4
+- [x] Unit tests for Phase 4 (✓ passing)
+
+### Phase 5: Resource Estimation
+- [x] Create taskResourceRequirements table for skills, tools, training
+- [x] Implement LLM-based resource estimation service (analyzePhase5ResourceEstimation)
+- [x] Identify required skills with proficiency levels
+- [x] Estimate tool costs and training needs
+- [x] Create API endpoint POST /api/atis/phases/phase5
+- [x] Unit tests for Phase 5 (✓ passing)
+
+### Phase 6: Timeline Optimization
+- [x] Create taskTimeline table with start/end dates and buffer days
+- [x] Create taskMilestones table for tracking key milestones
+- [x] Implement LLM-based timeline optimization service (analyzePhase6TimelineOptimization)
+- [x] Generate optimized schedule with buffer days
+- [x] Create milestones with due dates
+- [x] Create API endpoints POST /api/atis/phases/phase6
+- [x] Unit tests for Phase 6 (✓ passing)
+
+### Phase 7: QA Strategy
+- [x] Create taskQAStrategy table for testing phases and quality metrics
+- [x] Implement LLM-based QA strategy service (analyzePhase7QAStrategy)
+- [x] Define testing phases (unit, integration, system, UAT)
+- [x] Generate quality metrics and acceptance criteria
+- [x] Create API endpoint POST /api/atis/phases/phase7
+- [x] Unit tests for Phase 7 (✓ passing)
+
+### Phase 8: Documentation Requirements
+- [x] Create taskDocumentationRequirements table for doc types and audiences
+- [x] Implement LLM-based documentation service (analyzePhase8Documentation)
+- [x] Identify documentation types (user guide, API docs, technical spec, training)
+- [x] Estimate documentation effort
+- [x] Generate content outlines
+- [x] Create API endpoint POST /api/atis/phases/phase8
+- [x] Unit tests for Phase 8 (✓ passing)
+
+### Phase 9: External Dependencies
+- [x] Create taskExternalDependencies table for tracking external blockers
+- [x] Implement LLM-based dependency analysis service (analyzePhase9Dependencies)
+- [x] Identify approval, third-party, and regulatory dependencies
+- [x] Track dependency owners and due dates
+- [x] Create API endpoint POST /api/atis/phases/phase9
+- [x] Unit tests for Phase 9 (✓ passing)
+
+### Phase 10: Execution Plan & Finalization
+- [x] Create taskExecutionPlan table with roadmap and success metrics
+- [x] Create atisAnalysisSessions table for tracking analysis progress
+- [x] Implement LLM-based execution plan service (analyzePhase10Finalization)
+- [x] Generate step-by-step roadmap
+- [x] Define success metrics and communication plan
+- [x] Create escalation procedures and pre-execution checklist
+- [x] Calculate confidence score (0-100%)
+- [x] Create API endpoint POST /api/atis/phases/phase10
+- [x] Unit tests for Phase 10 (✓ passing)
+
+### Backend Infrastructure
+- [x] Create database helper module (server/db/atis-phases.ts) with 30+ functions
+- [x] Create LLM service module (server/services/atis-phases-service.ts) with 8 analysis functions
+- [x] Create API routes module (server/routes/atis-phases.ts) with 11 endpoints
+- [x] Register routes in server/_core/index.ts
+- [x] Implement runAllPhases orchestration function
+- [x] Add error handling and logging throughout
+
+### API Endpoints
+- [x] POST /api/atis/phases/start - Start complete analysis (all phases)
+- [x] POST /api/atis/phases/phase3 - Task decomposition
+- [x] POST /api/atis/phases/phase4 - Risk assessment
+- [x] POST /api/atis/phases/phase5 - Resource estimation
+- [x] POST /api/atis/phases/phase6 - Timeline optimization
+- [x] POST /api/atis/phases/phase7 - QA strategy
+- [x] POST /api/atis/phases/phase8 - Documentation requirements
+- [x] POST /api/atis/phases/phase9 - External dependencies
+- [x] POST /api/atis/phases/phase10 - Execution plan
+- [x] GET /api/atis/phases/session/:sessionId - Get analysis session
+- [x] GET /api/atis/phases/task/:taskId - Get all analysis data for task
+- [x] GET /api/atis/phases/subtasks/:taskId - Get subtasks
+- [x] GET /api/atis/phases/risks/:taskId - Get risks
+
+### Testing
+- [x] Create comprehensive test suite (server/services/__tests__/atis-phases.test.ts)
+- [x] 18 test cases covering all phases
+- [x] Mock LLM responses with realistic data
+- [x] Mock database functions
+- [x] Test error handling
+- [x] All tests passing ✓
+
+### Summary
+- Total database tables added: 11
+- Total API endpoints: 13
+- Total LLM analysis functions: 8
+- Total database helper functions: 30+
+- Total test cases: 18
+- TypeScript errors: 0
+- Dev server status: Running ✓
