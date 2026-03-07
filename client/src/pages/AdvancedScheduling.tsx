@@ -16,15 +16,12 @@ import { AdvancedSchedulingCalendar } from '@/components/AdvancedSchedulingCalen
 import { BatchOperationsQueue } from '@/components/BatchOperationsQueue';
 import { useBatchOperations } from '@/hooks/useBatchOperations';
 import { getBatchOperationsClient } from '@/lib/batch-operations-client';
+import { ConflictDetectionSettings, type ConflictDetectionConfig } from '@/components/scheduling-settings/ConflictDetectionSettings';
+import { BatchOperationDefaults, type BatchOperationDefaultsConfig } from '@/components/scheduling-settings/BatchOperationDefaults';
+import { KeyboardShortcutsSettings, type KeyboardShortcut } from '@/components/scheduling-settings/KeyboardShortcutsSettings';
+import { PerformanceMetrics } from '@/components/scheduling-settings/PerformanceMetrics';
 
-interface KeyboardShortcut {
-  action: string;
-  keys: string;
-  description: string;
-  category: 'navigation' | 'scheduling' | 'batch' | 'general';
-}
-
-const DEFAULT_SHORTCUTS: KeyboardShortcut[] = [
+const DEFAULT_SHORTCUTS: (KeyboardShortcut & { isCustom?: boolean })[] = [
   // Navigation
   { action: 'focus-calendar', keys: 'Ctrl+1', description: 'Focus calendar view', category: 'navigation' },
   { action: 'focus-queue', keys: 'Ctrl+2', description: 'Focus batch operations queue', category: 'navigation' },
@@ -53,6 +50,10 @@ export default function AdvancedScheduling() {
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [shortcuts, setShortcuts] = useState<KeyboardShortcut[]>(DEFAULT_SHORTCUTS);
   const [isLoadingShortcuts, setIsLoadingShortcuts] = useState(false);
+  const [showConflictSettings, setShowConflictSettings] = useState(false);
+  const [showBatchDefaults, setShowBatchDefaults] = useState(false);
+  const [showKeyboardSettings, setShowKeyboardSettings] = useState(false);
+  const [showPerformanceMetrics, setShowPerformanceMetrics] = useState(false);
 
   const {
     operations,
@@ -261,7 +262,11 @@ export default function AdvancedScheduling() {
                 <p className="text-sm text-muted-foreground">
                   Automatically detect and warn about scheduling conflicts
                 </p>
-                <Button variant="outline" size="sm">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowConflictSettings(true)}
+                >
                   Configure
                 </Button>
               </div>
@@ -272,7 +277,11 @@ export default function AdvancedScheduling() {
                 <p className="text-sm text-muted-foreground">
                   Set default options for batch operations
                 </p>
-                <Button variant="outline" size="sm">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowBatchDefaults(true)}
+                >
                   Configure
                 </Button>
               </div>
@@ -286,12 +295,8 @@ export default function AdvancedScheduling() {
                 <Button 
                   variant="outline" 
                   size="sm"
-                  onClick={loadShortcuts}
-                  disabled={isLoadingShortcuts}
+                  onClick={() => setShowKeyboardSettings(true)}
                 >
-                  {isLoadingShortcuts ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : null}
                   Customize Shortcuts
                 </Button>
               </div>
@@ -302,7 +307,11 @@ export default function AdvancedScheduling() {
                 <p className="text-sm text-muted-foreground">
                   View scheduling performance and optimization suggestions
                 </p>
-                <Button variant="outline" size="sm">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setShowPerformanceMetrics(true)}
+                >
                   View Metrics
                 </Button>
               </div>
@@ -310,6 +319,40 @@ export default function AdvancedScheduling() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Settings Dialogs */}
+      <ConflictDetectionSettings
+        open={showConflictSettings}
+        onOpenChange={setShowConflictSettings}
+        onSave={async (config: ConflictDetectionConfig) => {
+          console.log('Conflict detection settings saved:', config);
+        }}
+      />
+
+      <BatchOperationDefaults
+        open={showBatchDefaults}
+        onOpenChange={setShowBatchDefaults}
+        onSave={async (config: BatchOperationDefaultsConfig) => {
+          console.log('Batch operation defaults saved:', config);
+        }}
+      />
+
+      <KeyboardShortcutsSettings
+        open={showKeyboardSettings}
+        onOpenChange={setShowKeyboardSettings}
+        onSave={async (shortcuts: KeyboardShortcut[]) => {
+          setShortcuts(shortcuts);
+          console.log('Keyboard shortcuts saved:', shortcuts);
+        }}
+      />
+
+      <PerformanceMetrics
+        open={showPerformanceMetrics}
+        onOpenChange={setShowPerformanceMetrics}
+        onExport={async () => {
+          console.log('Exporting performance metrics');
+        }}
+      />
     </div>
   );
 }
