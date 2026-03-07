@@ -525,11 +525,11 @@ export default function FounderDashboard() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ userId: selectedUserId ? parseInt(selectedUserId) : null }),
+        body: JSON.stringify({ userId: selectedUserId && selectedUserId !== 'none' ? parseInt(selectedUserId) : null }),
       });
 
       if (res.ok) {
-        toast.success(selectedUserId ? 'User linked successfully' : 'User unlinked successfully');
+        toast.success(selectedUserId && selectedUserId !== 'none' ? 'User linked successfully' : 'User unlinked successfully');
         setShowLinkUser(false);
         setLinkingWorker(null);
         fetchWorkload();
@@ -2071,7 +2071,7 @@ export default function FounderDashboard() {
                   <SelectValue placeholder="Select a user..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No linked user (unlink)</SelectItem>
+                  <SelectItem value="none">No linked user (unlink)</SelectItem>
                   {availableUsers.map((user) => (
                     <SelectItem key={user.id} value={user.id.toString()}>
                       {user.name} ({user.email})
@@ -2099,7 +2099,7 @@ export default function FounderDashboard() {
             </Button>
             <Button onClick={handleLinkUser} disabled={saving}>
               {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {selectedUserId ? 'Link User' : 'Unlink User'}
+              {selectedUserId && selectedUserId !== 'none' ? 'Link User' : 'Unlink User'}
             </Button>
           </DialogFooter>
         </DialogContent>

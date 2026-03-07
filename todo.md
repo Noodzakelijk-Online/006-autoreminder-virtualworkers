@@ -1768,3 +1768,8 @@ Each card now has:
 - [ ] Update PerformanceMetrics to use trpc.settings API
 - [ ] Remove localStorage usage from all settings components
 - [ ] Add loading and error states for API calls
+
+
+## Bug Fixes (Mar 7, 2026)
+
+- [x] Fix Select.Item empty value error on /founder page - Changed empty string value to 'none' in Link User dialog
