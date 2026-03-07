@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { AlertCircle, CheckCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { useConflictDetectionSettings } from '@/hooks/useSettings';
 
 export interface ConflictDetectionConfig {
   enabled: boolean;
@@ -34,41 +35,50 @@ const DEFAULT_CONFIG: ConflictDetectionConfig = {
 interface ConflictDetectionSettingsProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (config: ConflictDetectionConfig) => Promise<void>;
 }
 
 export function ConflictDetectionSettings({
   open,
   onOpenChange,
-  onSave,
 }: ConflictDetectionSettingsProps) {
+  const { settings, isLoading, isSaving, save } = useConflictDetectionSettings();
   const [config, setConfig] = useState<ConflictDetectionConfig>(DEFAULT_CONFIG);
-  const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
-    // Load saved configuration from localStorage
-    const saved = localStorage.getItem('conflictDetectionConfig');
-    if (saved) {
-      try {
-        setConfig(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to parse conflict detection config:', e);
-      }
+    if (settings) {
+      const conflictTypesArray = Array.isArray(settings.conflictTypes) 
+        ? settings.conflictTypes 
+        : [];
+      setConfig({
+        enabled: Boolean(settings.enabled),
+        warningThresholdMinutes: Number(settings.warningThresholdMinutes),
+        autoResolve: Boolean(settings.autoResolve),
+        notifyOnConflict: Boolean(settings.notifyOnConflict),
+        conflictTypes: {
+          timeOverlap: conflictTypesArray.includes('timeOverlap'),
+          resourceConflict: conflictTypesArray.includes('resourceConflict'),
+          dependencyConflict: conflictTypesArray.includes('dependencyConflict'),
+        },
+      });
     }
-  }, [open]);
+  }, [settings, open]);
 
   const handleSave = async () => {
     try {
-      setIsSaving(true);
-      await onSave(config);
-      localStorage.setItem('conflictDetectionConfig', JSON.stringify(config));
+      await save({
+        enabled: config.enabled,
+        warningThresholdMinutes: config.warningThresholdMinutes,
+        autoResolve: config.autoResolve,
+        notifyOnConflict: config.notifyOnConflict,
+        conflictTypes: Object.entries(config.conflictTypes)
+          .filter(([, enabled]) => enabled)
+          .map(([type]) => type),
+      });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (error) {
       console.error('Failed to save conflict detection settings:', error);
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -83,6 +93,11 @@ export function ConflictDetectionSettings({
         </DialogHeader>
 
         <div className="space-y-6 py-4">
+          {isLoading && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          )}
           {/* Master Toggle */}
           <div className="flex items-center justify-between p-4 border rounded-lg">
             <div>
@@ -99,7 +114,7 @@ export function ConflictDetectionSettings({
             />
           </div>
 
-          {config.enabled && (
+          {!isLoading && (
             <>
               {/* Warning Threshold */}
               <Card>

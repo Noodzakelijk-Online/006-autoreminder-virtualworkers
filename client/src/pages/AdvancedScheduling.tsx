@@ -324,9 +324,6 @@ export default function AdvancedScheduling() {
       <ConflictDetectionSettings
         open={showConflictSettings}
         onOpenChange={setShowConflictSettings}
-        onSave={async (config: ConflictDetectionConfig) => {
-          console.log('Conflict detection settings saved:', config);
-        }}
       />
 
       <BatchOperationDefaults
