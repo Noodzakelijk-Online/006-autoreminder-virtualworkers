@@ -1773,3 +1773,34 @@ Each card now has:
 ## Bug Fixes (Mar 7, 2026)
 
 - [x] Fix Select.Item empty value error on /founder page - Changed empty string value to 'none' in Link User dialog
+
+
+## Frontend Settings tRPC Integration (Mar 7, 2026)
+
+### Custom Hooks
+- [ ] Create useConflictDetectionSettings hook
+- [ ] Create useBatchOperationDefaults hook
+- [ ] Create useKeyboardShortcuts hook
+- [ ] Create usePerformanceMetrics hook
+- [ ] Add loading and error states to all hooks
+
+### Component Updates
+- [ ] Update ConflictDetectionSettings to use tRPC API
+- [ ] Update BatchOperationDefaults to use tRPC API
+- [ ] Update KeyboardShortcutsSettings to use tRPC API
+- [ ] Update PerformanceMetrics to use tRPC API
+- [ ] Remove all localStorage calls from components
+
+### Error Handling & UX
+- [ ] Add error toast notifications for API failures
+- [ ] Add loading spinners during API calls
+- [ ] Add success toast notifications for saves
+- [ ] Implement retry logic for failed saves
+- [ ] Add sync status indicator showing last sync time
+
+### Testing
+- [ ] Write tests for all custom hooks
+- [ ] Test API error handling
+- [ ] Test loading states
+- [ ] Test data persistence across page reloads
+- [ ] Test cross-device sync scenarios
