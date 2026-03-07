@@ -1633,3 +1633,13 @@ Each card now has:
 - [x] Test error handling
 - [x] Write 26 comprehensive unit tests
 
+
+
+## Bug Fixes (Mar 7, 2026)
+
+- [x] Fix useBatchOperations JSON parsing error - API returning HTML instead of JSON
+  - Fixed batch-operations-client endpoint paths to match backend routes
+  - Added proper error handling for non-JSON responses
+  - Updated getAllBatchOperations to use /batch-history endpoint
+  - Updated startBatchOperation to use /batch-start endpoint
+  - Updated cancelBatchOperation to use /batch/:jobId/cancel endpoint

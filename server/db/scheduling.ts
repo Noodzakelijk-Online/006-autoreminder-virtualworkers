@@ -237,16 +237,18 @@ export async function getBatchOperationHistory(userId: string, limit: number = 5
   const pool = await getPool();
   if (!pool) return [];
 
+  const safeLimit = Math.max(1, Math.min(parseInt(String(limit)), 1000));
+
   const query = `
     SELECT * FROM batch_operations 
     WHERE userId = ? 
     ORDER BY createdAt DESC 
-    LIMIT ?
+    LIMIT ${safeLimit}
   `;
 
   const connection = await pool.getConnection();
   try {
-    const [rows] = await connection.execute(query, [userId, limit]);
+    const [rows] = await connection.execute(query, [userId]);
     return (rows as any[]).map(row => ({
       ...row,
       taskIds: JSON.parse(row.taskIds || '[]'),

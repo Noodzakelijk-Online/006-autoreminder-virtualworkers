@@ -44,7 +44,7 @@ class BatchOperationsClient {
    * Start a new batch operation
    */
   async startBatchOperation(request: BatchOperationRequest): Promise<BatchOperationResponse> {
-    const response = await fetch(`${this.baseUrl}/batch`, {
+    const response = await fetch(`${this.baseUrl}/batch-start`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -54,8 +54,13 @@ class BatchOperationsClient {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to start batch operation');
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to start batch operation');
+      } else {
+        throw new Error(`Failed to start batch operation (HTTP ${response.status})`);
+      }
     }
 
     return response.json();
@@ -80,8 +85,8 @@ class BatchOperationsClient {
    * Cancel a batch operation
    */
   async cancelBatchOperation(jobId: string): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/batch/${jobId}`, {
-      method: 'DELETE',
+    const response = await fetch(`${this.baseUrl}/batch/${jobId}/cancel`, {
+      method: 'POST',
       credentials: 'include',
     });
 
@@ -94,7 +99,7 @@ class BatchOperationsClient {
    * Get all batch operations for current user
    */
   async getAllBatchOperations(): Promise<BatchOperationResponse[]> {
-    const response = await fetch(`${this.baseUrl}/batch`, {
+    const response = await fetch(`${this.baseUrl}/batch-history`, {
       credentials: 'include',
     });
 
@@ -102,7 +107,16 @@ class BatchOperationsClient {
       throw new Error('Failed to get batch operations');
     }
 
-    return response.json();
+    // Check if response is JSON before parsing
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      console.error('[BatchOperationsClient] Invalid content type:', contentType);
+      throw new Error('Invalid response format: expected JSON');
+    }
+
+    const data = await response.json();
+    // Handle both direct array and wrapped response
+    return Array.isArray(data) ? data : (data.operations || []);
   }
 
   /**
