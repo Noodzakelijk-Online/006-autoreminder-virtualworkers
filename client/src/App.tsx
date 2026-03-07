@@ -12,6 +12,7 @@ import Calendar from "./pages/Calendar";
 import FounderDashboard from "./pages/FounderDashboard";
 import WorkerDashboard from "./pages/WorkerDashboard";
 import AdvancedScheduling from "./pages/AdvancedScheduling";
+import ATISPhasesAnalysisDashboard from "./pages/ATISPhasesAnalysisDashboard";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -22,6 +23,7 @@ function Router() {
       <Route path={"/settings"} component={Settings} />
       <Route path={"/calendar"} component={Calendar} />
       <Route path={"/advanced-scheduling"} component={AdvancedScheduling} />
+      <Route path={"/atis-phases"} component={ATISPhasesAnalysisDashboard} />
       <Route path={"/founder"} component={FounderDashboard} />
       <Route path={"/worker"} component={WorkerDashboard} />
       <Route path={"/404"} component={NotFound} />
