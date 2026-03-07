@@ -4,6 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { invalidateCache } from "./services/trello-cache";
 import { interviewRouter } from "./routes/interview";
+import { settingsRouter } from "./routes/settings";
 import { z } from "zod";
 
 export const appRouter = router({
@@ -21,6 +22,7 @@ export const appRouter = router({
   }),
 
   interview: interviewRouter,
+  settings: settingsRouter,
 
   trello: router({
     reschedule: protectedProcedure.mutation(async ({ ctx }) => {

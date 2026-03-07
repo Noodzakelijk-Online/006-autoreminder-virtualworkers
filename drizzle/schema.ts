@@ -1166,3 +1166,136 @@ export type TaskExecutionPlan = typeof taskExecutionPlan.$inferSelect;
 export type InsertTaskExecutionPlan = typeof taskExecutionPlan.$inferInsert;
 export type AtisAnalysisSession = typeof atisAnalysisSessions.$inferSelect;
 export type InsertAtisAnalysisSession = typeof atisAnalysisSessions.$inferInsert;
+
+
+// ============================================
+// SCHEDULING SETTINGS TABLES
+// ============================================
+
+// Conflict detection settings per user
+export const conflictDetectionSettings = mysqlTable('conflict_detection_settings', {
+  id: int('id').autoincrement().primaryKey(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  
+  // Conflict detection configuration
+  enabled: int('enabled').notNull().default(1), // 0=false, 1=true
+  warningThresholdMinutes: int('warningThresholdMinutes').notNull().default(15),
+  autoResolve: int('autoResolve').notNull().default(0), // 0=false, 1=true
+  notifyOnConflict: int('notifyOnConflict').notNull().default(1), // 0=false, 1=true
+  
+  // Conflict types to detect (JSON)
+  conflictTypes: text('conflictTypes').notNull().default('{"timeOverlap":true,"resourceConflict":true,"dependencyConflict":true}'),
+  
+  // Version tracking for sync
+  version: int('version').notNull().default(1),
+  lastModified: timestamp('lastModified').defaultNow().onUpdateNow().notNull(),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Batch operation defaults per user
+export const batchOperationSettings = mysqlTable('batch_operation_settings', {
+  id: int('id').autoincrement().primaryKey(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  
+  // Default operation settings
+  defaultOperationType: varchar('defaultOperationType', { length: 50 }).notNull().default('re_analyze'),
+  defaultPriority: varchar('defaultPriority', { length: 20 }).notNull().default('normal'),
+  autoStartOnQueue: int('autoStartOnQueue').notNull().default(0), // 0=false, 1=true
+  maxConcurrentOperations: int('maxConcurrentOperations').notNull().default(3),
+  
+  // Retry configuration
+  retryFailedTasks: int('retryFailedTasks').notNull().default(1), // 0=false, 1=true
+  maxRetries: int('maxRetries').notNull().default(2),
+  
+  // Notification settings
+  notifyOnCompletion: int('notifyOnCompletion').notNull().default(1), // 0=false, 1=true
+  notifyOnFailure: int('notifyOnFailure').notNull().default(1), // 0=false, 1=true
+  
+  // Version tracking for sync
+  version: int('version').notNull().default(1),
+  lastModified: timestamp('lastModified').defaultNow().onUpdateNow().notNull(),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Keyboard shortcuts per user
+export const keyboardShortcutsSettings = mysqlTable('keyboard_shortcuts_settings', {
+  id: int('id').autoincrement().primaryKey(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  
+  // Shortcuts data (JSON array)
+  shortcuts: text('shortcuts').notNull().default('[]'),
+  
+  // Version tracking for sync
+  version: int('version').notNull().default(1),
+  lastModified: timestamp('lastModified').defaultNow().onUpdateNow().notNull(),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Performance metrics per user
+export const performanceMetricsSettings = mysqlTable('performance_metrics_settings', {
+  id: int('id').autoincrement().primaryKey(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  
+  // Metrics data
+  totalOperations: int('totalOperations').notNull().default(0),
+  successfulOperations: int('successfulOperations').notNull().default(0),
+  failedOperations: int('failedOperations').notNull().default(0),
+  averageExecutionTime: decimal('averageExecutionTime', { precision: 10, scale: 2 }).notNull().default('0.00'),
+  averageTasksPerOperation: decimal('averageTasksPerOperation', { precision: 10, scale: 2 }).notNull().default('0.00'),
+  conflictsDetected: int('conflictsDetected').notNull().default(0),
+  conflictsResolved: int('conflictsResolved').notNull().default(0),
+  
+  // Trend data (JSON)
+  trends: text('trends').notNull().default('{"successRate":0,"executionTimeTrend":"stable","operationsTrend":"stable"}'),
+  
+  // Version tracking for sync
+  version: int('version').notNull().default(1),
+  lastModified: timestamp('lastModified').defaultNow().onUpdateNow().notNull(),
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Settings sync log for tracking changes
+export const settingsSyncLog = mysqlTable('settings_sync_log', {
+  id: int('id').autoincrement().primaryKey(),
+  userId: int('userId').notNull(),
+  userOpenId: varchar('userOpenId', { length: 64 }).notNull(),
+  
+  // Sync details
+  settingsType: varchar('settingsType', { length: 50 }).notNull(), // conflict_detection, batch_operation, keyboard_shortcuts, performance_metrics
+  action: varchar('action', { length: 20 }).notNull(), // create, update, delete
+  previousVersion: int('previousVersion'),
+  newVersion: int('newVersion'),
+  
+  // Device/client info
+  deviceId: varchar('deviceId', { length: 128 }),
+  clientVersion: varchar('clientVersion', { length: 20 }),
+  
+  // Conflict resolution
+  hadConflict: int('hadConflict').notNull().default(0), // 0=false, 1=true
+  conflictResolution: varchar('conflictResolution', { length: 50 }), // merge, overwrite, keep_local
+  
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+export type ConflictDetectionSettings = typeof conflictDetectionSettings.$inferSelect;
+export type InsertConflictDetectionSettings = typeof conflictDetectionSettings.$inferInsert;
+export type BatchOperationSettings = typeof batchOperationSettings.$inferSelect;
+export type InsertBatchOperationSettings = typeof batchOperationSettings.$inferInsert;
+export type KeyboardShortcutsSettings = typeof keyboardShortcutsSettings.$inferSelect;
+export type InsertKeyboardShortcutsSettings = typeof keyboardShortcutsSettings.$inferInsert;
+export type PerformanceMetricsSettings = typeof performanceMetricsSettings.$inferSelect;
+export type InsertPerformanceMetricsSettings = typeof performanceMetricsSettings.$inferInsert;
+export type SettingsSyncLog = typeof settingsSyncLog.$inferSelect;
+export type InsertSettingsSyncLog = typeof settingsSyncLog.$inferInsert;

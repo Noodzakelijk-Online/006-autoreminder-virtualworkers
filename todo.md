@@ -1681,3 +1681,90 @@ Each card now has:
 - [x] Create comprehensive test suite for all settings
 - [x] Test localStorage persistence
 - [x] Test settings validation and error handling
+
+
+## Settings Backend Persistence (Mar 7, 2026)
+
+### Database Schema
+- [ ] Add scheduling_settings table to drizzle schema
+- [ ] Add conflict_detection_settings table
+- [ ] Add batch_operation_settings table
+- [ ] Add keyboard_shortcuts_settings table
+- [ ] Add performance_metrics_settings table
+- [ ] Run database migrations
+
+### Database Helpers
+- [ ] Create settings database helper module
+- [ ] Implement getSettings function
+- [ ] Implement saveSettings function
+- [ ] Implement updateSettings function
+- [ ] Implement deleteSettings function
+- [ ] Add settings versioning for sync
+
+### tRPC API Endpoints
+- [ ] Create settings router
+- [ ] Add getConflictDetectionSettings endpoint
+- [ ] Add saveConflictDetectionSettings endpoint
+- [ ] Add getBatchOperationDefaults endpoint
+- [ ] Add saveBatchOperationDefaults endpoint
+- [ ] Add getKeyboardShortcuts endpoint
+- [ ] Add saveKeyboardShortcuts endpoint
+- [ ] Add getPerformanceMetrics endpoint
+- [ ] Add savePerformanceMetrics endpoint
+- [ ] Add getAllSettings endpoint
+- [ ] Add resetSettings endpoint
+
+### Frontend Integration
+- [ ] Update ConflictDetectionSettings to use tRPC
+- [ ] Update BatchOperationDefaults to use tRPC
+- [ ] Update KeyboardShortcutsSettings to use tRPC
+- [ ] Update PerformanceMetrics to use tRPC
+- [ ] Remove localStorage usage from settings components
+- [ ] Add loading states for API calls
+- [ ] Add error handling for API failures
+
+### Settings Sync & Conflict Resolution
+- [ ] Implement settings versioning
+- [ ] Add last-modified timestamp tracking
+- [ ] Create conflict resolution strategy
+- [ ] Add settings merge logic
+- [ ] Implement settings cache invalidation
+- [ ] Add real-time sync notifications
+
+### Testing
+- [ ] Create settings API tests
+- [ ] Test CRUD operations
+- [ ] Test authentication/authorization
+- [ ] Test settings versioning
+- [ ] Test conflict resolution
+- [ ] Create integration tests
+
+
+## Settings Backend Persistence - COMPLETED (Mar 7, 2026)
+
+### Database Schema - COMPLETED
+- [x] Added conflict detection settings table
+- [x] Added batch operation settings table  
+- [x] Added keyboard shortcuts settings table
+- [x] Added performance metrics table
+- [x] Added settings sync log table
+
+### Database Helpers - COMPLETED
+- [x] Implemented all CRUD functions in server/db/settings.ts
+- [x] Implemented sync log tracking
+- [x] Implemented conflict detection logic
+- [x] Added version tracking for all settings types
+
+### tRPC API Endpoints - COMPLETED
+- [x] Created settings router with 16 endpoints
+- [x] Registered router in main appRouter
+- [x] All endpoints use protectedProcedure for authentication
+- [x] Implemented proper error handling and logging
+
+### Frontend Integration - PENDING
+- [ ] Update ConflictDetectionSettings to use trpc.settings API
+- [ ] Update BatchOperationDefaults to use trpc.settings API
+- [ ] Update KeyboardShortcutsSettings to use trpc.settings API
+- [ ] Update PerformanceMetrics to use trpc.settings API
+- [ ] Remove localStorage usage from all settings components
+- [ ] Add loading and error states for API calls
