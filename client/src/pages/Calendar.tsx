@@ -30,6 +30,7 @@ export default function Calendar() {
   const fetchTasks = async () => {
     setIsLoading(true);
     try {
+      // Try the main tasks endpoint first
       const response = await fetch('/api/trello/tasks', {
         credentials: 'include'
       });
@@ -41,11 +42,23 @@ export default function Calendar() {
         throw new Error('Failed to fetch tasks');
       }
       
-      const data = await response.json();
-      setTasks(data.tasks || []);
+      const text = await response.text();
+      if (!text) {
+        setTasks([]);
+        return;
+      }
+
+      try {
+        const data = JSON.parse(text);
+        setTasks(data.tasks || data || []);
+      } catch (parseError) {
+        console.error('Error parsing tasks JSON:', parseError);
+        setTasks([]);
+      }
     } catch (error) {
       console.error('Error fetching tasks:', error);
       toast.error('Failed to load tasks');
+      setTasks([]);
     } finally {
       setIsLoading(false);
     }
@@ -58,9 +71,19 @@ export default function Calendar() {
       });
       
       if (response.ok) {
-        const data = await response.json();
-        if (data.workingDays) {
-          setWorkingDays(JSON.parse(data.workingDays));
+        const text = await response.text();
+        if (!text) return;
+
+        try {
+          const data = JSON.parse(text);
+          if (data.workingDays) {
+            const parsed = typeof data.workingDays === 'string' 
+              ? JSON.parse(data.workingDays) 
+              : data.workingDays;
+            setWorkingDays(Array.isArray(parsed) ? parsed : [1, 2, 3, 4, 5]);
+          }
+        } catch (parseError) {
+          console.error('Error parsing settings JSON:', parseError);
         }
       }
     } catch (error) {
@@ -70,136 +93,99 @@ export default function Calendar() {
 
   const fetchHolidays = async () => {
     try {
-      const response = await fetch('/api/aptlss/trello/tasks', {
+      // Use the holidays endpoint instead of tasks endpoint
+      const response = await fetch('/api/holidays', {
         credentials: 'include'
       });
       
       if (response.ok) {
-        const data = await response.json();
-        // Extract dates from tasks for calendar view
-        const dates = data.map((task: any) => task.date);
-        setHolidays(dates);
+        const text = await response.text();
+        if (!text) {
+          setHolidays([]);
+          return;
+        }
+
+        try {
+          const data = JSON.parse(text);
+          // Handle different response formats
+          if (Array.isArray(data)) {
+            setHolidays(data.map((h: any) => h.date || h));
+          } else if (data.holidays && Array.isArray(data.holidays)) {
+            setHolidays(data.holidays.map((h: any) => h.date || h));
+          } else if (data.dates && Array.isArray(data.dates)) {
+            setHolidays(data.dates);
+          } else {
+            setHolidays([]);
+          }
+        } catch (parseError) {
+          console.error('Error parsing holidays JSON:', parseError);
+          setHolidays([]);
+        }
+      } else {
+        setHolidays([]);
       }
     } catch (error) {
       console.error('Error fetching holidays:', error);
+      setHolidays([]);
     }
   };
 
   useEffect(() => {
-    fetchTasks();
-    fetchSettings();
-    fetchHolidays();
-  }, []);
+    if (user) {
+      fetchTasks();
+      fetchSettings();
+      fetchHolidays();
+    }
+  }, [user]);
 
-  const handleTaskClick = (task: Task) => {
-    toast.info(`${task.description}`, {
-      description: `${task.cardName} • ${task.startTime} - ${task.endTime} (${task.durationHours}h)`
-    });
+  const handleRefresh = async () => {
+    await fetchTasks();
+    toast.success('Calendar refreshed');
   };
 
-  const handleTaskReschedule = async (taskId: string, newDate: string) => {
-    // Find the task to get its cardId
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) {
-      toast.error('Task not found');
-      return;
-    }
-
-    // Optimistically update the UI
-    const previousTasks = [...tasks];
-    setTasks(prev => prev.map(t => 
-      t.id === taskId ? { ...t, date: newDate } : t
-    ));
-    
-    toast.loading('Syncing to Trello...', { id: 'reschedule-sync' });
-    
-    try {
-      // Sync to Trello - update card due date
-      const response = await fetch(`/api/trello/cards/${task.cardId}/due`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          dueDate: new Date(newDate + 'T23:59:59').toISOString(),
-        }),
-      });
-
-      if (response.ok) {
-        toast.success('Task rescheduled and synced to Trello', {
-          id: 'reschedule-sync',
-          description: `Moved to ${new Date(newDate).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`
-        });
-      } else {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to sync');
-      }
-    } catch (error: any) {
-      // Revert optimistic update on failure
-      setTasks(previousTasks);
-      toast.error('Failed to sync to Trello', {
-        id: 'reschedule-sync',
-        description: error.message || 'Please try again'
-      });
-    }
-  };
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Please log in to view calendar</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/20">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-md border-b">
-        <div className="container py-4 flex items-center justify-between">
+    <div className="min-h-screen bg-background">
+      <div className="container py-6">
+        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <Link href="/">
+            <Link href="/founder">
               <Button variant="ghost" size="icon">
                 <ArrowLeft className="h-5 w-5" />
               </Button>
             </Link>
-            <div>
-              <h1 className="font-bold text-lg">Calendar View</h1>
-              <p className="text-xs text-muted-foreground">
-                {tasks.length} tasks scheduled
-              </p>
-            </div>
+            <h1 className="text-3xl font-bold">Calendar</h1>
           </div>
-          
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={fetchTasks}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
             disabled={isLoading}
           >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
         </div>
-      </header>
 
-      {/* Main content */}
-      <main className="container py-6">
         {isLoading ? (
-          <div className="flex items-center justify-center h-[600px]">
-            <div className="text-center">
-              <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-              <p className="text-muted-foreground">Loading calendar...</p>
-            </div>
-          </div>
-        ) : tasks.length === 0 ? (
-          <div className="flex items-center justify-center h-[600px]">
-            <div className="text-center">
-              <p className="text-muted-foreground mb-4">No tasks to display</p>
-              <Button onClick={fetchTasks}>Refresh Tasks</Button>
-            </div>
+          <div className="flex items-center justify-center py-12">
+            <p className="text-muted-foreground">Loading calendar...</p>
           </div>
         ) : (
-          <CalendarView
-            tasks={tasks}
-            onTaskClick={handleTaskClick}
-            onTaskReschedule={handleTaskReschedule}
+          <CalendarView 
+            tasks={tasks} 
             holidays={holidays}
             workingDays={workingDays}
           />
         )}
-      </main>
+      </div>
     </div>
   );
 }

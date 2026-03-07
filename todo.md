@@ -1815,3 +1815,10 @@ Each card now has:
 - [ ] Update PerformanceMetrics with auto-save
 - [ ] Add auto-save status indicators
 - [ ] Write auto-save tests
+
+
+## Calendar Page Fixes (Mar 7, 2026)
+
+- [x] Fix /calendar page - Error fetching tasks: Added JSON parsing with fallback
+- [x] Fix /calendar page - Error fetching holidays: Changed endpoint to /api/holidays with multiple format handling
+- [x] Fix /calendar page - Error fetching settings: Added JSON parsing with error handling
