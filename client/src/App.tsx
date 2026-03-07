@@ -11,6 +11,7 @@ import Settings from "./pages/Settings";
 import Calendar from "./pages/Calendar";
 import FounderDashboard from "./pages/FounderDashboard";
 import WorkerDashboard from "./pages/WorkerDashboard";
+import AdvancedScheduling from "./pages/AdvancedScheduling";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -20,6 +21,7 @@ function Router() {
       <Route path={"/aptlss"} component={APTLSSManagement} />
       <Route path={"/settings"} component={Settings} />
       <Route path={"/calendar"} component={Calendar} />
+      <Route path={"/advanced-scheduling"} component={AdvancedScheduling} />
       <Route path={"/founder"} component={FounderDashboard} />
       <Route path={"/worker"} component={WorkerDashboard} />
       <Route path={"/404"} component={NotFound} />
