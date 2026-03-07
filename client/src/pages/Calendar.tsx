@@ -37,21 +37,31 @@ export default function Calendar() {
   const retryFetch = async (
     url: string,
     maxRetries = 3,
-    initialDelayMs = 500
+    initialDelayMs = 500,
+    timeoutMs = 30000 // 30 second timeout
   ): Promise<Response | null> => {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const response = await fetch(url, {
-          credentials: 'include',
-          signal: AbortSignal.timeout(10000), // 10 second timeout
-        });
-        return response;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        
+        try {
+          const response = await fetch(url, {
+            credentials: 'include',
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
+          return response;
+        } finally {
+          clearTimeout(timeoutId);
+        }
       } catch (error) {
         lastError = error as Error;
         if (attempt < maxRetries - 1) {
           const delayMs = initialDelayMs * Math.pow(2, attempt);
+          console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delayMs}ms`);
           await new Promise(resolve => setTimeout(resolve, delayMs));
         }
       }
@@ -64,7 +74,7 @@ export default function Calendar() {
   const fetchTasks = async () => {
     setIsLoading(true);
     try {
-      const response = await retryFetch('/api/trello/tasks');
+      const response = await retryFetch('/api/trello/tasks', 2, 1000, 30000);
 
       if (!response) {
         console.error('No response from tasks endpoint');
@@ -103,8 +113,17 @@ export default function Calendar() {
         setTasks([]);
       }
     } catch (error) {
-      console.error('Error fetching tasks:', error);
-      toast.error('Failed to load tasks - using empty list');
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error fetching tasks:', errorMsg);
+      
+      if (errorMsg.includes('timeout') || errorMsg.includes('timed out')) {
+        toast.error('Task loading timed out - please try again');
+      } else if (errorMsg.includes('abort')) {
+        toast.error('Task loading was cancelled');
+      } else {
+        toast.error('Failed to load tasks - using empty list');
+      }
+      
       setTasks([]);
     } finally {
       setIsLoading(false);

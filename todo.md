@@ -1827,3 +1827,5 @@ Each card now has:
 - [x] Fix /calendar page - Error parsing settings JSON: Added robust JSON parsing with multiple format support and defaults
 
 - [x] Fix /calendar page - /api/aptlss/trello/tasks returning HTML instead of JSON (corrected to /api/trello/tasks)
+
+- [x] Fix /calendar page - Timeout error: signal timed out (increased timeout from 10s to 30s and improved error handling)
