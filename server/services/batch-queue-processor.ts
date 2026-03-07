@@ -158,7 +158,7 @@ class BatchQueueProcessor extends EventEmitter {
 
           // Process based on operation type
           const result = await this.processTaskByType(job.operationType, taskId, job.parameters);
-          results[taskId] = result;
+          results[taskId] = result || {};
 
           progress.completedTasks++;
         } catch (error) {
@@ -184,7 +184,7 @@ class BatchQueueProcessor extends EventEmitter {
       // Mark as completed
       progress.status = 'completed';
       progress.progress = 100;
-      progress.results = results;
+      progress.results = results as any;
       progress.elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
 
       // Update database with final status
@@ -193,11 +193,11 @@ class BatchQueueProcessor extends EventEmitter {
         completedTasks: progress.completedTasks,
         failedTasks: progress.failedTasks,
         progress: 100,
-        results: JSON.stringify(results),
-        errorLog: errorLog.length > 0 ? JSON.stringify(errorLog) : undefined,
+        results: JSON.stringify(results) as any,
+        errorLog: (errorLog.length > 0 ? JSON.stringify(errorLog) : undefined) as any,
         completedAt: new Date(),
         elapsedTimeSeconds: progress.elapsedSeconds
-      });
+      } as any);
 
       // Final broadcast
       this.broadcastProgress(job.userId, progress);
@@ -210,10 +210,10 @@ class BatchQueueProcessor extends EventEmitter {
 
       await schedulingDb.updateBatchOperation(job.jobId, {
         status: 'failed',
-        errorLog: JSON.stringify([errorMsg]),
+        errorLog: JSON.stringify([errorMsg]) as any,
         completedAt: new Date(),
         elapsedTimeSeconds: Math.floor((Date.now() - startTime) / 1000)
-      });
+      } as any);
 
       this.broadcastProgress(job.userId, progress);
       this.emit('job-failed', job.jobId, errorMsg);

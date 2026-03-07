@@ -6,14 +6,32 @@
  * - batch_operations
  * - keyboard_shortcuts
  * 
- * Once Drizzle ORM regenerates types for these tables, this can be refactored
- * to use Drizzle ORM like the rest of the codebase.
- * 
+ * Uses raw MySQL2 connection pool to bypass Drizzle ORM type issues.
  * TODO: Refactor to Drizzle ORM after schema migration
  */
 
-import { getDb } from '../db';
+import mysql from 'mysql2/promise';
 import { v4 as uuidv4 } from 'uuid';
+
+let pool: mysql.Pool | null = null;
+
+async function getPool(): Promise<mysql.Pool | null> {
+  if (pool) return pool;
+  
+  if (!process.env.DATABASE_URL) {
+    console.warn('[SchedulingDB] DATABASE_URL not set');
+    return null;
+  }
+
+  try {
+    pool = mysql.createPool(process.env.DATABASE_URL);
+    console.log('[SchedulingDB] Connection pool created');
+    return pool;
+  } catch (error) {
+    console.error('[SchedulingDB] Failed to create pool:', error);
+    return null;
+  }
+}
 
 // ============================================
 // TASK SCHEDULE HISTORY
@@ -36,8 +54,8 @@ export interface ScheduleHistoryRecord {
 }
 
 export async function insertScheduleHistory(record: Omit<ScheduleHistoryRecord, 'id' | 'createdAt'>): Promise<string> {
-  const db = await getDb();
-  if (!db) throw new Error('Database not available');
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
 
   const id = uuidv4();
   const query = `
@@ -63,50 +81,36 @@ export async function insertScheduleHistory(record: Omit<ScheduleHistoryRecord, 
     record.conflictDetails || null
   ];
 
-  await db.execute(query, values);
-  return id;
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(query, values);
+    return id;
+  } finally {
+    connection.release();
+  }
 }
 
-export async function getScheduleHistory(taskId: string): Promise<ScheduleHistoryRecord[]> {
-  const db = await getDb();
-  if (!db) return [];
-
-  const query = `
-    SELECT * FROM task_schedule_history 
-    WHERE taskId = ? 
-    ORDER BY createdAt DESC
-  `;
-
-  const result = await db.execute(query, [taskId]);
-  const rows = Array.isArray(result) ? result[0] : result;
-  return (rows as any[]).map(row => ({
-    ...row,
-    hadConflicts: Boolean(row.hadConflicts),
-    conflictDetails: row.conflictDetails ? JSON.parse(row.conflictDetails) : undefined
-  }));
-}
-
-export async function getLatestScheduleHistory(taskId: string): Promise<ScheduleHistoryRecord | null> {
-  const db = await getDb();
-  if (!db) return null;
+export async function getScheduleHistory(taskId: string, limit: number = 50): Promise<ScheduleHistoryRecord[]> {
+  const pool = await getPool();
+  if (!pool) return [];
 
   const query = `
     SELECT * FROM task_schedule_history 
     WHERE taskId = ? 
     ORDER BY createdAt DESC 
-    LIMIT 1
+    LIMIT ?
   `;
 
-  const result = await db.execute(query, [taskId]);
-  const rows = Array.isArray(result) ? result[0] : result;
-  if ((rows as any[]).length === 0) return null;
-
-  const row = (rows as any[])[0];
-  return {
-    ...row,
-    hadConflicts: Boolean(row.hadConflicts),
-    conflictDetails: row.conflictDetails ? JSON.parse(row.conflictDetails) : undefined
-  };
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(query, [taskId, limit]);
+    return (rows as any[]).map(row => ({
+      ...row,
+      hadConflicts: Boolean(row.hadConflicts)
+    }));
+  } finally {
+    connection.release();
+  }
 }
 
 // ============================================
@@ -117,102 +121,85 @@ export interface BatchOperationRecord {
   id: string;
   userId: string;
   operationType: 're_analyze' | 'reschedule' | 'conflict_resolution' | 'optimization';
-  description?: string;
-  totalTasks: number;
-  completedTasks: number;
-  failedTasks: number;
+  taskIds: string[];
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress: number;
+  completedTasks: number;
+  failedTasks: number;
   currentTaskIndex: number;
   currentTaskName?: string;
-  estimatedTimeSeconds?: number;
-  elapsedTimeSeconds: number;
-  results?: string;
-  errorLog?: string;
-  parameters?: string;
+  results?: Record<string, any>;
+  errorLog?: string[];
+  createdAt: Date;
   startedAt?: Date;
   completedAt?: Date;
-  createdAt: Date;
-  updatedAt: Date;
+  elapsedTimeSeconds?: number;
 }
 
-export async function insertBatchOperation(record: Omit<BatchOperationRecord, 'id' | 'createdAt' | 'updatedAt' | 'elapsedTimeSeconds'>): Promise<string> {
-  const db = await getDb();
-  if (!db) throw new Error('Database not available');
+export async function createBatchOperation(record: Omit<BatchOperationRecord, 'id' | 'createdAt' | 'status' | 'progress' | 'completedTasks' | 'failedTasks' | 'currentTaskIndex'>): Promise<string> {
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
 
   const id = uuidv4();
   const query = `
     INSERT INTO batch_operations (
-      id, userId, operationType, description, totalTasks, completedTasks,
-      failedTasks, status, progress, currentTaskIndex, currentTaskName,
-      estimatedTimeSeconds, elapsedTimeSeconds, results, errorLog, parameters,
-      startedAt, completedAt, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+      id, userId, operationType, taskIds, status, progress,
+      completedTasks, failedTasks, currentTaskIndex, createdAt
+    ) VALUES (?, ?, ?, ?, 'pending', 0, 0, 0, 0, NOW())
   `;
 
   const values = [
     id,
     record.userId,
     record.operationType,
-    record.description || null,
-    record.totalTasks,
-    record.completedTasks,
-    record.failedTasks,
-    record.status,
-    record.progress,
-    record.currentTaskIndex,
-    record.currentTaskName || null,
-    record.estimatedTimeSeconds || null,
-    0, // elapsedTimeSeconds starts at 0
-    record.results || null,
-    record.errorLog || null,
-    record.parameters || null,
-    record.startedAt || null,
-    record.completedAt || null
+    JSON.stringify(record.taskIds)
   ];
 
-  await db.execute(query, values);
-  return id;
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(query, values);
+    return id;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function getBatchOperation(jobId: string): Promise<BatchOperationRecord | null> {
-  const db = await getDb();
-  if (!db) return null;
+  const pool = await getPool();
+  if (!pool) return null;
 
   const query = `SELECT * FROM batch_operations WHERE id = ?`;
-  const result = await db.execute(query, [jobId]);
-  const rows = Array.isArray(result) ? result[0] : result;
 
-  if ((rows as any[]).length === 0) return null;
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(query, [jobId]);
+    const row = (rows as any[])[0];
+    if (!row) return null;
 
-  const row = (rows as any[])[0];
-  return {
-    ...row,
-    progress: Number(row.progress),
-    results: row.results ? JSON.parse(row.results) : undefined,
-    errorLog: row.errorLog ? JSON.parse(row.errorLog) : undefined,
-    parameters: row.parameters ? JSON.parse(row.parameters) : undefined
-  };
+    return {
+      ...row,
+      taskIds: JSON.parse(row.taskIds || '[]'),
+      results: row.results ? JSON.parse(row.results) : undefined,
+      errorLog: row.errorLog ? JSON.parse(row.errorLog) : undefined
+    };
+  } finally {
+    connection.release();
+  }
 }
 
 export async function updateBatchOperation(jobId: string, updates: Partial<BatchOperationRecord>): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error('Database not available');
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
 
-  const allowedFields = [
-    'completedTasks', 'failedTasks', 'status', 'progress',
-    'currentTaskIndex', 'currentTaskName', 'estimatedTimeSeconds',
-    'elapsedTimeSeconds', 'results', 'errorLog', 'startedAt', 'completedAt'
-  ];
-
+  const allowedFields = ['status', 'progress', 'completedTasks', 'failedTasks', 'currentTaskIndex', 'currentTaskName', 'results', 'errorLog', 'startedAt', 'completedAt', 'elapsedTimeSeconds'];
   const setClauses: string[] = [];
   const values: any[] = [];
 
   for (const [key, value] of Object.entries(updates)) {
     if (allowedFields.includes(key)) {
       setClauses.push(`${key} = ?`);
-      if (typeof value === 'object' && value !== null) {
-        values.push(JSON.stringify(value));
+      if (key === 'results' || key === 'errorLog') {
+        values.push(typeof value === 'string' ? value : JSON.stringify(value));
       } else {
         values.push(value);
       }
@@ -221,16 +208,34 @@ export async function updateBatchOperation(jobId: string, updates: Partial<Batch
 
   if (setClauses.length === 0) return;
 
-  setClauses.push('updatedAt = NOW()');
   values.push(jobId);
-
   const query = `UPDATE batch_operations SET ${setClauses.join(', ')} WHERE id = ?`;
-  await db.execute(query, values);
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(query, values);
+  } finally {
+    connection.release();
+  }
 }
 
-export async function getBatchOperationsByUser(userId: string, limit: number = 50): Promise<BatchOperationRecord[]> {
-  const db = await getDb();
-  if (!db) return [];
+export async function cancelBatchOperation(jobId: string): Promise<void> {
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
+
+  const query = `UPDATE batch_operations SET status = 'cancelled', completedAt = NOW() WHERE id = ?`;
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(query, [jobId]);
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getBatchOperationHistory(userId: string, limit: number = 50): Promise<BatchOperationRecord[]> {
+  const pool = await getPool();
+  if (!pool) return [];
 
   const query = `
     SELECT * FROM batch_operations 
@@ -239,23 +244,18 @@ export async function getBatchOperationsByUser(userId: string, limit: number = 5
     LIMIT ?
   `;
 
-  const result = await db.execute(query, [userId, limit]);
-  const rows = Array.isArray(result) ? result[0] : result;
-  return (rows as any[]).map(row => ({
-    ...row,
-    progress: Number(row.progress),
-    results: row.results ? JSON.parse(row.results) : undefined,
-    errorLog: row.errorLog ? JSON.parse(row.errorLog) : undefined,
-    parameters: row.parameters ? JSON.parse(row.parameters) : undefined
-  }));
-}
-
-export async function cancelBatchOperation(jobId: string): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error('Database not available');
-
-  const query = `UPDATE batch_operations SET status = ?, updatedAt = NOW() WHERE id = ?`;
-  await db.execute(query, ['cancelled', jobId]);
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(query, [userId, limit]);
+    return (rows as any[]).map(row => ({
+      ...row,
+      taskIds: JSON.parse(row.taskIds || '[]'),
+      results: row.results ? JSON.parse(row.results) : undefined,
+      errorLog: row.errorLog ? JSON.parse(row.errorLog) : undefined
+    }));
+  } finally {
+    connection.release();
+  }
 }
 
 // ============================================
@@ -274,14 +274,13 @@ export interface KeyboardShortcutRecord {
   updatedAt: Date;
 }
 
-export async function insertKeyboardShortcut(record: Omit<KeyboardShortcutRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error('Database not available');
+export async function createKeyboardShortcut(record: Omit<KeyboardShortcutRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
 
   const query = `
     INSERT INTO keyboard_shortcuts (
-      userId, shortcutKey, action, description, isCustom, isEnabled,
-      createdAt, updatedAt
+      userId, shortcutKey, action, description, isCustom, isEnabled, createdAt, updatedAt
     ) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
   `;
 
@@ -294,13 +293,18 @@ export async function insertKeyboardShortcut(record: Omit<KeyboardShortcutRecord
     record.isEnabled ? 1 : 0
   ];
 
-  const result = await db.execute(query, values) as any;
-  return result?.insertId || 0;
+  const connection = await pool.getConnection();
+  try {
+    const [result] = await connection.execute(query, values);
+    return (result as any).insertId || 0;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function getKeyboardShortcuts(userId: string): Promise<KeyboardShortcutRecord[]> {
-  const db = await getDb();
-  if (!db) return [];
+  const pool = await getPool();
+  if (!pool) return [];
 
   const query = `
     SELECT * FROM keyboard_shortcuts 
@@ -308,18 +312,22 @@ export async function getKeyboardShortcuts(userId: string): Promise<KeyboardShor
     ORDER BY shortcutKey
   `;
 
-  const result = await db.execute(query, [userId]);
-  const rows = Array.isArray(result) ? result[0] : result;
-  return (rows as any[]).map(row => ({
-    ...row,
-    isCustom: Boolean(row.isCustom),
-    isEnabled: Boolean(row.isEnabled)
-  }));
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(query, [userId]);
+    return (rows as any[]).map(row => ({
+      ...row,
+      isCustom: Boolean(row.isCustom),
+      isEnabled: Boolean(row.isEnabled)
+    }));
+  } finally {
+    connection.release();
+  }
 }
 
 export async function updateKeyboardShortcut(id: number, updates: Partial<KeyboardShortcutRecord>): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error('Database not available');
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
 
   const allowedFields = ['action', 'description', 'isEnabled'];
   const setClauses: string[] = [];
@@ -342,20 +350,32 @@ export async function updateKeyboardShortcut(id: number, updates: Partial<Keyboa
   values.push(id);
 
   const query = `UPDATE keyboard_shortcuts SET ${setClauses.join(', ')} WHERE id = ?`;
-  await db.execute(query, values) as any;
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(query, values);
+  } finally {
+    connection.release();
+  }
 }
 
 export async function deleteKeyboardShortcut(id: number): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error('Database not available');
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
 
   const query = `DELETE FROM keyboard_shortcuts WHERE id = ?`;
-  await db.execute(query, [id]) as any;
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(query, [id]);
+  } finally {
+    connection.release();
+  }
 }
 
 export async function getDefaultKeyboardShortcuts(): Promise<KeyboardShortcutRecord[]> {
-  const db = await getDb();
-  if (!db) return [];
+  const pool = await getPool();
+  if (!pool) return [];
 
   const query = `
     SELECT * FROM keyboard_shortcuts 
@@ -363,11 +383,48 @@ export async function getDefaultKeyboardShortcuts(): Promise<KeyboardShortcutRec
     ORDER BY shortcutKey
   `;
 
-  const result = await db.execute(query) as any;
-  const rows = Array.isArray(result) && result.length > 0 ? result[0] : result;
-  return (rows as any[]).map(row => ({
-    ...row,
-    isCustom: Boolean(row.isCustom),
-    isEnabled: Boolean(row.isEnabled)
-  }));
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(query, []);
+    return (rows as any[]).map(row => ({
+      ...row,
+      isCustom: Boolean(row.isCustom),
+      isEnabled: Boolean(row.isEnabled)
+    }));
+  } finally {
+    connection.release();
+  }
+}
+
+export async function seedDefaultKeyboardShortcuts(userId: string): Promise<void> {
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
+
+  const defaults = [
+    { key: 'Ctrl+R', action: 'reschedule', description: 'Reschedule selected task' },
+    { key: 'Ctrl+B', action: 'batch_reanalyze', description: 'Start batch re-analysis' },
+    { key: 'Ctrl+U', action: 'undo_reschedule', description: 'Undo last reschedule' },
+    { key: 'Ctrl+H', action: 'show_history', description: 'Show schedule history' },
+    { key: 'Ctrl+K', action: 'show_shortcuts', description: 'Show keyboard shortcuts' },
+    { key: 'Ctrl+/', action: 'toggle_help', description: 'Toggle help panel' },
+    { key: 'Shift+N', action: 'next_task', description: 'Go to next task' },
+    { key: 'Shift+P', action: 'previous_task', description: 'Go to previous task' },
+    { key: 'Shift+C', action: 'complete_task', description: 'Mark task as complete' },
+    { key: 'Shift+S', action: 'skip_task', description: 'Skip to next task' }
+  ];
+
+  const query = `
+    INSERT INTO keyboard_shortcuts (
+      userId, shortcutKey, action, description, isCustom, isEnabled, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, 0, 1, NOW(), NOW())
+  `;
+
+  const connection = await pool.getConnection();
+  try {
+    for (const shortcut of defaults) {
+      await connection.execute(query, [userId, shortcut.key, shortcut.action, shortcut.description]);
+    }
+  } finally {
+    connection.release();
+  }
 }

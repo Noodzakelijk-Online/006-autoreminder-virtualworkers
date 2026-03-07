@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { format, addDays, startOfDay, endOfDay, eachHourOfDay, isSameDay, parse } from 'date-fns';
+import { format, addDays, startOfDay, endOfDay, eachHourOfInterval, isSameDay, parse } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -39,7 +39,8 @@ interface AdvancedSchedulingCalendarProps {
   onConflictDetected?: (conflicts: any[]) => void;
 }
 
-const HOURS = eachHourOfDay(new Date()).map(h => format(h, 'HH:00'));
+const today = new Date();
+const HOURS = eachHourOfInterval({ start: startOfDay(today), end: endOfDay(today) }).map((h: Date) => format(h, 'HH:00'));
 const HOUR_HEIGHT = 60; // pixels per hour
 
 export const AdvancedSchedulingCalendar: React.FC<AdvancedSchedulingCalendarProps> = ({
@@ -295,7 +296,7 @@ export const AdvancedSchedulingCalendar: React.FC<AdvancedSchedulingCalendarProp
               <div className="flex gap-1 border rounded-lg overflow-hidden">
                 {/* Time column */}
                 <div className="w-16 flex-shrink-0 bg-gray-50 border-r">
-                  {HOURS.map(hour => (
+                  {HOURS.map((hour: string) => (
                     <div
                       key={hour}
                       className="text-xs text-muted-foreground text-center font-medium"
@@ -319,7 +320,7 @@ export const AdvancedSchedulingCalendar: React.FC<AdvancedSchedulingCalendarProp
                       onDrop={(e) => handleDrop(dayKey, e)}
                     >
                       {/* Hour grid lines */}
-                      {HOURS.map((hour, idx) => (
+                      {HOURS.map((hour: string, idx: number) => (
                         <div
                           key={hour}
                           className="border-b"

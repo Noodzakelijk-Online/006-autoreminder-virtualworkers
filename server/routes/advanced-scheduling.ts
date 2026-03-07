@@ -78,7 +78,8 @@ router.post('/undo/:taskId', async (req: Request, res: Response) => {
     }
 
     // Get the last reschedule event
-    const lastReschedule = await schedulingDb.getLatestScheduleHistory(taskId);
+    const history = await schedulingDb.getScheduleHistory(taskId, 1);
+    const lastReschedule = history[0];
 
     if (!lastReschedule || !lastReschedule.previousStartTime || !lastReschedule.previousEndTime) {
       return res.status(404).json({ error: 'No previous schedule found' });
@@ -153,17 +154,10 @@ router.post('/batch-start', async (req: Request, res: Response) => {
     }
 
     // Create batch operation record
-    const jobId = await schedulingDb.insertBatchOperation({
+    const jobId = await schedulingDb.createBatchOperation({
       userId: userOpenId,
       operationType,
-      description: description || `Batch ${operationType}`,
-      totalTasks: taskIds.length,
-      completedTasks: 0,
-      failedTasks: 0,
-      status: 'pending',
-      progress: 0,
-      currentTaskIndex: 0,
-      parameters: parameters ? JSON.stringify(parameters) : undefined
+      taskIds
     });
 
     // TODO: Queue the batch operation for processing
@@ -210,12 +204,12 @@ router.get('/batch/:jobId', async (req: Request, res: Response) => {
       jobId,
       status: operation.status,
       progress: operation.progress,
-      totalTasks: operation.totalTasks,
+      totalTasks: operation.taskIds?.length || 0,
       completedTasks: operation.completedTasks,
       failedTasks: operation.failedTasks,
       currentTaskName: operation.currentTaskName,
       elapsedSeconds,
-      estimatedTimeSeconds: operation.estimatedTimeSeconds
+      elapsedTimeSeconds: operation.elapsedTimeSeconds
     });
   } catch (error) {
     console.error('[AdvancedScheduling] Error getting batch progress:', error);
@@ -272,7 +266,7 @@ router.get('/batch-history', async (req: Request, res: Response) => {
     }
 
     const limit = parseInt(req.query.limit as string) || 50;
-    const operations = await schedulingDb.getBatchOperationsByUser(userOpenId, limit);
+    const operations = await schedulingDb.getBatchOperationHistory(userOpenId, limit);
 
     res.json({
       success: true,
@@ -331,7 +325,7 @@ router.post('/shortcuts', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const id = await schedulingDb.insertKeyboardShortcut({
+    const id = await schedulingDb.createKeyboardShortcut({
       userId: userOpenId,
       shortcutKey,
       action,
