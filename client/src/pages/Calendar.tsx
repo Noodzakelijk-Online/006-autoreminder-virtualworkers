@@ -64,7 +64,7 @@ export default function Calendar() {
   const fetchTasks = async () => {
     setIsLoading(true);
     try {
-      const response = await retryFetch('/api/aptlss/trello/tasks');
+      const response = await retryFetch('/api/trello/tasks');
 
       if (!response) {
         console.error('No response from tasks endpoint');
