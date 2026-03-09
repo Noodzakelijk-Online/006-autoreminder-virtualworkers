@@ -940,18 +940,18 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     const forceRefresh = req.query.refresh === 'true';
     const cacheTTL = parseInt(req.query.ttl as string) || 300; // 5 minutes default
 
-    // Try to get from cache first
-    const cachedData = await getCachedTasks(user.id, user.openId, { 
-      ttlSeconds: cacheTTL, 
-      forceRefresh 
-    });
+    // Try to get from cache first - DISABLED: taskData column too small for large datasets
+    // const cachedData = await getCachedTasks(user.id, user.openId, { 
+    //   ttlSeconds: cacheTTL, 
+    //   forceRefresh 
+    // });
+    // if (cachedData && !forceRefresh) {
+    //   console.log('Cache hit for tasks');
+    //   return res.json(cachedData);
+    // }
+    const cachedData = null;
 
-    if (cachedData && !forceRefresh) {
-      console.log('Cache hit for tasks');
-      return res.json(cachedData);
-    }
-
-    console.log('Cache miss for tasks - fetching from Trello API');
+    console.log('Cache miss for tasks - fetching from Trello API (caching disabled)');
 
     const apiKey = process.env.TRELLO_API_KEY;
     const apiToken = process.env.TRELLO_TOKEN;
@@ -1313,9 +1313,10 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
         timezone: userTimezone
       };
 
-      // Save to cache
-      await setCachedTasks(user.id, user.openId, responseData, cacheTTL);
-      console.log(`Cached ${schedulingResult.scheduled.length} tasks (${schedulingResult.overflow.length} overflow) for ${cacheTTL} seconds`);
+      // Save to cache - DISABLED: taskData column too small for large datasets
+      // TODO: Implement pagination or use LONGTEXT column type
+      // await setCachedTasks(user.id, user.openId, responseData, cacheTTL);
+      console.log(`Skipping cache for ${schedulingResult.scheduled.length} tasks (${schedulingResult.overflow.length} overflow) - column size limit`);
 
       return responseData;
     }); // End of requestQueue.execute
