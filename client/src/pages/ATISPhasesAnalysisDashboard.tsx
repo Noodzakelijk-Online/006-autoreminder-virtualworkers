@@ -18,6 +18,7 @@ import {
 import AnalysisSessionManager from '@/components/atis/AnalysisSessionManager';
 import ConfidenceScoreIndicator from '@/components/atis/ConfidenceScoreIndicator';
 import AnalysisProgressTracker from '@/components/atis/AnalysisProgressTracker';
+import { PreparationPhaseView } from '@/components/atis/PreparationPhaseView';
 
 interface AnalysisData {
   sessionId: string;
@@ -25,6 +26,8 @@ interface AnalysisData {
   taskTitle: string;
   createdAt: string;
   updatedAt: string;
+  phase1?: any;
+  phase2?: any;
   phase3?: any;
   phase4?: any;
   phase5?: any;
@@ -35,6 +38,10 @@ interface AnalysisData {
   phase10?: any;
   overallConfidence: number;
   status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  dataGatheringTime?: number;
+  reasoningTime?: number;
+  dataSourcesCount?: number;
+  contextSummary?: string;
 }
 
 interface PhaseStatus {
@@ -51,6 +58,7 @@ export default function ATISPhasesAnalysisDashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activePhase, setActivePhase] = useState('overview');
+  const [preparationStatus, setPreparationStatus] = useState<'pending' | 'completed' | 'failed'>('pending');
   const [phaseStatuses, setPhaseStatuses] = useState<PhaseStatus[]>([
     { phase: 3, title: 'Decomposition', status: 'pending' as const },
     { phase: 4, title: 'Risk Assessment', status: 'pending' as const },
@@ -67,14 +75,18 @@ export default function ATISPhasesAnalysisDashboard() {
   const handleLoadAnalysis = async (taskId: string) => {
     setIsLoading(true);
     setError(null);
+    setPreparationStatus('pending');
     try {
       const response = await fetch(`/api/atis/phases/task/${taskId}`);
       if (!response.ok) throw new Error('Failed to load analysis data');
       const data = await response.json();
       setAnalysisData(data);
       setSelectedTask(taskId);
+      // Set preparation status based on whether phase 1 and 2 data exists
+      setPreparationStatus(data.phase1 && data.phase2 ? 'completed' : 'failed');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
+      setPreparationStatus('failed');
     } finally {
       setIsLoading(false);
     }
@@ -268,15 +280,28 @@ export default function ATISPhasesAnalysisDashboard() {
 
                 {/* Overview Tab */}
                 <TabsContent value="overview">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Analysis Overview</CardTitle>
-                      <CardDescription>Summary of all analysis phases</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <AnalysisProgressTracker phaseStatuses={phaseStatuses} analysisData={analysisData} />
-                    </CardContent>
-                  </Card>
+                  <div className="space-y-6">
+                    {/* Preparation Phase Section */}
+                    <PreparationPhaseView
+                      status={preparationStatus}
+                      dataGatheringTime={analysisData.dataGatheringTime || 0}
+                      reasoningTime={analysisData.reasoningTime || 0}
+                      dataSourcesCount={analysisData.dataSourcesCount || 0}
+                      contextSummary={analysisData.contextSummary}
+                      error={preparationStatus === 'failed' ? 'Failed to gather context or analyze task' : undefined}
+                    />
+                    
+                    {/* Analysis Progress */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Analysis Progress</CardTitle>
+                        <CardDescription>Summary of all analysis phases (3-10)</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <AnalysisProgressTracker phaseStatuses={phaseStatuses} analysisData={analysisData} />
+                      </CardContent>
+                    </Card>
+                  </div>
                 </TabsContent>
 
                 {/* Phase 3 Tab */}
