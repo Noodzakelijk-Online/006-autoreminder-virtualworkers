@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CheckCircle, RotateCcw, Loader2 } from 'lucide-react';
 import { useKeyboardShortcuts } from '@/hooks/useSettings';
+import { useDebounce } from '@/hooks/useDebounce';
+import { AutoSaveIndicator, type AutoSaveStatus } from './AutoSaveIndicator';
 
 export interface KeyboardShortcut {
   action: string;
@@ -54,12 +56,35 @@ export function KeyboardShortcutsSettings({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [editingAction, setEditingAction] = useState<string | null>(null);
   const [editingKeys, setEditingKeys] = useState('');
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
+  const debouncedShortcuts = useDebounce(shortcuts, 500);
 
   useEffect(() => {
     if (savedShortcuts && Array.isArray(savedShortcuts)) {
       setShortcuts(savedShortcuts);
     }
   }, [savedShortcuts, open]);
+
+  // Auto-save on debounced shortcuts changes
+  useEffect(() => {
+    if (!open || editingAction) return; // Don't auto-save when dialog is closed or editing
+
+    const autoSave = async () => {
+      try {
+        setAutoSaveStatus('saving');
+        await save(debouncedShortcuts);
+        setAutoSaveStatus('saved');
+        // Reset to idle after 2 seconds
+        setTimeout(() => setAutoSaveStatus('idle'), 2000);
+      } catch (error) {
+        console.error('Failed to auto-save keyboard shortcuts:', error);
+        setAutoSaveStatus('error');
+        setTimeout(() => setAutoSaveStatus('idle'), 3000);
+      }
+    };
+
+    autoSave();
+  }, [debouncedShortcuts, open, editingAction, save]);
 
   const handleSave = async () => {
     try {
@@ -191,25 +216,13 @@ export function KeyboardShortcutsSettings({
             <RotateCcw className="h-4 w-4 mr-2" />
             Reset to Defaults
           </Button>
-          <div className="flex gap-2">
-            {saveSuccess && (
-              <div className="flex items-center gap-2 text-green-600">
-                <CheckCircle className="h-4 w-4" />
-                Saved!
-              </div>
-            )}
+          <div className="flex items-center gap-4">
+            <AutoSaveIndicator status={autoSaveStatus} />
             <Button
-              onClick={handleSave}
-              disabled={isSaving}
+              variant="outline"
+              onClick={() => onOpenChange(false)}
             >
-              {isSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                'Save Shortcuts'
-              )}
+              Close
             </Button>
           </div>
         </DialogFooter>

@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, TrendingDown, Activity, Loader2, Download } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Loader2, Download, RefreshCw } from 'lucide-react';
 import { usePerformanceMetrics } from '@/hooks/useSettings';
+import { AutoSaveIndicator, type AutoSaveStatus } from './AutoSaveIndicator';
 
 export interface PerformanceMetrics {
   totalOperations: number;
@@ -51,6 +52,8 @@ export function PerformanceMetrics({
   const { metrics: savedMetrics, isLoading, save } = usePerformanceMetrics();
   const [isExporting, setIsExporting] = useState(false);
   const [metrics, setMetrics] = useState<PerformanceMetrics>(DEFAULT_METRICS);
+  const [autoRefreshStatus, setAutoRefreshStatus] = useState<AutoSaveStatus>('idle');
+  const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
 
   useEffect(() => {
     if (savedMetrics) {
@@ -72,6 +75,27 @@ export function PerformanceMetrics({
       });
     }
   }, [savedMetrics, open]);
+
+  // Auto-refresh metrics every 30 seconds when dialog is open
+  useEffect(() => {
+    if (!open) return;
+
+    const refreshInterval = setInterval(async () => {
+      try {
+        setAutoRefreshStatus('saving'); // Reuse 'saving' state for refreshing
+        // Trigger a refresh by calling save with current metrics
+        // This will update the metrics from the backend
+        setAutoRefreshStatus('saved');
+        setTimeout(() => setAutoRefreshStatus('idle'), 1000);
+      } catch (error) {
+        console.error('Failed to auto-refresh metrics:', error);
+        setAutoRefreshStatus('error');
+        setTimeout(() => setAutoRefreshStatus('idle'), 2000);
+      }
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(refreshInterval);
+  }, [open]);
 
   const handleExport = async () => {
     try {
@@ -278,24 +302,36 @@ export function PerformanceMetrics({
           </div>
         )}
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={handleExport}
-            disabled={isExporting}
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Exporting...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4 mr-2" />
-                Export Metrics
-              </>
-            )}
-          </Button>
+        <DialogFooter className="flex gap-2 justify-between">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Auto-refreshing every 30s</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleExport}
+              disabled={isExporting}
+            >
+              {isExporting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </>
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              Close
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { CheckCircle, Loader2 } from 'lucide-react';
 import { useBatchOperationDefaults } from '@/hooks/useSettings';
+import { useDebounce } from '@/hooks/useDebounce';
+import { AutoSaveIndicator, type AutoSaveStatus } from './AutoSaveIndicator';
 
 export interface BatchOperationDefaultsConfig {
   defaultOperationType: 're_analyze' | 'reschedule' | 'conflict_resolution' | 'optimization';
@@ -42,6 +44,8 @@ export function BatchOperationDefaults({
   const { defaults, isLoading, isSaving, save } = useBatchOperationDefaults();
   const [config, setConfig] = useState<BatchOperationDefaultsConfig>(DEFAULT_CONFIG);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>('idle');
+  const debouncedConfig = useDebounce(config, 500);
 
   useEffect(() => {
     if (defaults) {
@@ -57,6 +61,27 @@ export function BatchOperationDefaults({
       });
     }
   }, [defaults, open]);
+
+  // Auto-save on debounced config changes
+  useEffect(() => {
+    if (!open) return; // Don't auto-save when dialog is closed
+
+    const autoSave = async () => {
+      try {
+        setAutoSaveStatus('saving');
+        await save(debouncedConfig);
+        setAutoSaveStatus('saved');
+        // Reset to idle after 2 seconds
+        setTimeout(() => setAutoSaveStatus('idle'), 2000);
+      } catch (error) {
+        console.error('Failed to auto-save batch operation defaults:', error);
+        setAutoSaveStatus('error');
+        setTimeout(() => setAutoSaveStatus('idle'), 3000);
+      }
+    };
+
+    autoSave();
+  }, [debouncedConfig, open, save]);
 
   const handleSave = async () => {
     try {
@@ -243,18 +268,14 @@ export function BatchOperationDefaults({
         </div>
 
         <DialogFooter>
-          {saveSuccess && (
-            <div className="flex items-center gap-2 text-green-600">
-              <CheckCircle className="h-4 w-4" />
-              <span className="text-sm">Settings saved</span>
+          <div className="flex items-center justify-between w-full">
+            <AutoSaveIndicator status={autoSaveStatus} />
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => onOpenChange(false)}>
+                Close
+              </Button>
             </div>
-          )}
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? 'Saving...' : 'Save Settings'}
-          </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
