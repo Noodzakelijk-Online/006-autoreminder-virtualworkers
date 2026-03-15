@@ -24,7 +24,34 @@ export const appRouter = router({
 
   interview: interviewRouter,
   settings: settingsRouter,
-  atis: router(atisTaskSelectorRouter),
+  atis: router({
+    ...atisTaskSelectorRouter,
+    startAnalysis: protectedProcedure
+      .input(z.object({
+        taskId: z.string(),
+        taskDescription: z.string(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const userId = ctx.user?.openId;
+          if (!userId) {
+            throw new Error('User not authenticated');
+          }
+
+          // Import and call the ATIS phases analysis
+          const { runAllPhases } = await import('./services/atis-phases-service.js');
+          const result = await runAllPhases(input.taskId, userId, input.taskDescription);
+          
+          return {
+            success: true,
+            data: result,
+          };
+        } catch (error) {
+          console.error('[ATIS Analysis tRPC] Error:', error);
+          throw error;
+        }
+      }),
+  }),
 
   trello: router({
     reschedule: protectedProcedure.mutation(async ({ ctx }) => {

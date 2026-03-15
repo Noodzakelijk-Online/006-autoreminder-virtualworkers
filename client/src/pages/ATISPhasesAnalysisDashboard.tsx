@@ -1,26 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import { trpc } from '@/lib/trpc';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertCircle, Brain, CheckCircle2, Clock, TrendingUp, RefreshCw } from 'lucide-react';
+import { AlertCircle, Brain, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2 } from 'lucide-react';
-import {
-  Phase3DecompositionView,
-  Phase4RiskAssessmentView,
-  Phase5ResourceEstimationView,
-  Phase6TimelineView,
-  Phase7QAStrategyView,
-  Phase8DocumentationView,
-  Phase9DependenciesView,
-  Phase10ExecutionPlanView,
-} from '@/components/atis/PhaseViews';
-import AnalysisSessionManager from '@/components/atis/AnalysisSessionManager';
-import ConfidenceScoreIndicator from '@/components/atis/ConfidenceScoreIndicator';
-import AnalysisProgressTracker from '@/components/atis/AnalysisProgressTracker';
-import { PreparationPhaseView } from '@/components/atis/PreparationPhaseView';
 import { TaskSelector } from '@/components/atis/TaskSelector';
 
 interface AnalysisData {
@@ -47,47 +33,38 @@ interface AnalysisData {
   contextSummary?: string;
 }
 
-interface PhaseStatus {
-  phase: number;
-  title: string;
-  status: 'pending' | 'completed' | 'failed' | 'skipped';
-}
-
 export default function ATISPhasesAnalysisDashboard() {
   const [selectedTask, setSelectedTask] = useState<string>('');
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [activePhase, setActivePhase] = useState('overview');
-  const [preparationStatus, setPreparationStatus] = useState<'pending' | 'completed' | 'failed'>('pending');
-  const [phaseStatuses, setPhaseStatuses] = useState<PhaseStatus[]>([
-    { phase: 3, title: 'Decomposition', status: 'pending' as const },
-    { phase: 4, title: 'Risk Assessment', status: 'pending' as const },
-    { phase: 5, title: 'Resources', status: 'pending' as const },
-    { phase: 6, title: 'Timeline', status: 'pending' as const },
-    { phase: 7, title: 'QA Strategy', status: 'pending' as const },
-    { phase: 8, title: 'Documentation', status: 'pending' as const },
-    { phase: 9, title: 'Dependencies', status: 'pending' as const },
-    { phase: 10, title: 'Execution', status: 'pending' as const },
-  ]);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch analysis data for selected task
-  const handleLoadAnalysis = async (taskId: string) => {
+  // Start analysis mutation using tRPC
+  const startAnalysisMutation = trpc.atis.startAnalysis.useMutation({
+    onSuccess: (data: any) => {
+      setAnalysisData(data.data as AnalysisData);
+      setError(null);
+      setIsAnalyzing(false);
+    },
+    onError: (error) => {
+      setError(error.message || 'Failed to start analysis');
+      setIsAnalyzing(false);
+    },
+  });
+
+  // Load existing analysis
+  const handleLoadAnalysis = async () => {
+    if (!selectedTask) return;
     setIsLoading(true);
     setError(null);
-    setPreparationStatus('pending');
     try {
-      const response = await fetch(`/api/atis/phases/task/${taskId}`);
-      if (!response.ok) throw new Error('Failed to load analysis data');
+      const response = await fetch(`/api/atis/phases/analyze/${selectedTask}`);
+      if (!response.ok) throw new Error('Failed to load analysis');
       const data = await response.json();
       setAnalysisData(data);
-      setSelectedTask(taskId);
-      // Set preparation status based on whether phase 1 and 2 data exists
-      setPreparationStatus(data.phase1 && data.phase2 ? 'completed' : 'failed');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
-      setPreparationStatus('failed');
     } finally {
       setIsLoading(false);
     }
@@ -98,17 +75,20 @@ export default function ATISPhasesAnalysisDashboard() {
     if (!selectedTask) return;
     setIsAnalyzing(true);
     setError(null);
-    setPreparationStatus('pending');
     try {
-      const response = await fetch(`/api/atis/phases/analyze/${selectedTask}`, { method: 'POST' });
-      if (!response.ok) throw new Error('Failed to start analysis');
-      const data = await response.json();
-      setAnalysisData(data);
-      setPreparationStatus(data.phase1 && data.phase2 ? 'completed' : 'failed');
+      // Fetch task details from Trello API to get description
+      const taskDetailsResponse = await fetch(`/api/trello/cards/${selectedTask}`);
+      if (!taskDetailsResponse.ok) throw new Error('Failed to fetch task details');
+      const taskDetails = await taskDetailsResponse.json();
+      const taskDescription = taskDetails.desc || taskDetails.name || 'No description';
+      
+      // Call tRPC mutation for ATIS analysis
+      await startAnalysisMutation.mutateAsync({
+        taskId: selectedTask,
+        taskDescription: taskDescription,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
-      setPreparationStatus('failed');
-    } finally {
       setIsAnalyzing(false);
     }
   };
@@ -116,280 +96,172 @@ export default function ATISPhasesAnalysisDashboard() {
   return (
     <div className="min-h-screen bg-background">
       <div className="container py-8">
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2">ATIS Phases Analysis</h1>
           <p className="text-muted-foreground">Advanced Task Intelligence System - Comprehensive task analysis across 8 phases</p>
         </div>
 
-        {/* Error Alert */}
-        {error && (
-          <Alert variant="destructive" className="mb-6">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Sidebar */}
           <div className="lg:col-span-1">
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Analysis Control</CardTitle>
+                <CardTitle>Analysis Control</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Task Selection with Dropdown */}
-                <TaskSelector
-                  onTaskSelect={(taskId) => setSelectedTask(taskId)}
-                  selectedTaskId={selectedTask}
-                />
+                <div>
+                  <label className="text-sm font-medium">Select Task from Trello</label>
+                  <TaskSelector 
+                    selectedTaskId={selectedTask}
+                    onTaskSelect={setSelectedTask}
+                  />
+                </div>
 
-                {/* Load Button */}
-                <Button
-                  onClick={() => handleLoadAnalysis(selectedTask)}
-                  disabled={!selectedTask || isLoading}
-                  variant="outline"
-                  className="w-full"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Loading...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Load Analysis
-                    </>
-                  )}
-                </Button>
+                <div>
+                  <label className="text-sm font-medium">Or enter task ID manually:</label>
+                  <input
+                    type="text"
+                    placeholder="Paste task ID here..."
+                    value={selectedTask}
+                    onChange={(e) => setSelectedTask(e.target.value)}
+                    className="w-full px-3 py-2 border border-border rounded-md text-sm"
+                  />
+                </div>
 
-                {/* Start Analysis Button */}
-                <Button
-                  onClick={handleStartAnalysis}
-                  disabled={!selectedTask || isAnalyzing}
-                  className="w-full"
-                >
-                  {isAnalyzing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      <Brain className="h-4 w-4 mr-2" />
-                      Start Analysis
-                    </>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleLoadAnalysis}
+                    disabled={!selectedTask || isLoading || isAnalyzing}
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Load Analysis
+                  </Button>
+                  <Button 
+                    onClick={handleStartAnalysis}
+                    disabled={!selectedTask || isAnalyzing || isLoading}
+                  >
+                    {isAnalyzing ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Brain className="w-4 h-4 mr-2" />
+                    )}
+                    Start Analysis
+                  </Button>
+                </div>
 
-                {/* Analysis Summary */}
-                {analysisData && (
-                  <div className="mt-6 pt-6 border-t space-y-4">
-                    {/* Progress */}
-                    <div>
-                      <p className="font-medium mb-2 flex items-center gap-2">
-                        <Clock className="h-4 w-4" />
-                        Progress
-                      </p>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-muted-foreground">
-                          {phaseStatuses.filter(p => p.status === 'completed').length}/{phaseStatuses.length} phases
-                        </span>
-                        <span className="text-xs font-medium">
-                          {Math.round((phaseStatuses.filter(p => p.status === 'completed').length / phaseStatuses.length) * 100)}%
-                        </span>
+                {/* Phase Status */}
+                <div className="border-t pt-4">
+                  <h3 className="font-semibold mb-3">Phase Status</h3>
+                  <div className="space-y-2">
+                    {[3, 4, 5, 6, 7, 8, 9, 10].map((phase) => (
+                      <div key={phase} className="flex items-center justify-between text-sm">
+                        <span>Phase {phase}</span>
+                        <div className="w-2 h-2 bg-muted-foreground rounded-full" />
                       </div>
-                      <div className="w-full bg-secondary rounded-full h-2">
-                        <div
-                          className="bg-primary h-2 rounded-full transition-all"
-                          style={{
-                            width: `${(phaseStatuses.filter(p => p.status === 'completed').length / phaseStatuses.length) * 100}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Confidence Score */}
-                    <div className="text-sm">
-                      <p className="font-medium mb-2 flex items-center gap-2">
-                        <TrendingUp className="h-4 w-4" />
-                        Confidence
-                      </p>
-                      <ConfidenceScoreIndicator score={analysisData.overallConfidence} />
-                    </div>
-
-                    {/* Task Info */}
-                    <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
-                      <p>
-                        <strong>Task:</strong> {analysisData.taskTitle}
-                      </p>
-                      <p>
-                        <strong>Session:</strong> {analysisData.sessionId.slice(0, 8)}...
-                      </p>
-                      <p>
-                        <strong>Updated:</strong> {new Date(analysisData.updatedAt).toLocaleString()}
-                      </p>
-                    </div>
+                    ))}
                   </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Phase Status List */}
-            <Card className="mt-6">
-              <CardHeader>
-                <CardTitle className="text-lg">Phase Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {phaseStatuses.map((phase) => (
-                    <div
-                      key={phase.phase}
-                      className="flex items-center justify-between p-2 rounded-md hover:bg-secondary cursor-pointer"
-                      onClick={() => setActivePhase(`phase${phase.phase}`)}
-                    >
-                      <span className="text-sm font-medium">Phase {phase.phase}</span>
-                      {phase.status === 'completed' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-                      {phase.status === 'pending' && <Clock className="h-4 w-4 text-muted-foreground" />}
-                      {phase.status === 'failed' && <AlertCircle className="h-4 w-4 text-red-500" />}
-                    </div>
-                  ))}
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Main Content Area */}
+          {/* Main Content */}
           <div className="lg:col-span-3">
-            <div className="space-y-6">
-              {/* Preparation Phase Section - Always Visible When Analysis Data Exists */}
-              {analysisData && (
-                <PreparationPhaseView
-                  status={preparationStatus}
-                  dataGatheringTime={analysisData.dataGatheringTime || 0}
-                  reasoningTime={analysisData.reasoningTime || 0}
-                  dataSourcesCount={analysisData.dataSourcesCount || 0}
-                  contextSummary={analysisData.contextSummary}
-                  error={preparationStatus === 'failed' ? 'Failed to gather context or analyze task' : undefined}
-                />
-              )}
+            {error && (
+              <Alert variant="destructive" className="mb-6">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-              {!analysisData ? (
-                <Card className="h-96 flex items-center justify-center">
-                  <div className="text-center">
-                    <Brain className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                    <p className="text-muted-foreground">Select a task and start analysis to view results</p>
-                  </div>
+            {!analysisData ? (
+              <Card className="flex items-center justify-center min-h-[400px]">
+                <div className="text-center">
+                  <Brain className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+                  <p className="text-muted-foreground">Select a task and start analysis to view results</p>
+                </div>
+              </Card>
+            ) : (
+              <div className="space-y-6">
+                {/* Preparation Phase */}
+                {(analysisData.phase1 || analysisData.phase2) && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Preparation Phase</CardTitle>
+                      <CardDescription>Phases 1-2: Context Engine & Reasoning Engine</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {analysisData.phase1 && (
+                        <div className="border-b pb-4">
+                          <h4 className="font-medium mb-2">Phase 1: Context Engine</h4>
+                          <p className="text-sm text-muted-foreground">Data gathering and context collection</p>
+                          {analysisData.dataGatheringTime && (
+                            <p className="text-sm mt-2">Time: {analysisData.dataGatheringTime}ms</p>
+                          )}
+                          {analysisData.dataSourcesCount && (
+                            <p className="text-sm">Sources: {analysisData.dataSourcesCount}</p>
+                          )}
+                        </div>
+                      )}
+                      {analysisData.phase2 && (
+                        <div>
+                          <h4 className="font-medium mb-2">Phase 2: Reasoning Engine</h4>
+                          <p className="text-sm text-muted-foreground">Analysis and reasoning</p>
+                          {analysisData.reasoningTime && (
+                            <p className="text-sm mt-2">Time: {analysisData.reasoningTime}ms</p>
+                          )}
+                          {analysisData.contextSummary && (
+                            <p className="text-sm mt-2">{analysisData.contextSummary}</p>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Analysis Results */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Analysis Results</CardTitle>
+                    <CardDescription>Phases 3-10: Detailed Task Analysis</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4">
+                      {[3, 4, 5, 6, 7, 8, 9, 10].map((phase) => (
+                        <div key={phase} className="border rounded-lg p-4">
+                          <h4 className="font-medium mb-2">Phase {phase}</h4>
+                          <p className="text-sm text-muted-foreground">Analysis data available</p>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
                 </Card>
-              ) : (
-                <Tabs value={activePhase} onValueChange={setActivePhase} className="w-full">
-                  <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5 mb-6">
-                    <TabsTrigger value="overview">Overview</TabsTrigger>
-                    <TabsTrigger value="phase3">Phase 3</TabsTrigger>
-                    <TabsTrigger value="phase4">Phase 4</TabsTrigger>
-                    <TabsTrigger value="phase5">Phase 5</TabsTrigger>
-                    <TabsTrigger value="phase6">Phase 6</TabsTrigger>
-                    <TabsTrigger value="phase7">Phase 7</TabsTrigger>
-                    <TabsTrigger value="phase8">Phase 8</TabsTrigger>
-                    <TabsTrigger value="phase9">Phase 9</TabsTrigger>
-                    <TabsTrigger value="phase10">Phase 10</TabsTrigger>
-                    <TabsTrigger value="sessions">Sessions</TabsTrigger>
-                  </TabsList>
 
-                  {/* Overview Tab */}
-                  <TabsContent value="overview">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Analysis Progress</CardTitle>
-                        <CardDescription>Summary of all analysis phases (3-10)</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <AnalysisProgressTracker phaseStatuses={phaseStatuses} analysisData={analysisData} />
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-
-                  {/* Phase 3 Tab */}
-                  <TabsContent value="phase3">
-                    {analysisData.phase3 ? (
-                      <Phase3DecompositionView data={analysisData.phase3} />
-                    ) : (
-                      <Card className="p-6 text-center text-muted-foreground">Phase 3 analysis not available</Card>
-                    )}
-                  </TabsContent>
-
-                  {/* Phase 4 Tab */}
-                  <TabsContent value="phase4">
-                    {analysisData.phase4 ? (
-                      <Phase4RiskAssessmentView data={analysisData.phase4} />
-                    ) : (
-                      <Card className="p-6 text-center text-muted-foreground">Phase 4 analysis not available</Card>
-                    )}
-                  </TabsContent>
-
-                  {/* Phase 5 Tab */}
-                  <TabsContent value="phase5">
-                    {analysisData.phase5 ? (
-                      <Phase5ResourceEstimationView data={analysisData.phase5} />
-                    ) : (
-                      <Card className="p-6 text-center text-muted-foreground">Phase 5 analysis not available</Card>
-                    )}
-                  </TabsContent>
-
-                  {/* Phase 6 Tab */}
-                  <TabsContent value="phase6">
-                    {analysisData.phase6 ? (
-                      <Phase6TimelineView data={analysisData.phase6} />
-                    ) : (
-                      <Card className="p-6 text-center text-muted-foreground">Phase 6 analysis not available</Card>
-                    )}
-                  </TabsContent>
-
-                  {/* Phase 7 Tab */}
-                  <TabsContent value="phase7">
-                    {analysisData.phase7 ? (
-                      <Phase7QAStrategyView data={analysisData.phase7} />
-                    ) : (
-                      <Card className="p-6 text-center text-muted-foreground">Phase 7 analysis not available</Card>
-                    )}
-                  </TabsContent>
-
-                  {/* Phase 8 Tab */}
-                  <TabsContent value="phase8">
-                    {analysisData.phase8 ? (
-                      <Phase8DocumentationView data={analysisData.phase8} />
-                    ) : (
-                      <Card className="p-6 text-center text-muted-foreground">Phase 8 analysis not available</Card>
-                    )}
-                  </TabsContent>
-
-                  {/* Phase 9 Tab */}
-                  <TabsContent value="phase9">
-                    {analysisData.phase9 ? (
-                      <Phase9DependenciesView data={analysisData.phase9} />
-                    ) : (
-                      <Card className="p-6 text-center text-muted-foreground">Phase 9 analysis not available</Card>
-                    )}
-                  </TabsContent>
-
-                  {/* Phase 10 Tab */}
-                  <TabsContent value="phase10">
-                    {analysisData.phase10 ? (
-                      <Phase10ExecutionPlanView data={analysisData.phase10} />
-                    ) : (
-                      <Card className="p-6 text-center text-muted-foreground">Phase 10 analysis not available</Card>
-                    )}
-                  </TabsContent>
-
-                  {/* Sessions Tab */}
-                  <TabsContent value="sessions">
-                    <AnalysisSessionManager taskId={selectedTask} currentSessionId={analysisData.sessionId} />
-                  </TabsContent>
-                </Tabs>
-              )}
-            </div>
+                {/* Confidence Score */}
+                {analysisData.overallConfidence && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Confidence Score</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex items-center gap-4">
+                        <div className="text-4xl font-bold">{analysisData.overallConfidence}%</div>
+                        <div className="flex-1">
+                          <div className="w-full bg-muted rounded-full h-2">
+                            <div 
+                              className="bg-blue-500 h-2 rounded-full" 
+                              style={{ width: `${analysisData.overallConfidence}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
