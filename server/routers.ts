@@ -39,7 +39,7 @@ export const appRouter = router({
           }
 
           // Import and call the ATIS phases analysis
-          const { runAllPhases } = await import('./services/atis-phases-service.js');
+          const { runAllPhases } = await import('./services/atis-phases-service');
           const result = await runAllPhases(input.taskId, userId, input.taskDescription);
           
           return {

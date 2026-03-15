@@ -1849,3 +1849,11 @@ Each card now has:
 - [x] Add loading and error states for task list
 - [x] Add search/filter functionality for task list
 - [ ] Test task selection and analysis loading
+
+
+## Dev Server Stability Fix (Mar 15, 2026)
+- [x] Identified root cause: Webhook auto-registration causing memory leak
+- [x] Found 74 failed webhook registrations on every server startup
+- [x] Disabled webhook auto-registration in development mode
+- [x] Verified fix: Server now stable with no memory accumulation
+- [x] Tested: Memory usage stable at 64-72MB after fix

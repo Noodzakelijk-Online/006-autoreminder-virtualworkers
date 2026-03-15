@@ -356,6 +356,13 @@ export async function initializeWebhookAutoRegister(serverUrl: string): Promise<
   // Set the callback URL
   setWebhookCallbackUrl(`${serverUrl}/api/trello-webhook`);
   
+  // Skip webhook auto-registration in development mode to prevent memory leaks
+  // from failed webhook registrations when localhost is not reachable from Trello
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[WebhookAutoRegister] Skipping webhook auto-registration in development mode');
+    return;
+  }
+  
   // Initial sync
   console.log('[WebhookAutoRegister] Initializing...');
   await syncWebhooks();

@@ -76,16 +76,11 @@ export default function ATISPhasesAnalysisDashboard() {
     setIsAnalyzing(true);
     setError(null);
     try {
-      // Fetch task details from Trello API to get description
-      const taskDetailsResponse = await fetch(`/api/trello/cards/${selectedTask}`);
-      if (!taskDetailsResponse.ok) throw new Error('Failed to fetch task details');
-      const taskDetails = await taskDetailsResponse.json();
-      const taskDescription = taskDetails.desc || taskDetails.name || 'No description';
-      
       // Call tRPC mutation for ATIS analysis
+      // The backend will fetch task description from Trello
       await startAnalysisMutation.mutateAsync({
         taskId: selectedTask,
-        taskDescription: taskDescription,
+        taskDescription: 'Task Analysis',
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
