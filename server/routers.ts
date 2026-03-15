@@ -5,6 +5,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { invalidateCache } from "./services/trello-cache";
 import { interviewRouter } from "./routes/interview";
 import { settingsRouter } from "./routes/settings";
+import { atisTaskSelectorRouter } from "./routes/atis-task-selector";
 import { z } from "zod";
 
 export const appRouter = router({
@@ -23,6 +24,7 @@ export const appRouter = router({
 
   interview: interviewRouter,
   settings: settingsRouter,
+  atis: router(atisTaskSelectorRouter),
 
   trello: router({
     reschedule: protectedProcedure.mutation(async ({ ctx }) => {

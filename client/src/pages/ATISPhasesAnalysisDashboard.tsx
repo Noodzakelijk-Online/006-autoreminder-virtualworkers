@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from 'react';
+'use client';
+
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,6 +21,7 @@ import AnalysisSessionManager from '@/components/atis/AnalysisSessionManager';
 import ConfidenceScoreIndicator from '@/components/atis/ConfidenceScoreIndicator';
 import AnalysisProgressTracker from '@/components/atis/AnalysisProgressTracker';
 import { PreparationPhaseView } from '@/components/atis/PreparationPhaseView';
+import { TaskSelector } from '@/components/atis/TaskSelector';
 
 interface AnalysisData {
   sessionId: string;
@@ -48,8 +51,6 @@ interface PhaseStatus {
   phase: number;
   title: string;
   status: 'pending' | 'completed' | 'failed' | 'skipped';
-  confidence?: number;
-  error?: string | undefined;
 }
 
 export default function ATISPhasesAnalysisDashboard() {
@@ -94,45 +95,23 @@ export default function ATISPhasesAnalysisDashboard() {
 
   // Start analysis for all phases
   const handleStartAnalysis = async () => {
-    if (!selectedTask) {
-      setError('Please select a task first');
-      return;
-    }
-
+    if (!selectedTask) return;
     setIsAnalyzing(true);
     setError(null);
-      setPhaseStatuses(phaseStatuses.map(p => ({ ...p, status: 'pending' as const })));
-
+    setPreparationStatus('pending');
     try {
-      const response = await fetch('/api/atis/phases/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId: selectedTask }),
-      });
-
+      const response = await fetch(`/api/atis/phases/analyze/${selectedTask}`, { method: 'POST' });
       if (!response.ok) throw new Error('Failed to start analysis');
       const data = await response.json();
-
-      // Update phase statuses based on response
-      const newStatuses = phaseStatuses.map(p => ({
-        ...p,
-        status: (data[`phase${p.phase}`] ? 'completed' : 'failed') as 'completed' | 'failed',
-        confidence: data[`phase${p.phase}`]?.confidence || 0,
-      }));
-      setPhaseStatuses(newStatuses);
-
-      // Load updated analysis data
-      await handleLoadAnalysis(selectedTask);
+      setAnalysisData(data);
+      setPreparationStatus(data.phase1 && data.phase2 ? 'completed' : 'failed');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
-      setPhaseStatuses(phaseStatuses.map(p => ({ ...p, status: 'failed' as const })));
+      setPreparationStatus('failed');
     } finally {
       setIsAnalyzing(false);
     }
   };
-
-  const completedPhases = phaseStatuses.filter(p => p.status === 'completed').length;
-  const totalPhases = phaseStatuses.length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -160,17 +139,11 @@ export default function ATISPhasesAnalysisDashboard() {
                 <CardTitle className="text-lg">Analysis Control</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Task Selection */}
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Select Task</label>
-                  <input
-                    type="text"
-                    placeholder="Enter task ID"
-                    value={selectedTask}
-                    onChange={(e) => setSelectedTask(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-md text-sm"
-                  />
-                </div>
+                {/* Task Selection with Dropdown */}
+                <TaskSelector
+                  onTaskSelect={(taskId) => setSelectedTask(taskId)}
+                  selectedTaskId={selectedTask}
+                />
 
                 {/* Load Button */}
                 <Button
@@ -179,8 +152,17 @@ export default function ATISPhasesAnalysisDashboard() {
                   variant="outline"
                   className="w-full"
                 >
-                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                  Load Analysis
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Load Analysis
+                    </>
+                  )}
                 </Button>
 
                 {/* Start Analysis Button */}
@@ -189,23 +171,42 @@ export default function ATISPhasesAnalysisDashboard() {
                   disabled={!selectedTask || isAnalyzing}
                   className="w-full"
                 >
-                  {isAnalyzing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Brain className="h-4 w-4 mr-2" />}
-                  {isAnalyzing ? 'Analyzing...' : 'Start Analysis'}
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="h-4 w-4 mr-2" />
+                      Start Analysis
+                    </>
+                  )}
                 </Button>
 
-                {/* Progress Summary */}
+                {/* Analysis Summary */}
                 {analysisData && (
-                  <div className="space-y-3 pt-4 border-t">
-                    <div className="text-sm">
-                      <p className="font-medium mb-2">Progress</p>
+                  <div className="mt-6 pt-6 border-t space-y-4">
+                    {/* Progress */}
+                    <div>
+                      <p className="font-medium mb-2 flex items-center gap-2">
+                        <Clock className="h-4 w-4" />
+                        Progress
+                      </p>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs text-muted-foreground">{completedPhases}/{totalPhases} phases</span>
-                        <span className="text-xs font-medium">{Math.round((completedPhases / totalPhases) * 100)}%</span>
+                        <span className="text-xs text-muted-foreground">
+                          {phaseStatuses.filter(p => p.status === 'completed').length}/{phaseStatuses.length} phases
+                        </span>
+                        <span className="text-xs font-medium">
+                          {Math.round((phaseStatuses.filter(p => p.status === 'completed').length / phaseStatuses.length) * 100)}%
+                        </span>
                       </div>
                       <div className="w-full bg-secondary rounded-full h-2">
                         <div
                           className="bg-primary h-2 rounded-full transition-all"
-                          style={{ width: `${(completedPhases / totalPhases) * 100}%` }}
+                          style={{
+                            width: `${(phaseStatuses.filter(p => p.status === 'completed').length / phaseStatuses.length) * 100}%`,
+                          }}
                         />
                       </div>
                     </div>
@@ -221,9 +222,15 @@ export default function ATISPhasesAnalysisDashboard() {
 
                     {/* Task Info */}
                     <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
-                      <p><strong>Task:</strong> {analysisData.taskTitle}</p>
-                      <p><strong>Session:</strong> {analysisData.sessionId.slice(0, 8)}...</p>
-                      <p><strong>Updated:</strong> {new Date(analysisData.updatedAt).toLocaleString()}</p>
+                      <p>
+                        <strong>Task:</strong> {analysisData.taskTitle}
+                      </p>
+                      <p>
+                        <strong>Session:</strong> {analysisData.sessionId.slice(0, 8)}...
+                      </p>
+                      <p>
+                        <strong>Updated:</strong> {new Date(analysisData.updatedAt).toLocaleString()}
+                      </p>
                     </div>
                   </div>
                 )}
@@ -256,16 +263,9 @@ export default function ATISPhasesAnalysisDashboard() {
 
           {/* Main Content Area */}
           <div className="lg:col-span-3">
-            {!analysisData ? (
-              <Card className="h-96 flex items-center justify-center">
-                <div className="text-center">
-                  <Brain className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground">Select a task and start analysis to view results</p>
-                </div>
-              </Card>
-            ) : (
-              <div className="space-y-6">
-                {/* Preparation Phase Section - Always Visible Above Tabs */}
+            <div className="space-y-6">
+              {/* Preparation Phase Section - Always Visible When Analysis Data Exists */}
+              {analysisData && (
                 <PreparationPhaseView
                   status={preparationStatus}
                   dataGatheringTime={analysisData.dataGatheringTime || 0}
@@ -274,8 +274,16 @@ export default function ATISPhasesAnalysisDashboard() {
                   contextSummary={analysisData.contextSummary}
                   error={preparationStatus === 'failed' ? 'Failed to gather context or analyze task' : undefined}
                 />
+              )}
 
-                {/* Phase 3-10 Analysis Tabs */}
+              {!analysisData ? (
+                <Card className="h-96 flex items-center justify-center">
+                  <div className="text-center">
+                    <Brain className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">Select a task and start analysis to view results</p>
+                  </div>
+                </Card>
+              ) : (
                 <Tabs value={activePhase} onValueChange={setActivePhase} className="w-full">
                   <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5 mb-6">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -303,101 +311,85 @@ export default function ATISPhasesAnalysisDashboard() {
                     </Card>
                   </TabsContent>
 
-                {/* Phase 3 Tab */}
-                <TabsContent value="phase3">
-                  {analysisData.phase3 ? (
-                    <Phase3DecompositionView data={analysisData.phase3} />
-                  ) : (
-                    <Card className="p-6 text-center text-muted-foreground">
-                      Phase 3 analysis not available
-                    </Card>
-                  )}
-                </TabsContent>
+                  {/* Phase 3 Tab */}
+                  <TabsContent value="phase3">
+                    {analysisData.phase3 ? (
+                      <Phase3DecompositionView data={analysisData.phase3} />
+                    ) : (
+                      <Card className="p-6 text-center text-muted-foreground">Phase 3 analysis not available</Card>
+                    )}
+                  </TabsContent>
 
-                {/* Phase 4 Tab */}
-                <TabsContent value="phase4">
-                  {analysisData.phase4 ? (
-                    <Phase4RiskAssessmentView data={analysisData.phase4} />
-                  ) : (
-                    <Card className="p-6 text-center text-muted-foreground">
-                      Phase 4 analysis not available
-                    </Card>
-                  )}
-                </TabsContent>
+                  {/* Phase 4 Tab */}
+                  <TabsContent value="phase4">
+                    {analysisData.phase4 ? (
+                      <Phase4RiskAssessmentView data={analysisData.phase4} />
+                    ) : (
+                      <Card className="p-6 text-center text-muted-foreground">Phase 4 analysis not available</Card>
+                    )}
+                  </TabsContent>
 
-                {/* Phase 5 Tab */}
-                <TabsContent value="phase5">
-                  {analysisData.phase5 ? (
-                    <Phase5ResourceEstimationView data={analysisData.phase5} />
-                  ) : (
-                    <Card className="p-6 text-center text-muted-foreground">
-                      Phase 5 analysis not available
-                    </Card>
-                  )}
-                </TabsContent>
+                  {/* Phase 5 Tab */}
+                  <TabsContent value="phase5">
+                    {analysisData.phase5 ? (
+                      <Phase5ResourceEstimationView data={analysisData.phase5} />
+                    ) : (
+                      <Card className="p-6 text-center text-muted-foreground">Phase 5 analysis not available</Card>
+                    )}
+                  </TabsContent>
 
-                {/* Phase 6 Tab */}
-                <TabsContent value="phase6">
-                  {analysisData.phase6 ? (
-                    <Phase6TimelineView data={analysisData.phase6} />
-                  ) : (
-                    <Card className="p-6 text-center text-muted-foreground">
-                      Phase 6 analysis not available
-                    </Card>
-                  )}
-                </TabsContent>
+                  {/* Phase 6 Tab */}
+                  <TabsContent value="phase6">
+                    {analysisData.phase6 ? (
+                      <Phase6TimelineView data={analysisData.phase6} />
+                    ) : (
+                      <Card className="p-6 text-center text-muted-foreground">Phase 6 analysis not available</Card>
+                    )}
+                  </TabsContent>
 
-                {/* Phase 7 Tab */}
-                <TabsContent value="phase7">
-                  {analysisData.phase7 ? (
-                    <Phase7QAStrategyView data={analysisData.phase7} />
-                  ) : (
-                    <Card className="p-6 text-center text-muted-foreground">
-                      Phase 7 analysis not available
-                    </Card>
-                  )}
-                </TabsContent>
+                  {/* Phase 7 Tab */}
+                  <TabsContent value="phase7">
+                    {analysisData.phase7 ? (
+                      <Phase7QAStrategyView data={analysisData.phase7} />
+                    ) : (
+                      <Card className="p-6 text-center text-muted-foreground">Phase 7 analysis not available</Card>
+                    )}
+                  </TabsContent>
 
-                {/* Phase 8 Tab */}
-                <TabsContent value="phase8">
-                  {analysisData.phase8 ? (
-                    <Phase8DocumentationView data={analysisData.phase8} />
-                  ) : (
-                    <Card className="p-6 text-center text-muted-foreground">
-                      Phase 8 analysis not available
-                    </Card>
-                  )}
-                </TabsContent>
+                  {/* Phase 8 Tab */}
+                  <TabsContent value="phase8">
+                    {analysisData.phase8 ? (
+                      <Phase8DocumentationView data={analysisData.phase8} />
+                    ) : (
+                      <Card className="p-6 text-center text-muted-foreground">Phase 8 analysis not available</Card>
+                    )}
+                  </TabsContent>
 
-                {/* Phase 9 Tab */}
-                <TabsContent value="phase9">
-                  {analysisData.phase9 ? (
-                    <Phase9DependenciesView data={analysisData.phase9} />
-                  ) : (
-                    <Card className="p-6 text-center text-muted-foreground">
-                      Phase 9 analysis not available
-                    </Card>
-                  )}
-                </TabsContent>
+                  {/* Phase 9 Tab */}
+                  <TabsContent value="phase9">
+                    {analysisData.phase9 ? (
+                      <Phase9DependenciesView data={analysisData.phase9} />
+                    ) : (
+                      <Card className="p-6 text-center text-muted-foreground">Phase 9 analysis not available</Card>
+                    )}
+                  </TabsContent>
 
-                {/* Phase 10 Tab */}
-                <TabsContent value="phase10">
-                  {analysisData.phase10 ? (
-                    <Phase10ExecutionPlanView data={analysisData.phase10} />
-                  ) : (
-                    <Card className="p-6 text-center text-muted-foreground">
-                      Phase 10 analysis not available
-                    </Card>
-                  )}
-                </TabsContent>
+                  {/* Phase 10 Tab */}
+                  <TabsContent value="phase10">
+                    {analysisData.phase10 ? (
+                      <Phase10ExecutionPlanView data={analysisData.phase10} />
+                    ) : (
+                      <Card className="p-6 text-center text-muted-foreground">Phase 10 analysis not available</Card>
+                    )}
+                  </TabsContent>
 
-                {/* Sessions Tab */}
-                <TabsContent value="sessions">
-                  <AnalysisSessionManager taskId={selectedTask} currentSessionId={analysisData.sessionId} />
-                </TabsContent>
-              </Tabs>
-              </div>
-            )}
+                  {/* Sessions Tab */}
+                  <TabsContent value="sessions">
+                    <AnalysisSessionManager taskId={selectedTask} currentSessionId={analysisData.sessionId} />
+                  </TabsContent>
+                </Tabs>
+              )}
+            </div>
           </div>
         </div>
       </div>

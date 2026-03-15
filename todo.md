@@ -1840,3 +1840,12 @@ Each card now has:
 - [x] Move Preparation Phase section outside tabs for always-visible display
 - [x] Fix JSX structure and TypeScript compilation
 - [x] Verify dev server running with zero errors
+
+
+## ATIS Task Selector Feature (Mar 15, 2026)
+- [x] Create API endpoint to fetch tasks from Trello board
+- [x] Create TaskSelector component with dropdown UI
+- [x] Integrate TaskSelector into ATIS Dashboard sidebar
+- [x] Add loading and error states for task list
+- [x] Add search/filter functionality for task list
+- [ ] Test task selection and analysis loading
