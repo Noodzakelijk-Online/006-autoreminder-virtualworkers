@@ -80,9 +80,7 @@ export function ConflictDetectionSettings({
           warningThresholdMinutes: debouncedConfig.warningThresholdMinutes,
           autoResolve: debouncedConfig.autoResolve,
           notifyOnConflict: debouncedConfig.notifyOnConflict,
-          conflictTypes: Object.entries(debouncedConfig.conflictTypes)
-            .filter(([, enabled]) => enabled)
-            .map(([type]) => type),
+          conflictTypes: debouncedConfig.conflictTypes,
         });
         setAutoSaveStatus('saved');
         // Reset to idle after 2 seconds
@@ -99,21 +97,22 @@ export function ConflictDetectionSettings({
 
   const handleSave = async () => {
     try {
+      setSaveSuccess(false);
       await save({
         enabled: config.enabled,
         warningThresholdMinutes: config.warningThresholdMinutes,
         autoResolve: config.autoResolve,
         notifyOnConflict: config.notifyOnConflict,
-        conflictTypes: Object.entries(config.conflictTypes)
-          .filter(([, enabled]) => enabled)
-          .map(([type]) => type),
+        conflictTypes: config.conflictTypes,
       });
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2000);
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
       console.error('Failed to save conflict detection settings:', error);
     }
   };
+
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
