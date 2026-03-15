@@ -8,6 +8,7 @@ import { AlertCircle, Brain, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2 } from 'lucide-react';
 import { TaskSelector } from '@/components/atis/TaskSelector';
+import RealtimeProgressMonitor from '@/components/atis/RealtimeProgressMonitor';
 
 interface AnalysisData {
   sessionId: string;
@@ -39,11 +40,13 @@ export default function ATISPhasesAnalysisDashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   // Start analysis mutation using tRPC
   const startAnalysisMutation = trpc.atis.startAnalysis.useMutation({
     onSuccess: (data: any) => {
       setAnalysisData(data.data as AnalysisData);
+      setSessionId(data.data?.sessionId || null);
       setError(null);
       setIsAnalyzing(false);
     },
@@ -178,6 +181,8 @@ export default function ATISPhasesAnalysisDashboard() {
                   <p className="text-muted-foreground">Select a task and start analysis to view results</p>
                 </div>
               </Card>
+            ) : isAnalyzing && sessionId ? (
+              <RealtimeProgressMonitor sessionId={sessionId} taskId={selectedTask} />
             ) : (
               <div className="space-y-6">
                 {/* Preparation Phase */}
