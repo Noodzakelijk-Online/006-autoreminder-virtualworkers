@@ -264,34 +264,34 @@ export default function ATISPhasesAnalysisDashboard() {
                 </div>
               </Card>
             ) : (
-              <Tabs value={activePhase} onValueChange={setActivePhase} className="w-full">
-                <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5 mb-6">
-                  <TabsTrigger value="overview">Overview</TabsTrigger>
-                  <TabsTrigger value="phase3">Phase 3</TabsTrigger>
-                  <TabsTrigger value="phase4">Phase 4</TabsTrigger>
-                  <TabsTrigger value="phase5">Phase 5</TabsTrigger>
-                  <TabsTrigger value="phase6">Phase 6</TabsTrigger>
-                  <TabsTrigger value="phase7">Phase 7</TabsTrigger>
-                  <TabsTrigger value="phase8">Phase 8</TabsTrigger>
-                  <TabsTrigger value="phase9">Phase 9</TabsTrigger>
-                  <TabsTrigger value="phase10">Phase 10</TabsTrigger>
-                  <TabsTrigger value="sessions">Sessions</TabsTrigger>
-                </TabsList>
+              <div className="space-y-6">
+                {/* Preparation Phase Section - Always Visible Above Tabs */}
+                <PreparationPhaseView
+                  status={preparationStatus}
+                  dataGatheringTime={analysisData.dataGatheringTime || 0}
+                  reasoningTime={analysisData.reasoningTime || 0}
+                  dataSourcesCount={analysisData.dataSourcesCount || 0}
+                  contextSummary={analysisData.contextSummary}
+                  error={preparationStatus === 'failed' ? 'Failed to gather context or analyze task' : undefined}
+                />
 
-                {/* Overview Tab */}
-                <TabsContent value="overview">
-                  <div className="space-y-6">
-                    {/* Preparation Phase Section */}
-                    <PreparationPhaseView
-                      status={preparationStatus}
-                      dataGatheringTime={analysisData.dataGatheringTime || 0}
-                      reasoningTime={analysisData.reasoningTime || 0}
-                      dataSourcesCount={analysisData.dataSourcesCount || 0}
-                      contextSummary={analysisData.contextSummary}
-                      error={preparationStatus === 'failed' ? 'Failed to gather context or analyze task' : undefined}
-                    />
-                    
-                    {/* Analysis Progress */}
+                {/* Phase 3-10 Analysis Tabs */}
+                <Tabs value={activePhase} onValueChange={setActivePhase} className="w-full">
+                  <TabsList className="grid w-full grid-cols-3 lg:grid-cols-5 mb-6">
+                    <TabsTrigger value="overview">Overview</TabsTrigger>
+                    <TabsTrigger value="phase3">Phase 3</TabsTrigger>
+                    <TabsTrigger value="phase4">Phase 4</TabsTrigger>
+                    <TabsTrigger value="phase5">Phase 5</TabsTrigger>
+                    <TabsTrigger value="phase6">Phase 6</TabsTrigger>
+                    <TabsTrigger value="phase7">Phase 7</TabsTrigger>
+                    <TabsTrigger value="phase8">Phase 8</TabsTrigger>
+                    <TabsTrigger value="phase9">Phase 9</TabsTrigger>
+                    <TabsTrigger value="phase10">Phase 10</TabsTrigger>
+                    <TabsTrigger value="sessions">Sessions</TabsTrigger>
+                  </TabsList>
+
+                  {/* Overview Tab */}
+                  <TabsContent value="overview">
                     <Card>
                       <CardHeader>
                         <CardTitle>Analysis Progress</CardTitle>
@@ -301,8 +301,7 @@ export default function ATISPhasesAnalysisDashboard() {
                         <AnalysisProgressTracker phaseStatuses={phaseStatuses} analysisData={analysisData} />
                       </CardContent>
                     </Card>
-                  </div>
-                </TabsContent>
+                  </TabsContent>
 
                 {/* Phase 3 Tab */}
                 <TabsContent value="phase3">
@@ -397,6 +396,7 @@ export default function ATISPhasesAnalysisDashboard() {
                   <AnalysisSessionManager taskId={selectedTask} currentSessionId={analysisData.sessionId} />
                 </TabsContent>
               </Tabs>
+              </div>
             )}
           </div>
         </div>
