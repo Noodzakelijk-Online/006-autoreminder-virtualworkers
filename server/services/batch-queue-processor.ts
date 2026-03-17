@@ -253,76 +253,251 @@ class BatchQueueProcessor extends EventEmitter {
    * Re-analyze a task using LLM
    */
   private async reAnalyzeTask(taskId: string, parameters?: Record<string, any>): Promise<Record<string, any>> {
-    // TODO: Implement task re-analysis using LLM
-    // This would involve:
-    // 1. Fetching task details from database
-    // 2. Calling LLM with task context
-    // 3. Updating task with new analysis
-    // 4. Returning analysis results
+    try {
+      // Fetch task details from database
+      const task = await schedulingDb.getTaskById(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
 
-    return {
-      taskId,
-      analyzed: true,
-      timestamp: new Date().toISOString(),
-      analysis: 'Task re-analyzed successfully'
-    };
+      // Prepare task context for LLM
+      const taskContext = `Task: ${task.title || task.name}\nDescription: ${task.description || 'No description'}\nStatus: ${task.status || 'unknown'}\nPriority: ${task.priority || 'medium'}\nEstimated Hours: ${task.estimatedHours || 'unknown'}`;
+
+      // Call LLM for re-analysis
+      const response = await invokeLLM({
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a task analysis expert. Re-analyze the task and provide: decomposition, risks, resources, timeline, and quality metrics.'
+          },
+          {
+            role: 'user',
+            content: `Re-analyze: ${taskContext}`
+          }
+        ]
+      });
+
+      // Parse LLM response
+      const content = response.choices[0].message.content;
+      const analysis = typeof content === 'string' ? JSON.parse(content) : content;
+
+      // Update task with new analysis results
+      const updatedTask = {
+        ...task,
+        analysisData: analysis,
+        lastAnalyzedAt: new Date(),
+        reanalysisCount: (task.reanalysisCount || 0) + 1
+      };
+
+      await schedulingDb.updateTask(taskId, updatedTask);
+
+      return {
+        taskId,
+        title: task.title || task.name,
+        analyzed: true,
+        timestamp: new Date().toISOString(),
+        analysis: analysis
+      };
+    } catch (error) {
+      console.error(`[Batch] Error re-analyzing task ${taskId}:`, error);
+      throw error;
+    }
   }
 
   /**
    * Reschedule a task
    */
   private async rescheduleTask(taskId: string, parameters?: Record<string, any>): Promise<Record<string, any>> {
-    // TODO: Implement task rescheduling
-    // This would involve:
-    // 1. Finding optimal time slot
-    // 2. Checking for conflicts
-    // 3. Updating task schedule
-    // 4. Syncing with Trello
+    try {
+      const task = await schedulingDb.getTaskById(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
 
-    return {
-      taskId,
-      rescheduled: true,
-      timestamp: new Date().toISOString(),
-      newSchedule: 'Task rescheduled successfully'
-    };
+      // Find optimal time slot
+      const availableSlots = await schedulingDb.findAvailableTimeSlots(
+        task.assignee || 'unassigned',
+        parameters?.duration || task.estimatedHours || 2,
+        parameters?.preferredDate
+      );
+
+      if (availableSlots.length === 0) {
+        throw new Error('No available time slots found');
+      }
+
+      // Select the first available slot
+      const newSlot = availableSlots[0];
+
+      // Update task with new schedule
+      const updatedTask = {
+        ...task,
+        scheduledStart: newSlot.start,
+        scheduledEnd: newSlot.end,
+        lastRescheduledAt: new Date(),
+        rescheduleCount: (task.rescheduleCount || 0) + 1
+      };
+
+      await schedulingDb.updateTask(taskId, updatedTask);
+
+      return {
+        taskId,
+        title: task.title || task.name,
+        rescheduled: true,
+        timestamp: new Date().toISOString(),
+        newStart: newSlot.start,
+        newEnd: newSlot.end,
+        duration: newSlot.duration
+      };
+    } catch (error) {
+      console.error(`[Batch] Error rescheduling task ${taskId}:`, error);
+      throw error;
+    }
   }
 
   /**
    * Resolve conflicts for a task
    */
   private async resolveConflicts(taskId: string, parameters?: Record<string, any>): Promise<Record<string, any>> {
-    // TODO: Implement conflict resolution
-    // This would involve:
-    // 1. Identifying conflicting tasks
-    // 2. Proposing alternative schedules
-    // 3. Applying resolution strategy
-    // 4. Updating affected tasks
+    try {
+      const task = await schedulingDb.getTaskById(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
 
-    return {
-      taskId,
-      conflictsResolved: true,
-      timestamp: new Date().toISOString(),
-      resolution: 'Conflicts resolved successfully'
-    };
+      // Identify conflicting tasks
+      const conflicts = await schedulingDb.findConflictingTasks(
+        taskId,
+        task.scheduledStart,
+        task.scheduledEnd,
+        task.assignee
+      );
+
+      if (conflicts.length === 0) {
+        return {
+          taskId,
+          resolved: true,
+          conflictCount: 0,
+          timestamp: new Date().toISOString(),
+          message: 'No conflicts found'
+        };
+      }
+
+      // Propose alternative schedules
+      const resolutions: any[] = [];
+      for (const conflict of conflicts) {
+        const availableSlots = await schedulingDb.findAvailableTimeSlots(
+          task.assignee || 'unassigned',
+          task.estimatedHours || 2
+        );
+
+        if (availableSlots.length > 0) {
+          const newSlot = availableSlots[0];
+          resolutions.push({
+            conflictingTaskId: conflict.id,
+            proposedStart: newSlot.start,
+            proposedEnd: newSlot.end
+          });
+
+          // Update task with new schedule
+          await schedulingDb.updateTask(conflict.id, {
+            ...conflict,
+            scheduledStart: newSlot.start,
+            scheduledEnd: newSlot.end
+          });
+        }
+      }
+
+      return {
+        taskId,
+        title: task.title || task.name,
+        resolved: true,
+        conflictCount: conflicts.length,
+        resolutions: resolutions,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error(`[Batch] Error resolving conflicts for task ${taskId}:`, error);
+      throw error;
+    }
   }
 
   /**
    * Optimize schedule for a task
    */
   private async optimizeSchedule(taskId: string, parameters?: Record<string, any>): Promise<Record<string, any>> {
-    // TODO: Implement schedule optimization
-    // This would involve:
-    // 1. Analyzing task dependencies
-    // 2. Calculating optimal timing
-    // 3. Considering worker availability
-    // 4. Applying optimization
+    try {
+      const task = await schedulingDb.getTaskById(taskId);
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
 
-    return {
-      taskId,
-      optimized: true,
-      timestamp: new Date().toISOString(),
-      optimization: 'Schedule optimized successfully'
-    };
+      // Analyze task dependencies
+      const dependencies = await schedulingDb.getTaskDependencies(taskId);
+      const dependencyDates = dependencies.map(d => d.scheduledEnd || new Date());
+      const latestDependencyDate = dependencyDates.length > 0 ? new Date(Math.max(...dependencyDates.map(d => d.getTime()))) : new Date();
+
+      // Get worker availability
+      const workerAvailability = await schedulingDb.getWorkerAvailability(task.assignee || 'unassigned');
+
+      // Calculate optimal timing
+      const optimalStart = new Date(Math.max(latestDependencyDate.getTime(), workerAvailability.earliestAvailable.getTime()));
+      const optimalEnd = new Date(optimalStart.getTime() + (task.estimatedHours || 2) * 60 * 60 * 1000);
+
+      // Apply optimization
+      const optimizationScore = this.calculateOptimizationScore(task, optimalStart, optimalEnd);
+      const optimizedTask = {
+        ...task,
+        scheduledStart: optimalStart,
+        scheduledEnd: optimalEnd,
+        optimizationScore,
+        lastOptimizedAt: new Date()
+      };
+
+      await schedulingDb.updateTask(taskId, optimizedTask);
+
+      return {
+        taskId,
+        title: task.title || task.name,
+        optimized: true,
+        timestamp: new Date().toISOString(),
+        previousStart: task.scheduledStart,
+        previousEnd: task.scheduledEnd,
+        newStart: optimalStart,
+        newEnd: optimalEnd,
+        optimizationScore,
+        dependenciesConsidered: dependencies.length,
+        workerAvailabilityConsidered: true
+      };
+    } catch (error) {
+      console.error(`[Batch] Error optimizing schedule for task ${taskId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate optimization score (0-100)
+   */
+  private calculateOptimizationScore(task: any, start: Date, end: Date): number {
+    let score = 50; // Base score
+    
+    // Bonus for meeting deadline
+    if (task.dueDate && end <= task.dueDate) {
+      score += 25;
+    }
+    
+    // Bonus for scheduling in preferred hours
+    const hour = start.getHours();
+    if (hour >= 9 && hour < 17) {
+      score += 15;
+    }
+    
+    // Bonus for not scheduling on weekends
+    const day = start.getDay();
+    if (day !== 0 && day !== 6) {
+      score += 10;
+    }
+    
+    return Math.min(100, score);
   }
 
   /**
