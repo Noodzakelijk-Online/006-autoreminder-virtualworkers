@@ -1857,3 +1857,64 @@ Each card now has:
 - [x] Disabled webhook auto-registration in development mode
 - [x] Verified fix: Server now stable with no memory accumulation
 - [x] Tested: Memory usage stable at 64-72MB after fix
+
+
+## CANONICAL STATUS REPORT FIXES (Mar 17, 2026)
+
+### Q2: Fix Documentation Conflicts - Align Architecture Docs with Actual Code
+- [x] Review docs/SYSTEM-ARCHITECTURE.md and identify aspirational vs. implemented features
+- [x] Create ARCHITECTURE-ACTUAL.md documenting what is REALLY implemented (not planned)
+- [x] Mark aspirational features in docs/SYSTEM-ARCHITECTURE.md with [PLANNED] tags
+- [ ] Update PRODUCTION_READINESS_GUIDE.md with accurate completion percentage (75% not 70%)
+- [x] Create DOCUMENTATION-AUTHORITY.md explaining which docs are canonical for different purposes
+- [x] Document that todo.md is authoritative for current state, architecture docs are blueprints
+- [x] Add disclaimer to aspirational docs about OCR, vision AI, attachment processing not yet implemented
+
+### Q3: Fix Database Configuration - Support Both MySQL and SQLite
+- [x] Update drizzle.config.ts to detect DATABASE_URL format and auto-select dialect (mysql vs sqlite)
+- [ ] Test drizzle.config.ts with both MySQL and SQLite connection strings
+- [x] Update SETUP_GUIDE.md to accurately reflect MySQL requirement (not SQLite for local dev)
+- [x] Create LOCAL_DEV_SETUP.md with working MySQL configuration for local development
+- [x] Add conditional logic in server/db.ts to support database type detection
+- [ ] Test database migrations with both MySQL and SQLite
+- [ ] Update package.json scripts to support both database types
+- [ ] Add database type detection to environment validation
+
+### Q1: Create .env.example and Update SETUP_GUIDE
+- [ ] Create .env.example with all required variables and descriptions
+- [ ] Update SETUP_GUIDE.md to reference .env.example
+- [ ] Fix SETUP_GUIDE.md SQLite claim (it's MySQL-only currently)
+- [ ] Add troubleshooting section for common setup errors
+- [ ] Document all environment variables with their purposes
+- [ ] Add validation script to check .env completeness
+
+### Q6: Implement ATIS WebSocket Server-Side Streaming
+- [ ] Add ATIS event handlers to server/services/websocket.ts
+- [ ] Implement socket.emit('atis:progress', update) in atis-phases-service.ts
+- [ ] Implement socket.emit('atis:phase-complete', event) for each phase completion
+- [ ] Implement socket.emit('atis:analysis-complete', event) at end of all phases
+- [ ] Add confidence score streaming during phase execution
+- [ ] Test WebSocket streaming with RealtimeProgressMonitor component
+- [ ] Add error event streaming for failed phases
+- [ ] Verify client receives all events in correct order
+
+### Q5: Add Frontend Test Coverage and E2E Tests
+- [ ] Set up Playwright for E2E testing
+- [ ] Create E2E tests for critical user flows (login, task completion, scheduling)
+- [ ] Add React Testing Library for component unit tests
+- [ ] Update vitest.config.ts to include frontend tests
+- [ ] Create test suite for ATIS dashboard workflow
+- [ ] Create test suite for advanced scheduling drag-and-drop
+- [ ] Create test suite for settings persistence
+- [ ] Aim for 70%+ code coverage on frontend
+
+### Q4: Fix Production-Ready Features and Stubbed Code
+- [ ] Implement bulk task complete logic (server/routers.ts line 94)
+- [ ] Implement bulk task incomplete logic (server/routers.ts line 105)
+- [ ] Implement conflict detection in advanced-scheduling.ts (hadConflicts: false)
+- [ ] Implement batch operation LLM re-analysis (batch-queue-processor.ts)
+- [ ] Implement pause/resume/cancel logic for batch operations
+- [ ] Implement actual batch generation in aptlss.ts (not TODO)
+- [ ] Implement actual status tracking for batch jobs
+- [ ] Fix cognitive load algorithm (11 failing tests)
+- [ ] Add comprehensive error handling to all stubbed endpoints

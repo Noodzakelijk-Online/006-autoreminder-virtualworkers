@@ -41,7 +41,8 @@ This architecture is designed to solve the core problem: generating accurate, no
                             │
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              ATTACHMENT PROCESSOR                            │
+│         [PLANNED] ATTACHMENT PROCESSOR                       │
+│         (Not yet implemented - see ARCHITECTURE-ACTUAL.md)   │
 │                                                              │
 │  For each attachment type:                                  │
 │  - PDF → Extract text (OCR if scanned)                     │
@@ -67,13 +68,15 @@ This architecture is designed to solve the core problem: generating accurate, no
 - `GET /boards/{id}/cards` - Cards per board
 - `GET /cards/{id}?attachments=true&checklists=all&actions=commentCard` - Full card data
 
-**Attachment Processing Libraries:**
+**[PLANNED] Attachment Processing Libraries:**
 - PDF: `pdf-parse` + Tesseract for OCR
 - DOCX: `mammoth`
 - XLSX: `xlsx`
 - Images: GPT-4 Vision API
 - Links: `cheerio` for HTML parsing
 - Email: `mailparser`
+
+**Status:** Not yet implemented. System currently works with card titles, descriptions, and checklist items only.
 
 ---
 

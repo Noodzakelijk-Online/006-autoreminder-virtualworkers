@@ -1,7 +1,20 @@
-# Developer Setup Guide
-## Smart Interview System - Local Development
+# [DEPRECATED] VA Dashboard Setup Guide
+## ⚠️ DEPRECATED - Use LOCAL_DEV_SETUP.md Instead
 
-This guide will help you get the interview system running on your local machine.
+**This guide contains outdated information.** Please use `LOCAL_DEV_SETUP.md` for accurate setup instructions.
+
+**Key Issues with This Guide:**
+- Claims SQLite is supported for local development (FALSE - MySQL only)
+- Recommends PostgreSQL (not supported)
+- Missing current environment variable requirements
+
+**See:** `LOCAL_DEV_SETUP.md` for correct setup instructions.
+
+---
+
+## Smart Interview System - Local Development (OUTDATED)
+
+This guide will help you get the interview system running on your local machine. **Note: This guide is outdated. See LOCAL_DEV_SETUP.md instead.**
 
 ---
 

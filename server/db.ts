@@ -1,15 +1,37 @@
 import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle as drizzleMySQL } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
-let _db: ReturnType<typeof drizzle> | null = null;
+let _db: any = null;
+
+/**
+ * Detect database type from CONNECTION_STRING
+ * - mysql:// -> MySQL
+ * - file:// or sqlite:// -> SQLite
+ */
+function detectDatabaseType(url: string): "mysql" | "sqlite" {
+  if (url.startsWith("mysql://")) return "mysql";
+  if (url.startsWith("file://") || url.startsWith("sqlite://")) return "sqlite";
+  return "mysql"; // Default
+}
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const dbType = detectDatabaseType(process.env.DATABASE_URL);
+      
+      if (dbType === "sqlite") {
+        // SQLite: Note - better-sqlite3 requires native compilation
+        // For now, we only support MySQL. SQLite support coming soon.
+        console.warn("[Database] SQLite support is planned but not yet implemented. Please use MySQL.");
+        _db = null;
+      } else {
+        // MySQL: use connection string directly
+        _db = drizzleMySQL(process.env.DATABASE_URL);
+        console.log("[Database] Connected to MySQL");
+      }
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
