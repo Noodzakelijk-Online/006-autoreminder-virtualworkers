@@ -1909,12 +1909,15 @@ Each card now has:
 - [ ] Aim for 70%+ code coverage on frontend
 
 ### Q4: Fix Production-Ready Features and Stubbed Code
-- [ ] Implement bulk task complete logic (server/routers.ts line 94)
-- [ ] Implement bulk task incomplete logic (server/routers.ts line 105)
-- [ ] Implement conflict detection in advanced-scheduling.ts (hadConflicts: false)
-- [ ] Implement batch operation LLM re-analysis (batch-queue-processor.ts)
-- [ ] Implement pause/resume/cancel logic for batch operations
+- [x] Implement bulk task complete logic (server/routers.ts line 94)
+- [x] Implement bulk task incomplete logic (server/routers.ts line 105)
+- [x] Implement batch operation LLM re-analysis (batch-queue-processor.ts)
+- [x] Implement ATIS WebSocket server-side streaming (atis-phases-service.ts)
+- [x] Implement conflict detection in advanced-scheduling.ts (hadConflicts: false)
+- [ ] Implement pause/resume/cancel logic for batch operations (batch-websocket-handler.ts)
 - [ ] Implement actual batch generation in aptlss.ts (not TODO)
 - [ ] Implement actual status tracking for batch jobs
 - [ ] Fix cognitive load algorithm (11 failing tests)
+- [ ] Integrate interview system into main flow
+- [ ] Back founder/worker dashboards with real data
 - [ ] Add comprehensive error handling to all stubbed endpoints

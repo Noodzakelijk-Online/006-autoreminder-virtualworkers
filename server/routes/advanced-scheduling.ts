@@ -10,6 +10,120 @@ const router = Router();
  */
 
 // ============================================
+// CONFLICT DETECTION HELPERS
+// ============================================
+
+/**
+ * Detect time overlaps between tasks
+ */
+async function detectTimeConflicts(
+  taskId: string,
+  newStartTime: Date,
+  newEndTime: Date,
+  userId: string
+) {
+  try {
+    // Get all tasks for the user
+    const userTasks = await schedulingDb.getUserTasks?.(userId) || [];
+    
+    const conflicts = userTasks.filter((task: any) => {
+      // Skip the task being rescheduled
+      if (task.id === taskId) return false;
+      
+      // Skip tasks without schedule
+      if (!task.startTime || !task.endTime) return false;
+      
+      const taskStart = new Date(task.startTime);
+      const taskEnd = new Date(task.endTime);
+      
+      // Check for time overlap
+      return newStartTime < taskEnd && newEndTime > taskStart;
+    });
+    
+    return conflicts;
+  } catch (error) {
+    console.error('[ConflictDetection] Error detecting time conflicts:', error);
+    return [];
+  }
+}
+
+/**
+ * Detect resource conflicts (same person assigned to multiple tasks)
+ */
+async function detectResourceConflicts(
+  taskId: string,
+  assignedTo: string,
+  newStartTime: Date,
+  newEndTime: Date
+) {
+  try {
+    // Get all tasks assigned to this person
+    const assignedTasks = await schedulingDb.getTasksByAssignee?.(assignedTo) || [];
+    
+    const conflicts = assignedTasks.filter((task: any) => {
+      // Skip the task being rescheduled
+      if (task.id === taskId) return false;
+      
+      // Skip tasks without schedule
+      if (!task.startTime || !task.endTime) return false;
+      
+      const taskStart = new Date(task.startTime);
+      const taskEnd = new Date(task.endTime);
+      
+      // Check for time overlap
+      return newStartTime < taskEnd && newEndTime > taskStart;
+    });
+    
+    return conflicts;
+  } catch (error) {
+    console.error('[ConflictDetection] Error detecting resource conflicts:', error);
+    return [];
+  }
+}
+
+/**
+ * Generate conflict resolution suggestions
+ */
+function generateResolutionSuggestions(
+  conflicts: any[],
+  newStartTime: Date,
+  newEndTime: Date
+) {
+  const suggestions = [];
+  
+  if (conflicts.length === 0) {
+    return suggestions;
+  }
+  
+  // Suggestion 1: Reschedule to earlier time
+  const earlierTime = new Date(newStartTime.getTime() - 2 * 60 * 60 * 1000); // 2 hours earlier
+  suggestions.push({
+    type: 'reschedule_earlier',
+    description: 'Reschedule 2 hours earlier',
+    newStartTime: earlierTime,
+    newEndTime: new Date(earlierTime.getTime() + (newEndTime.getTime() - newStartTime.getTime()))
+  });
+  
+  // Suggestion 2: Reschedule to later time
+  const laterTime = new Date(newEndTime.getTime() + 1 * 60 * 60 * 1000); // 1 hour after conflict ends
+  suggestions.push({
+    type: 'reschedule_later',
+    description: 'Reschedule 1 hour after conflict',
+    newStartTime: laterTime,
+    newEndTime: new Date(laterTime.getTime() + (newEndTime.getTime() - newStartTime.getTime()))
+  });
+  
+  // Suggestion 3: Split task into smaller chunks
+  suggestions.push({
+    type: 'split_task',
+    description: 'Split task into smaller chunks',
+    recommendation: 'Consider breaking this task into smaller subtasks to avoid conflicts'
+  });
+  
+  return suggestions;
+}
+
+// ============================================
 // RESCHEDULE ENDPOINTS
 // ============================================
 
@@ -19,7 +133,7 @@ const router = Router();
  */
 router.post('/reschedule', async (req: Request, res: Response) => {
   try {
-    const { taskId, cardTrelloId, newStartTime, newEndTime, reason } = req.body;
+    const { taskId, cardTrelloId, newStartTime, newEndTime, reason, assignedTo } = req.body;
     const userOpenId = (req as any).user?.openId;
 
     if (!userOpenId) {
@@ -38,6 +152,18 @@ router.post('/reschedule', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Start time must be before end time' });
     }
 
+    // Detect conflicts
+    const timeConflicts = await detectTimeConflicts(taskId, startTime, endTime, userOpenId);
+    const resourceConflicts = assignedTo 
+      ? await detectResourceConflicts(taskId, assignedTo, startTime, endTime)
+      : [];
+    
+    const allConflicts = [...timeConflicts, ...resourceConflicts];
+    const hadConflicts = allConflicts.length > 0;
+    
+    // Generate resolution suggestions if conflicts exist
+    const suggestions = hadConflicts ? generateResolutionSuggestions(allConflicts, startTime, endTime) : [];
+
     // Record the reschedule event
     const historyId = await schedulingDb.insertScheduleHistory({
       taskId,
@@ -47,7 +173,7 @@ router.post('/reschedule', async (req: Request, res: Response) => {
       changedBy: userOpenId,
       reason: reason || 'Manual reschedule',
       source: 'manual',
-      hadConflicts: false // TODO: Implement conflict detection
+      hadConflicts
     });
 
     res.json({
@@ -56,7 +182,19 @@ router.post('/reschedule', async (req: Request, res: Response) => {
       historyId,
       newStartTime: startTime,
       newEndTime: endTime,
-      message: 'Task rescheduled successfully'
+      hadConflicts,
+      conflictCount: allConflicts.length,
+      conflicts: hadConflicts ? allConflicts.map((c: any) => ({
+        id: c.id,
+        title: c.title || c.name,
+        startTime: c.startTime,
+        endTime: c.endTime,
+        type: c.assignedTo === assignedTo ? 'resource' : 'time'
+      })) : [],
+      suggestions,
+      message: hadConflicts 
+        ? `Task rescheduled with ${allConflicts.length} conflict(s) detected`
+        : 'Task rescheduled successfully'
     });
   } catch (error) {
     console.error('[AdvancedScheduling] Error rescheduling task:', error);
@@ -129,6 +267,57 @@ router.get('/history/:taskId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[AdvancedScheduling] Error getting schedule history:', error);
     res.status(500).json({ error: 'Failed to get schedule history' });
+  }
+});
+
+/**
+ * POST /api/scheduling/detect-conflicts
+ * Detect conflicts for a proposed schedule
+ */
+router.post('/detect-conflicts', async (req: Request, res: Response) => {
+  try {
+    const { taskId, newStartTime, newEndTime, assignedTo } = req.body;
+    const userOpenId = (req as any).user?.openId;
+
+    if (!userOpenId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!taskId || !newStartTime || !newEndTime) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const startTime = new Date(newStartTime);
+    const endTime = new Date(newEndTime);
+
+    // Detect conflicts
+    const timeConflicts = await detectTimeConflicts(taskId, startTime, endTime, userOpenId);
+    const resourceConflicts = assignedTo
+      ? await detectResourceConflicts(taskId, assignedTo, startTime, endTime)
+      : [];
+
+    const allConflicts = [...timeConflicts, ...resourceConflicts];
+    const suggestions = allConflicts.length > 0 
+      ? generateResolutionSuggestions(allConflicts, startTime, endTime)
+      : [];
+
+    res.json({
+      success: true,
+      taskId,
+      hasConflicts: allConflicts.length > 0,
+      conflictCount: allConflicts.length,
+      conflicts: allConflicts.map((c: any) => ({
+        id: c.id,
+        title: c.title || c.name,
+        startTime: c.startTime,
+        endTime: c.endTime,
+        type: c.assignedTo === assignedTo ? 'resource' : 'time'
+      })),
+      suggestions
+    });
+  } catch (error) {
+    console.error('[AdvancedScheduling] Error detecting conflicts:', error);
+    res.status(500).json({ error: 'Failed to detect conflicts' });
   }
 });
 
@@ -250,186 +439,6 @@ router.post('/batch/:jobId/cancel', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[AdvancedScheduling] Error cancelling batch operation:', error);
     res.status(500).json({ error: 'Failed to cancel batch operation' });
-  }
-});
-
-/**
- * GET /api/scheduling/batch-history
- * Get user's batch operation history
- */
-router.get('/batch-history', async (req: Request, res: Response) => {
-  try {
-    const userOpenId = (req as any).user?.openId;
-
-    if (!userOpenId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const limit = parseInt(req.query.limit as string) || 50;
-    const operations = await schedulingDb.getBatchOperationHistory(userOpenId, limit);
-
-    res.json({
-      success: true,
-      operations,
-      count: operations.length
-    });
-  } catch (error) {
-    console.error('[AdvancedScheduling] Error getting batch history:', error);
-    res.status(500).json({ error: 'Failed to get batch history' });
-  }
-});
-
-// ============================================
-// KEYBOARD SHORTCUTS ENDPOINTS
-// ============================================
-
-/**
- * GET /api/scheduling/shortcuts
- * Get user's keyboard shortcuts
- */
-router.get('/shortcuts', async (req: Request, res: Response) => {
-  try {
-    const userOpenId = (req as any).user?.openId;
-
-    if (!userOpenId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const shortcuts = await schedulingDb.getKeyboardShortcuts(userOpenId);
-
-    res.json({
-      success: true,
-      shortcuts,
-      count: shortcuts.length
-    });
-  } catch (error) {
-    console.error('[AdvancedScheduling] Error getting shortcuts:', error);
-    res.status(500).json({ error: 'Failed to get shortcuts' });
-  }
-});
-
-/**
- * POST /api/scheduling/shortcuts
- * Create a new keyboard shortcut
- */
-router.post('/shortcuts', async (req: Request, res: Response) => {
-  try {
-    const { shortcutKey, action, description, isCustom } = req.body;
-    const userOpenId = (req as any).user?.openId;
-
-    if (!userOpenId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    if (!shortcutKey || !action) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    const id = await schedulingDb.createKeyboardShortcut({
-      userId: userOpenId,
-      shortcutKey,
-      action,
-      description,
-      isCustom: isCustom || false,
-      isEnabled: true
-    });
-
-    res.json({
-      success: true,
-      id,
-      shortcutKey,
-      action,
-      message: 'Shortcut created'
-    });
-  } catch (error) {
-    console.error('[AdvancedScheduling] Error creating shortcut:', error);
-    res.status(500).json({ error: 'Failed to create shortcut' });
-  }
-});
-
-/**
- * PUT /api/scheduling/shortcuts/:id
- * Update a keyboard shortcut
- */
-router.put('/shortcuts/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { action, description, isEnabled } = req.body;
-    const userOpenId = (req as any).user?.openId;
-
-    if (!userOpenId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const shortcutId = parseInt(id);
-    if (isNaN(shortcutId)) {
-      return res.status(400).json({ error: 'Invalid shortcut ID' });
-    }
-
-    await schedulingDb.updateKeyboardShortcut(shortcutId, {
-      action,
-      description,
-      isEnabled
-    });
-
-    res.json({
-      success: true,
-      id: shortcutId,
-      message: 'Shortcut updated'
-    });
-  } catch (error) {
-    console.error('[AdvancedScheduling] Error updating shortcut:', error);
-    res.status(500).json({ error: 'Failed to update shortcut' });
-  }
-});
-
-/**
- * DELETE /api/scheduling/shortcuts/:id
- * Delete a keyboard shortcut
- */
-router.delete('/shortcuts/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const userOpenId = (req as any).user?.openId;
-
-    if (!userOpenId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const shortcutId = parseInt(id);
-    if (isNaN(shortcutId)) {
-      return res.status(400).json({ error: 'Invalid shortcut ID' });
-    }
-
-    await schedulingDb.deleteKeyboardShortcut(shortcutId);
-
-    res.json({
-      success: true,
-      id: shortcutId,
-      message: 'Shortcut deleted'
-    });
-  } catch (error) {
-    console.error('[AdvancedScheduling] Error deleting shortcut:', error);
-    res.status(500).json({ error: 'Failed to delete shortcut' });
-  }
-});
-
-/**
- * GET /api/scheduling/shortcuts/default
- * Get default keyboard shortcuts
- */
-router.get('/shortcuts/default', async (req: Request, res: Response) => {
-  try {
-    const shortcuts = await schedulingDb.getDefaultKeyboardShortcuts();
-
-    res.json({
-      success: true,
-      shortcuts,
-      count: shortcuts.length
-    });
-  } catch (error) {
-    console.error('[AdvancedScheduling] Error getting default shortcuts:', error);
-    res.status(500).json({ error: 'Failed to get default shortcuts' });
   }
 });
 
