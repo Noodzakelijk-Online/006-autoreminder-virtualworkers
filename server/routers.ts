@@ -33,7 +33,7 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         try {
           const { runAllPhases } = await import('./services/atis-phases-service');
-          const result = await runAllPhases(input.taskId, ctx.user.id, '');
+          const result = await runAllPhases(input.taskId, String(ctx.user.id), '');
           return result;
         } catch (error) {
           console.error('[ATIS Analysis tRPC] Error:', error);

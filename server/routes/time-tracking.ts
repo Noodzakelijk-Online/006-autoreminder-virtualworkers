@@ -231,7 +231,7 @@ router.get('/time-tracking/task/:taskId', async (req: any, res: Response) => {
       .orderBy(desc(timeEntries.startTime));
 
     // Calculate total time spent
-    const totalMinutes = entries.reduce((sum, entry) => sum + (entry.durationMinutes || 0), 0);
+    const totalMinutes = entries.reduce((sum: number, entry: any) => sum + (entry.durationMinutes || 0), 0);
 
     res.json({ 
       entries, 
@@ -281,18 +281,18 @@ router.get('/time-tracking/summary', async (req: any, res: Response) => {
     const entries = await query.orderBy(desc(timeEntries.startTime));
 
     // Calculate totals
-    const totalMinutes = entries.reduce((sum, entry) => sum + (entry.durationMinutes || 0), 0);
+    const totalMinutes = entries.reduce((sum: number, entry: any) => sum + (entry.durationMinutes || 0), 0);
     
     // Group by date
     const byDate: Record<string, number> = {};
-    entries.forEach(entry => {
+    entries.forEach((entry: any) => {
       const date = new Date(entry.startTime).toISOString().split('T')[0];
       byDate[date] = (byDate[date] || 0) + (entry.durationMinutes || 0);
     });
 
     // Group by task
     const byTask: Record<string, number> = {};
-    entries.forEach(entry => {
+    entries.forEach((entry: any) => {
       byTask[entry.taskId] = (byTask[entry.taskId] || 0) + (entry.durationMinutes || 0);
     });
 
@@ -343,7 +343,7 @@ router.get('/time-tracking/weekly-progress', async (req: any, res: Response) => 
         lte(timeEntries.startTime, endOfWeek)
       ));
 
-    const actualMinutes = weekEntries.reduce((sum, entry) => sum + (entry.durationMinutes || 0), 0);
+    const actualMinutes = weekEntries.reduce((sum: number, entry: any) => sum + (entry.durationMinutes || 0), 0);
     const actualHours = Math.round(actualMinutes / 60 * 10) / 10;
 
     // Get user's weekly hours target from settings
@@ -374,7 +374,7 @@ router.get('/time-tracking/weekly-progress', async (req: any, res: Response) => 
       dailyBreakdown[dateStr] = 0;
     }
 
-    weekEntries.forEach(entry => {
+    weekEntries.forEach((entry: any) => {
       const date = new Date(entry.startTime).toISOString().split('T')[0];
       if (dailyBreakdown[date] !== undefined) {
         dailyBreakdown[date] += entry.durationMinutes || 0;

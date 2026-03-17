@@ -202,8 +202,8 @@ export async function completeInterview(
     executionPlan: executionPlan ? JSON.stringify(executionPlan) : null,
     estimatedDuration,
     totalQuestionsAsked: history.length,
-    totalResponsesProvided: history.filter(h => h.response).length,
-    escalationsRequired: history.filter(h => h.requiresEscalation).length,
+    totalResponsesProvided: history.filter((h: any) => h.response).length,
+    escalationsRequired: history.filter((h: any) => h.requiresEscalation).length,
     completedAt: new Date(),
   };
 
@@ -296,16 +296,16 @@ export async function getUserInterviewStats(userOpenId: string) {
     .from(interviewSessions)
     .where(eq(interviewSessions.userOpenId, userOpenId));
 
-  const completedSessions = sessions.filter(s => s.status === 'completed');
-  const totalConfidence = completedSessions.reduce((sum, s) => sum + (s.overallConfidence || 0), 0);
+  const completedSessions = sessions.filter((s: any) => s.status === 'completed');
+  const totalConfidence = completedSessions.reduce((sum: number, s: any) => sum + (s.overallConfidence || 0), 0);
   const avgConfidence = completedSessions.length > 0 ? totalConfidence / completedSessions.length : 0;
 
   return {
     totalSessions: sessions.length,
     completedSessions: completedSessions.length,
-    activeSessions: sessions.filter(s => s.status === 'active').length,
-    abandonedSessions: sessions.filter(s => s.status === 'abandoned').length,
+    activeSessions: sessions.filter((s: any) => s.status === 'active').length,
+    abandonedSessions: sessions.filter((s: any) => s.status === 'abandoned').length,
     averageConfidence: Math.round(avgConfidence),
-    totalQuestionsAsked: sessions.reduce((sum, s) => sum + (s.questionsAsked || 0), 0),
+    totalQuestionsAsked: sessions.reduce((sum: number, s: any) => sum + (s.questionsAsked || 0), 0),
   };
 }

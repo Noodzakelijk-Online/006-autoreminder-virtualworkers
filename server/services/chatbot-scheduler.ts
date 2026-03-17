@@ -52,7 +52,7 @@ async function getCardsNeedingCheckin(): Promise<Array<{
         )
       );
 
-    return cards.map(card => ({
+    return cards.map((card: any) => ({
       trelloId: card.trelloId,
       name: card.name,
       dueDate: card.dueDate!,
@@ -90,7 +90,7 @@ async function getWorkersWithPreferences(): Promise<Array<{
 
     // Enhance with timezone detection for workers without explicit timezone
     const enhancedWorkers = await Promise.all(
-      workers.map(async (w) => {
+      workers.map(async (w: any) => {
         // Use timezone detection if timezone is default or not set
         let timezone = w.timezone;
         if (!timezone || timezone === 'UTC' || timezone === 'Asia/Manila') {

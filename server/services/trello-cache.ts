@@ -337,7 +337,7 @@ export async function getCacheStats(
       )
     );
 
-  return metadata.map(m => ({
+  return metadata.map((m: any) => ({
     cacheKey: m.cacheKey,
     hitCount: m.hitCount,
     missCount: m.missCount,

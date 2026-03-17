@@ -1238,8 +1238,8 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
             for (const worker of workers) {
               const workerWorkingDays = worker.workingDays
                 .split(',')
-                .filter(d => d)
-                .map(d => parseInt(d));
+                .filter((d: any) => d)
+                .map((d: any) => parseInt(d));
               
               const workerOptions: Partial<SchedulingOptions> = {};
               
@@ -1265,7 +1265,7 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
             }
             
             // Create assignment lookup
-            const assignmentLookup = new Map(assignments.map(a => [a.taskId, a.vaId]));
+            const assignmentLookup = new Map(assignments.map((a: any) => [a.taskId, a.vaId]));
             
             // Add worker ID to each task for scheduling
             for (const task of tasks) {

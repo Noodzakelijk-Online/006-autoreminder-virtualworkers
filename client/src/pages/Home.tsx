@@ -150,12 +150,12 @@ export default function Home() {
     return result;
   }, [tasks, searchQuery, filters, workerFilter]);
   const rescheduleMutation = trpc.trello.reschedule.useMutation({
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
       toast.success(data.message);
       // Reload tasks to get fresh schedule
       window.location.reload();
     },
-    onError: (error) => {
+    onError: (error: any) => {
       toast.error(`Rescheduling failed: ${error.message}`);
     },
   });

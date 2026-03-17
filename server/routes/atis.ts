@@ -254,15 +254,15 @@ router.get('/cards-without-due-date', async (req: Request, res: Response) => {
       .orderBy(atisCards.name);
 
     // Get board names for context
-    const boardIds = Array.from(new Set(cards.map(c => c.boardId)));
+    const boardIds = Array.from(new Set(cards.map((c: any) => c.boardId)));
     
     if (boardIds.length > 0) {
       const boards = await db.select()
         .from(atisBoards);
       
-      const boardMap = new Map(boards.map(b => [b.id, b.name]));
+      const boardMap = new Map(boards.map((b: any) => [b.id, b.name]));
 
-      const cardsWithBoardNames = cards.map(c => ({
+      const cardsWithBoardNames = cards.map((c: any) => ({
         ...c,
         boardName: boardMap.get(c.boardId) || 'Unknown',
       }));
@@ -640,14 +640,14 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       .offset(Number(offset));
 
     // Get board names
-    const boardIds = Array.from(new Set(cards.map(c => c.boardId)));
+    const boardIds = Array.from(new Set(cards.map((c: any) => c.boardId)));
     const boards = boardIds.length > 0 
       ? await db.select().from(atisBoards).where(sql`${atisBoards.id} IN (${sql.join(boardIds.map(id => sql`${id}`), sql`, `)})`)
       : [];
-    const boardMap = new Map(boards.map(b => [b.id, b.name]));
+    const boardMap = new Map(boards.map((b: any) => [b.id, b.name]));
 
     // Process and filter results
-    let tasks = cards.map(card => {
+    let tasks = cards.map((card: any) => {
       // Parse checklist JSON from stored aptlssChecklist or generate fallback
       let checklist: any[] = [];
       
@@ -734,7 +734,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
     // Deduplicate by card name - keep only one card per unique name
     // This handles cases where the same card exists in multiple boards (e.g., template copies)
     const seenCardNames = new Map<string, typeof tasks[0]>();
-    tasks.forEach(task => {
+    tasks.forEach((task: any) => {
       const key = task.name.toLowerCase().trim();
       const existing = seenCardNames.get(key);
       // Keep the one with:
@@ -750,19 +750,19 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
 
     // Apply filters
     if (filter === 'overdue') {
-      tasks = tasks.filter(t => t.status === 'overdue');
+      tasks = tasks.filter((t: any) => t.status === 'overdue');
     } else if (filter === 'today') {
-      tasks = tasks.filter(t => t.status === 'due_today');
+      tasks = tasks.filter((t: any) => t.status === 'due_today');
     } else if (filter === 'upcoming') {
-      tasks = tasks.filter(t => t.dueDate && new Date(t.dueDate) >= now);
+      tasks = tasks.filter((t: any) => t.dueDate && new Date(t.dueDate) >= now);
     }
 
     if (taskType) {
-      tasks = tasks.filter(t => t.taskType === taskType);
+      tasks = tasks.filter((t: any) => t.taskType === taskType);
     }
 
     if (complexity) {
-      tasks = tasks.filter(t => t.complexity === complexity);
+      tasks = tasks.filter((t: any) => t.complexity === complexity);
     }
 
     // Get total count for pagination
@@ -776,8 +776,8 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
     const overflow: typeof tasks = [];
     
     // Calculate metrics
-    const totalScheduledMinutes = scheduled.reduce((acc, t) => acc + (t.estimatedMinutes || 30), 0);
-    const totalOverflowMinutes = overflow.reduce((acc, t) => acc + (t.estimatedMinutes || 30), 0);
+    const totalScheduledMinutes = scheduled.reduce((acc: number, t: any) => acc + (t.estimatedMinutes || 30), 0);
+    const totalOverflowMinutes = overflow.reduce((acc: number, t: any) => acc + (t.estimatedMinutes || 30), 0);
     const dailyCapacityMinutes = 480; // 8 hours per day
     
     res.json({
@@ -1163,7 +1163,7 @@ router.get('/task-types', async (req: Request, res: Response) => {
       .groupBy(atisCardUnderstanding.taskType)
       .orderBy(desc(sql`count(*)`));
 
-    res.json(result.filter(r => r.taskType));
+    res.json(result.filter((r: any) => r.taskType));
   } catch (error: any) {
     console.error('[ATIS] Task types error:', error);
     res.status(500).json({ error: error.message });

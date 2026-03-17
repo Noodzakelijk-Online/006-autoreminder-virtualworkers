@@ -24,7 +24,7 @@ async function detectTimeConflicts(
 ) {
   try {
     // Get all tasks for the user
-    const userTasks = await schedulingDb.getUserTasks?.(userId) || [];
+    const userTasks: any[] = await (schedulingDb as any).getUserTasks?.(userId) || [];
     
     const conflicts = userTasks.filter((task: any) => {
       // Skip the task being rescheduled
@@ -58,7 +58,7 @@ async function detectResourceConflicts(
 ) {
   try {
     // Get all tasks assigned to this person
-    const assignedTasks = await schedulingDb.getTasksByAssignee?.(assignedTo) || [];
+    const assignedTasks: any[] = await (schedulingDb as any).getTasksByAssignee?.(assignedTo) || [];
     
     const conflicts = assignedTasks.filter((task: any) => {
       // Skip the task being rescheduled
@@ -88,8 +88,8 @@ function generateResolutionSuggestions(
   conflicts: any[],
   newStartTime: Date,
   newEndTime: Date
-) {
-  const suggestions = [];
+): any[] {
+  const suggestions: any[] = [];
   
   if (conflicts.length === 0) {
     return suggestions;

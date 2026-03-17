@@ -83,7 +83,6 @@ export default function ATISPhasesAnalysisDashboard() {
       // The backend will fetch task description from Trello
       await startAnalysisMutation.mutateAsync({
         taskId: selectedTask,
-        taskDescription: 'Task Analysis',
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
