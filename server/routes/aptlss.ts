@@ -19,6 +19,45 @@ const __dirname = path.dirname(__filename);
 
 const router = Router();
 
+async function fetchCardForAptlss(cardId: string) {
+  const apiKey = process.env.TRELLO_API_KEY;
+  const token = process.env.TRELLO_TOKEN;
+
+  if (!apiKey || !token) {
+    throw new Error('Trello credentials not configured');
+  }
+
+  const response = await fetch(
+    `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${token}&checklists=all`
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to fetch card ${cardId}: ${errorText}`);
+  }
+
+  return response.json();
+}
+
+async function generateAptlssChecklist(card: any, settings: any) {
+  const pythonScript = path.join(__dirname, 'aptlss-bridge.py');
+  const input = JSON.stringify({ cardData: card, settings });
+  const { stdout, stderr } = await execAsync(
+    `python3 "${pythonScript}" '${input.replace(/'/g, "'\\''")}' 2>&1`
+  );
+
+  if (stderr) {
+    console.error('Python stderr:', stderr);
+  }
+
+  const result = JSON.parse(stdout);
+  if (!result.success) {
+    throw new Error(result.error || 'APTLSS generation failed');
+  }
+
+  return result;
+}
+
 // Enhanced task scheduling algorithm with break times and task type optimization
 interface SchedulingOptions {
   workStartHour: number;
@@ -711,43 +750,15 @@ router.post('/aptlss/generate', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Card ID or card data is required' });
     }
 
-    // Fetch card data if only ID provided
     let card = cardData;
     if (!card && cardId) {
-      const apiKey = process.env.TRELLO_API_KEY;
-      const token = process.env.TRELLO_TOKEN;
-      
-      const response = await fetch(
-        `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${token}&checklists=all`
-      );
-      card = await response.json();
+      card = await fetchCardForAptlss(cardId);
     }
 
     console.log(`Generating APTLSS for card ${card.id} with settings:`, settings);
 
-    // Call Python APTLSS generator
-    const pythonScript = path.join(__dirname, 'aptlss-bridge.py');
-    const input = JSON.stringify({ cardData: card, settings });
-    
     try {
-      const { stdout, stderr } = await execAsync(
-        `python3 "${pythonScript}" '${input.replace(/'/g, "'\\''")}' 2>&1`
-      );
-      
-      if (stderr) {
-        console.error('Python stderr:', stderr);
-      }
-      
-      const result = JSON.parse(stdout);
-      
-      if (!result.success) {
-        return res.status(500).json({
-          success: false,
-          error: result.error,
-          validation: result.validation
-        });
-      }
-      
+      const result = await generateAptlssChecklist(card, settings);
       res.json(result);
     } catch (pythonError: any) {
       console.error('Python execution error:', pythonError);
@@ -820,6 +831,11 @@ router.post('/aptlss/history/:jobId/retry', async (req: Request, res: Response) 
     }
     
     const { jobId } = req.params;
+    const user = (req as any).user;
+
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     
     // Get failed items
     const failedItems = await db.select()
@@ -842,14 +858,80 @@ router.post('/aptlss/history/:jobId/retry', async (req: Request, res: Response) 
       failedCards: 0,
       status: 'running',
       settings: '{}',
-      createdBy: 'system',
-      createdAt: new Date()
+      createdBy: user.openId,
     });
+
+    const retryResults: any[] = [];
+    let completedCards = 0;
+    let failedCards = 0;
+
+    for (const [index, item] of failed.entries()) {
+      const itemId = `item_${newJobId}_${index}`;
+      try {
+        const card = await fetchCardForAptlss(item.cardId);
+        const result = await generateAptlssChecklist(card, {});
+
+        await db.insert(generationItems).values({
+          id: itemId,
+          jobId: newJobId,
+          cardId: card.id,
+          cardName: card.name,
+          boardName: card.idBoard,
+          status: 'completed',
+          attempts: 1,
+          maxAttempts: 3,
+          result: JSON.stringify(result),
+        });
+
+        completedCards++;
+        retryResults.push({
+          cardId: card.id,
+          success: true,
+          checklistId: result.checklistId || null,
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        failedCards++;
+        retryResults.push({
+          cardId: item.cardId,
+          success: false,
+          error: errorMessage,
+        });
+
+        await db.insert(generationItems).values({
+          id: itemId,
+          jobId: newJobId,
+          cardId: item.cardId,
+          cardName: item.cardName,
+          boardName: item.boardName || null,
+          status: 'failed',
+          attempts: 1,
+          maxAttempts: 3,
+          error: errorMessage,
+          result: null,
+        });
+      }
+
+      await db.update(generationJobs).set({
+        completedCards,
+        failedCards,
+      }).where(eq(generationJobs.id, newJobId));
+    }
+
+    await db.update(generationJobs).set({
+      status: failedCards > 0 ? 'completed_with_errors' : 'completed',
+      completedCards,
+      failedCards,
+      completedAt: new Date(),
+    }).where(eq(generationJobs.id, newJobId));
     
     res.json({
       success: true,
       jobId: newJobId,
-      itemsToRetry: failed.length
+      itemsToRetry: failed.length,
+      completed: completedCards,
+      failed: failedCards,
+      results: retryResults,
     });
   } catch (error) {
     console.error('Error retrying failed items:', error);
@@ -861,45 +943,107 @@ router.post('/aptlss/history/:jobId/retry', async (req: Request, res: Response) 
 router.post('/aptlss/generate-batch', async (req: Request, res: Response) => {
   try {
     const { cardIds, settings } = req.body;
+    const user = (req as any).user;
 
     if (!cardIds || !Array.isArray(cardIds) || cardIds.length === 0) {
       return res.status(400).json({ error: 'Card IDs array is required' });
     }
 
-    console.log(`Batch generating APTLSS for ${cardIds.length} cards`);
-
-    // TODO: Implement actual batch generation
-    // This would process cards in batches using the Python APTLSS generator
-
-    const results = {
-      total: cardIds.length,
-      completed: 0,
-      failed: 0,
-      results: [] as any[],
-    };
-
-    for (const cardId of cardIds) {
-      try {
-        // Simulate processing
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        results.completed++;
-        results.results.push({
-          cardId,
-          success: true,
-          checklistId: 'checklist_' + Date.now(),
-        });
-      } catch (error) {
-        results.failed++;
-        results.results.push({
-          cardId,
-          success: false,
-          error: 'Generation failed',
-        });
-      }
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    res.json(results);
+    console.log(`Batch generating APTLSS for ${cardIds.length} cards`);
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const jobId = `aptlss_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await db.insert(generationJobs).values({
+      id: jobId,
+      totalCards: cardIds.length,
+      completedCards: 0,
+      failedCards: 0,
+      status: 'running',
+      settings: JSON.stringify(settings || {}),
+      createdBy: user.openId,
+    });
+
+    const results: any[] = [];
+    let completedCards = 0;
+    let failedCards = 0;
+
+    for (let index = 0; index < cardIds.length; index++) {
+      const cardId = cardIds[index];
+      const itemId = `item_${jobId}_${index}`;
+      try {
+        const card = await fetchCardForAptlss(cardId);
+        const result = await generateAptlssChecklist(card, settings);
+
+        await db.insert(generationItems).values({
+          id: itemId,
+          jobId,
+          cardId: card.id,
+          cardName: card.name,
+          boardName: card.idBoard,
+          status: 'completed',
+          attempts: 1,
+          maxAttempts: 3,
+          result: JSON.stringify(result),
+        });
+
+        completedCards++;
+        results.push({
+          cardId: card.id,
+          success: true,
+          checklistId: result.checklistId || null,
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        failedCards++;
+        results.push({
+          cardId,
+          success: false,
+          error: errorMessage,
+        });
+
+        await db.insert(generationItems).values({
+          id: itemId,
+          jobId,
+          cardId,
+          cardName: `Card ${cardId}`,
+          boardName: null,
+          status: 'failed',
+          attempts: 1,
+          maxAttempts: 3,
+          error: errorMessage,
+          result: null,
+        });
+      }
+
+      await db.update(generationJobs).set({
+        completedCards,
+        failedCards,
+      }).where(eq(generationJobs.id, jobId));
+    }
+
+    await db.update(generationJobs).set({
+      status: failedCards > 0 ? 'completed_with_errors' : 'completed',
+      completedCards,
+      failedCards,
+      completedAt: new Date(),
+    }).where(eq(generationJobs.id, jobId));
+
+    res.json({
+      success: true,
+      jobId,
+      total: cardIds.length,
+      completed: completedCards,
+      failed: failedCards,
+      results,
+    });
   } catch (error) {
     console.error('Error in batch generation:', error);
     res.status(500).json({ error: 'Failed to batch generate APTLSS' });
@@ -910,18 +1054,28 @@ router.post('/aptlss/generate-batch', async (req: Request, res: Response) => {
 router.get('/aptlss/status/:jobId', async (req: Request, res: Response) => {
   try {
     const { jobId } = req.params;
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
 
-    // TODO: Implement actual status tracking
-    // This would check the status of a running generation job
+    const job = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId)).limit(1);
+    if (job.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const currentJob = job[0];
+    const progress = {
+      total: currentJob.totalCards,
+      completed: currentJob.completedCards,
+      failed: currentJob.failedCards,
+    };
 
     res.json({
       jobId,
-      status: 'completed',
-      progress: {
-        total: 10,
-        completed: 10,
-        failed: 0,
-      },
+      status: currentJob.status,
+      progress,
+      completedAt: currentJob.completedAt,
     });
   } catch (error) {
     console.error('Error fetching status:', error);
@@ -1149,8 +1303,8 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
             // Parse working days from comma-separated string
             workingDays = settings[0].workingDays
               .split(',')
-              .filter(d => d)
-              .map(d => parseInt(d));
+              .filter((d: string) => d)
+              .map((d: string) => parseInt(d, 10));
             
             // Get meal break settings (times are stored as HH:MM strings)
             const parseTimeToHour = (timeStr: string | null): number | undefined => {
@@ -1197,7 +1351,7 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
               eq(holidays.isActive, 1)
             ));
           
-          userHolidays = holidayRecords.map(h => h.date);
+          userHolidays = holidayRecords.map((h: any) => h.date);
         }
       } catch (error) {
         console.warn('Could not fetch user working hours, using defaults:', error);
@@ -1227,7 +1381,7 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
           
           if (assignments.length > 0) {
             // Get unique worker IDs
-            const workerIds = Array.from(new Set(assignments.map(a => a.vaId)));
+            const workerIds = Array.from(new Set(assignments.map((a: any) => Number(a.vaId)))) as number[];
             
             // Fetch worker profiles
             const workers = await db.select()
@@ -1238,8 +1392,8 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
             for (const worker of workers) {
               const workerWorkingDays = worker.workingDays
                 .split(',')
-                .filter((d: any) => d)
-                .map((d: any) => parseInt(d));
+                .filter((d: string) => d)
+                .map((d: string) => parseInt(d, 10));
               
               const workerOptions: Partial<SchedulingOptions> = {};
               

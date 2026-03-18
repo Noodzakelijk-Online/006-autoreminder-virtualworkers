@@ -16,21 +16,11 @@ function emitATISProgress(
   phase: number,
   status: 'started' | 'in_progress' | 'completed' | 'failed',
   confidence?: number,
-  error?: string
+  error?: string,
+  progress?: number
 ) {
   try {
-    const io = websocketService.getIO();
-    if (!io) return;
-    
-    io.emit('atis:progress', {
-      sessionId,
-      taskId,
-      phase,
-      status,
-      confidence,
-      error,
-      timestamp: Date.now(),
-    });
+    websocketService.emitATISProgress(sessionId, taskId, phase, status, confidence, error, progress);
   } catch (e) {
     console.warn('[ATIS WebSocket] Failed to emit progress:', e);
   }
@@ -46,16 +36,7 @@ function emitPhaseComplete(
   confidence: number
 ) {
   try {
-    const io = websocketService.getIO();
-    if (!io) return;
-    
-    io.emit('atis:phase-complete', {
-      sessionId,
-      phase,
-      duration,
-      confidence,
-      timestamp: Date.now(),
-    });
+    websocketService.emitPhaseCompleted(sessionId, phase, duration, confidence);
   } catch (e) {
     console.warn('[ATIS WebSocket] Failed to emit phase complete:', e);
   }
@@ -72,18 +53,7 @@ function emitAnalysisComplete(
   totalDuration: number
 ) {
   try {
-    const io = websocketService.getIO();
-    if (!io) return;
-    
-    io.emit('atis:analysis-complete', {
-      sessionId,
-      taskId,
-      overallConfidence,
-      completedPhases,
-      totalPhases: 8,
-      totalDuration,
-      timestamp: Date.now(),
-    });
+    websocketService.emitAnalysisComplete(sessionId, taskId, overallConfidence, completedPhases, 8, totalDuration);
   } catch (e) {
     console.warn('[ATIS WebSocket] Failed to emit analysis complete:', e);
   }
@@ -954,17 +924,24 @@ Return a JSON object with this structure:
 /**
  * Run all phases sequentially
  */
-export async function runAllPhases(taskId: string, userId: string, taskDescription: string) {
-  const sessionId = await atisDb.createAnalysisSession(taskId, userId);
+export async function runAllPhases(taskId: string, userId: string, taskDescription: string, sessionId?: string) {
+  const analysisSessionId = sessionId ?? await atisDb.createAnalysisSession(taskId, userId);
   const results: any[] = [];
   const startTime = Date.now();
   let overallConfidence = 0;
 
   try {
+    await atisDb.updateAnalysisSession(analysisSessionId, {
+      status: 'in_progress',
+      currentPhase: 3,
+      phasesCompleted: 0,
+      sessionData: { startedAt: new Date().toISOString() },
+    });
+
     // Phase 3: Decomposition
     console.log('[ATIS] Starting Phase 3: Decomposition');
     const phase3Start = Date.now();
-    emitATISProgress(sessionId, taskId, 3, 'started');
+    emitATISProgress(analysisSessionId, taskId, 3, 'started', undefined, undefined, 0);
     
     const phase3 = await analyzePhase3Decomposition(taskId, userId, taskDescription);
     results.push(phase3);
@@ -973,10 +950,10 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     const phase3Confidence = phase3.data?.analysis ? 85 : 70;
     overallConfidence = phase3Confidence;
     
-    emitPhaseComplete(sessionId, 3, phase3Duration, phase3Confidence);
-    emitATISProgress(sessionId, taskId, 3, 'completed', phase3Confidence);
+    emitPhaseComplete(analysisSessionId, 3, phase3Duration, phase3Confidence);
+    emitATISProgress(analysisSessionId, taskId, 3, 'completed', phase3Confidence, undefined, 100);
     
-    await atisDb.updateAnalysisSession(sessionId, {
+    await atisDb.updateAnalysisSession(analysisSessionId, {
       status: 'in_progress',
       currentPhase: 4,
       phasesCompleted: 1,
@@ -986,7 +963,7 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     // Phase 4: Risk Assessment
     console.log('[ATIS] Starting Phase 4: Risk Assessment');
     const phase4Start = Date.now();
-    emitATISProgress(sessionId, taskId, 4, 'started');
+    emitATISProgress(analysisSessionId, taskId, 4, 'started', undefined, undefined, 0);
     
     const phase4 = await analyzePhase4RiskAssessment(taskId, userId, taskDescription);
     results.push(phase4);
@@ -995,10 +972,10 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     const phase4Confidence = 80;
     overallConfidence = (overallConfidence + phase4Confidence) / 2;
     
-    emitPhaseComplete(sessionId, 4, phase4Duration, phase4Confidence);
-    emitATISProgress(sessionId, taskId, 4, 'completed', phase4Confidence);
+    emitPhaseComplete(analysisSessionId, 4, phase4Duration, phase4Confidence);
+    emitATISProgress(analysisSessionId, taskId, 4, 'completed', phase4Confidence, undefined, 100);
     
-    await atisDb.updateAnalysisSession(sessionId, {
+    await atisDb.updateAnalysisSession(analysisSessionId, {
       status: 'in_progress',
       currentPhase: 5,
       phasesCompleted: 2,
@@ -1008,7 +985,7 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     // Phase 5: Resource Estimation
     console.log('[ATIS] Starting Phase 5: Resource Estimation');
     const phase5Start = Date.now();
-    emitATISProgress(sessionId, taskId, 5, 'started');
+    emitATISProgress(analysisSessionId, taskId, 5, 'started', undefined, undefined, 0);
     
     const phase5 = await analyzePhase5ResourceEstimation(taskId, userId, taskDescription);
     results.push(phase5);
@@ -1017,10 +994,10 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     const phase5Confidence = 82;
     overallConfidence = (overallConfidence + phase5Confidence) / 2;
     
-    emitPhaseComplete(sessionId, 5, phase5Duration, phase5Confidence);
-    emitATISProgress(sessionId, taskId, 5, 'completed', phase5Confidence);
+    emitPhaseComplete(analysisSessionId, 5, phase5Duration, phase5Confidence);
+    emitATISProgress(analysisSessionId, taskId, 5, 'completed', phase5Confidence, undefined, 100);
     
-    await atisDb.updateAnalysisSession(sessionId, {
+    await atisDb.updateAnalysisSession(analysisSessionId, {
       status: 'in_progress',
       currentPhase: 6,
       phasesCompleted: 3,
@@ -1030,7 +1007,7 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     // Phase 6: Timeline Optimization
     console.log('[ATIS] Starting Phase 6: Timeline Optimization');
     const phase6Start = Date.now();
-    emitATISProgress(sessionId, taskId, 6, 'started');
+    emitATISProgress(analysisSessionId, taskId, 6, 'started', undefined, undefined, 0);
     
     const phase6 = await analyzePhase6TimelineOptimization(taskId, userId, taskDescription);
     results.push(phase6);
@@ -1039,10 +1016,10 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     const phase6Confidence = 83;
     overallConfidence = (overallConfidence + phase6Confidence) / 2;
     
-    emitPhaseComplete(sessionId, 6, phase6Duration, phase6Confidence);
-    emitATISProgress(sessionId, taskId, 6, 'completed', phase6Confidence);
+    emitPhaseComplete(analysisSessionId, 6, phase6Duration, phase6Confidence);
+    emitATISProgress(analysisSessionId, taskId, 6, 'completed', phase6Confidence, undefined, 100);
     
-    await atisDb.updateAnalysisSession(sessionId, {
+    await atisDb.updateAnalysisSession(analysisSessionId, {
       status: 'in_progress',
       currentPhase: 7,
       phasesCompleted: 4,
@@ -1052,7 +1029,7 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     // Phase 7: QA Strategy
     console.log('[ATIS] Starting Phase 7: QA Strategy');
     const phase7Start = Date.now();
-    emitATISProgress(sessionId, taskId, 7, 'started');
+    emitATISProgress(analysisSessionId, taskId, 7, 'started', undefined, undefined, 0);
     
     const phase7 = await analyzePhase7QAStrategy(taskId, userId, taskDescription);
     results.push(phase7);
@@ -1061,10 +1038,10 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     const phase7Confidence = 81;
     overallConfidence = (overallConfidence + phase7Confidence) / 2;
     
-    emitPhaseComplete(sessionId, 7, phase7Duration, phase7Confidence);
-    emitATISProgress(sessionId, taskId, 7, 'completed', phase7Confidence);
+    emitPhaseComplete(analysisSessionId, 7, phase7Duration, phase7Confidence);
+    emitATISProgress(analysisSessionId, taskId, 7, 'completed', phase7Confidence, undefined, 100);
     
-    await atisDb.updateAnalysisSession(sessionId, {
+    await atisDb.updateAnalysisSession(analysisSessionId, {
       status: 'in_progress',
       currentPhase: 8,
       phasesCompleted: 5,
@@ -1074,7 +1051,7 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     // Phase 8: Documentation
     console.log('[ATIS] Starting Phase 8: Documentation Requirements');
     const phase8Start = Date.now();
-    emitATISProgress(sessionId, taskId, 8, 'started');
+    emitATISProgress(analysisSessionId, taskId, 8, 'started', undefined, undefined, 0);
     
     const phase8 = await analyzePhase8Documentation(taskId, userId, taskDescription);
     results.push(phase8);
@@ -1083,10 +1060,10 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     const phase8Confidence = 79;
     overallConfidence = (overallConfidence + phase8Confidence) / 2;
     
-    emitPhaseComplete(sessionId, 8, phase8Duration, phase8Confidence);
-    emitATISProgress(sessionId, taskId, 8, 'completed', phase8Confidence);
+    emitPhaseComplete(analysisSessionId, 8, phase8Duration, phase8Confidence);
+    emitATISProgress(analysisSessionId, taskId, 8, 'completed', phase8Confidence, undefined, 100);
     
-    await atisDb.updateAnalysisSession(sessionId, {
+    await atisDb.updateAnalysisSession(analysisSessionId, {
       status: 'in_progress',
       currentPhase: 9,
       phasesCompleted: 6,
@@ -1096,7 +1073,7 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     // Phase 9: Dependencies
     console.log('[ATIS] Starting Phase 9: External Dependencies');
     const phase9Start = Date.now();
-    emitATISProgress(sessionId, taskId, 9, 'started');
+    emitATISProgress(analysisSessionId, taskId, 9, 'started', undefined, undefined, 0);
     
     const phase9 = await analyzePhase9Dependencies(taskId, userId, taskDescription);
     results.push(phase9);
@@ -1105,10 +1082,10 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     const phase9Confidence = 80;
     overallConfidence = (overallConfidence + phase9Confidence) / 2;
     
-    emitPhaseComplete(sessionId, 9, phase9Duration, phase9Confidence);
-    emitATISProgress(sessionId, taskId, 9, 'completed', phase9Confidence);
+    emitPhaseComplete(analysisSessionId, 9, phase9Duration, phase9Confidence);
+    emitATISProgress(analysisSessionId, taskId, 9, 'completed', phase9Confidence, undefined, 100);
     
-    await atisDb.updateAnalysisSession(sessionId, {
+    await atisDb.updateAnalysisSession(analysisSessionId, {
       status: 'in_progress',
       currentPhase: 10,
       phasesCompleted: 7,
@@ -1118,7 +1095,7 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     // Phase 10: Finalization
     console.log('[ATIS] Starting Phase 10: Finalization & Execution Plan');
     const phase10Start = Date.now();
-    emitATISProgress(sessionId, taskId, 10, 'started');
+    emitATISProgress(analysisSessionId, taskId, 10, 'started', undefined, undefined, 0);
     
     const phase10 = await analyzePhase10Finalization(taskId, userId, taskDescription);
     results.push(phase10);
@@ -1127,12 +1104,12 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     const phase10Confidence = 84;
     overallConfidence = (overallConfidence + phase10Confidence) / 2;
     
-    emitPhaseComplete(sessionId, 10, phase10Duration, phase10Confidence);
-    emitATISProgress(sessionId, taskId, 10, 'completed', phase10Confidence);
+    emitPhaseComplete(analysisSessionId, 10, phase10Duration, phase10Confidence);
+    emitATISProgress(analysisSessionId, taskId, 10, 'completed', phase10Confidence, undefined, 100);
 
     // Mark session as completed
     const totalDuration = Date.now() - startTime;
-    await atisDb.updateAnalysisSession(sessionId, {
+    await atisDb.updateAnalysisSession(analysisSessionId, {
       status: 'completed',
       currentPhase: 10,
       phasesCompleted: 8,
@@ -1141,11 +1118,11 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     });
     
     // Emit final analysis complete event
-    emitAnalysisComplete(sessionId, taskId, Math.round(overallConfidence), 8, totalDuration);
+    emitAnalysisComplete(analysisSessionId, taskId, Math.round(overallConfidence), 8, totalDuration);
 
     return {
       success: true,
-      sessionId,
+      sessionId: analysisSessionId,
       phasesCompleted: 8,
       results,
       overallConfidence: Math.round(overallConfidence),
@@ -1153,8 +1130,8 @@ export async function runAllPhases(taskId: string, userId: string, taskDescripti
     };
   } catch (error) {
     console.error('[ATIS] Error running phases:', error);
-    emitATISProgress(sessionId, taskId, 0, 'failed', undefined, String(error));
-    await atisDb.updateAnalysisSession(sessionId, {
+    emitATISProgress(analysisSessionId, taskId, 0, 'failed', undefined, String(error));
+    await atisDb.updateAnalysisSession(analysisSessionId, {
       status: 'failed',
       sessionData: { results, error: String(error) },
     });

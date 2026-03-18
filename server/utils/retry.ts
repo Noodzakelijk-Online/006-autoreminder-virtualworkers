@@ -130,32 +130,37 @@ export async function retryAsync<T>(
   fn: () => Promise<T>,
   options?: Omit<RetryOptions, 'retryableStatuses'>
 ): Promise<T> {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  let lastError: any;
+  const operation = (async () => {
+    const opts = { ...DEFAULT_OPTIONS, ...options };
+    let lastError: any;
 
-  for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error: any) {
-      lastError = error;
+    for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error: any) {
+        lastError = error;
 
-      // Don't retry on last attempt
-      if (attempt === opts.maxRetries) {
-        throw error;
+        // Don't retry on last attempt
+        if (attempt === opts.maxRetries) {
+          throw error;
+        }
+
+        // Calculate delay and wait before retry
+        const delayMs = calculateDelay(
+          attempt,
+          opts.initialDelayMs,
+          opts.maxDelayMs,
+          opts.backoffMultiplier
+        );
+
+        opts.onRetry(attempt + 1, error, delayMs);
+        await sleep(delayMs);
       }
-
-      // Calculate delay and wait before retry
-      const delayMs = calculateDelay(
-        attempt,
-        opts.initialDelayMs,
-        opts.maxDelayMs,
-        opts.backoffMultiplier
-      );
-
-      opts.onRetry(attempt + 1, error, delayMs);
-      await sleep(delayMs);
     }
-  }
 
-  throw lastError;
+    throw lastError;
+  })();
+
+  operation.catch(() => {});
+  return operation;
 }

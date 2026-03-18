@@ -16,7 +16,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Link } from "wouter";
-import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -149,16 +148,7 @@ export default function Home() {
     
     return result;
   }, [tasks, searchQuery, filters, workerFilter]);
-  const rescheduleMutation = trpc.trello.reschedule.useMutation({
-    onSuccess: (data: any) => {
-      toast.success(data.message);
-      // Reload tasks to get fresh schedule
-      window.location.reload();
-    },
-    onError: (error: any) => {
-      toast.error(`Rescheduling failed: ${error.message}`);
-    },
-  });
+  const [isRescheduling, setIsRescheduling] = useState(false);
   const [stats, setStats] = useState<WeeklyStats>({
     totalTasks: 0,
     completedTasks: 0,
@@ -187,6 +177,31 @@ export default function Home() {
       window.location.reload();
     },
   });
+
+  const applyReschedule = async () => {
+    if (isRescheduling) return;
+
+    setIsRescheduling(true);
+    try {
+      const response = await fetch('/api/reschedule/apply', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to reschedule tasks');
+      }
+
+      toast.success(data.message || 'Tasks will be rescheduled on next refresh');
+      window.location.reload();
+    } catch (error) {
+      toast.error(`Rescheduling failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsRescheduling(false);
+    }
+  };
 
   useEffect(() => {
     // Fetch tasks from ATIS (AI-enhanced) or fallback to Trello API
@@ -547,10 +562,10 @@ export default function Home() {
                   <Button 
                     variant="outline" 
                     className="flex-1"
-                    onClick={() => rescheduleMutation.mutate()}
-                    disabled={rescheduleMutation.isPending}
+                    onClick={applyReschedule}
+                    disabled={isRescheduling}
                   >
-                    {rescheduleMutation.isPending ? (
+                    {isRescheduling ? (
                       <RefreshCw className="h-4 w-4 animate-spin" />
                     ) : (
                       <RefreshCw className="h-4 w-4" />

@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2 } from 'lucide-react';
 import { TaskSelector } from '@/components/atis/TaskSelector';
 import RealtimeProgressMonitor from '@/components/atis/RealtimeProgressMonitor';
+import type { AnalysisCompleteEvent } from '@/hooks/useATISWebSocket';
 
 interface AnalysisData {
   sessionId: string;
@@ -48,7 +49,6 @@ export default function ATISPhasesAnalysisDashboard() {
       setAnalysisData(data.data as AnalysisData);
       setSessionId(data.data?.sessionId || null);
       setError(null);
-      setIsAnalyzing(false);
     },
     onError: (error) => {
       setError(error.message || 'Failed to start analysis');
@@ -90,6 +90,15 @@ export default function ATISPhasesAnalysisDashboard() {
     }
   };
 
+  const handleAnalysisComplete = async (event: AnalysisCompleteEvent) => {
+    setAnalysisData((prev) => prev ? {
+      ...prev,
+      status: 'completed',
+      overallConfidence: event.overallConfidence,
+    } : prev);
+    setIsAnalyzing(false);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container py-8">
@@ -126,7 +135,7 @@ export default function ATISPhasesAnalysisDashboard() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button 
+                  <Button
                     variant="outline" 
                     size="sm"
                     onClick={handleLoadAnalysis}
@@ -135,9 +144,9 @@ export default function ATISPhasesAnalysisDashboard() {
                     <RefreshCw className="w-4 h-4 mr-2" />
                     Load Analysis
                   </Button>
-                  <Button 
+                  <Button
                     onClick={handleStartAnalysis}
-                    disabled={!selectedTask || isAnalyzing || isLoading}
+                    disabled={!selectedTask || isAnalyzing || isLoading || analysisData?.status === 'in_progress'}
                   >
                     {isAnalyzing ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -180,8 +189,12 @@ export default function ATISPhasesAnalysisDashboard() {
                   <p className="text-muted-foreground">Select a task and start analysis to view results</p>
                 </div>
               </Card>
-            ) : isAnalyzing && sessionId ? (
-              <RealtimeProgressMonitor sessionId={sessionId} taskId={selectedTask} />
+            ) : analysisData?.status === 'in_progress' && sessionId ? (
+              <RealtimeProgressMonitor
+                sessionId={sessionId}
+                taskId={selectedTask}
+                onAnalysisComplete={handleAnalysisComplete}
+              />
             ) : (
               <div className="space-y-6">
                 {/* Preparation Phase */}

@@ -33,14 +33,26 @@ export function GoalInterviewDialog({
   const [isStarting, setIsStarting] = useState(true);
   const [confidence, setConfidence] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Start interview when dialog opens
   useEffect(() => {
+    if (!open) {
+      setMessages([]);
+      setInput('');
+      setIsLoading(false);
+      setIsStarting(true);
+      setConfidence(0);
+      setIsComplete(false);
+      setSessionId(null);
+      return;
+    }
+
     if (open && isStarting) {
       startInterview();
     }
-  }, [open]);
+  }, [open, cardId]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -54,6 +66,7 @@ export function GoalInterviewDialog({
     try {
       const response = await fetch('/api/interview/start', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cardId }),
       });
@@ -61,6 +74,7 @@ export function GoalInterviewDialog({
       if (!response.ok) throw new Error('Failed to start interview');
 
       const data = await response.json();
+      setSessionId(data.sessionId || null);
       setMessages([{
         role: 'assistant',
         content: data.firstMessage || 'Interview started. Please answer the following questions.',
@@ -95,32 +109,36 @@ export function GoalInterviewDialog({
     }]);
 
     try {
-      const response = await fetch('/api/trpc/interview.respond', {
+      if (!sessionId) {
+        throw new Error('Interview session not initialized');
+      }
+
+      const response = await fetch(`/api/interview/${encodeURIComponent(sessionId)}/respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cardId, response: userMessage }),
+        credentials: 'include',
+        body: JSON.stringify({ response: userMessage }),
       });
 
       if (!response.ok) throw new Error('Failed to send message');
 
       const data = await response.json();
-      const result = data.result.data;
 
       // Add AI response
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: result.nextMessage,
+        content: data.nextMessage || data.message || 'Could you tell me more about that?',
         timestamp: new Date(),
       }]);
 
-      setConfidence(result.confidence || 0);
+      setConfidence(data.confidence || confidence);
 
       // Check if interview is complete
-      if (result.isComplete && result.finalGoal) {
+      if (data.isComplete && data.finalGoal) {
         setIsComplete(true);
         // Show final goal for 2 seconds, then call onComplete
         setTimeout(() => {
-          onComplete(result.finalGoal);
+          onComplete(data.finalGoal);
           onOpenChange(false);
         }, 2000);
       }

@@ -39,6 +39,21 @@ class WebSocketService {
         this.handleAuthentication(socket, data);
       });
 
+      // ATIS session management
+      socket.on('join-session', (sessionId: string) => {
+        if (!sessionId) return;
+        socket.join(`session:${sessionId}`);
+        socket.emit('session-joined', {
+          sessionId,
+          socketId: socket.id,
+        });
+      });
+
+      socket.on('leave-session', (sessionId: string) => {
+        if (!sessionId) return;
+        socket.leave(`session:${sessionId}`);
+      });
+
       // Handle disconnection
       socket.on('disconnect', () => {
         this.handleDisconnection(socket);
@@ -160,6 +175,102 @@ class WebSocketService {
     if (!this.io) return;
     this.io.emit(event, data);
     console.log(`[WebSocket] Emitted ${event} to all clients`);
+  }
+
+  /**
+   * Emit event to a specific ATIS session room
+   */
+  emitToSession(sessionId: string, event: string, data: any): void {
+    if (!this.io) return;
+    this.io.to(`session:${sessionId}`).emit(event, data);
+    console.log(`[WebSocket] Emitted ${event} to session ${sessionId}`);
+  }
+
+  /**
+   * Emit ATIS progress update
+   */
+  emitATISProgress(
+    sessionId: string,
+    taskId: string,
+    phase: number,
+    status: 'started' | 'in_progress' | 'completed' | 'failed',
+    confidence?: number,
+    error?: string,
+    progress?: number
+  ): void {
+    this.emitToSession(sessionId, 'progress-update', {
+      sessionId,
+      taskId,
+      phase,
+      status,
+      confidence,
+      progress,
+      error,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Emit phase completion event
+   */
+  emitPhaseCompleted(
+    sessionId: string,
+    phase: number,
+    duration: number,
+    confidence: number
+  ): void {
+    this.emitToSession(sessionId, 'phase-completed', {
+      sessionId,
+      phase,
+      duration,
+      confidence,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Emit final analysis completion event
+   */
+  emitAnalysisComplete(
+    sessionId: string,
+    taskId: string,
+    overallConfidence: number,
+    completedPhases: number,
+    totalPhases: number,
+    totalDuration: number
+  ): void {
+    this.emitToSession(sessionId, 'analysis-complete', {
+      sessionId,
+      taskId,
+      overallConfidence,
+      completedPhases,
+      totalPhases,
+      totalDuration,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Emit ATIS analysis error
+   */
+  emitAnalysisError(sessionId: string, phase: number, error: string): void {
+    this.emitToSession(sessionId, 'analysis-error', {
+      sessionId,
+      phase,
+      error,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Emit confidence update for a phase
+   */
+  emitConfidenceUpdate(sessionId: string, phase: number, confidence: number): void {
+    this.emitToSession(sessionId, 'confidence-update', {
+      phase,
+      confidence,
+      timestamp: Date.now(),
+    });
   }
 
   /**

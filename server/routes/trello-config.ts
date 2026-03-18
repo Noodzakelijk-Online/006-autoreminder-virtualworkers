@@ -21,7 +21,7 @@ router.get('/labels', async (req: Request, res: Response) => {
 
     // Get the first board (assuming single board setup)
     const boardsUrl = `https://api.trello.com/1/members/me/boards?key=${apiKey}&token=${apiToken}`;
-    const boardsResponse = await fetchWithRetry(boardsUrl);
+    const boardsResponse = await fetchWithRetry(boardsUrl, undefined, { maxRetries: 0 });
     const boards = await boardsResponse.json();
 
     if (!boards || boards.length === 0) {
@@ -31,7 +31,7 @@ router.get('/labels', async (req: Request, res: Response) => {
     // Get labels from the first board
     const boardId = boards[0].id;
     const labelsUrl = `https://api.trello.com/1/boards/${boardId}/labels?key=${apiKey}&token=${apiToken}`;
-    const labelsResponse = await fetchWithRetry(labelsUrl);
+    const labelsResponse = await fetchWithRetry(labelsUrl, undefined, { maxRetries: 0 });
     const labels = await labelsResponse.json();
 
     // Transform labels to include only necessary fields
@@ -134,7 +134,7 @@ router.put('/tasks/:taskId/complete', async (req: Request, res: Response) => {
       body: JSON.stringify({
         state: isCompleted ? 'complete' : 'incomplete',
       }),
-    });
+    }, { maxRetries: 0 });
 
     if (!updateResponse.ok) {
       const errorText = await updateResponse.text();
@@ -193,7 +193,7 @@ router.put('/cards/:cardId/status', async (req: Request, res: Response) => {
 
     // Fetch the card to get its current labels
     const cardUrl = `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${apiToken}&fields=labels,idLabels`;
-    const cardResponse = await fetchWithRetry(cardUrl);
+    const cardResponse = await fetchWithRetry(cardUrl, undefined, { maxRetries: 0 });
 
     if (!cardResponse.ok) {
       const errorText = await cardResponse.text();
@@ -253,7 +253,7 @@ router.put('/cards/:cardId/status', async (req: Request, res: Response) => {
       body: JSON.stringify({
         idLabels: newLabels,
       }),
-    });
+    }, { maxRetries: 0 });
 
     if (!updateResponse.ok) {
       const errorText = await updateResponse.text();

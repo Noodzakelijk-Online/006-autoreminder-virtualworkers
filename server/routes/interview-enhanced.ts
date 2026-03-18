@@ -10,6 +10,7 @@ import { z } from 'zod';
 import {
   createInterviewSession,
   getInterviewSession,
+  updateInterviewSessionState,
   recordInterviewResponse,
   completeInterview,
   getInterviewHistory,
@@ -21,7 +22,6 @@ import {
 } from '../services/interview-persistence';
 import { analyzeCardBeforeInterview } from '../services/pre-interview-analysis';
 import { startInterview, processResponse } from '../services/conversational-interview';
-import { invokeLLM } from '../_core/llm';
 
 const router = Router();
 
@@ -91,6 +91,17 @@ router.post('/start', async (req: Request, res: Response) => {
     // Start interview conversation
     const { state, firstMessage } = await startInterview(card.name, preAnalysis);
 
+    await updateInterviewSessionState(sessionId, {
+      currentPhase: 1,
+      currentQuestion: 0,
+      questionsAsked: 0,
+      responsesProvided: 0,
+      overallConfidence: state.overallConfidence,
+      preAnalysisSummary: preAnalysis.summary,
+      sessionData: state,
+      status: 'active',
+    });
+
     return res.json({
       sessionId,
       firstMessage,
@@ -153,7 +164,8 @@ router.post('/:sessionId/respond', async (req: Request, res: Response) => {
       75,
       undefined,
       50,
-      false
+      false,
+      sessionData
     );
 
     // Check if interview is complete

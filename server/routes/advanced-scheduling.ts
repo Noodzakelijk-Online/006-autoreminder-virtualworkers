@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import * as schedulingDb from '../db/scheduling';
+import { batchQueueProcessor } from '../services/batch-queue-processor.js';
 
 const router = Router();
 
@@ -349,11 +350,10 @@ router.post('/batch-start', async (req: Request, res: Response) => {
       taskIds
     });
 
-    // TODO: Queue the batch operation for processing
-    // This would typically involve:
-    // 1. Sending to a job queue (Redis, Bull, etc.)
-    // 2. Or spawning a background worker
-    // 3. Updating progress as tasks complete
+    void batchQueueProcessor.enqueueJob(jobId, userOpenId, operationType, taskIds, {
+      description,
+      parameters,
+    });
 
     res.json({
       success: true,
@@ -378,27 +378,37 @@ router.post('/batch-start', async (req: Request, res: Response) => {
 router.get('/batch/:jobId', async (req: Request, res: Response) => {
   try {
     const { jobId } = req.params;
+    const liveProgress = batchQueueProcessor.getJobProgress(jobId);
     const operation = await schedulingDb.getBatchOperation(jobId);
 
-    if (!operation) {
+    if (!operation && !liveProgress) {
       return res.status(404).json({ error: 'Batch operation not found' });
     }
 
-    const elapsedSeconds = operation.startedAt
-      ? Math.floor((Date.now() - operation.startedAt.getTime()) / 1000)
-      : 0;
+    const elapsedSeconds = liveProgress?.elapsedSeconds
+      ?? (operation?.startedAt
+        ? Math.floor((Date.now() - operation.startedAt.getTime()) / 1000)
+        : 0);
+
+    const status = liveProgress?.status ?? operation?.status ?? 'pending';
+    const progressValue = liveProgress?.progress ?? operation?.progress ?? 0;
+    const totalTasks = liveProgress?.totalTasks ?? operation?.taskIds?.length ?? 0;
+    const completedTasks = liveProgress?.completedTasks ?? operation?.completedTasks ?? 0;
+    const failedTasks = liveProgress?.failedTasks ?? operation?.failedTasks ?? 0;
+    const currentTaskName = liveProgress?.currentTaskName ?? operation?.currentTaskName;
+    const elapsedTimeSeconds = liveProgress?.elapsedSeconds ?? operation?.elapsedTimeSeconds;
 
     res.json({
       success: true,
       jobId,
-      status: operation.status,
-      progress: operation.progress,
-      totalTasks: operation.taskIds?.length || 0,
-      completedTasks: operation.completedTasks,
-      failedTasks: operation.failedTasks,
-      currentTaskName: operation.currentTaskName,
+      status,
+      progress: progressValue,
+      totalTasks,
+      completedTasks,
+      failedTasks,
+      currentTaskName,
       elapsedSeconds,
-      elapsedTimeSeconds: operation.elapsedTimeSeconds
+      elapsedTimeSeconds
     });
   } catch (error) {
     console.error('[AdvancedScheduling] Error getting batch progress:', error);
@@ -429,6 +439,7 @@ router.post('/batch/:jobId/cancel', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    await batchQueueProcessor.cancelJob(jobId);
     await schedulingDb.cancelBatchOperation(jobId);
 
     res.json({

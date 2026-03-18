@@ -2,6 +2,7 @@ import { WebSocket } from 'ws';
 import { getDb } from '../db';
 import { batchOperations } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
+import { batchQueueProcessor } from './batch-queue-processor.js';
 
 interface ClientConnection {
   ws: WebSocket;
@@ -116,7 +117,7 @@ class BatchWebSocketHandler {
    * Handle incoming client messages (e.g., pause, resume, cancel)
    */
   private handleClientMessage(jobId: string, userId: string, message: any) {
-    const { action, data } = message;
+    const { action } = message;
 
     switch (action) {
       case 'ping':
@@ -132,21 +133,68 @@ class BatchWebSocketHandler {
 
       case 'pause':
         console.log(`[BatchWebSocket] Pause requested for job ${jobId}`);
-        // TODO: Implement pause logic
+        void this.applyBatchAction(jobId, userId, 'pause');
         break;
 
       case 'resume':
         console.log(`[BatchWebSocket] Resume requested for job ${jobId}`);
-        // TODO: Implement resume logic
+        void this.applyBatchAction(jobId, userId, 'resume');
         break;
 
       case 'cancel':
         console.log(`[BatchWebSocket] Cancel requested for job ${jobId}`);
-        // TODO: Implement cancel logic
+        void this.applyBatchAction(jobId, userId, 'cancel');
         break;
 
       default:
         console.warn(`[BatchWebSocket] Unknown action: ${action}`);
+    }
+  }
+
+  /**
+   * Apply a batch control action and send a small acknowledgement back to the caller.
+   */
+  private async applyBatchAction(
+    jobId: string,
+    userId: string,
+    action: 'pause' | 'resume' | 'cancel'
+  ) {
+    const key = `${jobId}:${userId}`;
+    const clients = this.clients.get(key) || [];
+    const ack = (payload: Record<string, any>) => {
+      for (const client of clients) {
+        if (client.ws.readyState === WebSocket.OPEN) {
+          client.ws.send(JSON.stringify({
+            type: 'ack',
+            action,
+            jobId,
+            ...payload,
+          }));
+        }
+      }
+    };
+
+    try {
+      switch (action) {
+        case 'pause':
+          await batchQueueProcessor.pauseJob(jobId);
+          ack({ success: true, status: 'paused' });
+          break;
+        case 'resume':
+          await batchQueueProcessor.resumeJob(jobId);
+          ack({ success: true, status: 'running' });
+          break;
+        case 'cancel':
+          await batchQueueProcessor.cancelJob(jobId);
+          ack({ success: true, status: 'cancelled' });
+          break;
+      }
+    } catch (error) {
+      console.error(`[BatchWebSocket] Failed to ${action} job ${jobId}:`, error);
+      ack({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 

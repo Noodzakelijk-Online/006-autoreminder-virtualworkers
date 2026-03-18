@@ -94,6 +94,42 @@ export async function getInterviewSession(sessionId: string) {
 }
 
 /**
+ * Update interview session state
+ */
+export async function updateInterviewSessionState(
+  sessionId: string,
+  updates: {
+    currentPhase?: number;
+    currentQuestion?: number;
+    questionsAsked?: number;
+    responsesProvided?: number;
+    overallConfidence?: number;
+    preAnalysisSummary?: string;
+    sessionData?: any;
+    status?: 'active' | 'completed' | 'abandoned';
+    completedAt?: Date | null;
+  }
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error('Database connection failed');
+
+  await db.update(interviewSessions)
+    .set({
+      currentPhase: updates.currentPhase,
+      currentQuestion: updates.currentQuestion,
+      questionsAsked: updates.questionsAsked,
+      responsesProvided: updates.responsesProvided,
+      overallConfidence: updates.overallConfidence,
+      preAnalysisSummary: updates.preAnalysisSummary,
+      sessionData: updates.sessionData !== undefined ? JSON.stringify(updates.sessionData) : undefined,
+      status: updates.status,
+      completedAt: updates.completedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(interviewSessions.id, sessionId));
+}
+
+/**
  * Update interview session with new response
  */
 export async function recordInterviewResponse(
@@ -106,7 +142,8 @@ export async function recordInterviewResponse(
   validationScore: number,
   validationNotes?: string,
   confidenceScore?: number,
-  requiresEscalation?: boolean
+  requiresEscalation?: boolean,
+  sessionDataOverride?: any
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error('Database connection failed');
@@ -138,14 +175,22 @@ export async function recordInterviewResponse(
   await db.insert(interviewHistory).values(history);
 
   // Update session
-  const currentState = session.sessionData ? JSON.parse(session.sessionData) : {};
+  const currentState = sessionDataOverride ?? (session.sessionData ? JSON.parse(session.sessionData) : {});
+  const validationCount = Array.isArray(currentState?.validations)
+    ? currentState.validations.length
+    : (session.questionsAsked || 0) + 1;
+  const responseCount = Array.isArray(currentState?.validations)
+    ? currentState.validations.length
+    : (session.responsesProvided || 0) + 1;
   const updatedState = {
     ...currentState,
     currentPhase: phase,
-    currentQuestion: questionNumber + 1,
-    questionsAsked: (currentState.questionsAsked || 0) + 1,
-    responsesProvided: (currentState.responsesProvided || 0) + 1,
-    overallConfidence: confidenceScore || currentState.overallConfidence,
+    currentQuestion: Array.isArray(currentState?.validations)
+      ? validationCount
+      : questionNumber + 1,
+    questionsAsked: validationCount,
+    responsesProvided: responseCount,
+    overallConfidence: currentState.overallConfidence ?? confidenceScore ?? session.overallConfidence ?? 0,
   };
 
   await db.update(interviewSessions)
