@@ -190,9 +190,11 @@ describe('Retry Mechanism', () => {
         initialDelayMs: 100
       });
 
+      const expectation = expect(promise).rejects.toThrow('Persistent failure');
+
       await vi.runAllTimersAsync();
 
-      await expect(promise).rejects.toThrow('Persistent failure');
+      await expectation;
       expect(fn).toHaveBeenCalledTimes(3); // Initial + 2 retries
     });
   });

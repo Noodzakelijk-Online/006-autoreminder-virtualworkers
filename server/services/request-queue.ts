@@ -7,6 +7,7 @@ interface PendingRequest<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
   reject: (error: any) => void;
+  executor: () => Promise<T>;
   timestamp: number;
   timeout: NodeJS.Timeout;
 }
@@ -21,6 +22,7 @@ interface QueueMetrics {
 
 class RequestQueue {
   private pendingRequests: Map<string, PendingRequest<any>> = new Map();
+  private processingChain: Promise<void> = Promise.resolve();
   private metrics = {
     totalRequests: 0,
     deduplicatedRequests: 0,
@@ -67,6 +69,7 @@ class RequestQueue {
       promise,
       resolve: resolveFunc!,
       reject: rejectFunc!,
+      executor,
       timestamp: Date.now(),
       timeout,
     };
@@ -75,23 +78,39 @@ class RequestQueue {
 
     console.log(`[RequestQueue] Executing new request: ${key}`);
 
-    // Execute the actual request
+    this.processingChain = this.processingChain
+      .then(() => this.processPendingRequest(key))
+      .catch(() => {
+        // Shared promise handles the failure.
+      });
+
+    return pending.promise;
+  }
+
+  private async processPendingRequest(key: string): Promise<void> {
+    const pending = this.pendingRequests.get(key);
+    if (!pending) {
+      return;
+    }
+
     try {
-      const result = await executor();
-      
-      // Clear timeout and resolve all waiting promises
+      const result = await pending.executor();
+
+      if (!this.pendingRequests.has(key)) {
+        return;
+      }
+
       clearTimeout(pending.timeout);
       this.pendingRequests.delete(key);
       pending.resolve(result);
-      
-      return result;
     } catch (error) {
-      // Clear timeout and reject all waiting promises
+      if (!this.pendingRequests.has(key)) {
+        return;
+      }
+
       clearTimeout(pending.timeout);
       this.pendingRequests.delete(key);
       pending.reject(error);
-      
-      throw error;
     }
   }
 
@@ -132,6 +151,7 @@ class RequestQueue {
       pending.reject(new Error('Queue cleared'));
     });
     this.pendingRequests.clear();
+    this.processingChain = Promise.resolve();
   }
 
   /**

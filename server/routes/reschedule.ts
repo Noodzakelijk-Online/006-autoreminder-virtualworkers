@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import { getCachedTasks } from '../services/trello-cache';
 
 const router = Router();
 
@@ -16,21 +17,44 @@ router.post('/preview', async (req: any, res: Response) => {
 
     const { workStartHour, workEndHour, workingDays } = req.body;
 
-    // Calculate impact
-    // For now, return a simple preview
-    // In a real implementation, this would fetch current tasks and calculate changes
+    const cachedTasks = await getCachedTasks(user.id, user.openId);
+    const tasks = Array.isArray(cachedTasks) ? cachedTasks : [];
+    const normalizedWorkingDays = Array.isArray(workingDays)
+      ? workingDays.map((day: any) => Number(day)).filter((day: number) => Number.isFinite(day))
+      : [1, 2, 3, 4, 5];
+
+    const affectedTasks = tasks.filter((task: any) => {
+      if (!task.date) return false;
+
+      const taskDate = new Date(task.date);
+      const dayOfWeek = taskDate.getDay();
+      if (!normalizedWorkingDays.includes(dayOfWeek)) {
+        return true;
+      }
+
+      const startHour = Number(task.startTime?.split(':')?.[0]);
+      const endHour = Number(task.endTime?.split(':')?.[0]);
+
+      if (!Number.isFinite(startHour) || !Number.isFinite(endHour)) {
+        return false;
+      }
+
+      return startHour < workStartHour || endHour > workEndHour;
+    });
     
     res.json({
       success: true,
       preview: {
-        totalTasks: 0, // Would be calculated from actual tasks
-        affectedTasks: 0,
+        totalTasks: tasks.length,
+        affectedTasks: affectedTasks.length,
         newSchedule: {
           workStartHour,
           workEndHour,
-          workingDays,
+          workingDays: normalizedWorkingDays,
         },
-        message: 'Tasks will be rescheduled based on new working hours and days',
+        message: tasks.length > 0
+          ? `${affectedTasks.length} task(s) would be rescheduled based on the updated working hours and days`
+          : 'No cached tasks available to preview rescheduling impact',
       },
     });
   } catch (error) {

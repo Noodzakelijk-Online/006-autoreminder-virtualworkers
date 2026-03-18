@@ -96,6 +96,7 @@ export function useATISWebSocket(options: UseATISWebSocketOptions = {}): UseATIS
 
       try {
         const socket = io(window.location.origin, {
+          path: '/ws',
           reconnection,
           reconnectionDelay,
           reconnectionDelayMax,

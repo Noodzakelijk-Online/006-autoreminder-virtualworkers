@@ -99,6 +99,7 @@ export default function APTLSSManagement() {
   const [loadingProgress, setLoadingProgress] = useState<{current: number; total: number; message: string} | null>(null);
   const [interviewCardId, setInterviewCardId] = useState<string | null>(null);
   const [interviewCardName, setInterviewCardName] = useState<string>('');
+  const [clarifiedGoal, setClarifiedGoal] = useState<any | null>(null);
   
   // Auto-load all cards state
   const [autoLoadProgress, setAutoLoadProgress] = useState<{
@@ -393,7 +394,6 @@ export default function APTLSSManagement() {
   const loadCardsForBoard = async (boardId: string) => {
     setLoading(true);
     try {
-      // TODO: Replace with actual API call
       const response = await fetch(`/api/trello/boards/${boardId}/cards`);
       const data = await response.json();
       
@@ -820,46 +820,45 @@ export default function APTLSSManagement() {
 
     toast.info(`Starting APTLSS generation for ${selectedCards.length} cards`);
 
-    // TODO: Implement actual generation
-    for (let i = 0; i < selectedCards.length; i++) {
-      if (progress.status === 'paused') break;
+    try {
+      const response = await fetch('/api/aptlss/generate-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          cardIds: selectedCards.map(card => card.id),
+          settings: {
+            ...settings,
+            clarifiedGoal,
+          },
+        }),
+      });
 
-      const card = selectedCards[i];
-      
-      setProgress(prev => ({
-        ...prev,
-        current: card.name,
-        completed: i
-      }));
-
-      try {
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-        // TODO: Replace with actual API call
-        // await fetch('/api/aptlss/generate', {
-        //   method: 'POST',
-        //   headers: { 'Content-Type': 'application/json' },
-        //   body: JSON.stringify({ cardId: card.id, settings })
-        // });
-
-        setProgress(prev => ({
-          ...prev,
-          completed: prev.completed + 1
-        }));
-
-        toast.success(`Generated APTLSS for: ${card.name}`);
-      } catch (error) {
-        setProgress(prev => ({
-          ...prev,
-          failed: prev.failed + 1
-        }));
-        toast.error(`Failed to generate APTLSS for: ${card.name}`);
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to generate APTLSS');
       }
-    }
 
-    setProgress(prev => ({ ...prev, status: 'completed' }));
-    toast.success('APTLSS generation completed!');
+      setProgress({
+        total: data.total || selectedCards.length,
+        completed: data.completed || 0,
+        failed: data.failed || 0,
+        current: '',
+        status: 'completed',
+      });
+
+      loadHistory();
+
+      if (data.failed > 0) {
+        toast.warning(`APTLSS generation completed with ${data.failed} failure(s)`);
+      } else {
+        toast.success(`Generated APTLSS for ${data.completed || selectedCards.length} cards`);
+      }
+    } catch (error) {
+      console.error('Failed to generate APTLSS:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to generate APTLSS');
+      setProgress(prev => ({ ...prev, status: 'idle' }));
+    }
   };
 
   const pauseGeneration = () => {
@@ -1942,7 +1941,7 @@ export default function APTLSSManagement() {
         onComplete={(finalGoal) => {
           console.log('Interview complete, final goal:', finalGoal);
           toast.success('Goal clarified! You can now generate APTLSS based on this goal.');
-          // TODO: Use finalGoal to generate APTLSS with the new system
+          setClarifiedGoal(finalGoal);
         }}
       />
     </div>

@@ -15,8 +15,58 @@ import {
 } from '../../drizzle/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { sendMorningBriefing, sendEODReport, validateSendGridApiKey } from '../services/email';
+import { websocketService } from '../services/websocket';
+import { invalidateCache } from '../services/trello-cache';
+import { fetchWithRetry } from '../utils/retry';
 
 const router = Router();
+
+async function fetchTrelloCardSummary(taskId: string) {
+  const apiKey = process.env.TRELLO_API_KEY;
+  const apiToken = process.env.TRELLO_TOKEN;
+
+  if (!apiKey || !apiToken) {
+    return null;
+  }
+
+  const cardId = taskId.split(':')[0];
+  if (!cardId) return null;
+
+  try {
+    const response = await fetchWithRetry(
+      `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${apiToken}&fields=name,desc,due,labels`
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const card = await response.json();
+    const labels = Array.isArray(card.labels)
+      ? card.labels.map((label: any) => label?.name || label?.color).filter(Boolean)
+      : [];
+    const priority = labels.some((label: string) => /critical/i.test(label))
+      ? 'CRITICAL'
+      : labels.some((label: string) => /urgent/i.test(label))
+        ? 'URGENT'
+        : labels.some((label: string) => /high/i.test(label))
+          ? 'HIGH'
+          : 'NORMAL';
+
+    return {
+      cardId,
+      cardName: card.name || 'Trello Card',
+      title: card.name || `Task ${taskId.split(':').pop() || cardId}`,
+      dueDate: card.due || null,
+      labels,
+      priority,
+      description: card.desc || '',
+    };
+  } catch (error) {
+    console.warn('[VA Management] Failed to fetch Trello card summary:', error);
+    return null;
+  }
+}
 
 // ============================================
 // VA PROFILES
@@ -948,28 +998,31 @@ router.get('/assignments', async (req: any, res) => {
     const overrideMap = new Map(overrides.map((o: typeof overrides[0]) => [o.taskId, o.priority]));
     
     // Parse taskId to extract card info (format: cardId:checklistId:checkItemId)
-    const result = assignments.map((a: typeof assignments[0]) => {
+    const result = await Promise.all(assignments.map(async (a: typeof assignments[0]) => {
       const taskParts = a.taskId.split(':');
       const cardId = taskParts[0] || '';
+      const summary = await fetchTrelloCardSummary(a.taskId);
       
       return {
         id: a.id,
         taskId: a.taskId,
-        taskTitle: a.notes || 'Task from Trello',
-        cardName: 'Trello Card',
+        taskTitle: summary?.title || a.notes || 'Task from Trello',
+        cardName: summary?.cardName || 'Trello Card',
         cardId: cardId,
         vaId: a.vaId,
         vaName: a.vaId ? vaMap.get(a.vaId) : null,
         priority: overrideMap.get(a.taskId) || 'normal',
         isPriorityOverride: overrideMap.has(a.taskId),
         status: a.status,
-        estimatedMinutes: 60,
+        estimatedMinutes: summary ? 60 : 60,
         scheduledStart: null,
         scheduledEnd: null,
         blockedBy: [],
         clientProject: null,
+        dueDate: summary?.dueDate || null,
+        labels: summary?.labels || [],
       };
-    });
+    }));
 
     res.json(result);
   } catch (error) {
@@ -997,6 +1050,8 @@ router.post('/assignments/:id/assign', async (req: any, res) => {
     await db.update(taskAssignments)
       .set({ vaId, assignedAt: new Date() })
       .where(and(eq(taskAssignments.id, assignmentId), eq(taskAssignments.founderId, user.id)));
+
+    await invalidateCache(user.id, user.openId, 'tasks');
 
     res.json({ success: true });
   } catch (error) {
@@ -1048,6 +1103,8 @@ router.post('/assignments/:id/priority', async (req: any, res) => {
       });
     }
 
+    await invalidateCache(user.id, user.openId, 'tasks');
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error setting priority:', error);
@@ -1081,22 +1138,25 @@ router.get('/reviews', async (req: any, res) => {
     const vaMap = new Map(vas.map((v: typeof vas[0]) => [v.id, v.name]));
     
     // Parse taskId to extract info
-    const result = queue.map((r: typeof queue[0]) => {
+    const result = await Promise.all(queue.map(async (r: typeof queue[0]) => {
+      const summary = await fetchTrelloCardSummary(r.taskId);
       const taskParts = r.taskId.split(':');
       const cardId = taskParts[0] || '';
       
       return {
         id: r.id,
         taskId: r.taskId,
-        taskTitle: 'Task for Review',
-        cardName: 'Trello Card',
+        taskTitle: summary?.title || 'Task for Review',
+        cardName: summary?.cardName || 'Trello Card',
+        cardId,
         vaId: r.vaId,
         vaName: r.vaId ? vaMap.get(r.vaId) : 'Unknown VA',
         submittedAt: r.submittedAt,
         status: r.status === 'pending_review' ? 'pending' : r.status === 'needs_revision' ? 'revision_requested' : r.status,
         notes: r.feedback,
+        labels: summary?.labels || [],
       };
-    });
+    }));
 
     res.json(result);
   } catch (error) {
@@ -1316,13 +1376,16 @@ router.post('/email/morning-briefing/:workerId', async (req: any, res) => {
       and(eq(taskAssignments.vaId, workerId), eq(taskAssignments.founderId, user.id))
     );
 
-    const tasks = assignments.map((a: typeof assignments[0]) => ({
-      title: `Task ${a.taskId.split(':').pop()}`,
-      cardName: 'Project',
-      startTime: '09:00',
-      endTime: '10:00',
-      durationHours: 1,
-      priority: 'normal',
+    const tasks = await Promise.all(assignments.map(async (a: typeof assignments[0]) => {
+      const summary = await fetchTrelloCardSummary(a.taskId);
+      return {
+        title: summary?.title || `Task ${a.taskId.split(':').pop()}`,
+        cardName: summary?.cardName || 'Project',
+        startTime: '09:00',
+        endTime: '10:00',
+        durationHours: 1,
+        priority: summary?.priority ? summary.priority.toLowerCase() : 'normal',
+      };
     }));
 
     const today = new Date().toLocaleDateString('en-US', { 
@@ -1379,25 +1442,34 @@ router.post('/email/eod-report/:workerId', async (req: any, res) => {
       and(eq(taskAssignments.vaId, workerId), eq(taskAssignments.founderId, user.id))
     );
 
-    const completedTasks = assignments.filter((a: typeof assignments[0]) => a.status === 'completed').map((a: typeof assignments[0]) => ({
-      title: `Task ${a.taskId.split(':').pop()}`,
-      cardName: 'Project',
-      durationHours: 1,
-      priority: 'normal',
+    const completedTasks = await Promise.all(assignments.filter((a: typeof assignments[0]) => a.status === 'completed').map(async (a: typeof assignments[0]) => {
+      const summary = await fetchTrelloCardSummary(a.taskId);
+      return {
+        title: summary?.title || `Task ${a.taskId.split(':').pop()}`,
+        cardName: summary?.cardName || 'Project',
+        durationHours: 1,
+        priority: summary?.priority ? summary.priority.toLowerCase() : 'normal',
+      };
     }));
 
-    const incompleteTasks = assignments.filter((a: typeof assignments[0]) => a.status === 'in_progress').map((a: typeof assignments[0]) => ({
-      title: `Task ${a.taskId.split(':').pop()}`,
-      cardName: 'Project',
-      durationHours: 1,
-      priority: 'normal',
+    const incompleteTasks = await Promise.all(assignments.filter((a: typeof assignments[0]) => a.status === 'in_progress').map(async (a: typeof assignments[0]) => {
+      const summary = await fetchTrelloCardSummary(a.taskId);
+      return {
+        title: summary?.title || `Task ${a.taskId.split(':').pop()}`,
+        cardName: summary?.cardName || 'Project',
+        durationHours: 1,
+        priority: summary?.priority ? summary.priority.toLowerCase() : 'normal',
+      };
     }));
 
-    const blockedTasks = assignments.filter((a: typeof assignments[0]) => a.status === 'blocked').map((a: typeof assignments[0]) => ({
-      title: `Task ${a.taskId.split(':').pop()}`,
-      cardName: 'Project',
-      durationHours: 1,
-      priority: 'normal',
+    const blockedTasks = await Promise.all(assignments.filter((a: typeof assignments[0]) => a.status === 'blocked').map(async (a: typeof assignments[0]) => {
+      const summary = await fetchTrelloCardSummary(a.taskId);
+      return {
+        title: summary?.title || `Task ${a.taskId.split(':').pop()}`,
+        cardName: summary?.cardName || 'Project',
+        durationHours: 1,
+        priority: summary?.priority ? summary.priority.toLowerCase() : 'normal',
+      };
     }));
 
     const today = new Date().toLocaleDateString('en-US', { 
@@ -1617,20 +1689,23 @@ router.get('/worker/tasks', async (req: any, res) => {
     
     // Get all assignments for this worker
     const assignments = await db.select().from(taskAssignments).where(eq(taskAssignments.vaId, vaId));
-    
-    // For now, return mock task data based on assignments
-    // In production, this would fetch from Trello or cached tasks
-    const tasks = assignments.map((a: typeof assignments[0]) => ({
-      id: a.taskId,
-      title: `Task ${a.taskId.split(':').pop()}`,
-      cardName: 'Project Card',
-      durationHours: 1,
-      startTime: '09:00',
-      endTime: '10:00',
-      isCompleted: a.status === 'completed',
-      priorityLevel: 'NORMAL',
-      date: new Date().toISOString().split('T')[0],
-      status: a.status,
+
+    const tasks = await Promise.all(assignments.map(async (a: typeof assignments[0]) => {
+      const summary = await fetchTrelloCardSummary(a.taskId);
+      return {
+        id: a.taskId,
+        title: summary?.title || `Task ${a.taskId.split(':').pop()}`,
+        cardName: summary?.cardName || 'Trello Card',
+        durationHours: 1,
+        startTime: 'TBD',
+        endTime: 'TBD',
+        isCompleted: a.status === 'completed',
+        priorityLevel: summary?.priority || 'NORMAL',
+        date: summary?.dueDate ? new Date(summary.dueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        status: a.status,
+        description: summary?.description || a.notes || '',
+        labels: summary?.labels || [],
+      };
     }));
 
     res.json({ tasks });
@@ -1669,6 +1744,14 @@ router.post('/worker/tasks/:taskId/complete', async (req: any, res) => {
     await db.update(taskAssignments)
       .set({ status: completed ? 'completed' : 'in_progress' })
       .where(and(eq(taskAssignments.taskId, decodeURIComponent(taskId)), eq(taskAssignments.vaId, vaId)));
+
+    await invalidateCache(user.id, user.openId, 'tasks');
+    websocketService.emitToUser(user.openId, 'task:completed', {
+      taskId: decodeURIComponent(taskId),
+      isCompleted: completed,
+      timestamp: new Date().toISOString(),
+      source: 'worker_task_toggle',
+    });
 
     res.json({ success: true });
   } catch (error) {
@@ -1720,6 +1803,15 @@ router.post('/worker/tasks/:taskId/review', async (req: any, res) => {
         revisionCount: 0,
       });
     }
+
+    await invalidateCache(user.id, user.openId, 'tasks');
+    websocketService.emitToUser(user.openId, 'task:completed', {
+      taskId: decodeURIComponent(taskId),
+      isCompleted: true,
+      status: 'ready_for_review',
+      timestamp: new Date().toISOString(),
+      source: 'worker_review_submit',
+    });
 
     res.json({ success: true });
   } catch (error) {

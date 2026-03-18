@@ -12,11 +12,13 @@ import type {
 interface RealtimeProgressMonitorProps {
   sessionId: string;
   taskId: string;
+  onAnalysisComplete?: (event: AnalysisCompleteEvent) => void;
 }
 
 export default function RealtimeProgressMonitor({
   sessionId,
   taskId,
+  onAnalysisComplete,
 }: RealtimeProgressMonitorProps) {
   const [phaseProgress, setPhaseProgress] = useState<Record<number, number | undefined>>({});
   const [phaseConfidence, setPhaseConfidence] = useState<Record<number, number | undefined>>({});
@@ -78,6 +80,7 @@ export default function RealtimeProgressMonitor({
     setOverallConfidence(event.overallConfidence);
     setCompletedPhases(event.completedPhases);
     setTotalDuration(event.totalDuration);
+    onAnalysisComplete?.(event);
   }
 
   function handleError(error: WebSocketError) {

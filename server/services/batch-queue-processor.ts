@@ -39,6 +39,10 @@ interface JobProgress {
   estimatedTimeSeconds?: number;
   results?: Record<string, any>;
   errorLog?: string[];
+  startedAt?: Date;
+  completedAt?: Date;
+  isPaused?: boolean;
+  pausedAt?: Date;
 }
 
 class BatchQueueProcessor extends EventEmitter {
@@ -48,6 +52,8 @@ class BatchQueueProcessor extends EventEmitter {
   private maxConcurrentJobs = 3;
   private isProcessing = false;
   private jobStartTimes: Map<string, number> = new Map();
+  private cancelledJobs: Set<string> = new Set();
+  private pausedJobs: Set<string> = new Set();
 
   constructor() {
     super();
@@ -74,7 +80,8 @@ class BatchQueueProcessor extends EventEmitter {
 
     this.queue.push(job);
     this.initializeJobProgress(jobId, taskIds.length);
-    this.processQueue();
+    void this.persistProgress(jobId);
+    void this.processQueue();
   }
 
   /**
@@ -90,6 +97,7 @@ class BatchQueueProcessor extends EventEmitter {
       failedTasks: 0,
       totalTasks,
       elapsedSeconds: 0,
+      isPaused: false,
       errorLog: []
     });
   }
@@ -99,6 +107,40 @@ class BatchQueueProcessor extends EventEmitter {
    */
   public getJobProgress(jobId: string): JobProgress | undefined {
     return this.jobProgress.get(jobId);
+  }
+
+  /**
+   * Pause a job between task boundaries.
+   */
+  public async pauseJob(jobId: string): Promise<void> {
+    const progress = this.jobProgress.get(jobId);
+    if (!progress || progress.status !== 'running') return;
+
+    this.pausedJobs.add(jobId);
+    progress.isPaused = true;
+    progress.pausedAt = new Date();
+    await this.persistProgress(jobId, progress);
+    websocketService.emitToAll('batch:paused', {
+      ...progress,
+      jobId,
+    });
+  }
+
+  /**
+   * Resume a paused job.
+   */
+  public async resumeJob(jobId: string): Promise<void> {
+    const progress = this.jobProgress.get(jobId);
+    if (!progress || !this.pausedJobs.has(jobId)) return;
+
+    this.pausedJobs.delete(jobId);
+    progress.isPaused = false;
+    progress.pausedAt = undefined;
+    await this.persistProgress(jobId, progress);
+    websocketService.emitToAll('batch:resumed', {
+      ...progress,
+      jobId,
+    });
   }
 
   /**
@@ -125,6 +167,7 @@ class BatchQueueProcessor extends EventEmitter {
         if (progress) {
           progress.status = 'failed';
           progress.errorLog?.push(error.message);
+          void this.persistProgress(job.jobId, progress);
         }
       }).finally(() => {
         this.activeJobs.delete(job.jobId);
@@ -143,31 +186,63 @@ class BatchQueueProcessor extends EventEmitter {
     if (!progress) return;
 
     progress.status = 'running';
+    progress.isPaused = false;
+    progress.startedAt = new Date();
+    await this.persistProgress(job.jobId, progress);
 
     try {
       for (let i = 0; i < job.taskIds.length; i++) {
+        if (this.cancelledJobs.has(job.jobId)) {
+          progress.status = 'cancelled';
+          break;
+        }
+
+        while (this.pausedJobs.has(job.jobId)) {
+          progress.isPaused = true;
+          await this.persistProgress(job.jobId, progress);
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+          if (this.cancelledJobs.has(job.jobId)) {
+            progress.status = 'cancelled';
+            break;
+          }
+        }
+
+        if (progress.status === 'cancelled') {
+          break;
+        }
+
+        progress.isPaused = false;
+
         const taskId = job.taskIds[i];
-        progress.currentTaskIndex = i;
+        progress.currentTaskIndex = i + 1;
         progress.currentTaskName = `Task ${i + 1}/${job.taskIds.length}`;
 
         try {
+          let result: Record<string, any> | undefined;
           // Process based on operation type
           switch (job.operationType) {
             case 're_analyze':
-              await this.reAnalyzeTask(taskId, job.parameters);
+              result = await this.reAnalyzeTask(taskId, job.parameters);
               break;
             case 'reschedule':
-              await this.rescheduleTask(taskId, job.parameters);
+              result = await this.rescheduleTask(taskId, job.parameters);
               break;
             case 'conflict_resolution':
-              await this.resolveConflicts(taskId, job.parameters);
+              result = await this.resolveConflicts(taskId, job.parameters);
               break;
             case 'optimization':
-              await this.optimizeSchedule(taskId, job.parameters);
+              result = await this.optimizeSchedule(taskId, job.parameters);
               break;
           }
 
           progress.completedTasks++;
+          if (result) {
+            progress.results = {
+              ...(progress.results || {}),
+              [taskId]: result,
+            };
+          }
         } catch (error) {
           progress.failedTasks++;
           progress.errorLog?.push(`Task ${taskId}: ${error instanceof Error ? error.message : String(error)}`);
@@ -184,9 +259,16 @@ class BatchQueueProcessor extends EventEmitter {
 
         // Emit progress update
         this.emit('progress', progress);
+        websocketService.emitToAll('batch:progress', {
+          ...progress,
+          jobId: job.jobId,
+        });
+        await this.persistProgress(job.jobId, progress);
       }
 
-      progress.status = 'completed';
+      if (progress.status !== 'cancelled') {
+        progress.status = 'completed';
+      }
     } catch (error) {
       progress.status = 'failed';
       progress.errorLog?.push(error instanceof Error ? error.message : String(error));
@@ -194,6 +276,18 @@ class BatchQueueProcessor extends EventEmitter {
 
       // Emit final progress
       this.emit('complete', progress);
+      const finalEvent =
+        progress.status === 'cancelled'
+          ? 'batch:cancelled'
+          : progress.status === 'failed'
+            ? 'batch:failed'
+            : 'batch:complete';
+
+      websocketService.emitToAll(finalEvent, {
+        ...progress,
+        jobId: job.jobId,
+      });
+      await this.persistProgress(job.jobId, progress);
   }
 
   /**
@@ -305,7 +399,43 @@ class BatchQueueProcessor extends EventEmitter {
     const progress = this.jobProgress.get(jobId);
     if (progress) {
       progress.status = 'cancelled';
+      progress.isPaused = false;
+      this.cancelledJobs.add(jobId);
+      this.pausedJobs.delete(jobId);
       this.emit('cancelled', progress);
+      websocketService.emitToAll('batch:cancelled', {
+        ...progress,
+        jobId,
+      });
+      await this.persistProgress(jobId, progress);
+    }
+  }
+
+  /**
+   * Persist job progress to the database
+   */
+  private async persistProgress(jobId: string, progress?: JobProgress): Promise<void> {
+    const currentProgress = progress ?? this.jobProgress.get(jobId);
+    if (!currentProgress) return;
+
+    try {
+      await schedulingDb.updateBatchOperation(jobId, {
+        status: currentProgress.status,
+        progress: currentProgress.progress,
+        completedTasks: currentProgress.completedTasks,
+        failedTasks: currentProgress.failedTasks,
+        currentTaskIndex: currentProgress.currentTaskIndex,
+        currentTaskName: currentProgress.currentTaskName,
+        results: currentProgress.results,
+        errorLog: currentProgress.errorLog,
+        startedAt: this.jobStartTimes.has(jobId) ? new Date(this.jobStartTimes.get(jobId)!) : undefined,
+        completedAt: currentProgress.status === 'completed' || currentProgress.status === 'failed' || currentProgress.status === 'cancelled'
+          ? new Date()
+          : undefined,
+        elapsedTimeSeconds: currentProgress.elapsedSeconds,
+      });
+    } catch (error) {
+      console.error(`[Batch] Failed to persist progress for job ${jobId}:`, error);
     }
   }
 }
