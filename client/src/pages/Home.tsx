@@ -614,27 +614,17 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8">
           {/* Left Sidebar - Stats - Collapsible */}
           <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:col-span-4' : 'lg:col-span-0'} ${sidebarOpen ? 'block' : 'hidden'} space-y-4 md:space-y-8 order-2 lg:order-1`}>
-            <StatsPanel stats={stats} />
-            
-            {/* Weekly Progress Dashboard */}
-            <WeeklyProgressDashboard />
-            
-
-          </div>
-
-          {/* Main Content - Timeline */}
-          <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:col-span-8' : 'lg:col-span-12'} order-1 lg:order-2`}>
             {/* Action Buttons */}
-            <div className="flex flex-col md:flex-row gap-2 mb-4">
+            <div className="flex flex-col gap-2">
               <Button 
-                className="flex-1"
+                className="w-full"
                 onClick={() => window.scrollTo({ top: document.querySelector('.timeline-section')?.getBoundingClientRect().top! + window.scrollY - 100, behavior: 'smooth' })}
               >
                 View Weekly Schedule
               </Button>
               <Button 
                 variant="outline" 
-                className="flex-1"
+                className="w-full"
                 onClick={applyReschedule}
                 disabled={isRescheduling}
               >
@@ -646,7 +636,17 @@ export default function Home() {
                 <span className="ml-2">Reschedule</span>
               </Button>
             </div>
+            
+            <StatsPanel stats={stats} />
+            
+            {/* Weekly Progress Dashboard */}
+            <WeeklyProgressDashboard />
+            
 
+          </div>
+
+          {/* Main Content - Timeline */}
+          <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:col-span-8' : 'lg:col-span-12'} order-1 lg:order-2`}>
             <div className="timeline-section bg-card rounded-2xl shadow-sm border min-h-[400px] md:min-h-[600px] relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-20 md:h-32 bg-[url('https://files.manuscdn.com/user_upload_by_module/session_file/90835377/juXmFpmTtEuXvBVT.png')] bg-cover opacity-20" />
               <div className="relative z-10 p-4 md:p-6">
