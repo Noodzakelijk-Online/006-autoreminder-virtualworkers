@@ -427,6 +427,11 @@ router.post('/understanding/reprocess/:cardId', async (req: Request, res: Respon
   try {
     const { cardId } = req.params;
     const cardIdNum = parseInt(cardId);
+    const {
+      interviewGoal,
+      interviewDeliverable,
+      interviewSuccessCriteria,
+    } = req.body || {};
     
     if (isNaN(cardIdNum)) {
       return res.status(400).json({ error: 'Invalid card ID' });
@@ -434,7 +439,13 @@ router.post('/understanding/reprocess/:cardId', async (req: Request, res: Respon
 
     console.log(`[ATIS] Re-analyzing single card ${cardIdNum}...`);
     
-    const understanding = await processCardUnderstanding(cardIdNum);
+    const understanding = await processCardUnderstanding(cardIdNum, {
+      goal: typeof interviewGoal === 'string' ? interviewGoal : undefined,
+      deliverable: typeof interviewDeliverable === 'string' ? interviewDeliverable : undefined,
+      successCriteria: Array.isArray(interviewSuccessCriteria)
+        ? interviewSuccessCriteria.filter((item): item is string => typeof item === 'string')
+        : undefined,
+    });
     
     res.json({
       success: true,

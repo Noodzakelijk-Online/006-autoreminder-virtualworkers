@@ -16,6 +16,8 @@ interface BatchOperation {
   estimatedTimeSeconds?: number;
   errorLog?: string[];
   results?: Record<string, any>;
+  isPaused?: boolean;
+  pausedAt?: string;
   createdAt: Date;
   startedAt?: Date;
   completedAt?: Date;
@@ -46,6 +48,8 @@ export const useBatchOperations = (options: UseBatchOperationsOptions = {}) => {
           createdAt: new Date(op.createdAt),
           startedAt: op.startedAt ? new Date(op.startedAt) : undefined,
           completedAt: op.completedAt ? new Date(op.completedAt) : undefined,
+          isPaused: op.isPaused,
+          pausedAt: op.pausedAt,
           progress: 0,
           completedTasks: 0,
           failedTasks: 0,
@@ -72,6 +76,7 @@ export const useBatchOperations = (options: UseBatchOperationsOptions = {}) => {
           createdAt: new Date(response.createdAt),
           startedAt: response.startedAt ? new Date(response.startedAt) : undefined,
           completedAt: response.completedAt ? new Date(response.completedAt) : undefined,
+          isPaused: false,
           progress: 0,
           completedTasks: 0,
           failedTasks: 0,
@@ -108,6 +113,46 @@ export const useBatchOperations = (options: UseBatchOperationsOptions = {}) => {
     [client]
   );
 
+  // Pause a batch operation
+  const pauseBatchOperation = useCallback(
+    async (jobId: string) => {
+      try {
+        setError(null);
+        await client.pauseBatchOperation(jobId);
+        setOperations(prev =>
+          prev.map(op =>
+            op.jobId === jobId ? { ...op, isPaused: true } : op
+          )
+        );
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        setError(error);
+        throw error;
+      }
+    },
+    [client]
+  );
+
+  // Resume a batch operation
+  const resumeBatchOperation = useCallback(
+    async (jobId: string) => {
+      try {
+        setError(null);
+        await client.resumeBatchOperation(jobId);
+        setOperations(prev =>
+          prev.map(op =>
+            op.jobId === jobId ? { ...op, isPaused: false } : op
+          )
+        );
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        setError(error);
+        throw error;
+      }
+    },
+    [client]
+  );
+
   // Update operation progress from WebSocket
   const updateOperationProgress = useCallback((update: any) => {
     setOperations(prev =>
@@ -125,6 +170,8 @@ export const useBatchOperations = (options: UseBatchOperationsOptions = {}) => {
               estimatedTimeSeconds: update.estimatedTimeSeconds,
               errorLog: update.errorLog,
               results: update.results,
+              isPaused: update.isPaused,
+              pausedAt: update.pausedAt,
               completedAt: update.status === 'completed' ? new Date() : op.completedAt,
             }
           : op
@@ -167,6 +214,8 @@ export const useBatchOperations = (options: UseBatchOperationsOptions = {}) => {
     loadOperations,
     startBatchOperation,
     cancelBatchOperation,
+    pauseBatchOperation,
+    resumeBatchOperation,
     updateOperationProgress,
   };
 };

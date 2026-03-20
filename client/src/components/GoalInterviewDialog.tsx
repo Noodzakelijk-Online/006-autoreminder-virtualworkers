@@ -12,6 +12,20 @@ interface Message {
   timestamp: Date;
 }
 
+interface PersistedMessage {
+  role: 'assistant' | 'user';
+  content: string;
+  timestamp?: string;
+}
+
+interface InterviewSessionSnapshot {
+  id: string;
+  status: 'active' | 'completed' | 'abandoned';
+  overallConfidence?: number;
+  messages?: PersistedMessage[];
+  finalGoal?: any;
+}
+
 interface GoalInterviewDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -34,6 +48,7 @@ export function GoalInterviewDialog({
   const [confidence, setConfidence] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isResuming, setIsResuming] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Start interview when dialog opens
@@ -46,11 +61,12 @@ export function GoalInterviewDialog({
       setConfidence(0);
       setIsComplete(false);
       setSessionId(null);
+      setIsResuming(false);
       return;
     }
 
     if (open && isStarting) {
-      startInterview();
+      void loadOrStartInterview();
     }
   }, [open, cardId]);
 
@@ -60,6 +76,13 @@ export function GoalInterviewDialog({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  const mapPersistedMessages = (persistedMessages: PersistedMessage[] = []): Message[] =>
+    persistedMessages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp ? new Date(message.timestamp) : new Date(),
+    }));
 
   const startInterview = async () => {
     setIsStarting(true);
@@ -91,6 +114,42 @@ export function GoalInterviewDialog({
       }]);
     } finally {
       setIsStarting(false);
+    }
+  };
+
+  const loadOrStartInterview = async () => {
+    setIsStarting(true);
+    setIsResuming(true);
+    let resumedExistingSession = false;
+
+    try {
+      const latestResponse = await fetch(`/api/interview/card/${encodeURIComponent(cardId)}/latest`, {
+        credentials: 'include',
+      });
+
+      if (latestResponse.ok) {
+        const latestData = await latestResponse.json();
+        const session = latestData?.session as InterviewSessionSnapshot | null;
+
+        if (session?.status === 'active' && session.id) {
+          setSessionId(session.id);
+          setMessages(mapPersistedMessages(session.messages));
+          setConfidence(session.overallConfidence || 0);
+          setIsComplete(false);
+          resumedExistingSession = true;
+          return;
+        }
+      }
+
+      await startInterview();
+    } catch (error) {
+      console.error('Failed to resume interview, starting new session instead:', error);
+      await startInterview();
+    } finally {
+      if (resumedExistingSession) {
+        setIsStarting(false);
+      }
+      setIsResuming(false);
     }
   };
 
@@ -246,7 +305,7 @@ export function GoalInterviewDialog({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Type your answer..."
+              placeholder={isResuming ? "Resuming your interview..." : "Type your answer..."}
               disabled={isLoading || isStarting}
               className="flex-1"
             />
@@ -256,11 +315,11 @@ export function GoalInterviewDialog({
               size="icon"
             >
               {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4" />
-              )}
-            </Button>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+              </Button>
           </div>
         )}
 

@@ -158,6 +158,21 @@ export const SCHEDULING_SHORTCUTS: KeyboardShortcutAction[] = [
     category: 'batch',
   },
   {
+    key: 'p',
+    ctrl: true,
+    callback: () => console.log('Pause batch'),
+    description: 'Pause running batch',
+    category: 'batch',
+  },
+  {
+    key: 'p',
+    ctrl: true,
+    shift: true,
+    callback: () => console.log('Resume batch'),
+    description: 'Resume paused batch',
+    category: 'batch',
+  },
+  {
     key: 'x',
     ctrl: true,
     callback: () => console.log('Cancel batch'),

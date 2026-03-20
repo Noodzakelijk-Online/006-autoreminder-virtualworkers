@@ -16,9 +16,10 @@ interface TimelineProps {
   onRefresh?: () => void;
   allExpanded?: boolean;
   onExpandChange?: (expanded: boolean) => void;
+  onStartInterview?: (task: Task) => void;
 }
 
-export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpanded, onExpandChange }: TimelineProps) {
+export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpanded, onExpandChange, onStartInterview }: TimelineProps) {
   // Track individual card expansion states
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   
@@ -329,6 +330,7 @@ export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpande
                     onToggle={onToggleTask}
                     isExpanded={expandedCards.has(task.id)}
                     onExpandChange={(expanded) => handleCardExpandChange(task.id, expanded)}
+                    onStartInterview={onStartInterview}
                   />
                 </div>
               </div>

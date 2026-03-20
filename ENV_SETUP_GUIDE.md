@@ -40,6 +40,8 @@ VITE_FRONTEND_FORGE_API_URL=https://forge.manus.ai
 VITE_FRONTEND_FORGE_API_KEY=your_frontend_forge_api_key
 ```
 
+The repository now includes a root `[.env.example](/d:/projects/VA dashboard/va-dashboard/.env.example)` file with the same baseline values and placeholders.
+
 ---
 
 ## Detailed Setup Instructions
@@ -257,7 +259,7 @@ Leave blank to disable analytics.
 Before running `pnpm dev`:
 
 - [ ] MySQL server is running
-- [ ] `.env` file created with all REQUIRED variables
+- [ ] `.env` file created from `[.env.example](/d:/projects/VA dashboard/va-dashboard/.env.example)`
 - [ ] `DATABASE_URL` is correct and database exists
 - [ ] `TRELLO_API_KEY` and `TRELLO_TOKEN` are valid
 - [ ] `JWT_SECRET` is at least 32 characters
@@ -380,6 +382,7 @@ PORT=3001 pnpm dev
 ## Additional Resources
 
 - **Local Dev Setup:** See `LOCAL_DEV_SETUP.md`
+- **Environment Template:** See `[.env.example](/d:/projects/VA dashboard/va-dashboard/.env.example)`
 - **Database Schema:** See `drizzle/schema.ts`
 - **API Endpoints:** See `server/routers.ts`
 - **Architecture:** See `ARCHITECTURE-ACTUAL.md`

@@ -12,6 +12,8 @@ interface BatchOperationUpdate {
   estimatedTimeSeconds?: number;
   errorLog?: string[];
   results?: Record<string, any>;
+  isPaused?: boolean;
+  pausedAt?: string;
 }
 
 interface UseBatchOperationUpdatesOptions {

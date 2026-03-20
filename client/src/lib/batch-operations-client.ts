@@ -21,6 +21,8 @@ export interface BatchOperationResponse {
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
+  isPaused?: boolean;
+  pausedAt?: string;
 }
 
 export interface BatchOperationProgress {
@@ -35,6 +37,8 @@ export interface BatchOperationProgress {
   estimatedTimeSeconds?: number;
   errorLog?: string[];
   results?: Record<string, any>;
+  isPaused?: boolean;
+  pausedAt?: string;
 }
 
 class BatchOperationsClient {
@@ -92,6 +96,34 @@ class BatchOperationsClient {
 
     if (!response.ok) {
       throw new Error('Failed to cancel batch operation');
+    }
+  }
+
+  /**
+   * Pause a batch operation
+   */
+  async pauseBatchOperation(jobId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/batch/${jobId}/pause`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to pause batch operation');
+    }
+  }
+
+  /**
+   * Resume a paused batch operation
+   */
+  async resumeBatchOperation(jobId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/batch/${jobId}/resume`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to resume batch operation');
     }
   }
 
