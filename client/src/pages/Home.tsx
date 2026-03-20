@@ -331,7 +331,8 @@ export default function Home() {
         accuracy: 100
       });
     } catch (error) {
-      console.error('Error fetching tasks:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Error fetching tasks:', errorMessage);
       if (error instanceof Error) {
         console.error('Error details:', error.message, error.stack);
       }
