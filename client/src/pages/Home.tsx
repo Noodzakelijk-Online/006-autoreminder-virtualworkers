@@ -6,7 +6,7 @@ import { StatsPanel } from "@/components/StatsPanel";
 import { WeeklyProgressDashboard } from "@/components/WeeklyProgressDashboard";
 import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
 import { Task, WeeklyStats } from "@/types";
-import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo, LogOut, User, Menu, X, Calendar, Users } from "lucide-react";
+import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo, LogOut, User, Menu, X, Calendar, Users, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +48,7 @@ export default function Home() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [taskTypes, setTaskTypes] = useState<{ taskType: string; count: number }[]>([]);
   const [clients, setClients] = useState<{ client: string; count: number }[]>([]);
   const [filters, setFilters] = useState<TaskFiltersState>({
@@ -596,10 +597,23 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="flex-1 container py-4 md:py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8">
-          {/* Left Sidebar - Stats */}
-          <div className="lg:col-span-4 space-y-4 md:space-y-8 order-2 lg:order-1">
+      <main className="flex-1 py-4 md:py-8">
+        {/* Top greeting section */}
+        <div className="border-b mb-4 md:mb-8 pb-4 md:pb-6 px-4 md:px-8">
+          <h2 className="text-2xl md:text-3xl font-bold mb-1">
+            {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'}, {user?.name?.split(' ')[0] || 'there'}! {new Date().getHours() < 12 ? '☀️' : new Date().getHours() < 17 ? '🌤️' : '🌙'}
+          </h2>
+          <p className="text-sm md:text-base text-muted-foreground">
+            You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining.
+            {tasks.length > 0 && tasks.some(t => !t.isCompleted && t.startTime) && (
+              <> Your next task starts at {tasks.find(t => !t.isCompleted && t.startTime)?.startTime || 'TBD'}.</>
+            )}
+          </p>
+        </div>
+
+        <div className="flex gap-4 md:gap-8 px-4 md:px-8">
+          {/* Left Sidebar - Stats - Collapsible */}
+          <div className={`transition-all duration-300 ${sidebarOpen ? 'w-full md:w-80' : 'w-0 md:w-0'} ${sidebarOpen ? 'opacity-100' : 'opacity-0 hidden'} space-y-4 md:space-y-8 order-2 lg:order-1`}>
             <div className="bg-card rounded-2xl p-4 md:p-6 shadow-sm border relative overflow-hidden">
               <div className="absolute inset-0 opacity-10 bg-[url('https://files.manuscdn.com/user_upload_by_module/session_file/90835377/PeIgsaffrafnabpl.png')] bg-cover" />
               <div className="relative z-10">
@@ -640,12 +654,10 @@ export default function Home() {
             
             {/* Weekly Progress Dashboard */}
             <WeeklyProgressDashboard />
-            
-
           </div>
 
           {/* Main Content - Timeline */}
-          <div className="lg:col-span-8 order-1 lg:order-2">
+          <div className={`flex-1 order-1 lg:order-2 transition-all duration-300`}>
             <div className="timeline-section bg-card rounded-2xl shadow-sm border min-h-[400px] md:min-h-[600px] relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-20 md:h-32 bg-[url('https://files.manuscdn.com/user_upload_by_module/session_file/90835377/juXmFpmTtEuXvBVT.png')] bg-cover opacity-20" />
               <div className="relative z-10 p-4 md:p-6">
@@ -729,6 +741,19 @@ export default function Home() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Sidebar Toggle Button */}
+        <div className="fixed bottom-6 right-6 md:bottom-8 md:right-8 z-40">
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-full shadow-lg"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+          >
+            {sidebarOpen ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </Button>
         </div>
       </main>
 
