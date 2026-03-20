@@ -30,12 +30,12 @@ export function TaskFilters({
   totalTasks,
   filteredCount 
 }: TaskFiltersProps) {
-  const hasActiveFilters = filters.filter !== 'all' || filters.completionStatus !== 'all' || filters.taskType || filters.complexity || filters.client;
+  const hasActiveFilters = filters.filter !== 'all' || filters.taskType || filters.complexity || filters.client;
 
   const clearFilters = () => {
     onFiltersChange({
       filter: 'all',
-      completionStatus: 'all',
+      completionStatus: 'incomplete',
       taskType: null,
       complexity: null,
       client: null,
@@ -74,14 +74,13 @@ export function TaskFilters({
         <Select
           value={filters.completionStatus}
           onValueChange={(value) => onFiltersChange({ ...filters, completionStatus: value as TaskFiltersState['completionStatus'] })}
+          disabled
         >
           <SelectTrigger className="w-[130px] h-8 text-xs">
             <SelectValue placeholder="Completion" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Tasks</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-            <SelectItem value="incomplete">Incomplete</SelectItem>
+            <SelectItem value="incomplete">Active Only</SelectItem>
           </SelectContent>
         </Select>
 
@@ -178,11 +177,9 @@ export function TaskFilters({
                 {filters.complexity}
               </Badge>
             )}
-            {filters.completionStatus !== 'all' && (
-              <Badge variant="secondary" className="text-xs py-0 capitalize">
-                {filters.completionStatus}
-              </Badge>
-            )}
+            <Badge variant="secondary" className="text-xs py-0">
+              active only
+            </Badge>
           </div>
         </div>
       )}

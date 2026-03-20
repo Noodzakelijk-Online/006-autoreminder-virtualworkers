@@ -19,6 +19,71 @@ const __dirname = path.dirname(__filename);
 
 const router = Router();
 
+const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived'];
+
+function isInactiveListName(listName?: string | null) {
+  if (!listName) return false;
+  const normalized = listName.toLowerCase();
+  return INACTIVE_LIST_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+async function fetchUserWorkspaceBoards(apiKey: string, token: string) {
+  const workspacesResponse = await fetchWithRetry(
+    `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`,
+    undefined,
+    {
+      maxRetries: 3,
+      initialDelayMs: 1000,
+      maxDelayMs: 10000,
+    }
+  );
+
+  if (!workspacesResponse.ok) {
+    const errorText = await workspacesResponse.text();
+    throw new Error(`Failed to fetch workspaces from Trello: ${errorText}`);
+  }
+
+  const workspaces = await workspacesResponse.json();
+  if (!Array.isArray(workspaces)) {
+    throw new Error('Invalid Trello workspaces response');
+  }
+
+  const boards: any[] = [];
+
+  for (const workspace of workspaces) {
+    const boardsResponse = await fetchWithRetry(
+      `https://api.trello.com/1/organizations/${workspace.id}/boards?filter=open&key=${apiKey}&token=${token}`,
+      undefined,
+      {
+        maxRetries: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+      }
+    );
+
+    if (!boardsResponse.ok) {
+      const errorText = await boardsResponse.text();
+      console.warn(`[Trello] Failed to fetch boards for workspace ${workspace.displayName || workspace.name}:`, errorText);
+      continue;
+    }
+
+    const workspaceBoards = await boardsResponse.json();
+    if (!Array.isArray(workspaceBoards)) {
+      continue;
+    }
+
+    for (const board of workspaceBoards) {
+      boards.push({
+        ...board,
+        workspaceId: workspace.id,
+        workspaceName: workspace.displayName || workspace.name || 'Unknown Workspace',
+      });
+    }
+  }
+
+  return boards;
+}
+
 async function fetchCardForAptlss(cardId: string) {
   const apiKey = process.env.TRELLO_API_KEY;
   const token = process.env.TRELLO_TOKEN;
@@ -479,29 +544,6 @@ const mockBoards = [
   { id: 'board3', name: 'VA Tasks - Marketing', cardCount: 28 },
 ];
 
-const mockCards = [
-  {
-    id: 'card1',
-    name: 'Review supplier contracts',
-    desc: 'Review all active supplier contracts for renewal dates and pricing',
-    idBoard: 'board1',
-    idList: 'list1',
-    boardName: 'VA Tasks - Operations',
-    listName: 'To Do',
-    checklists: [],
-  },
-  {
-    id: 'card2',
-    name: 'Update inventory spreadsheet',
-    desc: 'Update Q4 inventory data in the main spreadsheet',
-    idBoard: 'board1',
-    idList: 'list1',
-    boardName: 'VA Tasks - Operations',
-    listName: 'To Do',
-    checklists: [{ id: 'checklist1', name: 'APTLSS' }],
-  },
-];
-
 // Get all workspaces (organizations)
 router.get('/trello/workspaces', async (req: Request, res: Response) => {
   try {
@@ -509,106 +551,54 @@ router.get('/trello/workspaces', async (req: Request, res: Response) => {
     const token = process.env.TRELLO_TOKEN;
 
     if (!apiKey || !token) {
-      console.warn('Trello credentials not found');
-      return res.json([]);
+      return res.status(500).json({ error: 'Trello credentials not configured' });
     }
+    const boards = await fetchUserWorkspaceBoards(apiKey, token);
 
-    const response = await fetchWithRetry(
-      `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`,
-      undefined,
-      {
-        maxRetries: 5,
-        initialDelayMs: 2000,
-        maxDelayMs: 60000,
-        onRetry: (attempt, error, delayMs) => {
-          console.log(`Retrying workspaces fetch (attempt ${attempt}) after ${delayMs}ms due to:`, error.message);
-        }
-      }
-    );
-    
-    if (!response.ok) {
-      throw new Error(`Trello API error: ${response.statusText}`);
-    }
-
-    const workspaces = await response.json();
+    const workspaceMap = new Map<string, {
+      id: string;
+      name: string;
+      boards: { id: string; name: string; cardCount?: number }[];
+    }>();
     
     // Get board counts for each workspace - process sequentially to avoid rate limits
-    const workspacesWithCounts: any[] = [];
-    for (const workspace of workspaces) {
+    for (const board of boards) {
       try {
-        // Add small delay between workspace requests to avoid rate limits
-        if (workspacesWithCounts.length > 0) {
-          await new Promise(resolve => setTimeout(resolve, 200));
+        const workspaceId = board.workspaceId;
+        if (!workspaceMap.has(workspaceId)) {
+          workspaceMap.set(workspaceId, {
+            id: workspaceId,
+            name: board.workspaceName,
+            boards: [],
+          });
         }
-        
-        const boardsResponse = await fetchWithRetry(
-          `https://api.trello.com/1/organizations/${workspace.id}/boards?filter=open&key=${apiKey}&token=${token}`,
+
+        const cardsResponse = await fetchWithRetry(
+          `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`,
           undefined,
           {
-            maxRetries: 3,
-            initialDelayMs: 2000,
-            maxDelayMs: 30000,
-            onRetry: (attempt, error, delayMs) => {
-              console.log(`Retrying boards fetch for ${workspace.displayName} (attempt ${attempt}) after ${delayMs}ms`);
-            }
+            maxRetries: 2,
+            initialDelayMs: 1000,
+            maxDelayMs: 10000
           }
         );
-        if (!boardsResponse.ok) {
-          console.warn(`Failed to fetch boards for workspace ${workspace.displayName}`);
-          continue;
-        }
-        const boards = await boardsResponse.json();
-        const boardsArray = Array.isArray(boards) ? boards : [];
-        
-        // Get card counts for each board - process sequentially
-        const boardsWithCards: any[] = [];
-        for (const board of boardsArray) {
-          try {
-            // Add small delay between board requests
-            if (boardsWithCards.length > 0) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            
-            const cardsResponse = await fetchWithRetry(
-              `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`,
-              undefined,
-              {
-                maxRetries: 2,
-                initialDelayMs: 1000,
-                maxDelayMs: 10000
-              }
-            );
-            if (!cardsResponse.ok) {
-              boardsWithCards.push({ id: board.id, name: board.name, cardCount: 0 });
-              continue;
-            }
-            const cards = await cardsResponse.json();
-            boardsWithCards.push({
-              id: board.id,
-              name: board.name,
-              cardCount: Array.isArray(cards) ? cards.length : 0
-            });
-          } catch (error) {
-            boardsWithCards.push({ id: board.id, name: board.name, cardCount: 0 });
-          }
-        }
-        
-        const totalCards = boardsWithCards.reduce((sum, b) => sum + b.cardCount, 0);
-        
-        workspacesWithCounts.push({
-          id: workspace.id,
-          name: workspace.displayName,
-          boardCount: boardsArray.length,
-          cardCount: totalCards,
-          boards: boardsWithCards
+        const cards = cardsResponse.ok ? await cardsResponse.json() : [];
+        const workspace = workspaceMap.get(workspaceId)!;
+        workspace.boards.push({
+          id: board.id,
+          name: board.name,
+          cardCount: Array.isArray(cards) ? cards.length : 0,
         });
       } catch (error) {
-        console.warn(`Error fetching boards for workspace ${workspace.displayName}:`, error);
+        console.warn(`Error fetching cards for board ${board.name}:`, error);
       }
     }
-    
-    // Filter out null results (failed workspace fetches)
-    const validWorkspaces = workspacesWithCounts.filter(w => w !== null);
+
+    const validWorkspaces = Array.from(workspaceMap.values()).map((workspace) => ({
+      ...workspace,
+      boardCount: workspace.boards.length,
+      cardCount: workspace.boards.reduce((sum, board) => sum + (board.cardCount || 0), 0),
+    }));
 
     res.json(validWorkspaces);
   } catch (error) {
@@ -624,38 +614,14 @@ router.get('/trello/boards', async (req: Request, res: Response) => {
     const token = process.env.TRELLO_TOKEN;
 
     if (!apiKey || !token) {
-      console.warn('Trello credentials not found, using mock data');
-      return res.json(mockBoards);
+      return res.status(500).json({ error: 'Trello credentials not configured' });
     }
 
-    const response = await fetchWithRetry(
-      `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${token}`,
-      undefined,
-      {
-        maxRetries: 5,
-        initialDelayMs: 2000,
-        maxDelayMs: 60000,
-        onRetry: (attempt, error, delayMs) => {
-          console.log(`Retrying boards fetch (attempt ${attempt}) after ${delayMs}ms due to:`, error.message);
-        }
-      }
-    );
-    
-    if (!response.ok) {
-      throw new Error(`Trello API error: ${response.statusText}`);
-    }
-
-    const boards = await response.json();
-    
-    // Get card counts for each board - process sequentially to avoid rate limits
+    const boards = await fetchUserWorkspaceBoards(apiKey, token);
     const boardsWithCounts: any[] = [];
+
     for (const board of boards) {
       try {
-        // Add small delay between board requests
-        if (boardsWithCounts.length > 0) {
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
         const cardsResponse = await fetchWithRetry(
           `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`,
           undefined,
@@ -665,20 +631,23 @@ router.get('/trello/boards', async (req: Request, res: Response) => {
             maxDelayMs: 10000
           }
         );
-        if (!cardsResponse.ok) {
-          console.warn(`Failed to fetch cards for board ${board.name}`);
-          boardsWithCounts.push({ id: board.id, name: board.name, cardCount: 0 });
-          continue;
-        }
-        const cards = await cardsResponse.json();
+        const cards = cardsResponse.ok ? await cardsResponse.json() : [];
         boardsWithCounts.push({
           id: board.id,
           name: board.name,
-          cardCount: Array.isArray(cards) ? cards.length : 0
+          cardCount: Array.isArray(cards) ? cards.length : 0,
+          workspaceId: board.workspaceId,
+          workspaceName: board.workspaceName,
         });
       } catch (error) {
         console.warn(`Error fetching cards for board ${board.name}:`, error);
-        boardsWithCounts.push({ id: board.id, name: board.name, cardCount: 0 });
+        boardsWithCounts.push({
+          id: board.id,
+          name: board.name,
+          cardCount: 0,
+          workspaceId: board.workspaceId,
+          workspaceName: board.workspaceName,
+        });
       }
     }
 
@@ -697,12 +666,14 @@ router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) 
     const token = process.env.TRELLO_TOKEN;
 
     if (!apiKey || !token) {
-      console.warn('Trello credentials not found, using mock data');
-      const cards = mockCards.filter(card => card.idBoard === boardId);
-      return res.json(cards);
+      return res.status(500).json({ error: 'Trello credentials not configured' });
     }
 
-    // Fetch cards with checklists and board/list info
+    const allowedBoards = await fetchUserWorkspaceBoards(apiKey, token);
+    if (!allowedBoards.some((board) => board.id === boardId)) {
+      return res.status(404).json({ error: 'Board not found in user workspaces' });
+    }
+
     const response = await fetchWithRetry(
       `https://api.trello.com/1/boards/${boardId}/cards?key=${apiKey}&token=${token}&checklists=all&list=true&board=true`,
       undefined,
@@ -723,7 +694,9 @@ router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) 
     const cards = await response.json();
     
     // Transform to our format
-    const formattedCards = cards.map((card: any) => ({
+    const formattedCards = cards
+      .filter((card: any) => !card.closed && !isInactiveListName(card.list?.name))
+      .map((card: any) => ({
       id: card.id,
       name: card.name,
       desc: card.desc,
@@ -1117,40 +1090,9 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     // Use request queue to deduplicate simultaneous requests
     const queueKey = `trello-tasks-${user.openId}`;
     const responseData = await requestQueue.execute(queueKey, async () => {
-      // Fetch all boards with retry
-    const boardsResponse = await fetchWithRetry(
-      `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${apiToken}`,
-      undefined,
-      {
-        maxRetries: 3,
-        initialDelayMs: 1000,
-        onRetry: (attempt, error, delayMs) => {
-          console.log(`Retrying boards fetch (attempt ${attempt}) after ${delayMs}ms due to:`, error.message);
-        }
-      }
-    );
-    
-    if (!boardsResponse.ok) {
-      const errorText = await boardsResponse.text();
-      console.error('Trello API error fetching boards:', errorText);
-      return res.status(boardsResponse.status).json({ 
-        error: 'Failed to fetch boards from Trello',
-        details: errorText 
-      });
-    }
-    
-    const boards = await boardsResponse.json();
-    
-    // Validate boards is an array
-    if (!Array.isArray(boards)) {
-      console.error('Trello API returned non-array for boards:', boards);
-      return res.status(500).json({ 
-        error: 'Invalid response from Trello API',
-        details: 'Expected array of boards' 
-      });
-    }
+      const boards = await fetchUserWorkspaceBoards(apiKey, apiToken);
 
-    const tasks: any[] = [];
+      const tasks: any[] = [];
     
     // Client extraction function - parses patterns like "Client | Project", "Client - Project", "Client / Project"
     const extractClient = (boardName: string, cardName: string): string | undefined => {
@@ -1192,102 +1134,104 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
       return undefined;
     };
 
-    // For each board, get cards with checklists
-    for (const board of boards) {
-      const cardsResponse = await fetchWithRetry(
-        `https://api.trello.com/1/boards/${board.id}/cards?checklists=all&key=${apiKey}&token=${apiToken}`,
-        undefined,
-        {
-          maxRetries: 3,
-          initialDelayMs: 1000,
-          onRetry: (attempt, error, delayMs) => {
-            console.log(`Retrying cards fetch for board ${board.id} (attempt ${attempt}) after ${delayMs}ms due to:`, error.message);
+      // For each board in the user's workspaces, get active cards with checklists
+      for (const board of boards) {
+        const cardsResponse = await fetchWithRetry(
+          `https://api.trello.com/1/boards/${board.id}/cards?checklists=all&list=true&key=${apiKey}&token=${apiToken}`,
+          undefined,
+          {
+            maxRetries: 3,
+            initialDelayMs: 1000,
+            onRetry: (attempt, error, delayMs) => {
+              console.log(`Retrying cards fetch for board ${board.id} (attempt ${attempt}) after ${delayMs}ms due to:`, error.message);
+            }
+          }
+        );
+      
+        if (!cardsResponse.ok) {
+          console.error(`Trello API error fetching cards for board ${board.id}:`, cardsResponse.statusText);
+          continue; // Skip this board and continue with others
+        }
+      
+        const cards = await cardsResponse.json();
+      
+        // Validate cards is an array
+        if (!Array.isArray(cards)) {
+          console.error(`Trello API returned non-array for cards in board ${board.id}:`, cards);
+          continue; // Skip this board
+        }
+
+        // Process each active card
+        for (const card of cards.filter((c: any) => !c.closed && !isInactiveListName(c.list?.name))) {
+          // Find APTLSS checklist
+          const aptlssChecklist = card.checklists?.find((cl: any) =>
+            cl.name.toLowerCase().includes('aptlss') ||
+            cl.name.toLowerCase().includes('action plan')
+          );
+
+          if (aptlssChecklist && aptlssChecklist.checkItems) {
+            // Get card due date if available
+            const cardDueDate = card.due ? new Date(card.due).toISOString().split('T')[0] : undefined;
+            const cardLabels = card.labels?.map((l: any) => l.name.toLowerCase()) || [];
+          
+            // Use enhanced APTLSS parser for better accuracy
+            const parsedItems = parseAPTLSSChecklist(
+              aptlssChecklist.checkItems,
+              cardDueDate,
+              cardLabels
+            );
+          
+            parsedItems
+              .filter((parsed) => parsed.originalItem?.state !== 'complete')
+              .forEach((parsed, index) => {
+                const item = parsed.originalItem;
+            
+                // Determine priority level from card labels
+                const priorityLevel = cardLabels.some((l: string) => l.includes('critical')) ? 'CRITICAL' :
+                                     cardLabels.some((l: string) => l.includes('urgent')) ? 'URGENT' :
+                                     cardLabels.some((l: string) => l.includes('high')) ? 'HIGH' : 'NORMAL';
+            
+                tasks.push({
+                  id: `${card.id}_${item.id}`,
+                  cardId: card.id,
+                  cardName: card.name,
+                  boardName: board.name,
+                  client: extractClient(board.name, card.name),
+                  checklistId: aptlssChecklist.id,
+                  checkItemId: item.id,
+                  stepIndex: index,
+                  description: parsed.cleanDescription || parsed.description,
+                  fullDescription: parsed.description,
+                  durationHours: parsed.durationHours,
+                  durationConfidence: parsed.durationConfidence,
+                  startTime: '09:00',
+                  endTime: '10:00',
+                  date: parsed.dueDate || new Date().toISOString().split('T')[0],
+                  dateSource: parsed.dateSource,
+                  isCompleted: false,
+                  isArchived: false,
+                  isBlocker: parsed.isBlocker,
+                  isPriority: cardLabels.some((l: string) => l.includes('priority')),
+                  priorityLevel,
+                  taskType: parsed.taskType,
+                  complexity: parsed.complexity,
+                  dependencies: parsed.dependencies,
+                  hasExternalDependency: parsed.hasExternalDependency,
+                  keywords: parsed.keywords,
+                  hasDutch: parsed.description.toLowerCase().includes('dutch') || parsed.description.toLowerCase().includes('nederlands'),
+                  attachments: []
+                });
+              });
           }
         }
-      );
-      
-      if (!cardsResponse.ok) {
-        console.error(`Trello API error fetching cards for board ${board.id}:`, cardsResponse.statusText);
-        continue; // Skip this board and continue with others
-      }
-      
-      const cards = await cardsResponse.json();
-      
-      // Validate cards is an array
-      if (!Array.isArray(cards)) {
-        console.error(`Trello API returned non-array for cards in board ${board.id}:`, cards);
-        continue; // Skip this board
       }
 
-      // Process each card
-      for (const card of cards.filter((c: any) => !c.closed)) {
-        // Find APTLSS checklist
-        const aptlssChecklist = card.checklists?.find((cl: any) => 
-          cl.name.toLowerCase().includes('aptlss') || 
-          cl.name.toLowerCase().includes('action plan')
-        );
-
-        if (aptlssChecklist && aptlssChecklist.checkItems) {
-          // Get card due date if available
-          const cardDueDate = card.due ? new Date(card.due).toISOString().split('T')[0] : undefined;
-          const cardLabels = card.labels?.map((l: any) => l.name.toLowerCase()) || [];
-          
-          // Use enhanced APTLSS parser for better accuracy
-          const parsedItems = parseAPTLSSChecklist(
-            aptlssChecklist.checkItems,
-            cardDueDate,
-            cardLabels
-          );
-          
-          parsedItems.forEach((parsed, index) => {
-            const item = parsed.originalItem;
-            
-            // Determine priority level from card labels
-            const priorityLevel = cardLabels.some((l: string) => l.includes('critical')) ? 'CRITICAL' :
-                                 cardLabels.some((l: string) => l.includes('urgent')) ? 'URGENT' :
-                                 cardLabels.some((l: string) => l.includes('high')) ? 'HIGH' : 'NORMAL';
-            
-            tasks.push({
-              id: `${card.id}_${item.id}`,
-              cardId: card.id,
-              cardName: card.name,
-              boardName: board.name,
-              client: extractClient(board.name, card.name),
-              checklistId: aptlssChecklist.id,
-              checkItemId: item.id,
-              stepIndex: index,
-              description: parsed.cleanDescription || parsed.description,
-              fullDescription: parsed.description,
-              durationHours: parsed.durationHours,
-              durationConfidence: parsed.durationConfidence,
-              startTime: '09:00',
-              endTime: '10:00',
-              date: parsed.dueDate || new Date().toISOString().split('T')[0],
-              dateSource: parsed.dateSource,
-              isCompleted: item.state === 'complete',
-              isArchived: false,
-              isBlocker: parsed.isBlocker,
-              isPriority: cardLabels.some((l: string) => l.includes('priority')),
-              priorityLevel,
-              taskType: parsed.taskType,
-              complexity: parsed.complexity,
-              dependencies: parsed.dependencies,
-              hasExternalDependency: parsed.hasExternalDependency,
-              keywords: parsed.keywords,
-              hasDutch: parsed.description.toLowerCase().includes('dutch') || parsed.description.toLowerCase().includes('nederlands'),
-              attachments: []
-            });
-          });
-        }
-      }
-    }
-
-    // Get user's working hours settings and holidays
-    let workStartHour = 9;
-    let workEndHour = 18;
-    let workingDays = [1, 2, 3, 4, 5]; // Default: Mon-Fri
-    let userHolidays: string[] = [];
-    const schedulingOptions: Partial<SchedulingOptions> = {};
+      // Get user's working hours settings and holidays
+      let workStartHour = 9;
+      let workEndHour = 18;
+      let workingDays = [1, 2, 3, 4, 5]; // Default: Mon-Fri
+      let userHolidays: string[] = [];
+      const schedulingOptions: Partial<SchedulingOptions> = {};
     
     if (req.user) {
       try {
