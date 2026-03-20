@@ -52,7 +52,7 @@ export default function Home() {
   const [clients, setClients] = useState<{ client: string; count: number }[]>([]);
   const [filters, setFilters] = useState<TaskFiltersState>({
     filter: 'all',
-    completionStatus: 'all',
+    completionStatus: 'incomplete',
     taskType: null,
     complexity: null,
     client: null,
@@ -104,6 +104,13 @@ export default function Home() {
       result = result.filter(t => t.date && new Date(t.date) >= now);
     }
     
+    // Apply task type filter
+    if (filters.completionStatus === 'completed') {
+      result = result.filter(t => t.isCompleted);
+    } else if (filters.completionStatus === 'incomplete') {
+      result = result.filter(t => !t.isCompleted);
+    }
+
     // Apply task type filter
     if (filters.taskType) {
       result = result.filter(t => t.taskType === filters.taskType);

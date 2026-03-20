@@ -15,13 +15,73 @@ import {
   atisIngestionJobs,
   atisCardUnderstanding,
 } from '../../drizzle/schema';
-import { eq, desc, isNull, sql, and } from 'drizzle-orm';
+import { eq, desc, isNull, sql, and, inArray } from 'drizzle-orm';
 import { processCardUnderstanding, processAllCardsUnderstanding, getUnderstandingStats } from '../services/atis-understanding';
 import { createChecklistSyncService } from '../services/trello-checklist-sync';
 import { createAttachmentExtractor } from '../services/attachment-extractor';
 import { createChatbotExtractor } from '../services/chatbot-extractor';
+import { fetchWithRetry } from '../utils/retry';
 
 const router = Router();
+const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived'];
+
+function isInactiveListName(listName?: string | null) {
+  if (!listName) return false;
+  const normalized = listName.toLowerCase();
+  return INACTIVE_LIST_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+async function fetchUserWorkspaceBoardIds(apiKey: string, token: string) {
+  const workspacesResponse = await fetchWithRetry(
+    `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`,
+    undefined,
+    {
+      maxRetries: 3,
+      initialDelayMs: 1000,
+      maxDelayMs: 10000,
+    }
+  );
+
+  if (!workspacesResponse.ok) {
+    const errorText = await workspacesResponse.text();
+    throw new Error(`Failed to fetch Trello workspaces: ${errorText}`);
+  }
+
+  const workspaces = await workspacesResponse.json();
+  if (!Array.isArray(workspaces)) {
+    throw new Error('Invalid Trello workspaces response');
+  }
+
+  const boardIds = new Set<string>();
+  for (const workspace of workspaces) {
+    const boardsResponse = await fetchWithRetry(
+      `https://api.trello.com/1/organizations/${workspace.id}/boards?filter=open&key=${apiKey}&token=${token}`,
+      undefined,
+      {
+        maxRetries: 2,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+      }
+    );
+
+    if (!boardsResponse.ok) {
+      continue;
+    }
+
+    const boards = await boardsResponse.json();
+    if (!Array.isArray(boards)) {
+      continue;
+    }
+
+    for (const board of boards) {
+      if (board?.id) {
+        boardIds.add(board.id);
+      }
+    }
+  }
+
+  return Array.from(boardIds);
+}
 
 /**
  * GET /api/atis/stats
@@ -592,9 +652,86 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
       const db = await getDb();
       if (!db) {
         return res.status(500).json({ error: 'Database not available' });
+      }
+
+      const apiKey = process.env.TRELLO_API_KEY;
+      const token = process.env.TRELLO_TOKEN;
+      if (!apiKey || !token) {
+        return res.status(500).json({ error: 'Trello credentials not configured' });
+      }
+
+      const allowedTrelloBoardIds = await fetchUserWorkspaceBoardIds(apiKey, token);
+      if (allowedTrelloBoardIds.length === 0) {
+        return res.json({
+          scheduled: [],
+          overflow: [],
+          metrics: {
+            totalScheduled: 0,
+            totalOverflow: 0,
+            totalScheduledMinutes: 0,
+            totalOverflowMinutes: 0,
+            dailyCapacityMinutes: 480,
+            averageDailyLoad: 0,
+          },
+          pagination: {
+            total: 0,
+            limit: Number(req.query.limit || 50),
+            offset: Number(req.query.offset || 0),
+            hasMore: false,
+          },
+          filters: {
+            filter: req.query.filter || 'upcoming',
+            taskType: req.query.taskType,
+            complexity: req.query.complexity,
+            sortBy: req.query.sortBy || 'dueDate',
+            sortOrder: req.query.sortOrder || 'asc',
+          },
+        });
+      }
+
+      const allowedAtisBoards = await db.select({
+        id: atisBoards.id,
+        trelloId: atisBoards.trelloId,
+        name: atisBoards.name,
+      })
+        .from(atisBoards)
+        .where(inArray(atisBoards.trelloId, allowedTrelloBoardIds));
+
+      const allowedAtisBoardIds = allowedAtisBoards.map((board: any) => board.id);
+      if (allowedAtisBoardIds.length === 0) {
+        return res.json({
+          scheduled: [],
+          overflow: [],
+          metrics: {
+            totalScheduled: 0,
+            totalOverflow: 0,
+            totalScheduledMinutes: 0,
+            totalOverflowMinutes: 0,
+            dailyCapacityMinutes: 480,
+            averageDailyLoad: 0,
+          },
+          pagination: {
+            total: 0,
+            limit: Number(req.query.limit || 50),
+            offset: Number(req.query.offset || 0),
+            hasMore: false,
+          },
+          filters: {
+            filter: req.query.filter || 'upcoming',
+            taskType: req.query.taskType,
+            complexity: req.query.complexity,
+            sortBy: req.query.sortBy || 'dueDate',
+            sortOrder: req.query.sortOrder || 'asc',
+          },
+        });
       }
 
       const { 
@@ -610,6 +747,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       // Build query conditions
       const conditions = [
         eq(atisCards.isArchived, 0), // Only non-archived cards
+        inArray(atisCards.boardId, allowedAtisBoardIds),
       ];
 
       const now = new Date();
@@ -650,15 +788,12 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       .limit(Number(limit))
       .offset(Number(offset));
 
-    // Get board names
-    const boardIds = Array.from(new Set(cards.map((c: any) => c.boardId)));
-    const boards = boardIds.length > 0 
-      ? await db.select().from(atisBoards).where(sql`${atisBoards.id} IN (${sql.join(boardIds.map(id => sql`${id}`), sql`, `)})`)
-      : [];
-    const boardMap = new Map(boards.map((b: any) => [b.id, b.name]));
+    const boardMap = new Map(allowedAtisBoards.map((b: any) => [b.id, b.name]));
 
     // Process and filter results
-    let tasks = cards.map((card: any) => {
+    let tasks = cards
+      .filter((card: any) => !isInactiveListName(card.listName))
+      .map((card: any) => {
       // Parse checklist JSON from stored aptlssChecklist or generate fallback
       let checklist: any[] = [];
       
