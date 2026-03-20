@@ -520,7 +520,15 @@ export default function Home() {
                 You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining.
               </p>
             </div>
-
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="hidden md:flex"
+              title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            >
+              {sidebarOpen ? <ChevronLeft className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+            </Button>
           </div>
           
           <div className="flex items-center gap-2 md:gap-4">
@@ -618,20 +626,9 @@ export default function Home() {
       <main className="flex-1 container py-4 md:py-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8">
           {/* Left Sidebar - Stats - Collapsible */}
-          <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:col-span-4' : 'lg:col-span-0'} ${sidebarOpen ? 'block' : 'hidden'} order-2 lg:order-1`}>
-            {/* Sidebar Container with Collapse Button */}
-            <div className="relative bg-card rounded-2xl shadow-sm border p-4 md:p-6 space-y-4 md:space-y-8">
-              {/* Collapse Icon Button */}
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="absolute top-4 right-4 p-2 hover:bg-secondary rounded-lg transition-colors"
-                title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-              >
-                <img src="/collapse-icon.svg" alt="Collapse" className="h-5 w-5" />
-              </button>
-              
-              {/* Action Buttons */}
-              <div className="flex flex-col gap-2">
+          <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:col-span-4' : 'lg:col-span-0'} ${sidebarOpen ? 'block' : 'hidden'} space-y-4 md:space-y-8 order-2 lg:order-1`}>
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2">
               <Button 
                 className="w-full"
                 onClick={() => window.scrollTo({ top: document.querySelector('.timeline-section')?.getBoundingClientRect().top! + window.scrollY - 100, behavior: 'smooth' })}
@@ -653,11 +650,12 @@ export default function Home() {
               </Button>
             </div>
             
-              <StatsPanel stats={stats} />
-              
-              {/* Weekly Progress Dashboard */}
-              <WeeklyProgressDashboard />
-            </div>
+            <StatsPanel stats={stats} />
+            
+            {/* Weekly Progress Dashboard */}
+            <WeeklyProgressDashboard />
+            
+
           </div>
 
           {/* Main Content - Timeline */}
