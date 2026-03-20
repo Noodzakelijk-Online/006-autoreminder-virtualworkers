@@ -33,6 +33,8 @@ const DEFAULT_SHORTCUTS: KeyboardShortcut[] = [
 
   // Batch Operations
   { action: 'start-batch', keys: 'Ctrl+B', description: 'Start batch operation', category: 'batch' },
+  { action: 'pause-batch', keys: 'Ctrl+P', description: 'Pause running batch', category: 'batch' },
+  { action: 'resume-batch', keys: 'Ctrl+Shift+P', description: 'Resume paused batch', category: 'batch' },
   { action: 'cancel-batch', keys: 'Ctrl+X', description: 'Cancel running batch', category: 'batch' },
   { action: 'batch-reanalyze', keys: 'Ctrl+Shift+R', description: 'Batch re-analyze tasks', category: 'batch' },
   { action: 'batch-reschedule', keys: 'Ctrl+Shift+S', description: 'Batch reschedule tasks', category: 'batch' },

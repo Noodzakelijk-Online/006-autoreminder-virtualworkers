@@ -27,6 +27,7 @@ interface BatchOperation {
   tasks: any[];
   results?: Record<string, any>;
   errorLog?: string[];
+  isPaused?: boolean;
   createdAt: Date;
   startedAt?: Date;
   completedAt?: Date;
@@ -36,6 +37,7 @@ interface BatchOperationsQueueProps {
   operations: BatchOperation[];
   onCancel?: (jobId: string) => Promise<void>;
   onRetry?: (jobId: string) => Promise<void>;
+  onPauseToggle?: (jobId: string) => Promise<void>;
   onClear?: () => Promise<void>;
   isLoading?: boolean;
 }
@@ -44,6 +46,7 @@ export const BatchOperationsQueue: React.FC<BatchOperationsQueueProps> = ({
   operations = [],
   onCancel,
   onRetry,
+  onPauseToggle,
   onClear,
   isLoading = false
 }) => {
@@ -118,6 +121,8 @@ export const BatchOperationsQueue: React.FC<BatchOperationsQueueProps> = ({
                     operation={op}
                     onCancel={onCancel}
                     onRetry={onRetry}
+                    onPauseToggle={onPauseToggle}
+                    isPaused={op.isPaused}
                   />
                 </div>
               )}

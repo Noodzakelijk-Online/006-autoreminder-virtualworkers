@@ -14,7 +14,6 @@ import {
   Circle,
   Loader2,
   Play,
-  Pause,
   Settings,
   Download,
   RefreshCw,
@@ -66,9 +65,24 @@ interface GenerationProgress {
   total: number;
   completed: number;
   failed: number;
+  jobId?: string;
   current?: string;
-  status: 'idle' | 'running' | 'paused' | 'completed';
+  status: 'idle' | 'submitting' | 'running' | 'completed' | 'completed_with_errors' | 'failed';
+  completedAt?: string | null;
 }
+
+interface GenerationJobStatusResponse {
+  jobId: string;
+  status: 'running' | 'completed' | 'completed_with_errors' | 'failed';
+  progress: {
+    total: number;
+    completed: number;
+    failed: number;
+  };
+  completedAt?: string | null;
+}
+
+const HISTORY_REFRESH_MS = 5000;
 
 export default function APTLSSManagement() {
   const { addOperation, updateOperation, removeOperation } = useLoadingQueue();
@@ -200,7 +214,71 @@ export default function APTLSSManagement() {
     loadWorkspaces();
     loadBoards();
     loadHistory();
+    loadScheduledJobs();
   }, []);
+
+  useEffect(() => {
+    const hasActiveJob = history.some((job: any) => job.status === 'running');
+    if (!hasActiveJob) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void loadHistory();
+    }, HISTORY_REFRESH_MS);
+
+    return () => window.clearInterval(interval);
+  }, [history]);
+
+  useEffect(() => {
+    if (!selectedJobId) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void toggleJobDetails(selectedJobId, true);
+    }, HISTORY_REFRESH_MS);
+
+    return () => window.clearInterval(interval);
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    if (!progress.jobId || (progress.status !== 'running' && progress.status !== 'submitting')) {
+      return;
+    }
+
+    const pollStatus = async () => {
+      try {
+        const response = await fetch(`/api/aptlss/status/${progress.jobId}`);
+        if (!response.ok) {
+          return;
+        }
+
+        const data = await response.json() as GenerationJobStatusResponse;
+        setProgress((prev) => ({
+          ...prev,
+          total: data.progress.total,
+          completed: data.progress.completed,
+          failed: data.progress.failed,
+          status: data.status,
+          completedAt: data.completedAt || null,
+        }));
+
+        if (data.status !== 'running') {
+          await loadHistory();
+        }
+      } catch (error) {
+        console.error('Failed to poll generation status:', error);
+      }
+    };
+
+    void pollStatus();
+    const interval = window.setInterval(() => {
+      void pollStatus();
+    }, 2000);
+
+    return () => window.clearInterval(interval);
+  }, [progress.jobId, progress.status]);
 
   const loadHistory = async () => {
     try {
@@ -213,8 +291,18 @@ export default function APTLSSManagement() {
     }
   };
 
-  const toggleJobDetails = async (jobId: string) => {
-    if (selectedJobId === jobId) {
+  const loadScheduledJobs = async () => {
+    try {
+      const response = await fetch('/api/aptlss/scheduled');
+      const jobs = await response.json();
+      setSettings(prev => ({ ...prev, scheduledJobs: jobs }));
+    } catch (error) {
+      console.error('Error loading scheduled jobs:', error);
+    }
+  };
+
+  const toggleJobDetails = async (jobId: string, keepOpen: boolean = false) => {
+    if (!keepOpen && selectedJobId === jobId) {
       setSelectedJobId(null);
       setJobDetails(null);
     } else {
@@ -222,7 +310,9 @@ export default function APTLSSManagement() {
         const response = await fetch(`/api/aptlss/history/${jobId}`);
         const data = await response.json();
         setJobDetails(data);
-        setSelectedJobId(jobId);
+        if (!keepOpen) {
+          setSelectedJobId(jobId);
+        }
       } catch (error) {
         console.error('Error loading job details:', error);
         toast.error('Failed to load job details');
@@ -815,7 +905,7 @@ export default function APTLSSManagement() {
       total: selectedCards.length,
       completed: 0,
       failed: 0,
-      status: 'running'
+      status: 'submitting'
     });
 
     toast.info(`Starting APTLSS generation for ${selectedCards.length} cards`);
@@ -840,14 +930,19 @@ export default function APTLSSManagement() {
       }
 
       setProgress({
+        jobId: data.jobId,
         total: data.total || selectedCards.length,
         completed: data.completed || 0,
         failed: data.failed || 0,
         current: '',
-        status: 'completed',
+        status: data.failed > 0 ? 'completed_with_errors' : 'completed',
+        completedAt: new Date().toISOString(),
       });
 
-      loadHistory();
+      await loadHistory();
+      await loadScheduledJobs();
+      setSelectedJobId(data.jobId);
+      await toggleJobDetails(data.jobId, true);
 
       if (data.failed > 0) {
         toast.warning(`APTLSS generation completed with ${data.failed} failure(s)`);
@@ -857,22 +952,20 @@ export default function APTLSSManagement() {
     } catch (error) {
       console.error('Failed to generate APTLSS:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to generate APTLSS');
-      setProgress(prev => ({ ...prev, status: 'idle' }));
+      setProgress(prev => ({ ...prev, status: 'failed' }));
     }
-  };
-
-  const pauseGeneration = () => {
-    setProgress(prev => ({ ...prev, status: 'paused' }));
-    toast.info('Generation paused');
-  };
-
-  const resumeGeneration = () => {
-    setProgress(prev => ({ ...prev, status: 'running' }));
-    toast.info('Generation resumed');
   };
 
   const selectedCount = cards.filter(c => c.selected).length;
   const progressPercent = progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;
+  const activeJob = history.find((job: any) => job.id === progress.jobId) || null;
+
+  const getJobBadgeVariant = (status: string) => {
+    if (status === 'completed') return 'default';
+    if (status === 'running' || status === 'submitting') return 'secondary';
+    if (status === 'completed_with_errors') return 'outline';
+    return 'destructive';
+  };
 
   return (
     <div className="container mx-auto py-4 md:py-6 space-y-4 md:space-y-6">
@@ -903,23 +996,12 @@ export default function APTLSSManagement() {
           <CardHeader>
             <CardTitle className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-0 text-lg md:text-xl">
               <span>Generation Progress</span>
-              <div className="flex gap-2">
-                {progress.status === 'running' && (
-                  <Button size="sm" variant="outline" onClick={pauseGeneration}>
-                    <Pause className="h-4 w-4 mr-2" />
-                    Pause
-                  </Button>
-                )}
-                {progress.status === 'paused' && (
-                  <Button size="sm" variant="outline" onClick={resumeGeneration}>
-                    <Play className="h-4 w-4 mr-2" />
-                    Resume
-                  </Button>
-                )}
-              </div>
+              <Badge variant={getJobBadgeVariant(progress.status)}>
+                {progress.status.replace(/_/g, ' ')}
+              </Badge>
             </CardTitle>
             <CardDescription className="text-xs md:text-sm">
-              {progress.current && `Currently processing: ${progress.current}`}
+              {progress.jobId ? `Job ${progress.jobId}` : 'Submitting generation request'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -929,6 +1011,41 @@ export default function APTLSSManagement() {
               <span>Failed: {progress.failed}</span>
               <span>{Math.round(progressPercent)}%</span>
             </div>
+            {progress.status === 'submitting' && (
+              <p className="text-sm text-muted-foreground">
+                The server is creating the batch job and will respond with the final result when processing finishes.
+              </p>
+            )}
+            {progress.status === 'running' && (
+              <p className="text-sm text-muted-foreground">
+                This page polls the server for live job status while the batch is running.
+              </p>
+            )}
+            {progress.status === 'completed_with_errors' && (
+              <p className="text-sm text-amber-700">
+                The batch finished with partial failures. Review the history details below to retry failed cards.
+              </p>
+            )}
+            {progress.status === 'failed' && (
+              <p className="text-sm text-red-700">
+                The request failed before the batch reported completion. Check the history tab for any partial job records.
+              </p>
+            )}
+            {progress.completedAt && (
+              <p className="text-xs text-muted-foreground">
+                Last updated: {new Date(progress.completedAt).toLocaleString()}
+              </p>
+            )}
+            {activeJob?.failedCards > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => retryFailedItems(activeJob.id)}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Retry {activeJob.failedCards} Failed Items
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1458,10 +1575,10 @@ export default function APTLSSManagement() {
                   </Button>
                   <Button 
                     onClick={startGeneration} 
-                    disabled={selectedCount === 0 || progress.status === 'running'}
+                    disabled={selectedCount === 0 || progress.status === 'running' || progress.status === 'submitting'}
                     size="sm"
                   >
-                    {progress.status === 'running' ? (
+                    {progress.status === 'running' || progress.status === 'submitting' ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
                       <Play className="h-4 w-4 mr-2" />
@@ -1609,20 +1726,18 @@ export default function APTLSSManagement() {
                       </CardDescription>
                     </div>
                     <Badge
-                      variant={
-                        job.status === 'completed'
-                          ? 'default'
-                          : job.status === 'running'
-                          ? 'secondary'
-                          : 'destructive'
-                      }
+                      variant={getJobBadgeVariant(job.status)}
                     >
-                      {job.status}
+                      {job.status.replace(/_/g, ' ')}
                     </Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
+                    <Progress
+                      value={job.totalCards > 0 ? ((job.completedCards + job.failedCards) / job.totalCards) * 100 : 0}
+                      className="h-2"
+                    />
                     <div className="grid grid-cols-3 gap-4 text-sm">
                       <div>
                         <p className="text-muted-foreground">Total Cards</p>
@@ -1641,6 +1756,11 @@ export default function APTLSSManagement() {
                         </p>
                       </div>
                     </div>
+                    {job.completedAt && (
+                      <p className="text-xs text-muted-foreground">
+                        Completed at {new Date(job.completedAt).toLocaleString()}
+                      </p>
+                    )}
 
                     {job.failedCards > 0 && (
                       <Button
@@ -1861,11 +1981,11 @@ export default function APTLSSManagement() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={async () => {
-                      try {
-                        const response = await fetch('/api/aptlss/scheduled');
-                        const jobs = await response.json();
-                        setSettings(prev => ({ ...prev, scheduledJobs: jobs }));
+                      onClick={async () => {
+                        try {
+                          const response = await fetch('/api/aptlss/scheduled');
+                          const jobs = await response.json();
+                          setSettings(prev => ({ ...prev, scheduledJobs: jobs }));
                       } catch (error) {
                         console.error('Error loading scheduled jobs:', error);
                       }
@@ -1901,9 +2021,7 @@ export default function APTLSSManagement() {
                                   });
                                   toast.success('Scheduled job cancelled');
                                   // Reload jobs
-                                  const response = await fetch('/api/aptlss/scheduled');
-                                  const jobs = await response.json();
-                                  setSettings(prev => ({ ...prev, scheduledJobs: jobs }));
+                                  await loadScheduledJobs();
                                 } catch (error) {
                                   toast.error('Failed to cancel job');
                                 }

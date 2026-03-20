@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Timeline } from "@/components/Timeline";
 import { OverflowTasks } from "@/components/OverflowTasks";
@@ -27,6 +27,7 @@ import { TaskFilters, TaskFiltersState } from "@/components/TaskFilters";
 import { LoadingQueueIndicator } from "@/components/LoadingQueueIndicator";
 import { ConversationDialog } from "@/components/ConversationDialog";
 import { BulkTaskActions } from "@/components/BulkTaskActions";
+import { GoalInterviewDialog } from "@/components/GoalInterviewDialog";
 
 // No longer using mock data - fetch from Trello API
 
@@ -61,6 +62,7 @@ export default function Home() {
   const [overflowTasks, setOverflowTasks] = useState<any[]>([]);
   const [allExpanded, setAllExpanded] = useState(false);
   const [conversationCard, setConversationCard] = useState<{ cardId: string; cardName: string } | null>(null);
+  const [interviewTask, setInterviewTask] = useState<Task | null>(null);
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [workers, setWorkers] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [workerFilter, setWorkerFilter] = useState<string | null>(null);
@@ -203,163 +205,213 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
-    // Fetch tasks from ATIS (AI-enhanced) or fallback to Trello API
-    const fetchTasks = async () => {
-      setIsLoadingTasks(true);
-      try {
-        // Try ATIS timeline tasks first (AI-enhanced)
-        const atisResponse = await fetch('/api/atis/timeline-tasks?limit=100&filter=all');
-        if (atisResponse.ok) {
-          const atisData = await atisResponse.json();
-          const scheduledTasks = atisData.scheduled || atisData.tasks || [];
-          const overflowTasks = atisData.overflow || [];
-          if (scheduledTasks && scheduledTasks.length > 0) {
-            // Transform ATIS tasks to Task format
-            const atisTasks: Task[] = scheduledTasks.map((t: any) => ({
-              id: `atis-${t.id}`,
-              cardId: t.trelloId,
-              cardName: t.name,
-              stepIndex: 0,
-              description: t.goal || t.description || t.name,
-              durationHours: (t.estimatedMinutes || 30) / 60,
-              startTime: '',
-              endTime: '',
-              date: t.dueDate ? new Date(t.dueDate).toISOString().split('T')[0] : '',
-              isCompleted: false,
-              isArchived: false,
-              isBlocker: t.status === 'overdue',
-              isPriority: t.complexity === 'complex' || t.status === 'overdue',
-              priorityLevel: t.status === 'overdue' ? 'CRITICAL' : t.complexity === 'complex' ? 'HIGH' : 'NORMAL',
-              hasDutch: false,
-              attachments: [],
-              // ATIS-specific fields
-              goal: t.goal,
-              deliverable: t.deliverable,
-              taskType: t.taskType,
-              complexity: t.complexity,
-              boardName: t.boardName,
-              listName: t.listName,
-              url: t.url,
-              checklist: t.checklist || [],
-              hasUnderstanding: t.hasUnderstanding,
-              confidenceScore: t.confidenceScore,
-              atisCardId: t.atisCardId || t.id,
-              synced: false, // Will be updated from sync status
-            }));
-            setTasks(atisTasks);
-            
-            // Extract unique clients for filtering
-            const clientCounts = new Map<string, number>();
-            atisTasks.forEach(t => {
-              if (t.client) {
-                clientCounts.set(t.client, (clientCounts.get(t.client) || 0) + 1);
-              }
-            });
-            const clientsList = Array.from(clientCounts.entries())
-              .map(([client, count]) => ({ client, count }))
-              .sort((a, b) => b.count - a.count);
-            setClients(clientsList);
-            
-            // Calculate stats from ATIS data (using metrics from API)
-            const metrics = atisData.metrics || {};
-            const totalTasks = metrics.totalScheduled || atisTasks.length;
-            const completedTasks = atisTasks.filter(t => t.isCompleted).length;
-            const totalHours = (metrics.totalScheduledMinutes || 0) / 60;
-            const completedHours = atisTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
-            
-            // Store overflow tasks for display
-            if (overflowTasks && overflowTasks.length > 0) {
-              console.log('Overflow tasks found:', overflowTasks.length);
-              setOverflowTasks(overflowTasks);
-            } else {
-              setOverflowTasks([]);
+  const fetchTasks = useCallback(async () => {
+    setIsLoadingTasks(true);
+    try {
+      const atisResponse = await fetch('/api/atis/timeline-tasks?limit=100&filter=all');
+      if (atisResponse.ok) {
+        const atisData = await atisResponse.json();
+        const scheduledTasks = atisData.scheduled || atisData.tasks || [];
+        const overflowTasks = atisData.overflow || [];
+        if (scheduledTasks && scheduledTasks.length > 0) {
+          const atisTasks: Task[] = scheduledTasks.map((t: any) => ({
+            id: `atis-${t.id}`,
+            cardId: t.trelloId,
+            cardName: t.name,
+            stepIndex: 0,
+            description: t.goal || t.description || t.name,
+            durationHours: (t.estimatedMinutes || 30) / 60,
+            startTime: '',
+            endTime: '',
+            date: t.dueDate ? new Date(t.dueDate).toISOString().split('T')[0] : '',
+            isCompleted: false,
+            isArchived: false,
+            isBlocker: t.status === 'overdue',
+            isPriority: t.complexity === 'complex' || t.status === 'overdue',
+            priorityLevel: t.status === 'overdue' ? 'CRITICAL' : t.complexity === 'complex' ? 'HIGH' : 'NORMAL',
+            hasDutch: false,
+            attachments: [],
+            goal: t.goal,
+            deliverable: t.deliverable,
+            taskType: t.taskType,
+            complexity: t.complexity,
+            boardName: t.boardName,
+            listName: t.listName,
+            url: t.url,
+            checklist: t.checklist || [],
+            hasUnderstanding: t.hasUnderstanding,
+            confidenceScore: t.confidenceScore,
+            atisCardId: t.atisCardId || t.id,
+            synced: false,
+          }));
+          setTasks(atisTasks);
+
+          const clientCounts = new Map<string, number>();
+          atisTasks.forEach(t => {
+            if (t.client) {
+              clientCounts.set(t.client, (clientCounts.get(t.client) || 0) + 1);
             }
-            
-            setStats({
-              totalTasks,
-              completedTasks,
-              totalHours,
-              completedHours,
-              accuracy: 100
-            });
-            
-            // Fetch task types for filtering
-            try {
-              const typesResponse = await fetch('/api/atis/task-types');
-              if (typesResponse.ok) {
-                const types = await typesResponse.json();
-                setTaskTypes(types);
-              }
-            } catch (e) {
-              console.error('Failed to fetch task types:', e);
+          });
+          const clientsList = Array.from(clientCounts.entries())
+            .map(([client, count]) => ({ client, count }))
+            .sort((a, b) => b.count - a.count);
+          setClients(clientsList);
+
+          const metrics = atisData.metrics || {};
+          const totalTasks = metrics.totalScheduled || atisTasks.length;
+          const completedTasks = atisTasks.filter(t => t.isCompleted).length;
+          const totalHours = (metrics.totalScheduledMinutes || 0) / 60;
+          const completedHours = atisTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
+
+          setOverflowTasks(overflowTasks && overflowTasks.length > 0 ? overflowTasks : []);
+          setStats({
+            totalTasks,
+            completedTasks,
+            totalHours,
+            completedHours,
+            accuracy: 100
+          });
+
+          try {
+            const typesResponse = await fetch('/api/atis/task-types');
+            if (typesResponse.ok) {
+              const types = await typesResponse.json();
+              setTaskTypes(types);
             }
-            return;
-          }
-        }
-        
-        // Fallback to original Trello API
-        const response = await fetch('/api/trello/tasks');
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-          console.error('Error fetching tasks:', errorData);
-          // Don't show toast for auth errors - user will be redirected
-          if (response.status !== 401) {
-            toast.error(`Failed to load tasks: ${errorData.error || response.statusText}`);
+          } catch (e) {
+            console.error('Failed to fetch task types:', e);
           }
           return;
         }
-        const data = await response.json();
-        
-        // Validate response
-        if (data.error) {
-          console.error('Error fetching tasks:', data.error);
-          toast.error(`Failed to load tasks: ${data.error}`);
-          return;
-        }
-        
-        // Handle both old format (array) and new format (object with tasks and timezone)
-        const tasksArray = Array.isArray(data) ? data : (data.tasks || []);
-        
-        // Validate tasksArray is actually an array
-        if (!Array.isArray(tasksArray)) {
-          console.error('Invalid tasks data:', data);
-          toast.error('Invalid tasks data received from server');
-          return;
-        }
-        
-        const loadedTasks = (tasksArray as Task[]).filter(t => !t.isArchived);
-        setTasks(loadedTasks);
-    
-        // Calculate stats
-        const totalTasks = loadedTasks.length;
-        const completedTasks = loadedTasks.filter(t => t.isCompleted).length;
-        const totalHours = loadedTasks.reduce((acc, t) => acc + t.durationHours, 0);
-        const completedHours = loadedTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
-        
-        setStats({
-          totalTasks,
-          completedTasks,
-          totalHours,
-          completedHours,
-          accuracy: 100 // Placeholder
-        });
-      } catch (error) {
-        console.error('Error fetching tasks:', error);
-        // Log more detailed error information
-        if (error instanceof Error) {
-          console.error('Error details:', error.message, error.stack);
-        }
-        // Fallback to empty state on error
-        setTasks([]);
-        toast.error('Failed to load tasks. Please refresh the page.');
-      } finally {
-        setIsLoadingTasks(false);
       }
-    };
-    
-    fetchTasks();
+
+      const response = await fetch('/api/trello/tasks');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Error fetching tasks:', errorData);
+        if (response.status !== 401) {
+          toast.error(`Failed to load tasks: ${errorData.error || response.statusText}`);
+        }
+        return;
+      }
+      const data = await response.json();
+
+      if (data.error) {
+        console.error('Error fetching tasks:', data.error);
+        toast.error(`Failed to load tasks: ${data.error}`);
+        return;
+      }
+
+      const tasksArray = Array.isArray(data) ? data : (data.tasks || []);
+      if (!Array.isArray(tasksArray)) {
+        console.error('Invalid tasks data:', data);
+        toast.error('Invalid tasks data received from server');
+        return;
+      }
+
+      const loadedTasks = (tasksArray as Task[]).filter(t => !t.isArchived);
+      setTasks(loadedTasks);
+      const totalTasks = loadedTasks.length;
+      const completedTasks = loadedTasks.filter(t => t.isCompleted).length;
+      const totalHours = loadedTasks.reduce((acc, t) => acc + t.durationHours, 0);
+      const completedHours = loadedTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
+
+      setStats({
+        totalTasks,
+        completedTasks,
+        totalHours,
+        completedHours,
+        accuracy: 100
+      });
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+      if (error instanceof Error) {
+        console.error('Error details:', error.message, error.stack);
+      }
+      setTasks([]);
+      toast.error('Failed to load tasks. Please refresh the page.');
+    } finally {
+      setIsLoadingTasks(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void fetchTasks();
+  }, [fetchTasks]);
+
+  const handleOpenInterview = (task: Task) => {
+    setInterviewTask(task);
+  };
+
+  const handleInterviewComplete = async (finalGoal: any) => {
+    if (!interviewTask) {
+      return;
+    }
+
+    const targetTask = interviewTask;
+    setTasks((prevTasks) => prevTasks.map((task) => (
+      task.id === targetTask.id
+        ? {
+            ...task,
+            goal: finalGoal?.goal || task.goal,
+            deliverable: finalGoal?.deliverable || task.deliverable,
+            confidenceScore: finalGoal?.confidence || task.confidenceScore,
+          }
+        : task
+    )));
+
+    const reanalysisToastId = `interview-reanalysis-${targetTask.id}`;
+    toast.loading('Applying clarified goal to task analysis...', { id: reanalysisToastId });
+
+    try {
+      if (targetTask.cardId) {
+        await fetch(`/api/atis/cards/${targetTask.cardId}/reingest`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+      }
+
+      let atisCardId = targetTask.atisCardId;
+      if (!atisCardId && targetTask.cardId) {
+        const lookupResponse = await fetch(`/api/atis/cards/by-trello/${encodeURIComponent(targetTask.cardId)}`, {
+          credentials: 'include',
+        });
+        if (lookupResponse.ok) {
+          const lookupData = await lookupResponse.json();
+          atisCardId = lookupData.id;
+        }
+      }
+
+      if (atisCardId) {
+        const reprocessResponse = await fetch(`/api/atis/understanding/reprocess/${atisCardId}`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interviewGoal: finalGoal?.goal,
+            interviewDeliverable: finalGoal?.deliverable,
+            interviewSuccessCriteria: finalGoal?.successCriteria,
+          }),
+        });
+
+        if (!reprocessResponse.ok) {
+          const errorData = await reprocessResponse.json().catch(() => ({ error: 'Failed to re-analyze task' }));
+          throw new Error(errorData.error || 'Failed to re-analyze task');
+        }
+      }
+
+      await fetchTasks();
+      toast.success('Goal clarified and task analysis refreshed.', { id: reanalysisToastId });
+    } catch (error) {
+      console.error('Failed to apply interview result:', error);
+      toast.error(`Goal saved, but refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`, {
+        id: reanalysisToastId,
+      });
+    } finally {
+      setInterviewTask(null);
+    }
+  };
 
   const handleToggleTask = async (id: string) => {
     const task = tasks.find(t => t.id === id);
@@ -559,6 +611,20 @@ export default function Home() {
                   >
                     View Weekly Schedule
                   </Button>
+                  <Button
+                    variant="secondary"
+                    className="flex-1"
+                    onClick={() => {
+                      const firstTaskWithCard = filteredTasks.find((task) => task.cardId) || tasks.find((task) => task.cardId);
+                      if (!firstTaskWithCard) {
+                        toast.info('Open tasks with Trello cards to start a goal interview.');
+                        return;
+                      }
+                      handleOpenInterview(firstTaskWithCard);
+                    }}
+                  >
+                    Clarify Goal
+                  </Button>
                   <Button 
                     variant="outline" 
                     className="flex-1"
@@ -661,9 +727,10 @@ export default function Home() {
                   tasks={filteredTasks} 
                   onToggleTask={handleToggleTask} 
                   isLoading={isLoadingTasks}
-                  onRefresh={() => window.location.reload()}
+                  onRefresh={() => void fetchTasks()}
                   allExpanded={allExpanded}
                   onExpandChange={(expanded) => setAllExpanded(expanded)}
+                  onStartInterview={handleOpenInterview}
                 />
               </div>
             </div>
@@ -677,6 +744,18 @@ export default function Home() {
         onOpenChange={(open) => !open && setConversationCard(null)}
         cardId={conversationCard?.cardId || null}
         cardName={conversationCard?.cardName || null}
+      />
+
+      <GoalInterviewDialog
+        open={!!interviewTask}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInterviewTask(null);
+          }
+        }}
+        cardId={interviewTask?.cardId || ''}
+        cardName={interviewTask?.cardName || ''}
+        onComplete={handleInterviewComplete}
       />
     </div>
   );

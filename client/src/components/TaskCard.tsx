@@ -16,6 +16,7 @@ interface TaskCardProps {
   onToggle: (id: string) => void;
   isExpanded?: boolean;
   onExpandChange?: (expanded: boolean) => void;
+  onStartInterview?: (task: Task) => void;
 }
 
 // APTLSS type colors and labels
@@ -27,7 +28,7 @@ const aptlssTypeInfo: Record<string, { color: string; label: string; bgColor: st
   S: { color: "text-orange-700", label: "Support", bgColor: "bg-orange-100" },
 };
 
-export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCardProps) {
+export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartInterview }: TaskCardProps) {
   const [cardExpanded, setCardExpanded] = useState(isExpanded ?? false);
   const [syncing, setSyncing] = useState(false);
   const [synced, setSynced] = useState(task.synced || false);
@@ -613,6 +614,22 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange }: TaskCar
                       Re-analyze
                     </>
                   )}
+                </Button>
+              )}
+
+              {/* Goal interview button */}
+              {task.cardId && onStartInterview && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs gap-1"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartInterview(task);
+                  }}
+                >
+                  <MessageSquare className="h-3 w-3" />
+                  Clarify Goal
                 </Button>
               )}
 

@@ -9,7 +9,6 @@ import {
   Zap,
   HelpCircle,
   Settings,
-  Play,
   RotateCcw
 } from 'lucide-react';
 import { AdvancedSchedulingCalendar } from '@/components/AdvancedSchedulingCalendar';
@@ -36,6 +35,8 @@ const DEFAULT_SHORTCUTS: (KeyboardShortcut & { isCustom?: boolean })[] = [
 
   // Batch Operations
   { action: 'start-batch', keys: 'Ctrl+B', description: 'Start batch operation', category: 'batch' },
+  { action: 'pause-batch', keys: 'Ctrl+P', description: 'Pause running batch', category: 'batch' },
+  { action: 'resume-batch', keys: 'Ctrl+Shift+P', description: 'Resume paused batch', category: 'batch' },
   { action: 'cancel-batch', keys: 'Ctrl+X', description: 'Cancel running batch', category: 'batch' },
   { action: 'batch-reanalyze', keys: 'Ctrl+Shift+R', description: 'Batch re-analyze tasks', category: 'batch' },
   { action: 'batch-reschedule', keys: 'Ctrl+Shift+S', description: 'Batch reschedule tasks', category: 'batch' },
@@ -59,8 +60,9 @@ export default function AdvancedScheduling() {
     operations,
     isLoading: isLoadingOps,
     error: opsError,
-    startBatchOperation,
     cancelBatchOperation,
+    pauseBatchOperation,
+    resumeBatchOperation,
     loadOperations,
   } = useBatchOperations({ autoLoad: true, pollInterval: 5000 });
 
@@ -85,6 +87,25 @@ export default function AdvancedScheduling() {
     }
   }, [client]);
 
+  React.useEffect(() => {
+    void loadShortcuts();
+  }, [loadShortcuts]);
+
+  const getPrimaryRunningOperation = useCallback(() => {
+    return operations.find(op => op.status === 'running') || null;
+  }, [operations]);
+
+  const handlePauseToggle = useCallback(async () => {
+    const active = getPrimaryRunningOperation();
+    if (!active) return;
+
+    if (active.isPaused) {
+      await resumeBatchOperation(active.jobId);
+    } else {
+      await pauseBatchOperation(active.jobId);
+    }
+  }, [getPrimaryRunningOperation, pauseBatchOperation, resumeBatchOperation]);
+
   // Handle keyboard shortcuts
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -103,8 +124,25 @@ export default function AdvancedScheduling() {
         case 'focus-queue':
           setActiveTab('queue');
           break;
+        case 'pause-batch':
+          void handlePauseToggle();
+          break;
+        case 'resume-batch': {
+          const active = getPrimaryRunningOperation();
+          if (active?.isPaused) {
+            void resumeBatchOperation(active.jobId);
+          }
+          break;
+        }
+        case 'cancel-batch': {
+          const active = getPrimaryRunningOperation();
+          if (active) {
+            void cancelBatchOperation(active.jobId);
+          }
+          break;
+        }
         case 'focus-shortcuts':
-          setShowShortcutsHelp(!showShortcutsHelp);
+          setShowShortcutsHelp(prev => !prev);
           break;
         case 'refresh':
           loadOperations();
@@ -116,7 +154,7 @@ export default function AdvancedScheduling() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [shortcuts, showShortcutsHelp, loadOperations]);
+  }, [shortcuts, showShortcutsHelp, loadOperations, handlePauseToggle, getPrimaryRunningOperation, cancelBatchOperation, resumeBatchOperation]);
 
   const runningOps = operations.filter(op => op.status === 'running');
   const pendingOps = operations.filter(op => op.status === 'pending');
@@ -244,6 +282,7 @@ export default function AdvancedScheduling() {
           <BatchOperationsQueue
             operations={operations as any}
             onCancel={cancelBatchOperation}
+            onPauseToggle={handlePauseToggle}
             isLoading={isLoadingOps}
           />
         </TabsContent>

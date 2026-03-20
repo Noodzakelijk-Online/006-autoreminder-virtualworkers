@@ -74,6 +74,12 @@ interface UnderstandingProgress {
 
 type ProgressCallback = (progress: UnderstandingProgress) => void;
 
+interface InterviewGuidance {
+  goal?: string;
+  deliverable?: string;
+  successCriteria?: string[];
+}
+
 /**
  * Build full context for a card including attachments and comments
  */
@@ -118,7 +124,11 @@ async function buildCardContext(cardId: number): Promise<CardContext | null> {
 /**
  * Format card context into a prompt for AI analysis
  */
-function formatContextForAI(context: CardContext, extractedContent?: ExtractedContent): string {
+function formatContextForAI(
+  context: CardContext,
+  extractedContent?: ExtractedContent,
+  interviewGuidance?: InterviewGuidance
+): string {
   const { card, boardName, attachments, comments } = context;
 
   let prompt = `# Task Card Analysis
@@ -172,6 +182,23 @@ function formatContextForAI(context: CardContext, extractedContent?: ExtractedCo
     }
   }
 
+  if (interviewGuidance?.goal || interviewGuidance?.deliverable || interviewGuidance?.successCriteria?.length) {
+    prompt += `\n## Goal Interview Guidance\n`;
+    if (interviewGuidance.goal) {
+      prompt += `- Clarified Goal: ${interviewGuidance.goal}\n`;
+    }
+    if (interviewGuidance.deliverable) {
+      prompt += `- Clarified Deliverable: ${interviewGuidance.deliverable}\n`;
+    }
+    if (interviewGuidance.successCriteria?.length) {
+      prompt += `- Success Criteria:\n`;
+      for (const criterion of interviewGuidance.successCriteria) {
+        prompt += `  - ${criterion}\n`;
+      }
+    }
+    prompt += `Use this interview guidance as the strongest signal when it conflicts with vague card text.\n`;
+  }
+
   return prompt;
 }
 
@@ -191,8 +218,12 @@ interface ExtractedContent {
 /**
  * Call AI to analyze the card and generate understanding
  */
-async function analyzeWithAI(context: CardContext, extractedContent?: ExtractedContent): Promise<TaskUnderstanding> {
-  const contextText = formatContextForAI(context, extractedContent);
+async function analyzeWithAI(
+  context: CardContext,
+  extractedContent?: ExtractedContent,
+  interviewGuidance?: InterviewGuidance
+): Promise<TaskUnderstanding> {
+  const contextText = formatContextForAI(context, extractedContent, interviewGuidance);
 
   const systemPrompt = `You are an expert task analyst for a Virtual Assistant management system. Your job is to analyze Trello cards and extract structured information to help VAs understand and complete tasks efficiently.
 
@@ -447,7 +478,10 @@ async function loadExtractedContent(cardId: number): Promise<ExtractedContent | 
 /**
  * Process a single card with AI understanding
  */
-export async function processCardUnderstanding(cardId: number): Promise<TaskUnderstanding | null> {
+export async function processCardUnderstanding(
+  cardId: number,
+  interviewGuidance?: InterviewGuidance
+): Promise<TaskUnderstanding | null> {
   const context = await buildCardContext(cardId);
   if (!context) {
     console.error(`[ATIS Understanding] Card ${cardId} not found`);
@@ -464,7 +498,7 @@ export async function processCardUnderstanding(cardId: number): Promise<TaskUnde
     console.log(`[ATIS Understanding] Including ${attachCount} extracted attachments, ${convCount} chatbot conversations`);
   }
 
-  const understanding = await analyzeWithAI(context, extractedContent);
+  const understanding = await analyzeWithAI(context, extractedContent, interviewGuidance);
   await saveUnderstanding(cardId, context.card.trelloId, understanding);
 
   return understanding;

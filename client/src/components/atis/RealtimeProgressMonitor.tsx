@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertCircle, CheckCircle2, Clock, Zap, Wifi, WifiOff } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock, Loader2, Zap, Wifi, WifiOff } from 'lucide-react';
 import { useATISWebSocket } from '@/hooks/useATISWebSocket';
 import type {
   AnalysisProgressUpdate,
@@ -103,7 +103,6 @@ export default function RealtimeProgressMonitor({
 
   return (
     <div className="space-y-4">
-      {/* Connection Status */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-center justify-between">
@@ -113,10 +112,15 @@ export default function RealtimeProgressMonitor({
                   <Wifi className="h-5 w-5 text-green-600" />
                   <span className="text-sm font-medium text-green-600">Connected</span>
                 </>
-              ) : (
+              ) : wsError ? (
                 <>
                   <WifiOff className="h-5 w-5 text-red-600" />
-                  <span className="text-sm font-medium text-red-600">Disconnected</span>
+                  <span className="text-sm font-medium text-red-600">Reconnect failed</span>
+                </>
+              ) : (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+                  <span className="text-sm font-medium text-amber-600">Reconnecting</span>
                 </>
               )}
             </div>
@@ -127,7 +131,6 @@ export default function RealtimeProgressMonitor({
         </CardContent>
       </Card>
 
-      {/* Overall Progress */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Overall Progress</CardTitle>
@@ -163,16 +166,21 @@ export default function RealtimeProgressMonitor({
 
           {analysisComplete && (
             <div className="p-3 bg-green-50 rounded-lg border border-green-200 mt-4">
-              <p className="text-sm text-green-900">✓ Analysis completed successfully</p>
+              <p className="text-sm text-green-900">Analysis completed successfully</p>
               <p className="text-xs text-green-700 mt-1">
                 Total duration: {(totalDuration / 1000).toFixed(1)}s
               </p>
             </div>
           )}
+
+          {!analysisComplete && !isConnected && !wsError && (
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 mt-4">
+              <p className="text-sm text-amber-900">Connection dropped. We are trying to rejoin your analysis session automatically.</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Phase Progress */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Phase Progress</CardTitle>
@@ -216,7 +224,6 @@ export default function RealtimeProgressMonitor({
         </CardContent>
       </Card>
 
-      {/* Errors */}
       {errors.length > 0 && (
         <Card className="border-red-200 bg-red-50">
           <CardHeader>

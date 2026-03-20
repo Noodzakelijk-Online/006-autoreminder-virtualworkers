@@ -397,6 +397,8 @@ router.get('/batch/:jobId', async (req: Request, res: Response) => {
     const failedTasks = liveProgress?.failedTasks ?? operation?.failedTasks ?? 0;
     const currentTaskName = liveProgress?.currentTaskName ?? operation?.currentTaskName;
     const elapsedTimeSeconds = liveProgress?.elapsedSeconds ?? operation?.elapsedTimeSeconds;
+    const isPaused = liveProgress?.isPaused ?? false;
+    const pausedAt = liveProgress?.pausedAt ? new Date(liveProgress.pausedAt) : undefined;
 
     res.json({
       success: true,
@@ -408,7 +410,9 @@ router.get('/batch/:jobId', async (req: Request, res: Response) => {
       failedTasks,
       currentTaskName,
       elapsedSeconds,
-      elapsedTimeSeconds
+      elapsedTimeSeconds,
+      isPaused,
+      pausedAt
     });
   } catch (error) {
     console.error('[AdvancedScheduling] Error getting batch progress:', error);
@@ -450,6 +454,76 @@ router.post('/batch/:jobId/cancel', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[AdvancedScheduling] Error cancelling batch operation:', error);
     res.status(500).json({ error: 'Failed to cancel batch operation' });
+  }
+});
+
+/**
+ * POST /api/scheduling/batch/:jobId/pause
+ * Pause a running batch operation
+ */
+router.post('/batch/:jobId/pause', async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const userOpenId = (req as any).user?.openId;
+
+    if (!userOpenId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const operation = await schedulingDb.getBatchOperation(jobId);
+    if (!operation) {
+      return res.status(404).json({ error: 'Batch operation not found' });
+    }
+
+    if (operation.userId !== userOpenId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    await batchQueueProcessor.pauseJob(jobId);
+
+    res.json({
+      success: true,
+      jobId,
+      message: 'Batch operation paused'
+    });
+  } catch (error) {
+    console.error('[AdvancedScheduling] Error pausing batch operation:', error);
+    res.status(500).json({ error: 'Failed to pause batch operation' });
+  }
+});
+
+/**
+ * POST /api/scheduling/batch/:jobId/resume
+ * Resume a paused batch operation
+ */
+router.post('/batch/:jobId/resume', async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const userOpenId = (req as any).user?.openId;
+
+    if (!userOpenId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const operation = await schedulingDb.getBatchOperation(jobId);
+    if (!operation) {
+      return res.status(404).json({ error: 'Batch operation not found' });
+    }
+
+    if (operation.userId !== userOpenId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    await batchQueueProcessor.resumeJob(jobId);
+
+    res.json({
+      success: true,
+      jobId,
+      message: 'Batch operation resumed'
+    });
+  } catch (error) {
+    console.error('[AdvancedScheduling] Error resuming batch operation:', error);
+    res.status(500).json({ error: 'Failed to resume batch operation' });
   }
 });
 

@@ -202,6 +202,58 @@ router.post('/:sessionId/respond', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/interview/card/:cardId/latest
+ * Get the latest interview session for the current user on a card.
+ * Prefer active sessions so the UI can resume where the user left off.
+ */
+router.get('/card/:cardId/latest', async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { cardId } = req.params;
+    const sessions = await getCardInterviewSessions(cardId);
+    const userSessions = sessions
+      .filter((session: any) => session.userOpenId === user.openId)
+      .sort((a: any, b: any) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
+
+    const preferredSession =
+      userSessions.find((session: any) => session.status === 'active') ||
+      userSessions.find((session: any) => session.status === 'completed') ||
+      null;
+
+    if (!preferredSession) {
+      return res.json({ session: null });
+    }
+
+    const sessionData = preferredSession.sessionData ? JSON.parse(preferredSession.sessionData) : null;
+    const results = preferredSession.status === 'completed'
+      ? await getInterviewResults(preferredSession.id)
+      : null;
+
+    return res.json({
+      session: {
+        id: preferredSession.id,
+        status: preferredSession.status,
+        currentPhase: preferredSession.currentPhase,
+        currentQuestion: preferredSession.currentQuestion,
+        overallConfidence: preferredSession.overallConfidence,
+        preAnalysisSummary: preferredSession.preAnalysisSummary,
+        messages: sessionData?.messages || [],
+        finalGoal: results?.executionPlan ? JSON.parse(results.executionPlan) : null,
+        completedAt: preferredSession.completedAt,
+        updatedAt: preferredSession.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error('[Interview] Error fetching latest card session:', error);
+    return res.status(500).json({ error: 'Failed to fetch latest interview session' });
+  }
+});
+
+/**
  * GET /api/interview/:sessionId
  * Get interview session details
  */

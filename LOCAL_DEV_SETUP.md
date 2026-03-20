@@ -37,7 +37,7 @@ pnpm install
 
 ## Step 2: Create Environment File
 
-Create a `.env` file in the project root. Use `.env.example` as a template (see below).
+Create a `.env` file in the project root by copying `[.env.example](/d:/projects/VA dashboard/va-dashboard/.env.example)`, then fill in your local secrets.
 
 ### Option A: Local MySQL Server
 
@@ -293,6 +293,7 @@ pnpm dev
 ## Additional Resources
 
 - **Database Schema:** See `drizzle/schema.ts`
+- **Environment Template:** See `[.env.example](/d:/projects/VA dashboard/va-dashboard/.env.example)`
 - **API Endpoints:** See `server/routers.ts`
 - **Architecture:** See `ARCHITECTURE-ACTUAL.md`
 - **Project Status:** See `todo.md`

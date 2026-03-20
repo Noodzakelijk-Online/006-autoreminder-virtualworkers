@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { trpc } from '@/lib/trpc';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,8 @@ import { Loader2 } from 'lucide-react';
 import { TaskSelector } from '@/components/atis/TaskSelector';
 import RealtimeProgressMonitor from '@/components/atis/RealtimeProgressMonitor';
 import type { AnalysisCompleteEvent } from '@/hooks/useATISWebSocket';
+
+const ACTIVE_ATIS_SESSION_KEY = 'atis_active_analysis_session';
 
 interface AnalysisData {
   sessionId: string;
@@ -43,11 +45,41 @@ export default function ATISPhasesAnalysisDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
+  useEffect(() => {
+    const savedSession = window.sessionStorage.getItem(ACTIVE_ATIS_SESSION_KEY);
+    if (!savedSession) return;
+
+    try {
+      const parsed = JSON.parse(savedSession) as AnalysisData;
+      setAnalysisData(parsed);
+      setSelectedTask(parsed.taskId);
+      setSessionId(parsed.sessionId);
+      if (parsed.status === 'in_progress') {
+        setIsAnalyzing(true);
+      }
+    } catch (restoreError) {
+      console.error('Failed to restore ATIS session:', restoreError);
+      window.sessionStorage.removeItem(ACTIVE_ATIS_SESSION_KEY);
+    }
+  }, []);
+
+  const persistActiveSession = (data: AnalysisData | null) => {
+    if (!data) {
+      window.sessionStorage.removeItem(ACTIVE_ATIS_SESSION_KEY);
+      return;
+    }
+
+    window.sessionStorage.setItem(ACTIVE_ATIS_SESSION_KEY, JSON.stringify(data));
+  };
+
   // Start analysis mutation using tRPC
   const startAnalysisMutation = trpc.atis.startAnalysis.useMutation({
     onSuccess: (data: any) => {
-      setAnalysisData(data.data as AnalysisData);
-      setSessionId(data.data?.sessionId || null);
+      const analysis = data.data as AnalysisData;
+      setAnalysisData(analysis);
+      setSessionId(analysis?.sessionId || null);
+      setSelectedTask(analysis?.taskId || '');
+      persistActiveSession(analysis);
       setError(null);
     },
     onError: (error) => {
@@ -66,6 +98,13 @@ export default function ATISPhasesAnalysisDashboard() {
       if (!response.ok) throw new Error('Failed to load analysis');
       const data = await response.json();
       setAnalysisData(data);
+      setSessionId(data?.sessionId || null);
+      if (data?.status === 'in_progress') {
+        persistActiveSession(data);
+        setIsAnalyzing(true);
+      } else {
+        persistActiveSession(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -97,6 +136,8 @@ export default function ATISPhasesAnalysisDashboard() {
       overallConfidence: event.overallConfidence,
     } : prev);
     setIsAnalyzing(false);
+    setSessionId(null);
+    persistActiveSession(null);
   };
 
   return (
@@ -156,6 +197,15 @@ export default function ATISPhasesAnalysisDashboard() {
                     Start Analysis
                   </Button>
                 </div>
+
+                {analysisData?.status === 'in_progress' && sessionId && (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      This analysis session will be restored after refresh while it is still running.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 {/* Phase Status */}
                 <div className="border-t pt-4">
