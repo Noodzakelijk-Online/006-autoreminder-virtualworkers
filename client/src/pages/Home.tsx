@@ -480,6 +480,19 @@ export default function Home() {
       }
 
       toast.success(newCompletedState ? 'Task completed!' : 'Task marked incomplete');
+      
+      // Update stats after successful completion
+      const completedCount = tasks.filter(t => t.id === id ? newCompletedState : t.isCompleted).length;
+      const totalHours = tasks.reduce((acc, t) => acc + t.durationHours, 0);
+      const completedHours = tasks.filter(t => t.id === id ? newCompletedState : t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
+      
+      setStats({
+        totalTasks: tasks.length,
+        completedTasks: completedCount,
+        totalHours,
+        completedHours,
+        accuracy: 100
+      });
     } catch (error) {
       console.error('Error syncing task status:', error);
       // Revert on error
