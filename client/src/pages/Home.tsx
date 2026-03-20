@@ -619,20 +619,6 @@ export default function Home() {
                   >
                     View Weekly Schedule
                   </Button>
-                  <Button
-                    variant="secondary"
-                    className="flex-1"
-                    onClick={() => {
-                      const firstTaskWithCard = filteredTasks.find((task) => task.cardId) || tasks.find((task) => task.cardId);
-                      if (!firstTaskWithCard) {
-                        toast.info('Open tasks with Trello cards to start a goal interview.');
-                        return;
-                      }
-                      handleOpenInterview(firstTaskWithCard);
-                    }}
-                  >
-                    Clarify Goal
-                  </Button>
                   <Button 
                     variant="outline" 
                     className="flex-1"
