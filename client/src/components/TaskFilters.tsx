@@ -1,13 +1,7 @@
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Filter, SortAsc, SortDesc, X, Building2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 export interface TaskFiltersState {
   filter: 'all' | 'upcoming' | 'overdue' | 'today';
@@ -36,12 +30,12 @@ export function TaskFilters({
   totalTasks,
   filteredCount 
 }: TaskFiltersProps) {
-  const hasActiveFilters = filters.filter !== 'all' || filters.complexity || filters.client;
+  const hasActiveFilters = filters.filter !== 'all' || filters.taskType || filters.complexity || filters.client;
 
   const clearFilters = () => {
     onFiltersChange({
       filter: 'all',
-      completionStatus: 'all',
+      completionStatus: 'incomplete',
       taskType: null,
       complexity: null,
       client: null,
@@ -60,35 +54,33 @@ export function TaskFilters({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        {/* Due Date Filter */}
+        {/* Status Filter */}
         <Select
           value={filters.filter}
           onValueChange={(value) => onFiltersChange({ ...filters, filter: value as TaskFiltersState['filter'] })}
         >
-          <SelectTrigger className="w-[140px] h-8 text-xs">
-            <SelectValue placeholder="Due date" />
+          <SelectTrigger className="w-[130px] h-8 text-xs">
+            <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="all">All Tasks</SelectItem>
             <SelectItem value="today">Due Today</SelectItem>
             <SelectItem value="upcoming">Upcoming</SelectItem>
             <SelectItem value="overdue">Overdue</SelectItem>
           </SelectContent>
         </Select>
 
-        {/* Complexity Filter */}
+        {/* Completion Status Filter */}
         <Select
-          value={filters.complexity || "all-complexity"}
-          onValueChange={(value) => onFiltersChange({ ...filters, complexity: value === "all-complexity" ? null : (value as TaskFiltersState['complexity']) })}
+          value={filters.completionStatus}
+          onValueChange={(value) => onFiltersChange({ ...filters, completionStatus: value as TaskFiltersState['completionStatus'] })}
+          disabled
         >
-          <SelectTrigger className="w-[140px] h-8 text-xs">
-            <SelectValue placeholder="Complexity" />
+          <SelectTrigger className="w-[130px] h-8 text-xs">
+            <SelectValue placeholder="Completion" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all-complexity">All Complexity</SelectItem>
-            <SelectItem value="simple">Simple</SelectItem>
-            <SelectItem value="medium">Medium</SelectItem>
-            <SelectItem value="complex">Complex</SelectItem>
+            <SelectItem value="incomplete">Active Only</SelectItem>
           </SelectContent>
         </Select>
 
@@ -98,7 +90,8 @@ export function TaskFilters({
             value={filters.client || "all-clients"}
             onValueChange={(value) => onFiltersChange({ ...filters, client: value === "all-clients" ? null : value })}
           >
-            <SelectTrigger className="w-[140px] h-8 text-xs">
+            <SelectTrigger className="w-[150px] h-8 text-xs">
+              <Building2 className="h-3 w-3 mr-1" />
               <SelectValue placeholder="Client" />
             </SelectTrigger>
             <SelectContent>
@@ -111,6 +104,22 @@ export function TaskFilters({
             </SelectContent>
           </Select>
         )}
+
+        {/* Sort By */}
+        <Select
+          value={filters.sortBy}
+          onValueChange={(value) => onFiltersChange({ ...filters, sortBy: value as TaskFiltersState['sortBy'] })}
+        >
+          <SelectTrigger className="w-[130px] h-8 text-xs">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="dueDate">Due Date</SelectItem>
+            <SelectItem value="estimatedTime">Duration</SelectItem>
+            <SelectItem value="complexity">Complexity</SelectItem>
+            <SelectItem value="client">Client</SelectItem>
+          </SelectContent>
+        </Select>
 
         {/* Sort Order Toggle */}
         <Button
@@ -158,11 +167,19 @@ export function TaskFilters({
                 {filters.client}
               </Badge>
             )}
+            {filters.taskType && (
+              <Badge variant="secondary" className="text-xs py-0 capitalize">
+                {filters.taskType}
+              </Badge>
+            )}
             {filters.complexity && (
               <Badge variant="secondary" className="text-xs py-0 capitalize">
                 {filters.complexity}
               </Badge>
             )}
+            <Badge variant="secondary" className="text-xs py-0">
+              active only
+            </Badge>
           </div>
         </div>
       )}

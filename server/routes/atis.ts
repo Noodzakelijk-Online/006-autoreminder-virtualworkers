@@ -902,7 +902,6 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
     } else if (filter === 'upcoming') {
       tasks = tasks.filter((t: any) => t.dueDate && new Date(t.dueDate) >= now);
     }
-    // 'all' filter doesn't apply any date filtering - show all tasks
 
     if (taskType) {
       tasks = tasks.filter((t: any) => t.taskType === taskType);
