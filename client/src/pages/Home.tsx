@@ -247,9 +247,12 @@ export default function Home() {
     setIsLoadingTasks(true);
     try {
       const atisResponse = await fetch('/api/atis/timeline-tasks?limit=100&filter=all');
+      console.log('[Home] ATIS Response status:', atisResponse.status);
       if (atisResponse.ok) {
         const atisData = await atisResponse.json();
+        console.log('[Home] ATIS Data received:', atisData);
         const scheduledTasks = atisData.scheduled || atisData.tasks || [];
+        console.log('[Home] Scheduled tasks:', scheduledTasks.length);
         const overflowTasks = atisData.overflow || [];
         if (scheduledTasks && scheduledTasks.length > 0) {
           const atisTasks: Task[] = scheduledTasks.map((t: any) => ({
@@ -323,7 +326,9 @@ export default function Home() {
         }
       }
 
+      console.log('[Home] Fetching from /api/trello/tasks');
       const response = await fetch('/api/trello/tasks');
+      console.log('[Home] Trello Response status:', response.status);
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
         console.error('Error fetching tasks:', errorData);
