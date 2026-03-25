@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { lazy, Suspense, useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Timeline } from "@/components/Timeline";
 import { OverflowTasks } from "@/components/OverflowTasks";
@@ -25,9 +25,16 @@ import { MobileNav } from "@/components/MobileNav";
 import { NotificationBell } from "@/components/NotificationBell";
 import { TaskFilters, TaskFiltersState } from "@/components/TaskFilters";
 import { LoadingQueueIndicator } from "@/components/LoadingQueueIndicator";
-import { ConversationDialog } from "@/components/ConversationDialog";
 import { BulkTaskActions } from "@/components/BulkTaskActions";
-import { GoalInterviewDialog } from "@/components/GoalInterviewDialog";
+
+const ConversationDialog = lazy(() => import("@/components/ConversationDialog"));
+const GoalInterviewDialog = lazy(() =>
+  import("@/components/GoalInterviewDialog").then(module => ({
+    default: module.GoalInterviewDialog,
+  }))
+);
+
+type TimelineView = 'day' | 'week';
 
 // No longer using mock data - fetch from Trello API
 
@@ -66,6 +73,11 @@ export default function Home() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [workers, setWorkers] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [workerFilter, setWorkerFilter] = useState<string | null>(null);
+  const [timelineView, setTimelineView] = useState<TimelineView>('day');
+
+  const activeConversationCard = conversationCard;
+  const activeInterviewTask = interviewTask;
+  const timelineViewLabel = timelineView === 'day' ? 'Showing tasks due today' : 'Showing tasks due in the next 7 days';
 
   // Listen for conversation dialog events from TaskCard
   useEffect(() => {
@@ -130,6 +142,24 @@ export default function Home() {
     if (workerFilter) {
       result = result.filter(t => t.assignedTo === workerFilter);
     }
+
+    const weekEnd = new Date(todayStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    result = result.filter(task => {
+      if (!task.date) {
+        return timelineView === 'week';
+      }
+
+      const taskDate = new Date(task.date);
+      const taskDay = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
+
+      if (timelineView === 'day') {
+        return taskDay.getTime() === todayStart.getTime();
+      }
+
+      return taskDay >= todayStart && taskDay < weekEnd;
+    });
     
     // Apply sorting
     result.sort((a, b) => {
@@ -156,7 +186,7 @@ export default function Home() {
     });
     
     return result;
-  }, [tasks, searchQuery, filters, workerFilter]);
+  }, [tasks, searchQuery, filters, workerFilter, timelineView]);
   const [isRescheduling, setIsRescheduling] = useState(false);
   const [stats, setStats] = useState<WeeklyStats>({
     totalTasks: 0,
@@ -663,10 +693,27 @@ export default function Home() {
               <div className="absolute top-0 left-0 right-0 h-20 md:h-32 bg-[url('https://files.manuscdn.com/user_upload_by_module/session_file/90835377/juXmFpmTtEuXvBVT.png')] bg-cover opacity-20" />
               <div className="relative z-10 p-4 md:p-6">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 mb-4">
-                  <h2 className="text-lg md:text-xl font-bold">Workload Timeline</h2>
-                  <div className="flex gap-1 md:gap-2">
-                    <Button variant="outline" size="sm" className="text-xs md:text-sm">Day</Button>
-                    <Button variant="ghost" size="sm" className="text-xs md:text-sm">Week</Button>
+                  <div>
+                    <h2 className="text-lg md:text-xl font-bold">Workload Timeline</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">{timelineViewLabel}</p>
+                  </div>
+                  <div className="flex gap-1 rounded-full border bg-background/70 p-1 md:gap-2">
+                    <Button
+                      variant={timelineView === 'day' ? "outline" : "ghost"}
+                      size="sm"
+                      className="rounded-full border-0 text-xs shadow-none md:text-sm"
+                      onClick={() => setTimelineView('day')}
+                    >
+                      Day
+                    </Button>
+                    <Button
+                      variant={timelineView === 'week' ? "outline" : "ghost"}
+                      size="sm"
+                      className="rounded-full border-0 text-xs shadow-none md:text-sm"
+                      onClick={() => setTimelineView('week')}
+                    >
+                      Week
+                    </Button>
                   </div>
                 </div>
                 
@@ -746,24 +793,32 @@ export default function Home() {
       </main>
 
       {/* Conversation Dialog */}
-      <ConversationDialog
-        open={!!conversationCard}
-        onOpenChange={(open) => !open && setConversationCard(null)}
-        cardId={conversationCard?.cardId || null}
-        cardName={conversationCard?.cardName || null}
-      />
+      {(activeConversationCard || activeInterviewTask) ? (
+        <Suspense fallback={null}>
+          {activeConversationCard ? (
+            <ConversationDialog
+              open={!!activeConversationCard}
+              onOpenChange={(open) => !open && setConversationCard(null)}
+              cardId={activeConversationCard.cardId}
+              cardName={activeConversationCard.cardName}
+            />
+          ) : null}
 
-      <GoalInterviewDialog
-        open={!!interviewTask}
-        onOpenChange={(open) => {
-          if (!open) {
-            setInterviewTask(null);
-          }
-        }}
-        cardId={interviewTask?.cardId || ''}
-        cardName={interviewTask?.cardName || ''}
-        onComplete={handleInterviewComplete}
-      />
+          {activeInterviewTask ? (
+            <GoalInterviewDialog
+              open={!!activeInterviewTask}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setInterviewTask(null);
+                }
+              }}
+              cardId={activeInterviewTask.cardId || ''}
+              cardName={activeInterviewTask.cardName || ''}
+              onComplete={handleInterviewComplete}
+            />
+          ) : null}
+        </Suspense>
+      ) : null}
     </div>
   );
 }
