@@ -60,7 +60,7 @@ export default function Home() {
   const [clients, setClients] = useState<{ client: string; count: number }[]>([]);
   const [filters, setFilters] = useState<TaskFiltersState>({
     filter: 'all',
-    completionStatus: 'incomplete',
+    completionStatus: 'all',
     taskType: null,
     complexity: null,
     client: null,
