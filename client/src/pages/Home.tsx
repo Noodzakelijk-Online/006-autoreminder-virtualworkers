@@ -82,6 +82,9 @@ export default function Home() {
   const filteredTasks = useMemo(() => {
     let result = [...tasks];
     
+    // Exclude tasks from 'Info' list
+    result = result.filter(task => !task.listName || task.listName.toLowerCase() !== 'info');
+    
     // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
