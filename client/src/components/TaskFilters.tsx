@@ -54,13 +54,13 @@ export function TaskFilters({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        {/* Status Filter */}
+        {/* Due Date Filter */}
         <Select
           value={filters.filter}
           onValueChange={(value) => onFiltersChange({ ...filters, filter: value as TaskFiltersState['filter'] })}
         >
           <SelectTrigger className="w-[130px] h-8 text-xs">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder="Due date" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Tasks</SelectItem>
@@ -70,21 +70,7 @@ export function TaskFilters({
           </SelectContent>
         </Select>
 
-        {/* Completion Status Filter */}
-        <Select
-          value={filters.completionStatus}
-          onValueChange={(value) => onFiltersChange({ ...filters, completionStatus: value as TaskFiltersState['completionStatus'] })}
-          disabled
-        >
-          <SelectTrigger className="w-[130px] h-8 text-xs">
-            <SelectValue placeholder="Completion" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="incomplete">Active Only</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {/* Client Filter */}
+        {/* Filter */}
         {clients.length > 0 && (
           <Select
             value={filters.client || "all-clients"}
@@ -92,7 +78,7 @@ export function TaskFilters({
           >
             <SelectTrigger className="w-[150px] h-8 text-xs">
               <Building2 className="h-3 w-3 mr-1" />
-              <SelectValue placeholder="Client" />
+              <SelectValue placeholder="Filter" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all-clients">All Clients</SelectItem>
