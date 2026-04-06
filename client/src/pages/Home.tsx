@@ -67,6 +67,7 @@ export default function Home() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [workers, setWorkers] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [workerFilter, setWorkerFilter] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
 
   // Listen for conversation dialog events from TaskCard
   useEffect(() => {
@@ -653,8 +654,22 @@ export default function Home() {
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 mb-4">
                   <h2 className="text-lg md:text-xl font-bold">Workload Timeline</h2>
                   <div className="flex gap-1 md:gap-2">
-                    <Button variant="outline" size="sm" className="text-xs md:text-sm">Day</Button>
-                    <Button variant="ghost" size="sm" className="text-xs md:text-sm">Week</Button>
+                    <Button 
+                      variant={viewMode === 'day' ? 'outline' : 'ghost'} 
+                      size="sm" 
+                      className="text-xs md:text-sm"
+                      onClick={() => setViewMode('day')}
+                    >
+                      Day
+                    </Button>
+                    <Button 
+                      variant={viewMode === 'week' ? 'outline' : 'ghost'} 
+                      size="sm" 
+                      className="text-xs md:text-sm"
+                      onClick={() => setViewMode('week')}
+                    >
+                      Week
+                    </Button>
                   </div>
                 </div>
                 
