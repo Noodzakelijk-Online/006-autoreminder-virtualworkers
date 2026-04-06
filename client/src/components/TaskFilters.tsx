@@ -4,7 +4,7 @@ import { Filter, SortAsc, SortDesc, X, Building2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export interface TaskFiltersState {
-  filter: 'all' | 'upcoming' | 'overdue' | 'today';
+  filter: 'all' | 'upcoming' | 'overdue' | 'today' | 'on-hold';
   completionStatus: 'all' | 'completed' | 'incomplete';
   taskType: string | null;
   complexity: 'simple' | 'medium' | 'complex' | null;
@@ -67,6 +67,7 @@ export function TaskFilters({
             <SelectItem value="today">Due Today</SelectItem>
             <SelectItem value="upcoming">Upcoming</SelectItem>
             <SelectItem value="overdue">Overdue</SelectItem>
+            <SelectItem value="on-hold">On-Hold</SelectItem>
           </SelectContent>
         </Select>
 

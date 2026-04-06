@@ -104,6 +104,8 @@ export default function Home() {
       result = result.filter(t => t.date && new Date(t.date) >= todayStart && new Date(t.date) < todayEnd);
     } else if (filters.filter === 'upcoming') {
       result = result.filter(t => t.date && new Date(t.date) >= now);
+    } else if (filters.filter === 'on-hold') {
+      result = result.filter(t => t.listName && t.listName.toLowerCase() === 'on-hold');
     }
     
     // Apply task type filter
