@@ -1299,3 +1299,60 @@ export type PerformanceMetricsSettings = typeof performanceMetricsSettings.$infe
 export type InsertPerformanceMetricsSettings = typeof performanceMetricsSettings.$inferInsert;
 export type SettingsSyncLog = typeof settingsSyncLog.$inferSelect;
 export type InsertSettingsSyncLog = typeof settingsSyncLog.$inferInsert;
+
+
+// ExecutionPlans table - stores execution plan metadata
+export const executionPlans = mysqlTable('execution_plans', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  cardId: varchar('cardId', { length: 255 }).notNull(),
+  userId: int('userId').notNull(),
+  objective: text('objective').notNull(),
+  inputs: text('inputs').notNull(), // JSON stringified
+  outputs: text('outputs').notNull(), // JSON stringified
+  stepsJson: text('stepsJson').notNull(), // JSON stringified
+  iterationFlowsJson: text('iterationFlowsJson').notNull(), // JSON stringified
+  totalEstimateMin: int('totalEstimateMin').notNull(),
+  totalEstimateMax: int('totalEstimateMax').notNull(),
+  generatedBy: mysqlEnum('generatedBy', ['manual', 'ai']).notNull().default('manual'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// ExecutionPlanSteps table - stores individual step statuses
+export const executionPlanSteps = mysqlTable('execution_plan_steps', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  executionPlanId: varchar('executionPlanId', { length: 255 }).notNull(),
+  stepId: varchar('stepId', { length: 255 }).notNull(),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+  dependencies: text('dependencies').notNull(), // JSON stringified array
+  parallelizable: int('parallelizable').notNull().default(0),
+  timeEstimateMin: int('timeEstimateMin').notNull(),
+  timeEstimateMax: int('timeEstimateMax').notNull(),
+  risks: text('risks').notNull(), // JSON stringified array
+  status: mysqlEnum('status', ['completed', 'in-progress', 'ready', 'blocked']).notNull().default('ready'),
+  completedBy: varchar('completedBy', { length: 255 }),
+  completedAt: timestamp('completedAt'),
+  startedAt: timestamp('startedAt'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// ExecutionPlanStatusHistory table - audit trail for status changes
+export const executionPlanStatusHistory = mysqlTable('execution_plan_status_history', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  stepId: varchar('stepId', { length: 255 }).notNull(),
+  executionPlanId: varchar('executionPlanId', { length: 255 }).notNull(),
+  previousStatus: mysqlEnum('previousStatus', ['completed', 'in-progress', 'ready', 'blocked']).notNull(),
+  newStatus: mysqlEnum('newStatus', ['completed', 'in-progress', 'ready', 'blocked']).notNull(),
+  changedBy: int('changedBy').notNull(),
+  reason: text('reason'),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+});
+
+export type ExecutionPlan = typeof executionPlans.$inferSelect;
+export type InsertExecutionPlan = typeof executionPlans.$inferInsert;
+export type ExecutionPlanStep = typeof executionPlanSteps.$inferSelect;
+export type InsertExecutionPlanStep = typeof executionPlanSteps.$inferInsert;
+export type ExecutionPlanStatusHistoryRecord = typeof executionPlanStatusHistory.$inferSelect;
+export type InsertExecutionPlanStatusHistory = typeof executionPlanStatusHistory.$inferInsert;

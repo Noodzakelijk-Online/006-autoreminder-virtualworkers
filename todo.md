@@ -1921,3 +1921,22 @@ Each card now has:
 - [ ] Integrate interview system into main flow
 - [ ] Back founder/worker dashboards with real data
 - [ ] Add comprehensive error handling to all stubbed endpoints
+
+
+## ExecutionPlan Dashboard System (Phase 1-6)
+
+- [ ] Create executionPlanSteps database table schema with status tracking
+- [ ] Create executionPlans database table schema for storing plans
+- [ ] Implement Trello API integration for fetching ExecutionPlan JSON from cards
+- [ ] Build ExecutionPlan JSON validator against schema
+- [ ] Create AI workflow for auto-generating ExecutionPlan JSON from card descriptions
+- [ ] Implement backend API procedures for step status persistence
+- [ ] Build real-time status update synchronization across users
+- [ ] Enhance ExecutionPlanDashboardV2 with live Trello data integration
+- [ ] Add Gantt timeline visualization with critical path highlighting
+- [ ] Implement iteration loop rendering with loop conditions
+- [ ] Add risk highlighting and comprehensive edge case handling
+- [ ] Test Trello API integration with actual cards
+- [ ] Test database persistence and real-time sync
+- [ ] Test AI ExecutionPlan generation accuracy
+- [ ] Test dashboard UI with live data and multiple users

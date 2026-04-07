@@ -1,5 +1,16 @@
 import { router, publicProcedure, protectedProcedure } from '../_core/trpc';
 import { z } from 'zod';
+import {
+  fetchExecutionPlanFromTrello,
+  storeExecutionPlan,
+  getExecutionPlan,
+  getExecutionPlanByCardId,
+  updateStepStatus,
+  calculateBlockedSteps,
+  validateExecutionPlanSchema
+} from '../services/executionPlanService';
+import { generateExecutionPlanFromCard } from '../services/executionPlanGenerator';
+import { ENV } from '../_core/env';
 
 // Zod schemas for validation
 const TimeEstimateSchema = z.object({
@@ -33,134 +44,148 @@ const ExecutionPlanSchema = z.object({
   totalEstimate: TimeEstimateSchema,
 });
 
-const StepStatusSchema = z.object({
-  stepId: z.string(),
-  status: z.enum(['completed', 'in-progress', 'ready', 'blocked']),
-  updatedAt: z.string(),
-});
-
 export const executionPlanRouter = router({
-  // Get execution plan for a card
-  getCardExecutionPlan: protectedProcedure
+  // Fetch ExecutionPlan from Trello card
+  fetchFromTrello: protectedProcedure
     .input(z.object({ cardId: z.string() }))
-    .query(async ({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        // Fetch from Trello card description or custom field
-        // This is a placeholder - implement actual Trello API integration
-        const plan = null; // TODO: Fetch from Trello
+        // Get Trello API credentials from context or environment
+        const trelloApiKey = process.env.TRELLO_API_KEY || '';
+        const trelloToken = process.env.TRELLO_TOKEN || '';
+        
+        if (!trelloApiKey || !trelloToken) {
+          return { success: false, error: 'Trello API credentials not configured' };
+        }
+        
+        const plan = await fetchExecutionPlanFromTrello(
+          input.cardId,
+          trelloApiKey,
+          trelloToken
+        );
 
         if (!plan) {
-          return {
-            plan: null,
-            stepStatuses: [],
-          };
+          return { success: false, error: 'No ExecutionPlan found in card description' };
         }
 
-        // Validate plan against schema
-        const validatedPlan = ExecutionPlanSchema.parse(plan);
+        // Store in database
+        const planId = await storeExecutionPlan(input.cardId, ctx.user.id, plan, 'manual');
 
-        // Fetch step statuses from database
-        // TODO: Implement database query for step statuses
-
-        return {
-          plan: validatedPlan,
-          stepStatuses: [],
-        };
+        return { success: true, planId, plan };
       } catch (error) {
-        throw new Error(`Failed to fetch execution plan: ${error}`);
+        console.error('Error fetching ExecutionPlan from Trello:', error);
+        return { success: false, error: (error as Error).message };
+      }
+    }),
+
+  // Generate ExecutionPlan using AI
+  generateFromCard: protectedProcedure
+    .input(z.object({
+      cardId: z.string(),
+      cardTitle: z.string(),
+      cardDescription: z.string()
+    }))
+    .mutation(async ({ input, ctx }) => {
+      try {
+        const result = await generateExecutionPlanFromCard(input.cardTitle, input.cardDescription);
+
+        if (!result.success) {
+          return { success: false, error: result.error };
+        }
+
+        // Store in database
+        const planId = await storeExecutionPlan(input.cardId, ctx.user.id, result.plan, 'ai');
+
+        return { success: true, planId, plan: result.plan };
+      } catch (error) {
+        console.error('Error generating ExecutionPlan:', error);
+        return { success: false, error: (error as Error).message };
+      }
+    }),
+
+  // Get ExecutionPlan by ID
+  getById: protectedProcedure
+    .input(z.object({ planId: z.string() }))
+    .query(async ({ input }) => {
+      try {
+        const plan = await getExecutionPlan(input.planId);
+        if (!plan) {
+          return { success: false, error: 'ExecutionPlan not found' };
+        }
+        return { success: true, plan };
+      } catch (error) {
+        console.error('Error fetching ExecutionPlan:', error);
+        return { success: false, error: (error as Error).message };
+      }
+    }),
+
+  // Get ExecutionPlan by Card ID
+  getByCardId: protectedProcedure
+    .input(z.object({ cardId: z.string() }))
+    .query(async ({ input }) => {
+      try {
+        const plan = await getExecutionPlanByCardId(input.cardId);
+        if (!plan) {
+          return { success: false, error: 'ExecutionPlan not found for this card' };
+        }
+        return { success: true, plan };
+      } catch (error) {
+        console.error('Error fetching ExecutionPlan by cardId:', error);
+        return { success: false, error: (error as Error).message };
       }
     }),
 
   // Update step status
   updateStepStatus: protectedProcedure
-    .input(
-      z.object({
-        cardId: z.string(),
-        stepId: z.string(),
-        status: z.enum(['completed', 'in-progress', 'ready']),
-      })
-    )
+    .input(z.object({
+      stepId: z.string(),
+      executionPlanId: z.string(),
+      newStatus: z.enum(['completed', 'in-progress', 'ready', 'blocked']),
+      reason: z.string().optional()
+    }))
     .mutation(async ({ input, ctx }) => {
       try {
-        // TODO: Save to database
-        // const result = await db.executionPlanSteps.update({
-        //   where: { cardId_stepId: { cardId: input.cardId, stepId: input.stepId } },
-        //   data: { status: input.status, updatedAt: new Date() },
-        // });
+        const result = await updateStepStatus(
+          input.stepId,
+          input.executionPlanId,
+          input.newStatus,
+          ctx.user.id,
+          input.reason
+        );
 
-        return {
-          success: true,
-          stepId: input.stepId,
-          status: input.status,
-          updatedAt: new Date().toISOString(),
-        };
+        // Calculate blocked steps after status update
+        const blockedSteps = await calculateBlockedSteps(input.executionPlanId);
+
+        return { success: true, result, blockedSteps };
       } catch (error) {
-        throw new Error(`Failed to update step status: ${error}`);
+        console.error('Error updating step status:', error);
+        return { success: false, error: (error as Error).message };
       }
     }),
 
-  // Save execution plan to card
-  saveExecutionPlan: protectedProcedure
-    .input(
-      z.object({
-        cardId: z.string(),
-        plan: ExecutionPlanSchema,
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
+  // Get blocked steps
+  getBlockedSteps: protectedProcedure
+    .input(z.object({ executionPlanId: z.string() }))
+    .query(async ({ input }) => {
       try {
-        // TODO: Save to Trello card custom field or database
-        // Validate plan
-        const validatedPlan = ExecutionPlanSchema.parse(input.plan);
-
-        return {
-          success: true,
-          cardId: input.cardId,
-          plan: validatedPlan,
-        };
+        const blockedSteps = await calculateBlockedSteps(input.executionPlanId);
+        return { success: true, blockedSteps };
       } catch (error) {
-        throw new Error(`Failed to save execution plan: ${error}`);
+        console.error('Error calculating blocked steps:', error);
+        return { success: false, error: (error as Error).message };
       }
     }),
 
-  // Get all step statuses for a card
-  getStepStatuses: protectedProcedure
-    .input(z.object({ cardId: z.string() }))
-    .query(async ({ input, ctx }) => {
+  // Validate ExecutionPlan JSON
+  validateSchema: publicProcedure
+    .input(z.object({ plan: z.any() }))
+    .query(({ input }) => {
       try {
-        // TODO: Query database for step statuses
-        // const statuses = await db.executionPlanSteps.findMany({
-        //   where: { cardId: input.cardId },
-        // });
-
-        return [];
+        const validation = validateExecutionPlanSchema(input.plan);
+        return { success: validation.valid, errors: validation.errors };
       } catch (error) {
-        throw new Error(`Failed to fetch step statuses: ${error}`);
+        console.error('Error validating ExecutionPlan:', error);
+        return { success: false, errors: [(error as Error).message] };
       }
-    }),
-
-  // Bulk update step statuses
-  bulkUpdateStepStatuses: protectedProcedure
-    .input(
-      z.object({
-        cardId: z.string(),
-        updates: z.array(
-          z.object({
-            stepId: z.string(),
-            status: z.enum(['completed', 'in-progress', 'ready']),
-          })
-        ),
-      })
-    )
-    .mutation(async ({ input, ctx }) => {
-      try {
-        // TODO: Batch update in database
-        return {
-          success: true,
-          updated: input.updates.length,
-        };
-      } catch (error) {
-        throw new Error(`Failed to bulk update step statuses: ${error}`);
-      }
-    }),
+    })
 });

@@ -141,6 +141,13 @@
       "when": 1772913915970,
       "tag": "0019_fine_hiroim",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "5",
+      "when": 1775601620328,
+      "tag": "0020_smart_liz_osborn",
+      "breakpoints": true
     }
   ]
 }
