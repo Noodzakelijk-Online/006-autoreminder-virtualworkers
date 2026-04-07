@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExecutionPlanDashboard } from '@/components/ExecutionPlanDashboard';
+import { ExecutionPlanDashboardV2 } from '@/components/ExecutionPlanDashboardV2';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Download, Share2 } from 'lucide-react';
@@ -342,10 +342,8 @@ export default function ExecutionPlanPage() {
         </div>
 
         {/* Main Dashboard */}
-        <ExecutionPlanDashboard
+        <ExecutionPlanDashboardV2
           plan={sampleExecutionPlan}
-          completedSteps={completedSteps}
-          inProgressStep={inProgressStep}
         />
       </div>
     </div>
