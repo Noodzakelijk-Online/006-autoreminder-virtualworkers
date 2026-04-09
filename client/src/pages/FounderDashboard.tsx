@@ -82,17 +82,6 @@ interface TaskAssignment {
   clientProject?: string;
 }
 
-interface ReviewItem {
-  id: number;
-  taskId: string;
-  taskTitle: string;
-  cardName: string;
-  workerId: number;
-  workerName: string;
-  submittedAt: string;
-  status: 'pending' | 'approved' | 'revision_requested';
-  notes?: string;
-}
 
 interface CommunicationEntry {
   id: number;
@@ -128,7 +117,7 @@ export default function FounderDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [workload, setWorkload] = useState<WorkloadItem[]>([]);
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
-  const [reviews, setReviews] = useState<ReviewItem[]>([]);
+
   const [communications, setCommunications] = useState<CommunicationEntry[]>([]);
   const [timezoneOverlaps, setTimezoneOverlaps] = useState<TimezoneOverlap[]>([]);
   const [loading, setLoading] = useState(true);
@@ -186,7 +175,7 @@ export default function FounderDashboard() {
       await Promise.all([
         fetchWorkload(),
         fetchAssignments(),
-        fetchReviews(),
+
         fetchCommunications(),
         fetchTimezoneOverlaps(),
         fetchBriefingSettings(),
@@ -220,17 +209,6 @@ export default function FounderDashboard() {
     }
   };
 
-  const fetchReviews = async () => {
-    try {
-      const res = await fetch('/api/va/reviews', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        setReviews(Array.isArray(data) ? data : data.reviews || []);
-      }
-    } catch (error) {
-      console.error('Error fetching reviews:', error);
-    }
-  };
 
   const fetchCommunications = async () => {
     try {
@@ -386,47 +364,7 @@ export default function FounderDashboard() {
     }
   };
 
-  const handleApproveReview = async (reviewId: number) => {
-    try {
-      const res = await fetch(`/api/va/reviews/${reviewId}/approve`, {
-        method: 'POST',
-        credentials: 'include',
-      });
 
-      if (res.ok) {
-        setReviews(reviews.map(r => 
-          r.id === reviewId ? { ...r, status: 'approved' } : r
-        ));
-        toast.success('Task approved');
-      } else {
-        toast.error('Failed to approve');
-      }
-    } catch (error) {
-      toast.error('Failed to approve');
-    }
-  };
-
-  const handleRequestRevision = async (reviewId: number, notes: string) => {
-    try {
-      const res = await fetch(`/api/va/reviews/${reviewId}/revision`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ notes }),
-      });
-
-      if (res.ok) {
-        setReviews(reviews.map(r => 
-          r.id === reviewId ? { ...r, status: 'revision_requested', notes } : r
-        ));
-        toast.success('Revision requested');
-      } else {
-        toast.error('Failed to request revision');
-      }
-    } catch (error) {
-      toast.error('Failed to request revision');
-    }
-  };
 
   const handleSaveBriefingSettings = async () => {
     try {
@@ -944,12 +882,6 @@ export default function FounderDashboard() {
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-7 lg:w-auto lg:inline-grid">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="assignments">Assignments</TabsTrigger>
-            <TabsTrigger value="reviews">
-              Reviews
-              {reviews.filter(r => r.status === 'pending').length > 0 && (
-                <Badge className="ml-2 bg-red-500 text-white text-xs">{reviews.filter(r => r.status === 'pending').length}</Badge>
-              )}
-            </TabsTrigger>
             <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
             <TabsTrigger value="communications">Communications</TabsTrigger>
             <TabsTrigger value="timezones">Timezones</TabsTrigger>
@@ -1369,83 +1301,6 @@ export default function FounderDashboard() {
             </div>
           </TabsContent>
 
-          {/* Reviews Tab */}
-          <TabsContent value="reviews" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Star className="h-5 w-5 text-yellow-500" />
-                  Quality Review Queue
-                </CardTitle>
-                <CardDescription>Review completed tasks before delivery to clients</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {loading ? (
-                  <div className="space-y-3">
-                    {Array(3).fill(0).map((_, i) => (
-                      <Skeleton key={i} className="h-24 w-full" />
-                    ))}
-                  </div>
-                ) : reviews.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <CheckCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No tasks pending review</p>
-                    <p className="text-sm mt-2">Tasks marked as "Ready for Review" will appear here.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {reviews.map(review => (
-                      <div key={review.id} className="border rounded-lg p-4">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h3 className="font-medium">{review.taskTitle}</h3>
-                            <p className="text-sm text-muted-foreground">
-                              {review.cardName} • Submitted by {review.workerName}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {new Date(review.submittedAt).toLocaleString()}
-                            </p>
-                            {review.notes && (
-                              <p className="text-sm mt-2 p-2 bg-secondary/50 rounded">{review.notes}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {review.status === 'pending' ? (
-                              <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    const notes = prompt('Enter revision notes:');
-                                    if (notes) handleRequestRevision(review.id, notes);
-                                  }}
-                                >
-                                  <XCircle className="h-4 w-4 mr-2" />
-                                  Revision
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleApproveReview(review.id)}
-                                >
-                                  <CheckCircle className="h-4 w-4 mr-2" />
-                                  Approve
-                                </Button>
-                              </>
-                            ) : review.status === 'approved' ? (
-                              <Badge className="bg-green-100 text-green-700">Approved</Badge>
-                            ) : (
-                              <Badge className="bg-yellow-100 text-yellow-700">Revision Requested</Badge>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           {/* Dependencies Tab */}
           <TabsContent value="dependencies" className="space-y-6">
             <DependencyGraph
@@ -1774,9 +1629,7 @@ export default function FounderDashboard() {
                         ))}
                       </ul>
                     </div>
-                    <div>
-                      <strong>Pending Reviews:</strong> {reviews.filter(r => r.status === 'pending').length} tasks awaiting your approval
-                    </div>
+
                   </div>
                 </div>
               </CardContent>
