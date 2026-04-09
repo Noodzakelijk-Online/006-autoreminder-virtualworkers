@@ -4,7 +4,7 @@ import { Filter, SortAsc, SortDesc, X, Building2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export interface TaskFiltersState {
-  filter: 'all' | 'upcoming' | 'overdue' | 'today';
+  filter: 'all' | 'upcoming' | 'overdue' | 'today' | 'on-hold';
   completionStatus: 'all' | 'completed' | 'incomplete';
   taskType: string | null;
   complexity: 'simple' | 'medium' | 'complex' | null;
@@ -31,13 +31,6 @@ export function TaskFilters({
   filteredCount 
 }: TaskFiltersProps) {
   const hasActiveFilters = filters.filter !== 'all' || filters.taskType || filters.complexity || filters.client;
-  const selectedFilterValue = filters.client
-    ? `client:${filters.client}`
-    : filters.taskType
-      ? `taskType:${filters.taskType}`
-      : filters.complexity
-        ? `complexity:${filters.complexity}`
-        : "all-filters";
 
   const clearFilters = () => {
     onFiltersChange({
@@ -58,28 +51,6 @@ export function TaskFilters({
     });
   };
 
-  const handleFilterChange = (value: string) => {
-    if (value === "all-filters") {
-      onFiltersChange({
-        ...filters,
-        client: null,
-        taskType: null,
-        complexity: null,
-      });
-      return;
-    }
-
-    const [type, rawValue] = value.split(":");
-    if (!rawValue) return;
-
-    onFiltersChange({
-      ...filters,
-      client: type === "client" ? rawValue : null,
-      taskType: type === "taskType" ? rawValue : null,
-      complexity: type === "complexity" ? rawValue as TaskFiltersState["complexity"] : null,
-    });
-  };
-
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -88,40 +59,52 @@ export function TaskFilters({
           value={filters.filter}
           onValueChange={(value) => onFiltersChange({ ...filters, filter: value as TaskFiltersState['filter'] })}
         >
-          <SelectTrigger className="w-[140px] h-8 text-xs">
+          <SelectTrigger className="w-[130px] h-8 text-xs">
             <SelectValue placeholder="Due date" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Due date</SelectItem>
+            <SelectItem value="all">All Tasks</SelectItem>
             <SelectItem value="today">Due Today</SelectItem>
             <SelectItem value="upcoming">Upcoming</SelectItem>
             <SelectItem value="overdue">Overdue</SelectItem>
+            <SelectItem value="on-hold">On-Hold</SelectItem>
           </SelectContent>
         </Select>
 
-        {/* General Filter */}
+        {/* Filter */}
+        {clients.length > 0 && (
+          <Select
+            value={filters.client || "all-clients"}
+            onValueChange={(value) => onFiltersChange({ ...filters, client: value === "all-clients" ? null : value })}
+          >
+            <SelectTrigger className="w-[150px] h-8 text-xs">
+              <Building2 className="h-3 w-3 mr-1" />
+              <SelectValue placeholder="Filter" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all-clients">All Clients</SelectItem>
+              {clients.map(({ client, count }) => (
+                <SelectItem key={client} value={client}>
+                  {client} ({count})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {/* Sort By */}
         <Select
-          value={selectedFilterValue}
-          onValueChange={handleFilterChange}
+          value={filters.sortBy}
+          onValueChange={(value) => onFiltersChange({ ...filters, sortBy: value as TaskFiltersState['sortBy'] })}
         >
-          <SelectTrigger className="w-[150px] h-8 text-xs">
-            <SelectValue placeholder="Filter" />
+          <SelectTrigger className="w-[130px] h-8 text-xs">
+            <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all-filters">Filter</SelectItem>
-            {taskTypes.map(({ taskType, count }) => (
-              <SelectItem key={`taskType:${taskType}`} value={`taskType:${taskType}`}>
-                Type: {taskType} ({count})
-              </SelectItem>
-            ))}
-            <SelectItem value="complexity:simple">Complexity: Simple</SelectItem>
-            <SelectItem value="complexity:medium">Complexity: Medium</SelectItem>
-            <SelectItem value="complexity:complex">Complexity: Complex</SelectItem>
-            {clients.map(({ client, count }) => (
-              <SelectItem key={`client:${client}`} value={`client:${client}`}>
-                Client: {client} ({count})
-              </SelectItem>
-            ))}
+            <SelectItem value="dueDate">Due Date</SelectItem>
+            <SelectItem value="estimatedTime">Duration</SelectItem>
+            <SelectItem value="complexity">Complexity</SelectItem>
+            <SelectItem value="client">Client</SelectItem>
           </SelectContent>
         </Select>
 
@@ -181,6 +164,9 @@ export function TaskFilters({
                 {filters.complexity}
               </Badge>
             )}
+            <Badge variant="secondary" className="text-xs py-0">
+              active only
+            </Badge>
           </div>
         </div>
       )}

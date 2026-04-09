@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Timeline } from "@/components/Timeline";
 import { OverflowTasks } from "@/components/OverflowTasks";
@@ -6,7 +6,7 @@ import { StatsPanel } from "@/components/StatsPanel";
 import { WeeklyProgressDashboard } from "@/components/WeeklyProgressDashboard";
 import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
 import { Task, WeeklyStats } from "@/types";
-import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo, LogOut, User, Menu, X, Calendar, Users } from "lucide-react";
+import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo, LogOut, User, Menu, X, Calendar, Users, ChevronLeft, ChevronRight } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,16 +25,9 @@ import { MobileNav } from "@/components/MobileNav";
 import { NotificationBell } from "@/components/NotificationBell";
 import { TaskFilters, TaskFiltersState } from "@/components/TaskFilters";
 import { LoadingQueueIndicator } from "@/components/LoadingQueueIndicator";
+import { ConversationDialog } from "@/components/ConversationDialog";
 import { BulkTaskActions } from "@/components/BulkTaskActions";
-
-const ConversationDialog = lazy(() => import("@/components/ConversationDialog"));
-const GoalInterviewDialog = lazy(() =>
-  import("@/components/GoalInterviewDialog").then(module => ({
-    default: module.GoalInterviewDialog,
-  }))
-);
-
-type TimelineView = 'day' | 'week';
+import { GoalInterviewDialog } from "@/components/GoalInterviewDialog";
 
 // No longer using mock data - fetch from Trello API
 
@@ -55,6 +48,7 @@ export default function Home() {
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [taskTypes, setTaskTypes] = useState<{ taskType: string; count: number }[]>([]);
   const [clients, setClients] = useState<{ client: string; count: number }[]>([]);
   const [filters, setFilters] = useState<TaskFiltersState>({
@@ -73,11 +67,7 @@ export default function Home() {
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [workers, setWorkers] = useState<Array<{ id: string; name: string; email: string }>>([]);
   const [workerFilter, setWorkerFilter] = useState<string | null>(null);
-  const [timelineView, setTimelineView] = useState<TimelineView>('day');
-
-  const activeConversationCard = conversationCard;
-  const activeInterviewTask = interviewTask;
-  const timelineViewLabel = timelineView === 'day' ? 'Showing tasks due today' : 'Showing tasks due in the next 7 days';
+  const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
 
   // Listen for conversation dialog events from TaskCard
   useEffect(() => {
@@ -91,6 +81,9 @@ export default function Home() {
   // Filter and sort tasks based on search query and filters
   const filteredTasks = useMemo(() => {
     let result = [...tasks];
+    
+    // Exclude tasks from 'Info' list
+    result = result.filter(task => !task.listName || task.listName.toLowerCase() !== 'info');
     
     // Apply search filter
     if (searchQuery.trim()) {
@@ -114,6 +107,8 @@ export default function Home() {
       result = result.filter(t => t.date && new Date(t.date) >= todayStart && new Date(t.date) < todayEnd);
     } else if (filters.filter === 'upcoming') {
       result = result.filter(t => t.date && new Date(t.date) >= now);
+    } else if (filters.filter === 'on-hold') {
+      result = result.filter(t => t.listName && t.listName.toLowerCase() === 'on-hold');
     }
     
     // Apply task type filter
@@ -142,24 +137,6 @@ export default function Home() {
     if (workerFilter) {
       result = result.filter(t => t.assignedTo === workerFilter);
     }
-
-    const weekEnd = new Date(todayStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
-
-    result = result.filter(task => {
-      if (!task.date) {
-        return timelineView === 'week';
-      }
-
-      const taskDate = new Date(task.date);
-      const taskDay = new Date(taskDate.getFullYear(), taskDate.getMonth(), taskDate.getDate());
-
-      if (timelineView === 'day') {
-        return taskDay.getTime() === todayStart.getTime();
-      }
-
-      return taskDay >= todayStart && taskDay < weekEnd;
-    });
     
     // Apply sorting
     result.sort((a, b) => {
@@ -186,7 +163,7 @@ export default function Home() {
     });
     
     return result;
-  }, [tasks, searchQuery, filters, workerFilter, timelineView]);
+  }, [tasks, searchQuery, filters, workerFilter]);
   const [isRescheduling, setIsRescheduling] = useState(false);
   const [stats, setStats] = useState<WeeklyStats>({
     totalTasks: 0,
@@ -361,7 +338,8 @@ export default function Home() {
         accuracy: 100
       });
     } catch (error) {
-      console.error('Error fetching tasks:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Error fetching tasks:', errorMessage);
       if (error instanceof Error) {
         console.error('Error details:', error.message, error.stack);
       }
@@ -527,10 +505,23 @@ export default function Home() {
             <div className="h-8 w-8 md:h-10 md:w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-sm md:text-xl">
               VA
             </div>
-            <div className="hidden md:block">
-              <h1 className="font-bold text-lg">Task Dashboard</h1>
-              <p className="text-xs text-muted-foreground">{currentDate}</p>
+            <div className="hidden md:block flex-1">
+              <h2 className="font-bold text-base md:text-lg leading-tight">
+                {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'}, {user?.name?.split(' ')[0] || 'there'}! {new Date().getHours() < 12 ? '☀️' : new Date().getHours() < 17 ? '🌤️' : '🌙'}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining.
+              </p>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="hidden md:flex"
+              title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            >
+              {sidebarOpen ? <ChevronLeft className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+            </Button>
           </div>
           
           <div className="flex items-center gap-2 md:gap-4">
@@ -627,56 +618,29 @@ export default function Home() {
 
       <main className="flex-1 container py-4 md:py-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8">
-          {/* Left Sidebar - Stats */}
-          <div className="lg:col-span-4 space-y-4 md:space-y-8 order-2 lg:order-1">
-            <div className="bg-card rounded-2xl p-4 md:p-6 shadow-sm border relative overflow-hidden">
-              <div className="absolute inset-0 opacity-10 bg-[url('https://files.manuscdn.com/user_upload_by_module/session_file/90835377/PeIgsaffrafnabpl.png')] bg-cover" />
-              <div className="relative z-10">
-                <h2 className="text-xl md:text-2xl font-bold mb-2">
-                  {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'}, {user?.name?.split(' ')[0] || 'there'}! {new Date().getHours() < 12 ? '☀️' : new Date().getHours() < 17 ? '🌤️' : '🌙'}
-                </h2>
-                <p className="text-sm md:text-base text-muted-foreground mb-4 md:mb-6">
-                  You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining.
-                  {tasks.length > 0 && tasks.some(t => !t.isCompleted && t.startTime) && (
-                    <> Your next task starts at {tasks.find(t => !t.isCompleted && t.startTime)?.startTime || 'TBD'}.</>
-                  )}
-                </p>
-                <div className="flex flex-col md:flex-row gap-2">
-                  <Button 
-                    className="flex-1"
-                    onClick={() => window.scrollTo({ top: document.querySelector('.timeline-section')?.getBoundingClientRect().top! + window.scrollY - 100, behavior: 'smooth' })}
-                  >
-                    View Weekly Schedule
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    className="flex-1"
-                    onClick={() => {
-                      const firstTaskWithCard = filteredTasks.find((task) => task.cardId) || tasks.find((task) => task.cardId);
-                      if (!firstTaskWithCard) {
-                        toast.info('Open tasks with Trello cards to start a goal interview.');
-                        return;
-                      }
-                      handleOpenInterview(firstTaskWithCard);
-                    }}
-                  >
-                    Clarify Goal
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    className="flex-1"
-                    onClick={applyReschedule}
-                    disabled={isRescheduling}
-                  >
-                    {isRescheduling ? (
-                      <RefreshCw className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4" />
-                    )}
-                    <span className="ml-2">Reschedule</span>
-                  </Button>
-                </div>
-              </div>
+          {/* Left Sidebar - Stats - Collapsible */}
+          <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:col-span-4' : 'lg:col-span-0'} ${sidebarOpen ? 'block' : 'hidden'} space-y-4 md:space-y-8 order-2 lg:order-1`}>
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2">
+              <Button 
+                className="w-full"
+                onClick={() => window.scrollTo({ top: document.querySelector('.timeline-section')?.getBoundingClientRect().top! + window.scrollY - 100, behavior: 'smooth' })}
+              >
+                View Weekly Schedule
+              </Button>
+              <Button 
+                variant="outline" 
+                className="w-full"
+                onClick={applyReschedule}
+                disabled={isRescheduling}
+              >
+                {isRescheduling ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                <span className="ml-2">Reschedule</span>
+              </Button>
             </div>
             
             <StatsPanel stats={stats} />
@@ -688,29 +652,26 @@ export default function Home() {
           </div>
 
           {/* Main Content - Timeline */}
-          <div className="lg:col-span-8 order-1 lg:order-2">
+          <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:col-span-8' : 'lg:col-span-12'} order-1 lg:order-2`}>
             <div className="timeline-section bg-card rounded-2xl shadow-sm border min-h-[400px] md:min-h-[600px] relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-20 md:h-32 bg-[url('https://files.manuscdn.com/user_upload_by_module/session_file/90835377/juXmFpmTtEuXvBVT.png')] bg-cover opacity-20" />
               <div className="relative z-10 p-4 md:p-6">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 mb-4">
-                  <div>
-                    <h2 className="text-lg md:text-xl font-bold">Workload Timeline</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">{timelineViewLabel}</p>
-                  </div>
-                  <div className="flex gap-1 rounded-full border bg-background/70 p-1 md:gap-2">
-                    <Button
-                      variant={timelineView === 'day' ? "outline" : "ghost"}
-                      size="sm"
-                      className="rounded-full border-0 text-xs shadow-none md:text-sm"
-                      onClick={() => setTimelineView('day')}
+                  <h2 className="text-lg md:text-xl font-bold">Workload Timeline</h2>
+                  <div className="flex gap-1 md:gap-2">
+                    <Button 
+                      variant={viewMode === 'day' ? 'outline' : 'ghost'} 
+                      size="sm" 
+                      className="text-xs md:text-sm"
+                      onClick={() => setViewMode('day')}
                     >
                       Day
                     </Button>
-                    <Button
-                      variant={timelineView === 'week' ? "outline" : "ghost"}
-                      size="sm"
-                      className="rounded-full border-0 text-xs shadow-none md:text-sm"
-                      onClick={() => setTimelineView('week')}
+                    <Button 
+                      variant={viewMode === 'week' ? 'outline' : 'ghost'} 
+                      size="sm" 
+                      className="text-xs md:text-sm"
+                      onClick={() => setViewMode('week')}
                     >
                       Week
                     </Button>
@@ -793,32 +754,24 @@ export default function Home() {
       </main>
 
       {/* Conversation Dialog */}
-      {(activeConversationCard || activeInterviewTask) ? (
-        <Suspense fallback={null}>
-          {activeConversationCard ? (
-            <ConversationDialog
-              open={!!activeConversationCard}
-              onOpenChange={(open) => !open && setConversationCard(null)}
-              cardId={activeConversationCard.cardId}
-              cardName={activeConversationCard.cardName}
-            />
-          ) : null}
+      <ConversationDialog
+        open={!!conversationCard}
+        onOpenChange={(open) => !open && setConversationCard(null)}
+        cardId={conversationCard?.cardId || null}
+        cardName={conversationCard?.cardName || null}
+      />
 
-          {activeInterviewTask ? (
-            <GoalInterviewDialog
-              open={!!activeInterviewTask}
-              onOpenChange={(open) => {
-                if (!open) {
-                  setInterviewTask(null);
-                }
-              }}
-              cardId={activeInterviewTask.cardId || ''}
-              cardName={activeInterviewTask.cardName || ''}
-              onComplete={handleInterviewComplete}
-            />
-          ) : null}
-        </Suspense>
-      ) : null}
+      <GoalInterviewDialog
+        open={!!interviewTask}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInterviewTask(null);
+          }
+        }}
+        cardId={interviewTask?.cardId || ''}
+        cardName={interviewTask?.cardName || ''}
+        onComplete={handleInterviewComplete}
+      />
     </div>
   );
 }
