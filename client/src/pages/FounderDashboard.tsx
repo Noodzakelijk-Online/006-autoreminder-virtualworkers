@@ -80,6 +80,7 @@ interface TaskAssignment {
   blockedBy: string[];
   blocks: string[];
   clientProject?: string;
+  labels: string[];
 }
 
 
@@ -533,7 +534,8 @@ export default function FounderDashboard() {
       filtered = filtered.filter(a => 
         a.taskTitle.toLowerCase().includes(query) ||
         a.cardName.toLowerCase().includes(query) ||
-        a.clientProject?.toLowerCase().includes(query)
+        a.clientProject?.toLowerCase().includes(query) ||
+        a.labels.some(label => label.toLowerCase().includes(query))
       );
     }
     
@@ -1217,6 +1219,15 @@ export default function FounderDashboard() {
                               <AlertCircle className="h-3 w-3" />
                               Blocked by: {task.blockedBy.join(', ')}
                             </p>
+                          )}
+                          {task.labels && task.labels.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {task.labels.map((label: string, idx: number) => (
+                                <Badge key={idx} variant="secondary" className="text-xs">
+                                  {label}
+                                </Badge>
+                              ))}
+                            </div>
                           )}
                           <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                             <span className="flex items-center gap-1">
