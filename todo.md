@@ -1947,5 +1947,10 @@ Each card now has:
 - [x] Remove Review Queue endpoints from VA management API (POST /review-queue, GET /review-queue, PUT /review-queue/:id)
 - [x] Remove reviewQueue import from database schema
 - [x] Remove review queue insertion logic from worker task review endpoint
-- [x] Verify TypeScript compilation (0 errors)
+- [x] Remove ready_for_review status from taskAssignments enum in schema.ts
+- [x] Update worker task submission to set status to completed instead of ready_for_review
+- [x] Remove ready_for_review from statusCounts in VA workload endpoint
+- [x] Remove ready_for_review from DependencyGraph component type definition
+- [x] Remove Ready for Review legend item from DependencyGraph UI
+- [x] Verify all frontend references removed
 - [x] Verify dev server running smoothly

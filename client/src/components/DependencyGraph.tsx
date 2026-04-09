@@ -8,7 +8,7 @@ interface Task {
   id: string;
   title: string;
   cardName: string;
-  status: 'assigned' | 'in_progress' | 'completed' | 'blocked' | 'ready_for_review';
+  status: 'assigned' | 'in_progress' | 'completed' | 'blocked';
   blockedBy: string[];
   blocks: string[];
 }
@@ -117,7 +117,7 @@ export default function DependencyGraph({ tasks, onRefresh }: DependencyGraphPro
       case 'completed': return { bg: '#dcfce7', border: '#22c55e', text: '#166534' };
       case 'in_progress': return { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' };
       case 'blocked': return { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' };
-      case 'ready_for_review': return { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' };
+
       default: return { bg: '#f3f4f6', border: '#9ca3af', text: '#374151' };
     }
   };
@@ -213,10 +213,6 @@ export default function DependencyGraph({ tasks, onRefresh }: DependencyGraphPro
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded" style={{ backgroundColor: '#fee2e2', border: '2px solid #ef4444' }} />
             <span>Blocked</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded" style={{ backgroundColor: '#fef3c7', border: '2px solid #f59e0b' }} />
-            <span>Ready for Review</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded" style={{ backgroundColor: '#f3f4f6', border: '2px solid #9ca3af' }} />

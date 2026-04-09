@@ -220,7 +220,7 @@ export const taskAssignments = mysqlTable('task_assignments', {
   founderId: int('founderId').notNull(), // References users.id
   assignedAt: timestamp('assignedAt').defaultNow().notNull(),
   assignedBy: int('assignedBy').notNull(), // References users.id (who assigned)
-  status: mysqlEnum('status', ['assigned', 'in_progress', 'completed', 'blocked', 'ready_for_review']).default('assigned').notNull(),
+  status: mysqlEnum('status', ['assigned', 'in_progress', 'completed', 'blocked']).default('assigned').notNull(),
   notes: text('notes'),
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),

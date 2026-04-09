@@ -60,7 +60,6 @@ interface WorkloadItem {
     in_progress: number;
     completed: number;
     blocked: number;
-    ready_for_review: number;
   };
 }
 
@@ -74,7 +73,7 @@ interface TaskAssignment {
   workerName: string | null;
   priority: 'critical' | 'urgent' | 'high' | 'normal';
   isPriorityOverride: boolean;
-  status: 'assigned' | 'in_progress' | 'completed' | 'blocked' | 'ready_for_review';
+  status: 'assigned' | 'in_progress' | 'completed' | 'blocked';
   estimatedMinutes: number;
   scheduledStart?: string;
   scheduledEnd?: string;
@@ -633,8 +632,6 @@ export default function FounderDashboard() {
         return <Badge className="bg-blue-100 text-blue-700"><Timer className="h-3 w-3 mr-1" />In Progress</Badge>;
       case 'blocked':
         return <Badge className="bg-red-100 text-red-700"><AlertCircle className="h-3 w-3 mr-1" />Blocked</Badge>;
-      case 'ready_for_review':
-        return <Badge className="bg-purple-100 text-purple-700"><Star className="h-3 w-3 mr-1" />Ready for Review</Badge>;
       default:
         return <Badge className="bg-gray-100 text-gray-700"><Clock className="h-3 w-3 mr-1" />Assigned</Badge>;
     }
@@ -653,8 +650,7 @@ export default function FounderDashboard() {
     inProgress: acc.inProgress + item.statusCounts.in_progress,
     completed: acc.completed + item.statusCounts.completed,
     blocked: acc.blocked + item.statusCounts.blocked,
-    forReview: acc.forReview + item.statusCounts.ready_for_review,
-  }), { totalTasks: 0, inProgress: 0, completed: 0, blocked: 0, forReview: 0 });
+  }), { totalTasks: 0, inProgress: 0, completed: 0, blocked: 0 });
 
   return (
     <div className="min-h-screen bg-background">
@@ -998,15 +994,6 @@ export default function FounderDashboard() {
                     <span className="text-sm text-muted-foreground">Blocked</span>
                   </div>
                   <p className="text-2xl font-bold mt-1">{totalStats.blocked}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2">
-                    <Star className="h-4 w-4 text-yellow-500" />
-                    <span className="text-sm text-muted-foreground">For Review</span>
-                  </div>
-                  <p className="text-2xl font-bold mt-1">{totalStats.forReview}</p>
                 </CardContent>
               </Card>
             </div>
@@ -1466,7 +1453,7 @@ export default function FounderDashboard() {
                 id: a.id.toString(),
                 title: a.taskTitle,
                 cardName: a.cardName,
-                status: a.status as 'assigned' | 'in_progress' | 'completed' | 'blocked' | 'ready_for_review',
+                status: a.status as 'assigned' | 'in_progress' | 'completed' | 'blocked',
                 blockedBy: a.blockedBy || [],
                 blocks: a.blocks || [],
               }))}

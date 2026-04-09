@@ -1394,7 +1394,6 @@ router.get('/workload-overview', async (req: any, res) => {
         in_progress: 0,
         completed: 0,
         blocked: 0,
-        ready_for_review: 0,
       };
       
       assignments.forEach((a: typeof assignments[0]) => {
@@ -1571,9 +1570,9 @@ router.post('/worker/tasks/:taskId/review', async (req: any, res) => {
     
     const vaId = profile[0].id;
     
-    // Update the assignment status to ready_for_review
+    // Update the assignment status to completed
     await db.update(taskAssignments)
-      .set({ status: 'ready_for_review' })
+      .set({ status: 'completed' })
       .where(and(eq(taskAssignments.taskId, decodeURIComponent(taskId)), eq(taskAssignments.vaId, vaId)));
     
 
@@ -1582,9 +1581,9 @@ router.post('/worker/tasks/:taskId/review', async (req: any, res) => {
     websocketService.emitToUser(user.openId, 'task:completed', {
       taskId: decodeURIComponent(taskId),
       isCompleted: true,
-      status: 'ready_for_review',
+      status: 'completed',
       timestamp: new Date().toISOString(),
-      source: 'worker_review_submit',
+      source: 'worker_task_complete',
     });
 
     res.json({ success: true });
