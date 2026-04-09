@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { TimezoneDisplay } from '@/components/TimezoneDisplay';
 import DependencyGraph from '@/components/DependencyGraph';
 import { ReanalysisProgressModal } from '@/components/ReanalysisProgressModal';
+import { LabelAutocompleteSearch } from '@/components/LabelAutocompleteSearch';
 
 interface VirtualWorker {
   id: number;
@@ -520,6 +521,15 @@ export default function FounderDashboard() {
       setIsReanalyzing(false);
     }
   };
+
+  // Extract all unique labels from assignments
+  const allLabels = useMemo(() => {
+    const labels = new Set<string>();
+    assignments.forEach(a => {
+      a.labels.forEach(label => labels.add(label));
+    });
+    return Array.from(labels).sort();
+  }, [assignments]);
 
   // Filter assignments
   const filteredAssignments = useMemo(() => {
@@ -1137,15 +1147,12 @@ export default function FounderDashboard() {
           <TabsContent value="assignments" className="space-y-6">
             {/* Filters */}
             <div className="flex flex-col md:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search tasks..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
+              <LabelAutocompleteSearch
+                value={searchQuery}
+                onChange={setSearchQuery}
+                allLabels={allLabels}
+                placeholder="Search tasks or labels..."
+              />
               <Select value={selectedWorkerFilter} onValueChange={setSelectedWorkerFilter}>
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Filter by Worker" />
