@@ -1,0 +1,539 @@
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
+import { 
+  Bot, 
+  Webhook, 
+  Settings as SettingsIcon,
+  BarChart3,
+  Copy,
+  ExternalLink,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  AlertCircle,
+  Info
+} from 'lucide-react';
+
+interface Webhook {
+  id: string;
+  description: string;
+  idModel: string;
+  callbackURL: string;
+  active: boolean;
+}
+
+interface AnalyticsStats {
+  totalConversations: number;
+  totalCommands: Record<string, number>;
+  avgResponseTimeMs: number;
+  totalCheckins: number;
+  totalResponses: number;
+  overallResponseRate: number;
+  avgCheckinResponseMinutes: number;
+  activeWorkers: number;
+  activeCards: number;
+  topCommands: Array<{ command: string; count: number }>;
+}
+
+interface WebhookStatus {
+  callbackUrl: string | null;
+  publicUrl: string | null;
+  isConfigured: boolean;
+  isReachable: boolean;
+  recommendation: string;
+}
+
+export function TrelloChatbotSettings() {
+  const [activeTab, setActiveTab] = useState('setup');
+  const [webhooks, setWebhooks] = useState<Webhook[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [modelId, setModelId] = useState('');
+  const [description, setDescription] = useState('');
+  const [testCardId, setTestCardId] = useState('');
+  const [testComment, setTestComment] = useState('@bot status');
+  const [testResult, setTestResult] = useState<any>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsStats | null>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [webhookStatus, setWebhookStatus] = useState<WebhookStatus | null>(null);
+
+  const callbackUrl = typeof window !== 'undefined' 
+    ? `${window.location.origin}/api/trello-webhook`
+    : '';
+
+  useEffect(() => {
+    loadWebhookStatus();
+    loadWebhooks();
+    loadAnalytics();
+  }, []);
+
+  const loadWebhookStatus = async () => {
+    try {
+      const response = await fetch('/api/trello-webhook/status');
+      if (response.ok) {
+        const data = await response.json();
+        setWebhookStatus(data.status);
+      }
+    } catch (error) {
+      console.error('Error loading webhook status:', error);
+    }
+  };
+
+  const loadWebhooks = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/trello-webhook/list');
+      if (response.ok) {
+        const data = await response.json();
+        setWebhooks(data.webhooks || []);
+      }
+    } catch (error) {
+      console.error('Error loading webhooks:', error);
+      toast.error('Failed to load webhooks');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAnalytics = async () => {
+    setLoadingAnalytics(true);
+    try {
+      const response = await fetch('/api/chatbot/analytics');
+      if (response.ok) {
+        const data = await response.json();
+        setAnalytics(data);
+      }
+    } catch (error) {
+      console.error('Error loading analytics:', error);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  };
+
+  const registerWebhook = async () => {
+    if (!modelId) {
+      toast.error('Please enter a Model ID (board or workspace ID)');
+      return;
+    }
+
+    setRegistering(true);
+    try {
+      const response = await fetch('/api/trello-webhook/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modelId,
+          description: description || 'VA Dashboard Chatbot',
+          callbackUrl,
+        }),
+      });
+
+      if (response.ok) {
+        toast.success('Webhook registered successfully!');
+        setModelId('');
+        setDescription('');
+        loadWebhooks();
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to register webhook');
+      }
+    } catch (error) {
+      console.error('Error registering webhook:', error);
+      toast.error('Failed to register webhook');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const deleteWebhook = async (webhookId: string) => {
+    if (!window.confirm('Are you sure you want to delete this webhook?')) return;
+
+    try {
+      const response = await fetch(`/api/trello-webhook/${webhookId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        toast.success('Webhook deleted successfully');
+        loadWebhooks();
+      } else {
+        toast.error('Failed to delete webhook');
+      }
+    } catch (error) {
+      console.error('Error deleting webhook:', error);
+      toast.error('Failed to delete webhook');
+    }
+  };
+
+  const testWebhook = async () => {
+    if (!testCardId) {
+      toast.error('Please enter a card ID');
+      return;
+    }
+
+    setTesting(true);
+    try {
+      const response = await fetch('/api/trello-webhook/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cardId: testCardId,
+          comment: testComment,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setTestResult(data);
+        toast.success('Test webhook sent successfully');
+      } else {
+        toast.error('Failed to test webhook');
+      }
+    } catch (error) {
+      console.error('Error testing webhook:', error);
+      toast.error('Failed to test webhook');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard');
+  };
+
+  return (
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bot className="h-5 w-5" />
+          Trello Chatbot Configuration
+        </CardTitle>
+        <CardDescription>
+          Manage webhooks, test functionality, and monitor analytics
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="setup" className="flex items-center gap-2">
+              <SettingsIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">Setup</span>
+            </TabsTrigger>
+            <TabsTrigger value="webhooks" className="flex items-center gap-2">
+              <Webhook className="h-4 w-4" />
+              <span className="hidden sm:inline">Webhooks</span>
+            </TabsTrigger>
+            <TabsTrigger value="test" className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4" />
+              <span className="hidden sm:inline">Test</span>
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" />
+              <span className="hidden sm:inline">Analytics</span>
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Setup Tab */}
+          <TabsContent value="setup" className="space-y-4 mt-4">
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex gap-3">
+                  <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-blue-900">Webhook Setup Instructions</h3>
+                    <ol className="text-sm text-blue-800 mt-2 space-y-1 list-decimal list-inside">
+                      <li>Get your Trello board or workspace ID</li>
+                      <li>Enter the ID and optional description below</li>
+                      <li>Click "Register Webhook" to enable chatbot</li>
+                      <li>Use the Test tab to verify functionality</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+
+              {webhookStatus && (
+                <Card className={webhookStatus.isConfigured ? 'border-green-200 bg-green-50' : 'border-yellow-200 bg-yellow-50'}>
+                  <CardContent className="pt-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        {webhookStatus.isConfigured ? (
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                        ) : (
+                          <AlertCircle className="h-5 w-5 text-yellow-600" />
+                        )}
+                        <span className="font-semibold">
+                          {webhookStatus.isConfigured ? 'Webhook Configured' : 'Webhook Not Configured'}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-700">{webhookStatus.recommendation}</p>
+                      {webhookStatus.publicUrl && (
+                        <div className="text-xs text-gray-600 mt-2">
+                          Public URL: <code className="bg-white px-2 py-1 rounded">{webhookStatus.publicUrl}</code>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="modelId">Trello Board/Workspace ID *</Label>
+                  <Input
+                    id="modelId"
+                    placeholder="e.g., 5f1a2b3c4d5e6f7g8h9i0j"
+                    value={modelId}
+                    onChange={(e) => setModelId(e.target.value)}
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Find this in your Trello board URL: trello.com/b/{'{id}'}
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="description">Description (optional)</Label>
+                  <Input
+                    id="description"
+                    placeholder="e.g., Main workspace chatbot"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+
+                <Button 
+                  onClick={registerWebhook} 
+                  disabled={registering || !modelId}
+                  className="w-full"
+                >
+                  {registering ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Registering...
+                    </>
+                  ) : (
+                    'Register Webhook'
+                  )}
+                </Button>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Webhooks Tab */}
+          <TabsContent value="webhooks" className="space-y-4 mt-4">
+            <div className="space-y-3">
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : webhooks.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Webhook className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No webhooks registered yet</p>
+                  <p className="text-xs">Use the Setup tab to register your first webhook</p>
+                </div>
+              ) : (
+                webhooks.map((webhook) => (
+                  <Card key={webhook.id}>
+                    <CardContent className="pt-4">
+                      <div className="space-y-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-semibold">{webhook.description}</h3>
+                              <Badge variant={webhook.active ? 'default' : 'secondary'}>
+                                {webhook.active ? 'Active' : 'Inactive'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">ID: {webhook.idModel}</p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteWebhook(webhook.id)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="bg-muted p-2 rounded text-xs font-mono break-all">
+                          {webhook.callbackURL}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
+
+          {/* Test Tab */}
+          <TabsContent value="test" className="space-y-4 mt-4">
+            <div className="space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex gap-3">
+                  <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-blue-900">Test Your Chatbot</h3>
+                    <p className="text-sm text-blue-800 mt-1">
+                      Enter a Trello card ID and test comment to verify the chatbot responds correctly
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="testCardId">Trello Card ID *</Label>
+                  <Input
+                    id="testCardId"
+                    placeholder="e.g., 5f1a2b3c4d5e6f7g8h9i0j"
+                    value={testCardId}
+                    onChange={(e) => setTestCardId(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="testComment">Test Comment</Label>
+                  <Textarea
+                    id="testComment"
+                    placeholder="@bot status"
+                    value={testComment}
+                    onChange={(e) => setTestComment(e.target.value)}
+                    className="mt-1"
+                    rows={3}
+                  />
+                </div>
+
+                <Button 
+                  onClick={testWebhook} 
+                  disabled={testing || !testCardId}
+                  className="w-full"
+                >
+                  {testing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Testing...
+                    </>
+                  ) : (
+                    'Send Test Comment'
+                  )}
+                </Button>
+
+                {testResult && (
+                  <Card className={testResult.success ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
+                    <CardContent className="pt-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          {testResult.success ? (
+                            <CheckCircle className="h-5 w-5 text-green-600" />
+                          ) : (
+                            <XCircle className="h-5 w-5 text-red-600" />
+                          )}
+                          <span className="font-semibold">
+                            {testResult.success ? 'Test Successful' : 'Test Failed'}
+                          </span>
+                        </div>
+                        <p className="text-sm">{testResult.message}</p>
+                        {testResult.response && (
+                          <div className="bg-white p-2 rounded text-xs font-mono break-words mt-2">
+                            {JSON.stringify(testResult.response, null, 2)}
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Analytics Tab */}
+          <TabsContent value="analytics" className="space-y-4 mt-4">
+            <div className="space-y-4">
+              {loadingAnalytics ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : analytics ? (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold">{analytics.totalConversations}</div>
+                        <p className="text-xs text-muted-foreground">Total Conversations</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold">{analytics.totalCheckins}</div>
+                        <p className="text-xs text-muted-foreground">Total Check-ins</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold">{(analytics.overallResponseRate * 100).toFixed(0)}%</div>
+                        <p className="text-xs text-muted-foreground">Response Rate</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="text-2xl font-bold">{analytics.avgResponseTimeMs}ms</div>
+                        <p className="text-xs text-muted-foreground">Avg Response Time</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {analytics.topCommands.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Top Commands</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          {analytics.topCommands.map((cmd) => (
+                            <div key={cmd.command} className="flex justify-between items-center">
+                              <span className="text-sm font-mono">{cmd.command}</span>
+                              <Badge variant="secondary">{cmd.count}</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <Button 
+                    onClick={loadAnalytics}
+                    variant="outline"
+                    className="w-full"
+                  >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh Analytics
+                  </Button>
+                </>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <BarChart3 className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No analytics data available yet</p>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
