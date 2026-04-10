@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { TimezoneDisplay } from '@/components/TimezoneDisplay';
 import DependencyGraph from '@/components/DependencyGraph';
 import { ReanalysisProgressModal } from '@/components/ReanalysisProgressModal';
+import { LabelAutocompleteSearch } from '@/components/LabelAutocompleteSearch';
 import TIMEZONES from '@/data/timezones';
 import CURRENCIES from '@/data/currencies';
 
