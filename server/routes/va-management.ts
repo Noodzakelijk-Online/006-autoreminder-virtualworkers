@@ -7,7 +7,6 @@ import {
   founderPriorityOverrides,
   clients,
   communicationLog,
-  reviewQueue,
   timeEntries,
   handoffNotes,
   dailyBriefings,
@@ -715,103 +714,6 @@ router.get('/communication/:taskId', async (req: any, res) => {
 });
 
 // ============================================
-// REVIEW QUEUE
-// ============================================
-
-// Submit task for review
-router.post('/review-queue', async (req: any, res) => {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const { taskId, vaId } = req.body;
-
-    const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
-    }
-    await db.insert(reviewQueue).values({
-      taskId,
-      vaId,
-      founderId: user.id,
-      status: 'pending_review',
-    });
-
-    // Update assignment status
-    await db.update(taskAssignments)
-      .set({ status: 'ready_for_review' })
-      .where(eq(taskAssignments.taskId, taskId));
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error submitting for review:', error);
-    res.status(500).json({ error: 'Failed to submit for review' });
-  }
-});
-
-// Get review queue
-router.get('/review-queue', async (req: any, res) => {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
-    }
-    const queue = await db.select().from(reviewQueue)
-      .where(eq(reviewQueue.founderId, user.id))
-      .orderBy(desc(reviewQueue.submittedAt));
-
-    res.json(queue);
-  } catch (error) {
-    console.error('Error fetching review queue:', error);
-    res.status(500).json({ error: 'Failed to fetch queue' });
-  }
-});
-
-// Review task (approve/reject)
-router.put('/review-queue/:id', async (req: any, res) => {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const reviewId = parseInt(req.params.id);
-    const { status, feedback } = req.body;
-
-    const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
-    }
-    
-    const existing = await db.select().from(reviewQueue).where(eq(reviewQueue.id, reviewId));
-    if (existing.length === 0) {
-      return res.status(404).json({ error: 'Review not found' });
-    }
-
-    await db.update(reviewQueue)
-      .set({ 
-        status, 
-        feedback, 
-        reviewedAt: new Date(),
-        revisionCount: status === 'needs_revision' ? existing[0].revisionCount + 1 : existing[0].revisionCount
-      })
-      .where(eq(reviewQueue.id, reviewId));
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error reviewing task:', error);
-    res.status(500).json({ error: 'Failed to review task' });
-  }
-});
-
-// ============================================
 // TIME TRACKING
 // ============================================
 
@@ -1109,121 +1011,6 @@ router.post('/assignments/:id/priority', async (req: any, res) => {
   } catch (error) {
     console.error('Error setting priority:', error);
     res.status(500).json({ error: 'Failed to set priority' });
-  }
-});
-
-// ============================================
-// REVIEWS (for Founder Dashboard)
-// ============================================
-
-// Get reviews with VA names
-router.get('/reviews', async (req: any, res) => {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
-    }
-    
-    const queue = await db.select().from(reviewQueue)
-      .where(eq(reviewQueue.founderId, user.id))
-      .orderBy(desc(reviewQueue.submittedAt));
-    
-    // Get VA names
-    const vas = await db.select().from(vaProfiles).where(eq(vaProfiles.founderId, user.id));
-    const vaMap = new Map(vas.map((v: typeof vas[0]) => [v.id, v.name]));
-    
-    // Parse taskId to extract info
-    const result = await Promise.all(queue.map(async (r: typeof queue[0]) => {
-      const summary = await fetchTrelloCardSummary(r.taskId);
-      const taskParts = r.taskId.split(':');
-      const cardId = taskParts[0] || '';
-      
-      return {
-        id: r.id,
-        taskId: r.taskId,
-        taskTitle: summary?.title || 'Task for Review',
-        cardName: summary?.cardName || 'Trello Card',
-        cardId,
-        vaId: r.vaId,
-        vaName: r.vaId ? vaMap.get(r.vaId) : 'Unknown VA',
-        submittedAt: r.submittedAt,
-        status: r.status === 'pending_review' ? 'pending' : r.status === 'needs_revision' ? 'revision_requested' : r.status,
-        notes: r.feedback,
-        labels: summary?.labels || [],
-      };
-    }));
-
-    res.json(result);
-  } catch (error) {
-    console.error('Error fetching reviews:', error);
-    res.status(500).json({ error: 'Failed to fetch reviews' });
-  }
-});
-
-// Approve review
-router.post('/reviews/:id/approve', async (req: any, res) => {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const reviewId = parseInt(req.params.id);
-    const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
-    }
-    
-    await db.update(reviewQueue)
-      .set({ status: 'approved', reviewedAt: new Date() })
-      .where(and(eq(reviewQueue.id, reviewId), eq(reviewQueue.founderId, user.id)));
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error approving review:', error);
-    res.status(500).json({ error: 'Failed to approve' });
-  }
-});
-
-// Request revision
-router.post('/reviews/:id/revision', async (req: any, res) => {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const reviewId = parseInt(req.params.id);
-    const { notes } = req.body;
-    
-    const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
-    }
-    
-    const existing = await db.select().from(reviewQueue).where(eq(reviewQueue.id, reviewId));
-    if (existing.length === 0) {
-      return res.status(404).json({ error: 'Review not found' });
-    }
-    
-    await db.update(reviewQueue)
-      .set({ 
-        status: 'needs_revision', 
-        feedback: notes,
-        reviewedAt: new Date(),
-        revisionCount: existing[0].revisionCount + 1
-      })
-      .where(eq(reviewQueue.id, reviewId));
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error requesting revision:', error);
-    res.status(500).json({ error: 'Failed to request revision' });
   }
 });
 
@@ -1607,7 +1394,6 @@ router.get('/workload-overview', async (req: any, res) => {
         in_progress: 0,
         completed: 0,
         blocked: 0,
-        ready_for_review: 0,
       };
       
       assignments.forEach((a: typeof assignments[0]) => {
@@ -1784,33 +1570,20 @@ router.post('/worker/tasks/:taskId/review', async (req: any, res) => {
     
     const vaId = profile[0].id;
     
-    // Update the assignment status to ready_for_review
+    // Update the assignment status to completed
     await db.update(taskAssignments)
-      .set({ status: 'ready_for_review' })
+      .set({ status: 'completed' })
       .where(and(eq(taskAssignments.taskId, decodeURIComponent(taskId)), eq(taskAssignments.vaId, vaId)));
     
-    // Also add to review queue
-    const assignment = await db.select().from(taskAssignments)
-      .where(and(eq(taskAssignments.taskId, decodeURIComponent(taskId)), eq(taskAssignments.vaId, vaId)))
-      .limit(1);
-    
-    if (assignment.length > 0) {
-      await db.insert(reviewQueue).values({
-        taskId: decodeURIComponent(taskId),
-        vaId,
-        founderId: assignment[0].founderId,
-        status: 'pending_review',
-        revisionCount: 0,
-      });
-    }
+
 
     await invalidateCache(user.id, user.openId, 'tasks');
     websocketService.emitToUser(user.openId, 'task:completed', {
       taskId: decodeURIComponent(taskId),
       isCompleted: true,
-      status: 'ready_for_review',
+      status: 'completed',
       timestamp: new Date().toISOString(),
-      source: 'worker_review_submit',
+      source: 'worker_task_complete',
     });
 
     res.json({ success: true });

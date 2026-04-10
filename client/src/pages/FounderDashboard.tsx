@@ -62,7 +62,6 @@ interface WorkloadItem {
     in_progress: number;
     completed: number;
     blocked: number;
-    ready_for_review: number;
   };
 }
 
@@ -76,26 +75,16 @@ interface TaskAssignment {
   workerName: string | null;
   priority: 'critical' | 'urgent' | 'high' | 'normal';
   isPriorityOverride: boolean;
-  status: 'assigned' | 'in_progress' | 'completed' | 'blocked' | 'ready_for_review';
+  status: 'assigned' | 'in_progress' | 'completed' | 'blocked';
   estimatedMinutes: number;
   scheduledStart?: string;
   scheduledEnd?: string;
   blockedBy: string[];
   blocks: string[];
   clientProject?: string;
+  labels: string[];
 }
 
-interface ReviewItem {
-  id: number;
-  taskId: string;
-  taskTitle: string;
-  cardName: string;
-  workerId: number;
-  workerName: string;
-  submittedAt: string;
-  status: 'pending' | 'approved' | 'revision_requested';
-  notes?: string;
-}
 
 interface CommunicationEntry {
   id: number;
@@ -121,7 +110,7 @@ export default function FounderDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [workload, setWorkload] = useState<WorkloadItem[]>([]);
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
-  const [reviews, setReviews] = useState<ReviewItem[]>([]);
+
   const [communications, setCommunications] = useState<CommunicationEntry[]>([]);
   const [timezoneOverlaps, setTimezoneOverlaps] = useState<TimezoneOverlap[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,7 +168,7 @@ export default function FounderDashboard() {
       await Promise.all([
         fetchWorkload(),
         fetchAssignments(),
-        fetchReviews(),
+
         fetchCommunications(),
         fetchTimezoneOverlaps(),
         fetchBriefingSettings(),
@@ -213,17 +202,6 @@ export default function FounderDashboard() {
     }
   };
 
-  const fetchReviews = async () => {
-    try {
-      const res = await fetch('/api/va/reviews', { credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        setReviews(Array.isArray(data) ? data : data.reviews || []);
-      }
-    } catch (error) {
-      console.error('Error fetching reviews:', error);
-    }
-  };
 
   const fetchCommunications = async () => {
     try {
@@ -379,47 +357,7 @@ export default function FounderDashboard() {
     }
   };
 
-  const handleApproveReview = async (reviewId: number) => {
-    try {
-      const res = await fetch(`/api/va/reviews/${reviewId}/approve`, {
-        method: 'POST',
-        credentials: 'include',
-      });
 
-      if (res.ok) {
-        setReviews(reviews.map(r => 
-          r.id === reviewId ? { ...r, status: 'approved' } : r
-        ));
-        toast.success('Task approved');
-      } else {
-        toast.error('Failed to approve');
-      }
-    } catch (error) {
-      toast.error('Failed to approve');
-    }
-  };
-
-  const handleRequestRevision = async (reviewId: number, notes: string) => {
-    try {
-      const res = await fetch(`/api/va/reviews/${reviewId}/revision`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ notes }),
-      });
-
-      if (res.ok) {
-        setReviews(reviews.map(r => 
-          r.id === reviewId ? { ...r, status: 'revision_requested', notes } : r
-        ));
-        toast.success('Revision requested');
-      } else {
-        toast.error('Failed to request revision');
-      }
-    } catch (error) {
-      toast.error('Failed to request revision');
-    }
-  };
 
   const handleSaveBriefingSettings = async () => {
     try {
@@ -575,6 +513,15 @@ export default function FounderDashboard() {
     }
   };
 
+  // Extract all unique labels from assignments
+  const allLabels = useMemo(() => {
+    const labels = new Set<string>();
+    assignments.forEach(a => {
+      a.labels.forEach(label => labels.add(label));
+    });
+    return Array.from(labels).sort();
+  }, [assignments]);
+
   // Filter assignments
   const filteredAssignments = useMemo(() => {
     let filtered = assignments;
@@ -588,7 +535,8 @@ export default function FounderDashboard() {
       filtered = filtered.filter(a => 
         a.taskTitle.toLowerCase().includes(query) ||
         a.cardName.toLowerCase().includes(query) ||
-        a.clientProject?.toLowerCase().includes(query)
+        a.clientProject?.toLowerCase().includes(query) ||
+        a.labels.some(label => label.toLowerCase().includes(query))
       );
     }
     
@@ -625,8 +573,6 @@ export default function FounderDashboard() {
         return <Badge className="bg-blue-100 text-blue-700"><Timer className="h-3 w-3 mr-1" />In Progress</Badge>;
       case 'blocked':
         return <Badge className="bg-red-100 text-red-700"><AlertCircle className="h-3 w-3 mr-1" />Blocked</Badge>;
-      case 'ready_for_review':
-        return <Badge className="bg-purple-100 text-purple-700"><Star className="h-3 w-3 mr-1" />Ready for Review</Badge>;
       default:
         return <Badge className="bg-gray-100 text-gray-700"><Clock className="h-3 w-3 mr-1" />Assigned</Badge>;
     }
@@ -645,8 +591,7 @@ export default function FounderDashboard() {
     inProgress: acc.inProgress + item.statusCounts.in_progress,
     completed: acc.completed + item.statusCounts.completed,
     blocked: acc.blocked + item.statusCounts.blocked,
-    forReview: acc.forReview + item.statusCounts.ready_for_review,
-  }), { totalTasks: 0, inProgress: 0, completed: 0, blocked: 0, forReview: 0 });
+  }), { totalTasks: 0, inProgress: 0, completed: 0, blocked: 0 });
 
   return (
     <div className="min-h-screen bg-background">
@@ -940,12 +885,6 @@ export default function FounderDashboard() {
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-7 lg:w-auto lg:inline-grid">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="assignments">Assignments</TabsTrigger>
-            <TabsTrigger value="reviews">
-              Reviews
-              {reviews.filter(r => r.status === 'pending').length > 0 && (
-                <Badge className="ml-2 bg-red-500 text-white text-xs">{reviews.filter(r => r.status === 'pending').length}</Badge>
-              )}
-            </TabsTrigger>
             <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
             <TabsTrigger value="communications">Communications</TabsTrigger>
             <TabsTrigger value="timezones">Timezones</TabsTrigger>
@@ -990,15 +929,6 @@ export default function FounderDashboard() {
                     <span className="text-sm text-muted-foreground">Blocked</span>
                   </div>
                   <p className="text-2xl font-bold mt-1">{totalStats.blocked}</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2">
-                    <Star className="h-4 w-4 text-yellow-500" />
-                    <span className="text-sm text-muted-foreground">For Review</span>
-                  </div>
-                  <p className="text-2xl font-bold mt-1">{totalStats.forReview}</p>
                 </CardContent>
               </Card>
             </div>
@@ -1208,15 +1138,12 @@ export default function FounderDashboard() {
           <TabsContent value="assignments" className="space-y-6">
             {/* Filters */}
             <div className="flex flex-col md:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search tasks..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
+              <LabelAutocompleteSearch
+                value={searchQuery}
+                onChange={setSearchQuery}
+                allLabels={allLabels}
+                placeholder="Search tasks or labels..."
+              />
               <Select value={selectedWorkerFilter} onValueChange={setSelectedWorkerFilter}>
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Filter by Worker" />
@@ -1290,6 +1217,15 @@ export default function FounderDashboard() {
                               <AlertCircle className="h-3 w-3" />
                               Blocked by: {task.blockedBy.join(', ')}
                             </p>
+                          )}
+                          {task.labels && task.labels.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {task.labels.map((label: string, idx: number) => (
+                                <Badge key={idx} variant="secondary" className="text-xs">
+                                  {label}
+                                </Badge>
+                              ))}
+                            </div>
                           )}
                           <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                             <span className="flex items-center gap-1">
@@ -1374,83 +1310,6 @@ export default function FounderDashboard() {
             </div>
           </TabsContent>
 
-          {/* Reviews Tab */}
-          <TabsContent value="reviews" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Star className="h-5 w-5 text-yellow-500" />
-                  Quality Review Queue
-                </CardTitle>
-                <CardDescription>Review completed tasks before delivery to clients</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {loading ? (
-                  <div className="space-y-3">
-                    {Array(3).fill(0).map((_, i) => (
-                      <Skeleton key={i} className="h-24 w-full" />
-                    ))}
-                  </div>
-                ) : reviews.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <CheckCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No tasks pending review</p>
-                    <p className="text-sm mt-2">Tasks marked as "Ready for Review" will appear here.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {reviews.map(review => (
-                      <div key={review.id} className="border rounded-lg p-4">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <h3 className="font-medium">{review.taskTitle}</h3>
-                            <p className="text-sm text-muted-foreground">
-                              {review.cardName} • Submitted by {review.workerName}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {new Date(review.submittedAt).toLocaleString()}
-                            </p>
-                            {review.notes && (
-                              <p className="text-sm mt-2 p-2 bg-secondary/50 rounded">{review.notes}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {review.status === 'pending' ? (
-                              <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    const notes = prompt('Enter revision notes:');
-                                    if (notes) handleRequestRevision(review.id, notes);
-                                  }}
-                                >
-                                  <XCircle className="h-4 w-4 mr-2" />
-                                  Revision
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  onClick={() => handleApproveReview(review.id)}
-                                >
-                                  <CheckCircle className="h-4 w-4 mr-2" />
-                                  Approve
-                                </Button>
-                              </>
-                            ) : review.status === 'approved' ? (
-                              <Badge className="bg-green-100 text-green-700">Approved</Badge>
-                            ) : (
-                              <Badge className="bg-yellow-100 text-yellow-700">Revision Requested</Badge>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           {/* Dependencies Tab */}
           <TabsContent value="dependencies" className="space-y-6">
             <DependencyGraph
@@ -1458,7 +1317,7 @@ export default function FounderDashboard() {
                 id: a.id.toString(),
                 title: a.taskTitle,
                 cardName: a.cardName,
-                status: a.status as 'assigned' | 'in_progress' | 'completed' | 'blocked' | 'ready_for_review',
+                status: a.status as 'assigned' | 'in_progress' | 'completed' | 'blocked',
                 blockedBy: a.blockedBy || [],
                 blocks: a.blocks || [],
               }))}
@@ -1779,9 +1638,7 @@ export default function FounderDashboard() {
                         ))}
                       </ul>
                     </div>
-                    <div>
-                      <strong>Pending Reviews:</strong> {reviews.filter(r => r.status === 'pending').length} tasks awaiting your approval
-                    </div>
+
                   </div>
                 </div>
               </CardContent>

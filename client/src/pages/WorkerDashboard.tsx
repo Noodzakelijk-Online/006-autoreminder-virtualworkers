@@ -130,9 +130,9 @@ export default function WorkerDashboard() {
 
       if (res.ok) {
         setTasks(prev => prev.map(t => 
-          t.id === taskId ? { ...t, status: 'ready_for_review' } : t
+          t.id === taskId ? { ...t, status: 'completed', isCompleted: true } : t
         ));
-        toast.success('Task submitted for review');
+        toast.success('Task marked complete');
       } else {
         toast.error('Failed to submit for review');
       }
@@ -180,12 +180,7 @@ export default function WorkerDashboard() {
               <Badge className={getPriorityColor(task.priorityLevel)} variant="secondary">
                 {task.priorityLevel}
               </Badge>
-              {task.status === 'ready_for_review' && (
-                <Badge variant="outline" className="text-yellow-600 border-yellow-600">
-                  <Star className="h-3 w-3 mr-1" />
-                  For Review
-                </Badge>
-              )}
+
               {task.startTime && task.startTime !== 'TBD' && (
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <Clock className="h-3 w-3" />
@@ -200,7 +195,7 @@ export default function WorkerDashboard() {
               {task.cardName} • {task.durationHours}h
             </p>
           </div>
-          {task.isCompleted && task.status !== 'ready_for_review' && (
+          {task.isCompleted && (
             <Button
               variant="outline"
               size="sm"
