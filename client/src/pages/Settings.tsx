@@ -6,8 +6,7 @@ import { WorkingHoursSettings } from '@/components/WorkingHoursSettings';
 import { HolidayManagement } from '@/components/HolidayManagement';
 import { PerformanceMetrics } from '@/components/PerformanceMetrics';
 import { NotificationSettings } from '@/components/NotificationSettings';
-import { TrelloChatbotSettings } from '@/components/TrelloChatbotSettings';
-import { AISettings } from '@/components/AISettings';
+import { AIProviderSettingsTabs } from '@/components/AIProviderSettingsTabs';
 
 export default function Settings() {
   const [country, setCountry] = useState('US');
@@ -29,10 +28,8 @@ export default function Settings() {
       </header>
 
       <main className="container py-4 md:py-8 max-w-4xl space-y-4 md:space-y-6">
-        <TrelloChatbotSettings />
-        <AISettings />
+        <AIProviderSettingsTabs />
         <NotificationSettings />
-        <PerformanceMetrics />
         <WorkingHoursSettings />
         <HolidayManagement country={country} onCountryChange={setCountry} />
       </main>
