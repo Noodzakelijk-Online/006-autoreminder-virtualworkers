@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Bell, BellOff, Clock, Mail, Smartphone, AlertTriangle, Loader2, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import TIMEZONES from '@/data/timezones';
 
 interface NotificationPreferences {
   notificationMode: 'disabled' | 'daily_digest' | 'priority_only';
@@ -18,17 +19,6 @@ interface NotificationPreferences {
   inAppEnabled: boolean;
   lastDigestSent: string | null;
 }
-
-const TIMEZONES = [
-  { value: 'Europe/Amsterdam', label: 'Amsterdam (CET/CEST)' },
-  { value: 'Europe/London', label: 'London (GMT/BST)' },
-  { value: 'America/New_York', label: 'New York (EST/EDT)' },
-  { value: 'America/Los_Angeles', label: 'Los Angeles (PST/PDT)' },
-  { value: 'Asia/Tokyo', label: 'Tokyo (JST)' },
-  { value: 'Asia/Shanghai', label: 'Shanghai (CST)' },
-  { value: 'Australia/Sydney', label: 'Sydney (AEST/AEDT)' },
-  { value: 'UTC', label: 'UTC' },
-];
 
 export function NotificationSettings() {
   const [preferences, setPreferences] = useState<NotificationPreferences>({
