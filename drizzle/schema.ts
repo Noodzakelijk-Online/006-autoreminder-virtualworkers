@@ -1314,6 +1314,9 @@ export const executionPlans = mysqlTable('execution_plans', {
   totalEstimateMin: int('totalEstimateMin').notNull(),
   totalEstimateMax: int('totalEstimateMax').notNull(),
   generatedBy: mysqlEnum('generatedBy', ['manual', 'ai']).notNull().default('manual'),
+  qualityScore: int('qualityScore').default(85), // 0-100 score from quality check
+  validationStatus: mysqlEnum('validationStatus', ['initial', 'validated', 'needs_review', 'quality_check_failed']).default('initial'),
+  qualityFeedback: text('qualityFeedback'), // Feedback from quality check
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
 });

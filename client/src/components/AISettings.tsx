@@ -28,6 +28,7 @@ interface AIModel {
   name: string;
   description: string;
   released: string;
+  tier?: 'fast' | 'quality'; // For ExecutionPlan two-tier validation
 }
 
 interface AIConfig {
@@ -39,32 +40,33 @@ interface AIConfig {
   ollamaUrl: string;
 }
 
-// Available models per provider (Q4 2025)
+// Available models per provider (Apr 2026)
+// Tier classification for ExecutionPlan: 'fast' for initial analysis, 'quality' for fact-checking
 const AVAILABLE_MODELS: Record<AIProvider, AIModel[]> = {
   groq: [
-    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', description: 'Latest Meta model, excellent all-around', released: 'Dec 2024' },
-    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', description: 'Fast, lightweight model', released: 'Jul 2024' },
-    { id: 'qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', description: 'Strong multilingual support', released: 'Nov 2024' },
-    { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', description: 'Efficient mixture of experts', released: 'Dec 2023' }
+    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', description: 'Latest Meta model, excellent all-around', released: 'Dec 2024', tier: 'quality' },
+    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', description: 'Fast, lightweight model - ideal for initial analysis', released: 'Jul 2024', tier: 'fast' },
+    { id: 'qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', description: 'Strong multilingual support', released: 'Nov 2024', tier: 'quality' },
+    { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', description: 'Efficient mixture of experts', released: 'Dec 2023', tier: 'fast' }
   ],
   together: [
-    { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3.2', description: 'Matches GPT-5, best value', released: 'Dec 2025' },
-    { id: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek R1', description: 'Advanced reasoning model', released: 'Nov 2025' },
-    { id: 'Qwen/Qwen2.5-72B-Instruct-Turbo', name: 'Qwen 2.5 72B Turbo', description: 'Fast Qwen variant', released: 'Nov 2024' },
-    { id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', name: 'Llama 3.3 70B Turbo', description: 'Optimized Llama 3.3', released: 'Dec 2024' }
+    { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3.2', description: 'Matches GPT-5 performance - best for fact-checking', released: 'Dec 2025', tier: 'quality' },
+    { id: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek R1', description: 'Advanced reasoning model', released: 'Nov 2025', tier: 'quality' },
+    { id: 'Qwen/Qwen2.5-72B-Instruct-Turbo', name: 'Qwen 2.5 72B Turbo', description: 'Fast Qwen variant - good for initial analysis', released: 'Nov 2024', tier: 'fast' },
+    { id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', name: 'Llama 3.3 70B Turbo', description: 'Optimized Llama 3.3 - best all-around', released: 'Dec 2024', tier: 'quality' }
   ],
   openrouter: [
-    { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3.2', description: 'Latest DeepSeek via OpenRouter', released: 'Dec 2025' },
-    { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', description: "Alibaba's latest", released: 'Nov 2024' },
-    { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', description: "Meta's latest open model", released: 'Dec 2024' },
-    { id: 'mistralai/mistral-large-2411', name: 'Mistral Large', description: "Mistral's flagship", released: 'Nov 2024' }
+    { id: 'deepseek/deepseek-chat', name: 'DeepSeek V3.2', description: 'Latest DeepSeek via OpenRouter - best for fact-checking', released: 'Dec 2025', tier: 'quality' },
+    { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B', description: "Alibaba's latest - good for initial analysis", released: 'Nov 2024', tier: 'fast' },
+    { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', description: "Meta's latest open model - best all-around", released: 'Dec 2024', tier: 'quality' },
+    { id: 'mistralai/mistral-large-2411', name: 'Mistral Large', description: "Mistral's flagship - good for initial analysis", released: 'Nov 2024', tier: 'fast' }
   ],
   ollama: [
-    { id: 'qwen2.5:72b', name: 'Qwen 2.5 72B', description: 'Full Qwen 2.5 locally', released: 'Nov 2024' },
-    { id: 'qwen2.5:32b', name: 'Qwen 2.5 32B', description: 'Balanced Qwen variant', released: 'Nov 2024' },
-    { id: 'llama3.3:70b', name: 'Llama 3.3 70B', description: 'Latest Llama locally', released: 'Dec 2024' },
-    { id: 'deepseek-v3:latest', name: 'DeepSeek V3', description: 'DeepSeek locally (when available)', released: 'Dec 2025' },
-    { id: 'mistral:latest', name: 'Mistral', description: 'Lightweight and fast', released: '2024' }
+    { id: 'qwen2.5:72b', name: 'Qwen 2.5 72B', description: 'Full Qwen 2.5 locally - best all-around', released: 'Nov 2024', tier: 'quality' },
+    { id: 'qwen2.5:32b', name: 'Qwen 2.5 32B', description: 'Balanced Qwen variant - good for initial analysis', released: 'Nov 2024', tier: 'fast' },
+    { id: 'llama3.3:70b', name: 'Llama 3.3 70B', description: 'Latest Llama locally - best all-around', released: 'Dec 2024', tier: 'quality' },
+    { id: 'deepseek-v3:latest', name: 'DeepSeek V3', description: 'DeepSeek locally (when available) - best for fact-checking', released: 'Dec 2025', tier: 'quality' },
+    { id: 'mistral:latest', name: 'Mistral', description: 'Lightweight and fast - good for initial analysis', released: '2024', tier: 'fast' }
   ]
 };
 
@@ -74,7 +76,7 @@ const PROVIDER_INFO: Record<AIProvider, { name: string; icon: typeof Zap; color:
     icon: Sparkles,
     color: 'text-purple-500',
     badge: 'DeepSeek V3.2',
-    description: 'Access DeepSeek V3.2 (Dec 2025) - matches GPT-5 performance. Free tier available.',
+    description: 'Access DeepSeek V3.2 (Dec 2025) - matches GPT-5 performance. Recommended for quality fact-checking. Free tier available.',
     url: 'https://api.together.xyz'
   },
   groq: {
@@ -82,7 +84,7 @@ const PROVIDER_INFO: Record<AIProvider, { name: string; icon: typeof Zap; color:
     icon: Zap,
     color: 'text-yellow-500',
     badge: 'Fast',
-    description: 'Ultra-fast inference with Llama 3.3 & Qwen 2.5. Free tier available.',
+    description: 'Ultra-fast inference with Llama 3.3 & Qwen 2.5. Recommended for initial analysis. Free tier available.',
     url: 'https://console.groq.com'
   },
   openrouter: {

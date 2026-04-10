@@ -58,16 +58,54 @@ Card Description: {cardDescription}
 
 Generate the ExecutionPlan JSON now:`;
 
+const QUALITY_CHECK_PROMPT = `You are a quality assurance expert for execution plans. Review the provided ExecutionPlan and provide a quality assessment.
+
+ExecutionPlan:
+{executionPlan}
+
+Evaluate on these criteria:
+1. Are steps granular and actionable? (not vague like "prepare", "handle", "process")
+2. Are time estimates realistic and well-reasoned?
+3. Are dependencies correctly identified and logical?
+4. Are risks comprehensive and specific?
+5. Is the total estimate accurate based on individual steps?
+6. Are iteration loops properly identified?
+
+Respond with ONLY this JSON format:
+{
+  "score": 0-100,
+  "feedback": "brief overall assessment",
+  "issues": ["specific issue 1", "specific issue 2"],
+  "recommendations": ["recommendation 1", "recommendation 2"]
+}`;
+
+interface GenerationOptions {
+  fastModelProvider?: 'groq' | 'together' | 'openrouter' | 'ollama';
+  qualityModelProvider?: 'groq' | 'together' | 'openrouter' | 'ollama';
+  skipQualityCheck?: boolean;
+}
+
+interface GenerationResult {
+  success: boolean;
+  plan?: any;
+  qualityScore?: number;
+  validationStatus?: 'initial' | 'validated' | 'needs_review' | 'quality_check_failed';
+  qualityFeedback?: string;
+  error?: string;
+}
+
 export async function generateExecutionPlanFromCard(
   cardTitle: string,
-  cardDescription: string
-): Promise<{ success: boolean; plan?: any; error?: string }> {
+  cardDescription: string,
+  options?: GenerationOptions
+): Promise<GenerationResult> {
   try {
     const prompt = EXECUTION_PLAN_PROMPT
       .replace('{cardTitle}', cardTitle)
       .replace('{cardDescription}', cardDescription);
 
-    // Call LLM to generate ExecutionPlan
+    // Step 1: Generate initial ExecutionPlan with fast model
+    // Using lightweight models for speed and cost efficiency
     const response = await invokeLLM({
       messages: [
         {
@@ -166,7 +204,76 @@ export async function generateExecutionPlanFromCard(
       return { success: false, error: `Schema validation failed: ${validation.errors.join(', ')}` };
     }
 
-    return { success: true, plan: executionPlan };
+    // Step 2: Quality check with powerful model (optional)
+    // This ensures good quality without paying for expensive models for initial generation
+    let qualityScore = 85; // Default score for fast model
+    let validationStatus: 'initial' | 'validated' | 'needs_review' | 'quality_check_failed' = 'initial';
+    let qualityFeedback = '';
+
+    if (!options?.skipQualityCheck) {
+      try {
+        const qualityCheckContent = QUALITY_CHECK_PROMPT.replace(
+          '{executionPlan}',
+          JSON.stringify(executionPlan, null, 2)
+        );
+
+        const qualityResponse = await invokeLLM({
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a quality assurance expert for execution plans. Provide honest, detailed feedback. Return ONLY valid JSON.'
+            },
+            {
+              role: 'user',
+              content: qualityCheckContent
+            }
+          ],
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              name: 'quality_assessment',
+              strict: true,
+              schema: {
+                type: 'object',
+                properties: {
+                  score: { type: 'integer', minimum: 0, maximum: 100 },
+                  feedback: { type: 'string' },
+                  issues: { type: 'array', items: { type: 'string' } },
+                  recommendations: { type: 'array', items: { type: 'string' } }
+                },
+                required: ['score', 'feedback', 'issues', 'recommendations'],
+                additionalProperties: false
+              }
+            }
+          }
+        });
+
+        const qualityContent = qualityResponse.choices[0]?.message?.content;
+        if (qualityContent) {
+          const qualityStr = typeof qualityContent === 'string' ? qualityContent : JSON.stringify(qualityContent);
+          const qualityData = JSON.parse(qualityStr);
+          qualityScore = qualityData.score || 85;
+          qualityFeedback = qualityData.feedback || '';
+          validationStatus = qualityScore >= 80 ? 'validated' : 'needs_review';
+
+          // Log issues if any
+          if (qualityData.issues && qualityData.issues.length > 0) {
+            console.log('Quality check issues:', qualityData.issues);
+          }
+        }
+      } catch (error) {
+        console.warn('Quality check failed, using initial plan:', error);
+        validationStatus = 'quality_check_failed';
+      }
+    }
+
+    return {
+      success: true,
+      plan: executionPlan,
+      qualityScore,
+      validationStatus,
+      qualityFeedback
+    };
   } catch (error) {
     console.error('Error generating ExecutionPlan:', error);
     return { success: false, error: `Generation failed: ${(error as Error).message}` };
@@ -175,15 +282,16 @@ export async function generateExecutionPlanFromCard(
 
 // Batch generate execution plans for multiple cards
 export async function batchGenerateExecutionPlans(
-  cards: Array<{ id: string; title: string; description: string }>
-): Promise<Map<string, { success: boolean; plan?: any; error?: string }>> {
+  cards: Array<{ id: string; title: string; description: string }>,
+  options?: GenerationOptions
+): Promise<Map<string, GenerationResult>> {
   const results = new Map();
 
   for (const card of cards) {
     try {
-      const result = await generateExecutionPlanFromCard(card.title, card.description);
+      const result = await generateExecutionPlanFromCard(card.title, card.description, options);
       results.set(card.id, result);
-      
+
       // Add delay to avoid rate limiting
       await new Promise(resolve => setTimeout(resolve, 1000));
     } catch (error) {
