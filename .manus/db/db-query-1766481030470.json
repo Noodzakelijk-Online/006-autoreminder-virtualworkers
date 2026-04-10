@@ -1,9 +1,0 @@
-{
-  "query": "CREATE TABLE IF NOT EXISTS `digest_jobs` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `userOpenId` varchar(64) NOT NULL,\n  `scheduledFor` timestamp NOT NULL,\n  `status` enum('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',\n  `notificationCount` int NOT NULL DEFAULT 0,\n  `error` text,\n  `completedAt` timestamp NULL,\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`),\n  INDEX `idx_user_status` (`userOpenId`, `status`)\n)",
-  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute CREATE TABLE IF NOT EXISTS `digest_jobs` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `userOpenId` varchar(64) NOT NULL,\n  `scheduledFor` timestamp NOT NULL,\n  `status` enum('pending','processing','completed','failed') NOT NULL DEFAULT 'pending',\n  `notificationCount` int NOT NULL DEFAULT 0,\n  `error` text,\n  `completedAt` timestamp NULL,\n  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY (`id`),\n  INDEX `idx_user_status` (`userOpenId`, `status`)\n)",
-  "rows": [],
-  "messages": [],
-  "stdout": "",
-  "stderr": "",
-  "execution_time_ms": 342
-}

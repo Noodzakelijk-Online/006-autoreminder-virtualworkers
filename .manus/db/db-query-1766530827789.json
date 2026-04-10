@@ -1,9 +1,0 @@
-{
-  "query": "CREATE TABLE IF NOT EXISTS atis_checklist_sync (\n  id INT PRIMARY KEY AUTO_INCREMENT,\n  trello_card_id VARCHAR(255) NOT NULL,\n  trello_checklist_id VARCHAR(255),\n  items_synced INT DEFAULT 0,\n  synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  UNIQUE KEY unique_card (trello_card_id)\n)",
-  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute CREATE TABLE IF NOT EXISTS atis_checklist_sync (\n  id INT PRIMARY KEY AUTO_INCREMENT,\n  trello_card_id VARCHAR(255) NOT NULL,\n  trello_checklist_id VARCHAR(255),\n  items_synced INT DEFAULT 0,\n  synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,\n  UNIQUE KEY unique_card (trello_card_id)\n)",
-  "rows": [],
-  "messages": [],
-  "stdout": "",
-  "stderr": "",
-  "execution_time_ms": 216
-}

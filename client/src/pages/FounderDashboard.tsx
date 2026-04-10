@@ -23,7 +23,8 @@ import { toast } from 'sonner';
 import { TimezoneDisplay } from '@/components/TimezoneDisplay';
 import DependencyGraph from '@/components/DependencyGraph';
 import { ReanalysisProgressModal } from '@/components/ReanalysisProgressModal';
-import { LabelAutocompleteSearch } from '@/components/LabelAutocompleteSearch';
+import TIMEZONES from '@/data/timezones';
+import CURRENCIES from '@/data/currencies';
 
 interface VirtualWorker {
   id: number;
@@ -104,16 +105,6 @@ interface TimezoneOverlap {
   overlapStart: string;
   overlapEnd: string;
 }
-
-const TIMEZONES = [
-  { value: 'Asia/Manila', label: 'Philippines (GMT+8)' },
-  { value: 'Asia/Jakarta', label: 'Indonesia (GMT+7)' },
-  { value: 'Asia/Kolkata', label: 'India (GMT+5:30)' },
-  { value: 'Europe/Amsterdam', label: 'Netherlands (GMT+1)' },
-  { value: 'America/New_York', label: 'US Eastern (GMT-5)' },
-  { value: 'America/Los_Angeles', label: 'US Pacific (GMT-8)' },
-  { value: 'UTC', label: 'UTC' },
-];
 
 export default function FounderDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -696,9 +687,9 @@ export default function FounderDashboard() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="USD">USD</SelectItem>
-                          <SelectItem value="EUR">EUR</SelectItem>
-                          <SelectItem value="PHP">PHP</SelectItem>
+                          {CURRENCIES.map((c) => (
+                            <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -1708,9 +1699,9 @@ export default function FounderDashboard() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="USD">USD</SelectItem>
-                      <SelectItem value="EUR">EUR</SelectItem>
-                      <SelectItem value="PHP">PHP</SelectItem>
+                      {CURRENCIES.map((c) => (
+                        <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

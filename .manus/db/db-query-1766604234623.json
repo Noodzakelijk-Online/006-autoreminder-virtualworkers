@@ -1,9 +1,0 @@
-{
-  "query": "\nSELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS \nWHERE TABLE_SCHEMA = DATABASE() \nAND TABLE_NAME = 'user_working_hours' \nAND COLUMN_NAME IN ('weeklyHoursMin', 'weeklyHoursMax', 'dailyHoursMin', 'dailyHoursMax')\n",
-  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3zdYySmWxto697z.f7331094e4e6 --database 8WaJog2pAVrGepmXoS2wYU --execute \nSELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS \nWHERE TABLE_SCHEMA = DATABASE() \nAND TABLE_NAME = 'user_working_hours' \nAND COLUMN_NAME IN ('weeklyHoursMin', 'weeklyHoursMax', 'dailyHoursMin', 'dailyHoursMax')\n",
-  "rows": [],
-  "messages": [],
-  "stdout": "",
-  "stderr": "",
-  "execution_time_ms": 108
-}
