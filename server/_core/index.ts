@@ -134,6 +134,12 @@ async function startServer() {
       createContext,
     })
   );
+  // Add 404 handler for unmatched API routes before Vite middleware
+  app.use('/api', (req, res) => {
+    console.log(`[Server] 404 - Unmatched API route: ${req.method} ${req.path}`);
+    res.status(404).json({ error: 'API endpoint not found', path: req.path });
+  });
+  
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

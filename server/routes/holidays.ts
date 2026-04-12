@@ -254,8 +254,12 @@ router.get('/workers', async (req: any, res: Response) => {
 router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
   res.setHeader('Content-Type', 'application/json');
   try {
+    console.log('[Holidays] by-timezone endpoint called with params:', req.params);
+    console.log('[Holidays] User:', req.user ? 'authenticated' : 'not authenticated');
+    
     const user = req.user;
     if (!user) {
+      console.log('[Holidays] Unauthorized access attempt');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -359,9 +363,10 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
       timezone: timezone,
       holidays: holidayRecords
     });
-  } catch (error) {
-    console.error('Error fetching holidays by timezone:', error);
-    return res.status(500).json({ error: 'Failed to fetch holidays' });
+  } catch (error: any) {
+    console.error('[Holidays] Error fetching holidays by timezone:', error);
+    console.error('[Holidays] Error stack:', error?.stack);
+    return res.status(500).json({ error: error?.message || 'Failed to fetch holidays' });
   }
 });
 
