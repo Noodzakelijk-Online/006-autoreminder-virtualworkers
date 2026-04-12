@@ -2019,3 +2019,15 @@ Each card now has:
 
 ## UI Cleanup (Apr 12, 2026)
 - [x] Remove calendar view tab icon from header
+
+
+## Feature Removal: Execution Plan (Apr 12, 2026)
+- [x] Remove ExecutionPlan pages (ExecutionPlan.tsx, ExecutionPlanV3.tsx)
+- [x] Remove ExecutionPlan components (Dashboard V1, V2, V3)
+- [x] Remove ExecutionPlan hooks (useExecutionPlan, useExecutionPlanV2)
+- [x] Remove ExecutionPlan backend services and generators
+- [x] Remove ExecutionPlan database schema file
+- [x] Remove ExecutionPlan router from App.tsx
+- [x] Remove ExecutionPlan router from server/routers.ts
+- [x] Verify no broken references
+- [x] Verify dev server running successfully
