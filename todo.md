@@ -2015,3 +2015,7 @@ Each card now has:
 - [x] Add 'All' button to view mode selector
 - [x] Restart dev server after it became unresponsive
 - [x] Verify cards display correctly after restart
+
+
+## UI Cleanup (Apr 12, 2026)
+- [x] Remove calendar view tab icon from header
