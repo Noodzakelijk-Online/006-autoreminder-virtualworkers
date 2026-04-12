@@ -383,8 +383,10 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
     }
 
     // Fetch holidays from Nager.Date API
+    console.log('[Holidays] Fetching from API for year:', year, 'country:', countryCode);
     const response = await fetch(`${HOLIDAY_API_BASE}/PublicHolidays/${year}/${countryCode}`);
     
+    console.log('[Holidays] API response status:', response.status);
     if (!response.ok) {
       if (response.status === 404) {
         return res.status(404).json({ error: 'No holidays found for this timezone' });
@@ -392,7 +394,35 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
       throw new Error(`Holiday API error: ${response.statusText}`);
     }
 
-    const holidaysData = await response.json();
+    const responseText = await response.text();
+    console.log('[Holidays] API response text length:', responseText.length);
+    
+    if (!responseText) {
+      console.log('[Holidays] Empty response from API');
+      return res.json({ success: true, count: 0, holidays: [] });
+    }
+    
+    let holidaysData;
+    try {
+      holidaysData = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('[Holidays] Failed to parse API response:', parseError);
+      console.error('[Holidays] Response text:', responseText.substring(0, 200));
+      return res.status(500).json({ error: 'Failed to parse holiday data from API' });
+    }
+    
+    // Handle empty response from API
+    if (!Array.isArray(holidaysData) || holidaysData.length === 0) {
+      console.log('[Holidays] API returned empty or non-array response for country:', countryCode);
+      return res.json({ 
+        success: true, 
+        count: 0, 
+        countryCode: countryCode,
+        timezone: timezone,
+        holidays: [],
+        message: 'No holidays available for this country in the API'
+      });
+    }
     
     // Store holidays in database
     const db = await getDb();
@@ -422,21 +452,28 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
     }
 
     // Re-fetch from DB so records include auto-generated IDs
-    const savedHolidays = await db.select()
-      .from(holidays)
-      .where(and(
-        eq(holidays.userOpenId, user.openId),
-        eq(holidays.country, countryCode)
-      ))
-      .orderBy(holidays.date);
+    console.log('[Holidays] Fetching saved holidays from DB for user:', user.openId, 'country:', countryCode);
+    try {
+      const savedHolidays = await db.select()
+        .from(holidays)
+        .where(and(
+          eq(holidays.userOpenId, user.openId),
+          eq(holidays.country, countryCode)
+        ))
+        .orderBy(holidays.date);
+      console.log('[Holidays] Successfully fetched', savedHolidays.length, 'holidays from DB');
 
-    return res.json({
-      success: true,
-      count: savedHolidays.length,
-      countryCode: countryCode,
-      timezone: timezone,
-      holidays: savedHolidays
-    });
+      return res.json({
+        success: true,
+        count: savedHolidays.length,
+        countryCode: countryCode,
+        timezone: timezone,
+        holidays: savedHolidays
+      });
+    } catch (dbError: any) {
+      console.error('[Holidays] Database query error:', dbError?.message);
+      throw dbError;
+    }
   } catch (error: any) {
     console.error('[Holidays] Error fetching holidays by timezone:', error);
     console.error('[Holidays] Error stack:', error?.stack);
