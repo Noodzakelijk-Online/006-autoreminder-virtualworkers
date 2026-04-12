@@ -2038,3 +2038,5 @@ Each card now has:
 - [x] Stagger API calls (webhooks, analytics) to prevent concurrent overload
 - [x] Suppress 503 error toasts (temporary server issues)
 - [x] Make analytics and webhooks optional (don't block page load on failure)
+- [x] Restart dev server after it became unresponsive
+- [x] Verify dev server is running and responsive
