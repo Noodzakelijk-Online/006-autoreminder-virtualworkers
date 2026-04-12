@@ -497,14 +497,29 @@ router.get('/stored-webhooks', async (req, res) => {
 router.get('/chatbot/analytics', async (req, res) => {
   try {
     const days = parseInt(req.query.days as string) || 30;
+    
+    // Validate days parameter
+    if (isNaN(days) || days < 1 || days > 365) {
+      return res.status(400).json({ error: 'Invalid days parameter. Must be between 1 and 365.' });
+    }
+    
     const { getOverallStats } = await import('../services/chatbot-analytics');
     
+    if (!getOverallStats) {
+      console.error('[TrelloWebhook] getOverallStats function not found');
+      return res.status(500).json({ error: 'Analytics service not available' });
+    }
+    
     const stats = await getOverallStats(days);
+    
+    if (!stats) {
+      return res.status(500).json({ error: 'Failed to retrieve analytics data' });
+    }
     
     res.json(stats);
   } catch (error: any) {
     console.error('[TrelloWebhook] Error getting chatbot analytics:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || 'Failed to load analytics' });
   }
 });
 
