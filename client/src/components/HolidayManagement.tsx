@@ -126,7 +126,8 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
     setLoading(true);
     try {
       const currentYear = new Date().getFullYear();
-      const response = await fetch(`/api/holidays/by-timezone/${selectedWorker.timezone}/${currentYear}`);
+      const encodedTimezone = encodeURIComponent(selectedWorker.timezone);
+      const response = await fetch(`/api/holidays/by-timezone/${encodedTimezone}/${currentYear}`);
       const responseText = await response.text();
       
       if (!response.ok) {

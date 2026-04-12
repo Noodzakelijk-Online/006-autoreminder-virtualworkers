@@ -263,7 +263,9 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { timezone, year } = req.params;
+    let { timezone, year } = req.params;
+    // Decode URL-encoded timezone (e.g., Asia%2FKarachi -> Asia/Karachi)
+    timezone = decodeURIComponent(timezone);
     
     // Map timezone to country code
     const timezoneToCountryMap: { [key: string]: string } = {
