@@ -8,6 +8,7 @@
  */
 
 import { Router } from 'express';
+import { eq } from 'drizzle-orm';
 import { handleTrelloWebhook, postTrelloComment, parseBotCommand, processBotCommand } from '../services/trello-chatbot';
 
 const router = Router();
@@ -63,6 +64,12 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    if (!TRELLO_API_KEY || !TRELLO_TOKEN) {
+      return res.status(400).json({ 
+        error: 'Trello API credentials not configured. Please set TRELLO_API_KEY and TRELLO_TOKEN environment variables.' 
+      });
+    }
+
     const response = await fetch(
       `https://api.trello.com/1/webhooks?key=${TRELLO_API_KEY}&token=${TRELLO_TOKEN}`,
       {
@@ -87,6 +94,23 @@ router.post('/register', async (req, res) => {
 
     const webhook = await response.json();
     console.log('[TrelloWebhook] Registered webhook:', webhook.id);
+
+    // Also store in local database for fallback
+    try {
+      const { getDb } = await import('../db');
+      const { chatbotWebhooks } = await import('../../drizzle/schema');
+      const db = await getDb();
+      await db.insert(chatbotWebhooks).values({
+        trelloWebhookId: webhook.id,
+        modelId: modelId,
+        description: description || 'VA Dashboard Chatbot',
+        callbackUrl: callbackUrl,
+        isActive: webhook.active ? 1 : 0,
+      });
+      console.log('[TrelloWebhook] Stored webhook in database');
+    } catch (dbError) {
+      console.warn('[TrelloWebhook] Failed to store webhook in database:', dbError);
+    }
     
     res.json({ 
       success: true, 
@@ -101,25 +125,59 @@ router.post('/register', async (req, res) => {
 
 /**
  * GET /api/trello-webhook/list
- * List all registered webhooks
+ * List all registered webhooks (from Trello API or local database)
  */
 router.get('/list', async (req, res) => {
   try {
-    const response = await fetch(
-      `https://api.trello.com/1/tokens/${TRELLO_TOKEN}/webhooks?key=${TRELLO_API_KEY}`,
-      { method: 'GET' }
-    );
+    let webhooks: any[] = [];
+    let source = 'trello';
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      return res.status(response.status).json({ 
-        error: 'Failed to list webhooks', 
-        details: errorText 
-      });
+    // Try to fetch from Trello API first
+    if (TRELLO_API_KEY && TRELLO_TOKEN) {
+      try {
+        const response = await fetch(
+          `https://api.trello.com/1/tokens/${TRELLO_TOKEN}/webhooks?key=${TRELLO_API_KEY}`,
+          { method: 'GET' }
+        );
+
+        if (response.ok) {
+          webhooks = await response.json();
+          console.log('[TrelloWebhook] Fetched webhooks from Trello API');
+        } else {
+          console.warn('[TrelloWebhook] Failed to fetch from Trello API, falling back to database');
+          source = 'database';
+        }
+      } catch (error) {
+        console.warn('[TrelloWebhook] Error fetching from Trello API, falling back to database:', error);
+        source = 'database';
+      }
+    } else {
+      console.warn('[TrelloWebhook] Trello credentials not configured, using database');
+      source = 'database';
     }
 
-    const webhooks = await response.json();
-    res.json({ webhooks });
+    // Fall back to local database if Trello API failed or not configured
+    if (webhooks.length === 0 && source === 'database') {
+      try {
+        const { getDb } = await import('../db');
+        const { chatbotWebhooks } = await import('../../drizzle/schema');
+        const db = await getDb();
+        const stored = await db.select().from(chatbotWebhooks).where(eq(chatbotWebhooks.isActive, 1));
+        webhooks = stored.map((w: any) => ({
+          id: w.trelloWebhookId,
+          idModel: w.modelId,
+          description: w.description,
+          callbackURL: w.callbackUrl,
+          active: w.isActive === 1,
+          createdAt: w.createdAt,
+        }));
+        console.log(`[TrelloWebhook] Fetched ${webhooks.length} webhooks from database`);
+      } catch (dbError) {
+        console.error('[TrelloWebhook] Error fetching from database:', dbError);
+      }
+    }
+
+    res.json({ webhooks, source });
   } catch (error: any) {
     console.error('[TrelloWebhook] Error listing webhooks:', error);
     res.status(500).json({ error: error.message });
@@ -134,20 +192,38 @@ router.delete('/:webhookId', async (req, res) => {
   try {
     const { webhookId } = req.params;
 
-    const response = await fetch(
-      `https://api.trello.com/1/webhooks/${webhookId}?key=${TRELLO_API_KEY}&token=${TRELLO_TOKEN}`,
-      { method: 'DELETE' }
-    );
+    let success = false;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      return res.status(response.status).json({ 
-        error: 'Failed to delete webhook', 
-        details: errorText 
-      });
+    // Try to delete from Trello API
+    if (TRELLO_API_KEY && TRELLO_TOKEN) {
+      try {
+        const response = await fetch(
+          `https://api.trello.com/1/webhooks/${webhookId}?key=${TRELLO_API_KEY}&token=${TRELLO_TOKEN}`,
+          { method: 'DELETE' }
+        );
+
+        if (response.ok) {
+          success = true;
+          console.log('[TrelloWebhook] Deleted webhook from Trello:', webhookId);
+        } else {
+          console.warn('[TrelloWebhook] Failed to delete from Trello API');
+        }
+      } catch (error) {
+        console.warn('[TrelloWebhook] Error deleting from Trello API:', error);
+      }
     }
 
-    console.log('[TrelloWebhook] Deleted webhook:', webhookId);
+    // Also delete from local database
+    try {
+      const { getDb } = await import('../db');
+      const { chatbotWebhooks } = await import('../../drizzle/schema');
+      const db = await getDb();
+      await db.delete(chatbotWebhooks).where(eq(chatbotWebhooks.trelloWebhookId, webhookId));
+      console.log('[TrelloWebhook] Deleted webhook from database:', webhookId);
+    } catch (dbError) {
+      console.warn('[TrelloWebhook] Failed to delete from database:', dbError);
+    }
+
     res.json({ success: true, webhookId });
   } catch (error: any) {
     console.error('[TrelloWebhook] Error deleting webhook:', error);
@@ -398,20 +474,15 @@ router.get('/stored-webhooks', async (req, res) => {
   try {
     const { getDb } = await import('../db');
     const { sql } = await import('drizzle-orm');
+    const { chatbotWebhooks } = await import('../../drizzle/schema');
     
     const db = await getDb();
-    if (!db) {
-      return res.status(500).json({ error: 'Database not available' });
-    }
-    
-    const result = await db.execute(sql`
-      SELECT * FROM chatbot_webhooks ORDER BY createdAt DESC
-    `);
-    const webhooks = (result as any)[0] || [];
+    const webhooks = await db.select().from(chatbotWebhooks);
     
     res.json({
       success: true,
       webhooks,
+      count: webhooks.length,
     });
   } catch (error: any) {
     console.error('[TrelloWebhook] Error getting stored webhooks:', error);
@@ -420,255 +491,20 @@ router.get('/stored-webhooks', async (req, res) => {
 });
 
 /**
- * POST /api/trello-webhook/conversation-counts
- * Get conversation counts for multiple cards
+ * GET /api/chatbot/analytics
+ * Get overall chatbot analytics (alias for /api/trello-webhook/analytics)
  */
-router.post('/conversation-counts', async (req, res) => {
+router.get('/chatbot/analytics', async (req, res) => {
   try {
-    const { cardIds } = req.body;
+    const days = parseInt(req.query.days as string) || 30;
+    const { getOverallStats } = await import('../services/chatbot-analytics');
     
-    if (!cardIds || !Array.isArray(cardIds)) {
-      return res.status(400).json({ error: 'cardIds array is required' });
-    }
-
-    const { getDb } = await import('../db');
-    const { sql } = await import('drizzle-orm');
+    const stats = await getOverallStats(days);
     
-    const db = await getDb();
-    if (!db) {
-      return res.status(500).json({ error: 'Database not available' });
-    }
-
-    // Get counts for all requested cards in one query
-    // Build the query with proper escaping
-    const escapedIds = cardIds.map(id => `'${id.replace(/'/g, "''")}'`).join(',');
-    const result = await db.execute(sql`
-      SELECT cardTrelloId as cardId, COUNT(*) as count 
-      FROM chatbot_conversations 
-      WHERE cardTrelloId IN (${sql.raw(escapedIds)})
-      GROUP BY cardTrelloId
-    `);
-    
-    const rows = (result as any)[0] || [];
-    
-    // Build counts map
-    const counts: Record<string, number> = {};
-    for (const row of rows) {
-      counts[row.cardId] = parseInt(row.count) || 0;
-    }
-    
-    // Fill in zeros for cards with no conversations
-    for (const cardId of cardIds) {
-      if (!(cardId in counts)) {
-        counts[cardId] = 0;
-      }
-    }
-    
-    res.json({
-      success: true,
-      counts,
-    });
+    res.json(stats);
   } catch (error: any) {
-    console.error('[TrelloWebhook] Error getting conversation counts:', error);
+    console.error('[TrelloWebhook] Error getting chatbot analytics:', error);
     res.status(500).json({ error: error.message });
-  }
-});
-
-// In-memory storage for check-in settings (would be in database in production)
-let checkinSettings = {
-  useGlobal: true,
-  settings: {
-    morningEnabled: true,
-    morningTime: '09:30',
-    middayEnabled: true,
-    middayTime: '13:00',
-    eodEnabled: true,
-    eodTime: '17:30',
-  },
-  workerSettings: null as any,
-};
-
-/**
- * GET /api/trello-webhook/checkin-settings
- * Get check-in schedule settings
- */
-router.get('/checkin-settings', async (req, res) => {
-  try {
-    res.json({
-      success: true,
-      ...checkinSettings,
-    });
-  } catch (error: any) {
-    console.error('[TrelloWebhook] Error getting checkin settings:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/trello-webhook/checkin-settings
- * Save check-in schedule settings
- */
-router.post('/checkin-settings', async (req, res) => {
-  try {
-    const { useGlobal, settings, workerSettings } = req.body;
-    
-    checkinSettings = {
-      useGlobal: useGlobal ?? true,
-      settings: settings || checkinSettings.settings,
-      workerSettings: workerSettings || null,
-    };
-    
-    console.log('[TrelloWebhook] Check-in settings updated:', checkinSettings);
-    
-    res.json({
-      success: true,
-      message: 'Check-in settings saved',
-    });
-  } catch (error: any) {
-    console.error('[TrelloWebhook] Error saving checkin settings:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/trello-webhook/compliance
- * Get compliance metrics for all workers
- */
-router.get('/compliance', async (req, res) => {
-  try {
-    const { getAllWorkerComplianceSummaries, getDailyComplianceStats } = await import('../services/compliance-tracking');
-    
-    const summaries = await getAllWorkerComplianceSummaries();
-    const dailyStats = getDailyComplianceStats();
-    
-    res.json({
-      success: true,
-      workers: summaries,
-      daily: dailyStats,
-    });
-  } catch (error: any) {
-    console.error('[TrelloWebhook] Error getting compliance metrics:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/trello-webhook/compliance/:vaId
- * Get compliance metrics for a specific worker
- */
-router.get('/compliance/:vaId', async (req, res) => {
-  try {
-    const vaId = parseInt(req.params.vaId);
-    
-    if (isNaN(vaId)) {
-      return res.status(400).json({ error: 'Invalid vaId' });
-    }
-    
-    const { getWorkerComplianceSummary, getRecentComplianceEvents } = await import('../services/compliance-tracking');
-    
-    const summary = await getWorkerComplianceSummary(vaId);
-    const recentEvents = getRecentComplianceEvents(vaId, 20);
-    
-    if (!summary) {
-      return res.json({
-        success: true,
-        summary: null,
-        events: [],
-        message: 'No compliance data found for this worker',
-      });
-    }
-    
-    res.json({
-      success: true,
-      summary,
-      events: recentEvents,
-    });
-  } catch (error: any) {
-    console.error('[TrelloWebhook] Error getting worker compliance:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/trello-webhook/ai-settings
- * Get AI provider settings
- */
-router.get('/ai-settings', async (req, res) => {
-  try {
-    const { getAIConfig } = await import('../services/ai-service');
-    const config = getAIConfig();
-    
-    const { getAvailableModels } = await import('../services/ai-service');
-    
-    res.json({
-      success: true,
-      config: {
-        provider: config.provider,
-        model: config.model,
-        groqApiKey: config.groqApiKey ? '***configured***' : null,
-        togetherApiKey: config.togetherApiKey ? '***configured***' : null,
-        openrouterApiKey: config.openrouterApiKey ? '***configured***' : null,
-        ollamaUrl: config.ollamaUrl,
-      },
-      availableModels: getAvailableModels(config.provider),
-    });
-  } catch (error: any) {
-    console.error('[TrelloWebhook] Error getting AI settings:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/trello-webhook/ai-settings
- * Update AI provider settings
- */
-router.post('/ai-settings', async (req, res) => {
-  try {
-    const { provider, model, groqApiKey, togetherApiKey, openrouterApiKey, ollamaUrl } = req.body;
-    
-    const { setAIConfig } = await import('../services/ai-service');
-    
-    setAIConfig({
-      provider,
-      model,
-      groqApiKey,
-      togetherApiKey,
-      openrouterApiKey,
-      ollamaUrl,
-    });
-    
-    res.json({
-      success: true,
-      message: 'AI settings updated',
-    });
-  } catch (error: any) {
-    console.error('[TrelloWebhook] Error updating AI settings:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/trello-webhook/test-ai
- * Test AI connection and response
- */
-router.post('/test-ai', async (req, res) => {
-  try {
-    const { generateAIResponse } = await import('../services/ai-service');
-    
-    const testPrompt = 'Say "Hello! AI is working correctly." in exactly those words.';
-    const response = await generateAIResponse(testPrompt, 'Test context');
-    
-    res.json({
-      success: true,
-      response,
-    });
-  } catch (error: any) {
-    console.error('[TrelloWebhook] Error testing AI:', error);
-    res.status(500).json({ 
-      success: false,
-      error: error.message,
-      hint: 'Check your AI provider settings and API key',
-    });
   }
 });
 
