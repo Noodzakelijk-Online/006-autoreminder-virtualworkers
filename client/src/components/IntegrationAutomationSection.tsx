@@ -10,13 +10,6 @@ export function IntegrationAutomationSection() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-2xl font-bold">Integration & Automation</h2>
-        <p className="text-muted-foreground">
-          Configure external integrations and automated workflows
-        </p>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>Settings</CardTitle>

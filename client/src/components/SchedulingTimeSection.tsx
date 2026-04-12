@@ -10,13 +10,6 @@ export function SchedulingTimeSection() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-2xl font-bold">Scheduling & Time</h2>
-        <p className="text-muted-foreground">
-          Configure working hours, breaks, and holidays
-        </p>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>Settings</CardTitle>

@@ -15,12 +15,7 @@ export function PerformanceMonitoringSection() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <CardTitle className="flex items-center gap-2">
-                <span>Performance & Monitoring</span>
-              </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                Monitor system health, cache performance, and request optimization
-              </p>
+              <CardTitle>Settings</CardTitle>
             </div>
             <Button
               variant="ghost"
