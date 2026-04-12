@@ -28,7 +28,7 @@ class RequestQueue {
     deduplicatedRequests: 0,
     timeoutErrors: 0,
   };
-  private readonly defaultTimeout = 30000; // 30 seconds
+  private readonly defaultTimeout = 60000; // 60 seconds
 
   /**
    * Execute a request with deduplication

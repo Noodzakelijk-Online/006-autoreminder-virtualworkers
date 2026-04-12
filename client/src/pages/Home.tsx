@@ -338,13 +338,20 @@ export default function Home() {
         accuracy: 100
       });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('Error fetching tasks:', errorMessage);
+      let errorMessage = 'Unknown error';
       if (error instanceof Error) {
-        console.error('Error details:', error.message, error.stack);
+        errorMessage = error.message;
+        console.error('Error fetching tasks:', error.message, error.stack);
+      } else if (typeof error === 'object' && error !== null) {
+        // Handle object errors (like response errors)
+        errorMessage = JSON.stringify(error);
+        console.error('Error fetching tasks:', errorMessage);
+      } else {
+        errorMessage = String(error);
+        console.error('Error fetching tasks:', errorMessage);
       }
       setTasks([]);
-      toast.error('Failed to load tasks. Please refresh the page.');
+      toast.error(`Failed to load tasks: ${errorMessage}`);
     } finally {
       setIsLoadingTasks(false);
     }
