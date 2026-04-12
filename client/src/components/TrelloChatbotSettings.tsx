@@ -97,10 +97,15 @@ export function TrelloChatbotSettings() {
       const response = await fetch('/api/trello-webhook/list');
       if (response.ok) {
         const data = await response.json();
+        console.log('[TrelloChatbot] Webhooks response:', data);
         setWebhooks(data.webhooks || []);
+      } else {
+        const errorText = await response.text();
+        console.error('[TrelloChatbot] Failed to load webhooks:', response.status, errorText);
+        toast.error(`Failed to load webhooks: ${response.status}`);
       }
     } catch (error) {
-      console.error('Error loading webhooks:', error);
+      console.error('[TrelloChatbot] Error loading webhooks:', error);
       toast.error('Failed to load webhooks');
     } finally {
       setLoading(false);
