@@ -17,9 +17,10 @@ interface TimelineProps {
   allExpanded?: boolean;
   onExpandChange?: (expanded: boolean) => void;
   onStartInterview?: (task: Task) => void;
+  viewMode?: 'day' | 'week';
 }
 
-export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpanded, onExpandChange, onStartInterview }: TimelineProps) {
+export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpanded, onExpandChange, onStartInterview, viewMode = 'day' }: TimelineProps) {
   // Track individual card expansion states
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   
@@ -202,6 +203,29 @@ export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpande
     );
   }
 
+  // Filter tasks based on viewMode
+  const filteredTasksByView = tasks.filter(task => {
+    if (!task.date) return false;
+    
+    const taskDate = new Date(task.date);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    
+    if (viewMode === 'day') {
+      // Show only today's tasks
+      return taskDate >= todayStart && taskDate < todayEnd;
+    } else if (viewMode === 'week') {
+      // Show tasks for this week (Monday to Sunday)
+      const weekStart = new Date(todayStart);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Set to Monday
+      const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+      return taskDate >= weekStart && taskDate < weekEnd;
+    }
+    
+    return true;
+  });
+
   return (
     <div className="relative">
       {/* Batch Selection Controls */}
@@ -282,7 +306,7 @@ export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpande
         
         <ScrollArea className="h-[calc(100vh-250px)] pr-4">
           <div className="space-y-8">
-            {tasks.map((task, index) => (
+            {filteredTasksByView.map((task, index) => (
               <div key={task.id} className="relative">
                 {/* Selection Checkbox - shown in selection mode */}
                 {selectionMode && (

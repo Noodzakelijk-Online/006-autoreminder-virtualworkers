@@ -753,6 +753,7 @@ export default function Home() {
                   allExpanded={allExpanded}
                   onExpandChange={(expanded) => setAllExpanded(expanded)}
                   onStartInterview={handleOpenInterview}
+                  viewMode={viewMode}
                 />
               </div>
             </div>
