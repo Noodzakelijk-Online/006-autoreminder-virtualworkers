@@ -1,17 +1,11 @@
-import { useState } from 'react';
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';
-import { WorkingHoursSettings } from '@/components/WorkingHoursSettings';
-import { HolidayManagement } from '@/components/HolidayManagement';
-import { PerformanceMetrics } from '@/components/PerformanceMetrics';
-import { NotificationSettings } from '@/components/NotificationSettings';
-import { TrelloChatbotSettings } from '@/components/TrelloChatbotSettings';
-import { AISettings } from '@/components/AISettings';
+import { IntegrationAutomationSection } from '@/components/IntegrationAutomationSection';
+import { SchedulingTimeSection } from '@/components/SchedulingTimeSection';
+import { PerformanceMonitoringSection } from '@/components/PerformanceMonitoringSection';
 
 export default function Settings() {
-  const [country, setCountry] = useState('US');
-
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
@@ -28,13 +22,10 @@ export default function Settings() {
         </div>
       </header>
 
-      <main className="container py-4 md:py-8 max-w-4xl space-y-4 md:space-y-6">
-        <TrelloChatbotSettings />
-        <AISettings />
-        <NotificationSettings />
-        <PerformanceMetrics />
-        <WorkingHoursSettings />
-        <HolidayManagement country={country} onCountryChange={setCountry} />
+      <main className="container py-4 md:py-8 max-w-4xl space-y-8 md:space-y-12">
+        <IntegrationAutomationSection />
+        <SchedulingTimeSection />
+        <PerformanceMonitoringSection />
       </main>
     </div>
   );

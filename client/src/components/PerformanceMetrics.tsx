@@ -43,7 +43,11 @@ interface PerformanceMetrics {
   };
 }
 
-export function PerformanceMetrics() {
+interface PerformanceMetricsProps {
+  showSection?: 'health' | 'cache' | 'queue' | 'websocket';
+}
+
+export function PerformanceMetrics({ showSection }: PerformanceMetricsProps = {}) {
   const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -148,55 +152,66 @@ export function PerformanceMetrics() {
     }
   };
 
+  const showAllSections = !showSection;
+  const showHealth = !showSection || showSection === 'health';
+  const showCache = !showSection || showSection === 'cache';
+  const showQueue = !showSection || showSection === 'queue';
+  const showWebsocket = !showSection || showSection === 'websocket';
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Performance Metrics</h2>
-          <p className="text-muted-foreground">
-            Monitor cache, queue, and WebSocket performance
-          </p>
+      {/* Header - only show when displaying all sections */}
+      {showAllSections && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Performance Metrics</h2>
+            <p className="text-muted-foreground">
+              Monitor cache, queue, and WebSocket performance
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchMetrics(true)}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fetchMetrics(true)}
-          disabled={refreshing}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
-      </div>
+      )}
 
       {/* Overall Health */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5" />
-            Overall System Health
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-4">
-            <div className="flex-1">
-              {getHealthBadge(metrics.summary.overallHealth)}
-              <div className="mt-4 space-y-2">
-                {metrics.summary.recommendations.map((rec, index) => (
-                  <p key={index} className="text-sm text-muted-foreground">
-                    • {rec}
-                  </p>
-                ))}
+      {showHealth && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5" />
+              Overall System Health
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                {getHealthBadge(metrics.summary.overallHealth)}
+                <div className="mt-4 space-y-2">
+                  {metrics.summary.recommendations.map((rec, index) => (
+                    <p key={index} className="text-sm text-muted-foreground">
+                      • {rec}
+                    </p>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Key Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Cache Hit Rate */}
-        <Card>
+      {showAllSections && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Cache Hit Rate */}
+          <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Database className="h-4 w-4" />
@@ -278,18 +293,20 @@ export function PerformanceMetrics() {
               {metrics.websocket.totalClients} clients / {metrics.websocket.totalUsers} users
             </p>
           </CardContent>
-        </Card>
-      </div>
+          </Card>
+        </div>
+      )}
 
       {/* Detailed Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Cache Statistics */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Cache Statistics</CardTitle>
-            <CardDescription>Database caching performance</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      {showAllSections && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Cache Statistics */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Cache Statistics</CardTitle>
+              <CardDescription>Database caching performance</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-muted-foreground">Total Requests</p>
@@ -349,6 +366,7 @@ export function PerformanceMetrics() {
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   );
 }
