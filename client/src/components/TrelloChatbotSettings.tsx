@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { TrelloIntegrationSettings } from './TrelloIntegrationSettings';
 import { 
   Bot, 
   Webhook, 
@@ -20,7 +21,8 @@ import {
   RefreshCw,
   Trash2,
   AlertCircle,
-  Info
+  Info,
+  Tag
 } from 'lucide-react';
 
 interface Webhook {
@@ -225,10 +227,14 @@ export function TrelloChatbotSettings() {
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="setup" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
               <span className="hidden sm:inline">Setup</span>
+            </TabsTrigger>
+            <TabsTrigger value="labels" className="flex items-center gap-2">
+              <Tag className="h-4 w-4" />
+              <span className="hidden sm:inline">Labels</span>
             </TabsTrigger>
             <TabsTrigger value="webhooks" className="flex items-center gap-2">
               <Webhook className="h-4 w-4" />
@@ -329,6 +335,11 @@ export function TrelloChatbotSettings() {
                 </Button>
               </div>
             </div>
+          </TabsContent>
+
+          {/* Labels Tab */}
+          <TabsContent value="labels" className="space-y-4 mt-4">
+            <TrelloIntegrationSettings />
           </TabsContent>
 
           {/* Webhooks Tab */}
