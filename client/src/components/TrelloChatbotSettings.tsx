@@ -73,10 +73,39 @@ export function TrelloChatbotSettings() {
     ? `${window.location.origin}/api/trello-webhook`
     : '';
 
+  // Retry logic with exponential backoff
+  const retryFetch = async (url: string, maxRetries = 2, delay = 500) => {
+    let lastError: any;
+    for (let i = 0; i <= maxRetries; i++) {
+      try {
+        const response = await fetch(url);
+        if (response.ok || response.status !== 503) {
+          return response;
+        }
+        lastError = new Error(`HTTP ${response.status}`);
+        if (i < maxRetries) {
+          const waitTime = delay * Math.pow(2, i);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      } catch (error) {
+        lastError = error;
+        if (i < maxRetries) {
+          const waitTime = delay * Math.pow(2, i);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+    throw lastError;
+  };
+
   useEffect(() => {
     loadWebhookStatus();
-    loadWebhooks();
-    loadAnalytics();
+    const webhooksTimer = setTimeout(() => loadWebhooks(), 300);
+    const analyticsTimer = setTimeout(() => loadAnalytics(), 600);
+    return () => {
+      clearTimeout(webhooksTimer);
+      clearTimeout(analyticsTimer);
+    };
   }, []);
 
   const loadWebhookStatus = async () => {
@@ -94,7 +123,7 @@ export function TrelloChatbotSettings() {
   const loadWebhooks = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/trello-webhook/list');
+      const response = await retryFetch('/api/trello-webhook/list', 2, 500);
       if (response.ok) {
         const data = await response.json();
         console.log('[TrelloChatbot] Webhooks response:', data);
@@ -102,11 +131,12 @@ export function TrelloChatbotSettings() {
       } else {
         const errorText = await response.text();
         console.error('[TrelloChatbot] Failed to load webhooks:', response.status, errorText);
-        toast.error(`Failed to load webhooks: ${response.status}`);
+        if (response.status !== 503) {
+          toast.error(`Failed to load webhooks: ${response.status}`);
+        }
       }
     } catch (error) {
       console.error('[TrelloChatbot] Error loading webhooks:', error);
-      toast.error('Failed to load webhooks');
     } finally {
       setLoading(false);
     }
@@ -115,12 +145,14 @@ export function TrelloChatbotSettings() {
   const loadAnalytics = async () => {
     setLoadingAnalytics(true);
     try {
-      const response = await fetch('/api/chatbot/analytics');
+      const response = await retryFetch('/api/chatbot/analytics', 2, 500);
       const responseText = await response.text();
       
       if (!response.ok) {
         console.error('Analytics API error - status:', response.status);
-        console.error('Response:', responseText.substring(0, 200));
+        if (response.status !== 503) {
+          console.error('Response:', responseText.substring(0, 200));
+        }
         return;
       }
       

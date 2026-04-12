@@ -2031,3 +2031,10 @@ Each card now has:
 - [x] Remove ExecutionPlan router from server/routers.ts
 - [x] Verify no broken references
 - [x] Verify dev server running successfully
+
+
+## Bug Fix: 503 Server Overloaded Errors in Settings (Apr 12, 2026)
+- [x] Add retry logic with exponential backoff to API calls
+- [x] Stagger API calls (webhooks, analytics) to prevent concurrent overload
+- [x] Suppress 503 error toasts (temporary server issues)
+- [x] Make analytics and webhooks optional (don't block page load on failure)
