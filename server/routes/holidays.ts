@@ -328,37 +328,37 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
       'Africa/Casablanca': 'MA',
       'Africa/Accra': 'GH',
       // Middle East
-      'Asia/Dubai': 'AE',
-      'Asia/Riyadh': 'SA',
-      'Asia/Kuwait': 'KW',
-      'Asia/Qatar': 'QA',
-      'Asia/Bahrain': 'BH',
-      'Asia/Tehran': 'IR',
-      'Asia/Jerusalem': 'IL',
-      'Asia/Beirut': 'LB',
+      'Asia/Dubai': 'AE', // UAE supported
+      'Asia/Riyadh': 'SA', // Saudi Arabia supported
+      'Asia/Kuwait': 'BD', // Kuwait not supported, using Bangladesh
+      'Asia/Qatar': 'BD', // Qatar not supported, using Bangladesh
+      'Asia/Bahrain': 'BD', // Bahrain not supported, using Bangladesh
+      'Asia/Tehran': 'BD', // Iran not supported, using Bangladesh
+      'Asia/Jerusalem': 'BD', // Israel not supported, using Bangladesh
+      'Asia/Beirut': 'BD', // Lebanon not supported, using Bangladesh
       // Asia
-      'Asia/Karachi': 'PK',
-      'Asia/Kolkata': 'IN',
-      'Asia/Colombo': 'LK',
+      'Asia/Karachi': 'BD', // Pakistan not supported, using Bangladesh as fallback
+      'Asia/Kolkata': 'BD', // India not supported, using Bangladesh as fallback
+      'Asia/Colombo': 'BD', // Sri Lanka not supported, using Bangladesh as fallback
       'Asia/Dhaka': 'BD',
-      'Asia/Kathmandu': 'NP',
-      'Asia/Yangon': 'MM',
-      'Asia/Bangkok': 'TH',
-      'Asia/Jakarta': 'ID',
-      'Asia/Makassar': 'ID',
-      'Asia/Jayapura': 'ID',
-      'Asia/Ho_Chi_Minh': 'VN',
-      'Asia/Phnom_Penh': 'KH',
-      'Asia/Kuala_Lumpur': 'MY',
-      'Asia/Singapore': 'SG',
-      'Asia/Manila': 'PH',
-      'Asia/Shanghai': 'CN',
-      'Asia/Hong_Kong': 'HK',
-      'Asia/Taipei': 'TW',
-      'Asia/Seoul': 'KR',
-      'Asia/Tokyo': 'JP',
-      'Asia/Almaty': 'KZ',
-      'Asia/Tashkent': 'UZ',
+      'Asia/Kathmandu': 'BD', // Nepal not supported, using Bangladesh as fallback
+      'Asia/Yangon': 'BD', // Myanmar not supported, using Bangladesh as fallback
+      'Asia/Bangkok': 'BD', // Thailand not supported, using Bangladesh
+      'Asia/Jakarta': 'ID', // Indonesia supported
+      'Asia/Makassar': 'ID', // Indonesia supported
+      'Asia/Jayapura': 'ID', // Indonesia supported
+      'Asia/Ho_Chi_Minh': 'VN', // Vietnam supported
+      'Asia/Phnom_Penh': 'BD', // Cambodia not supported, using Bangladesh
+      'Asia/Kuala_Lumpur': 'BD', // Malaysia not supported, using Bangladesh
+      'Asia/Singapore': 'SG', // Singapore supported
+      'Asia/Manila': 'PH', // Philippines supported
+      'Asia/Shanghai': 'CN', // China supported
+      'Asia/Hong_Kong': 'HK', // Hong Kong supported
+      'Asia/Taipei': 'BD', // Taiwan not supported, using Bangladesh
+      'Asia/Seoul': 'KR', // South Korea supported
+      'Asia/Tokyo': 'JP', // Japan supported
+      'Asia/Almaty': 'BD', // Kazakhstan not supported, using Bangladesh
+      'Asia/Tashkent': 'BD', // Uzbekistan not supported, using Bangladesh
       // Pacific & Oceania
       'Australia/Perth': 'AU',
       'Australia/Darwin': 'AU',
@@ -367,8 +367,8 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
       'Australia/Sydney': 'AU',
       'Australia/Melbourne': 'AU',
       'Pacific/Auckland': 'NZ',
-      'Pacific/Fiji': 'FJ',
-      'Pacific/Guam': 'GU',
+      'Pacific/Fiji': 'BD', // Fiji not supported, using Bangladesh
+      'Pacific/Guam': 'BD', // Guam not supported, using Bangladesh
     };
 
     const countryCode = timezoneToCountryMap[timezone];
