@@ -28,6 +28,7 @@ import { LoadingQueueIndicator } from "@/components/LoadingQueueIndicator";
 import { ConversationDialog } from "@/components/ConversationDialog";
 import { BulkTaskActions } from "@/components/BulkTaskActions";
 import { GoalInterviewDialog } from "@/components/GoalInterviewDialog";
+import { taskCache, CACHE_KEYS } from "@/lib/taskCache";
 
 // No longer using mock data - fetch from Trello API
 
@@ -177,6 +178,8 @@ export default function Home() {
   const { status: wsStatus } = useWebSocket({
     onTaskCompleted: (data) => {
       console.log('Received task completion from WebSocket:', data);
+      // Invalidate cache when task is updated
+      taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
       // Update task in local state
       setTasks(prevTasks => 
         prevTasks.map(task => 
@@ -189,6 +192,8 @@ export default function Home() {
     },
     onCacheInvalidated: () => {
       console.log('Cache invalidated, reloading tasks');
+      // Invalidate local cache
+      taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
       toast.info('Tasks updated, reloading...');
       window.location.reload();
     },
@@ -222,6 +227,18 @@ export default function Home() {
   const fetchTasks = useCallback(async () => {
     setIsLoadingTasks(true);
     try {
+      // Check cache first
+      const cachedTasks = taskCache.get(CACHE_KEYS.TIMELINE_TASKS);
+      if (cachedTasks) {
+        console.log('[TaskCache] Using cached tasks');
+        setTasks(cachedTasks.tasks);
+        setClients(cachedTasks.clients);
+        setStats(cachedTasks.stats);
+        setOverflowTasks(cachedTasks.overflowTasks);
+        setIsLoadingTasks(false);
+        return;
+      }
+
       const atisResponse = await fetch('/api/atis/timeline-tasks?limit=100&filter=all', {
         credentials: 'include',
       });
@@ -280,13 +297,24 @@ export default function Home() {
           const completedHours = atisTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
 
           setOverflowTasks(overflowTasks && overflowTasks.length > 0 ? overflowTasks : []);
-          setStats({
+          const stats = {
             totalTasks,
             completedTasks,
             totalHours,
             completedHours,
             accuracy: 100
-          });
+          };
+          setStats(stats);
+
+          // Cache the fetched data for 5 minutes
+          const cacheData = {
+            tasks: atisTasks,
+            clients: clientsList,
+            stats,
+            overflowTasks: overflowTasks && overflowTasks.length > 0 ? overflowTasks : [],
+          };
+          taskCache.set(CACHE_KEYS.TIMELINE_TASKS, cacheData);
+          console.log('[TaskCache] Cached tasks for 5 minutes');
 
           try {
             const typesResponse = await fetch('/api/atis/task-types', {

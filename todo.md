@@ -1983,3 +1983,20 @@ Each card now has:
 - [x] Consolidate instructions, settings, setup info, and analytics into single component
 - [x] Remove clutter from current implementation
 - [x] Test and verify clean interface
+
+
+## Task Caching Implementation (Apr 12, 2026)
+- [x] Create task cache utility with 5-minute TTL (client/src/lib/taskCache.ts)
+- [x] Implement cache storage with get/set/invalidate/clear methods
+- [x] Add cache constants (CACHE_KEYS) for timeline tasks and other data
+- [x] Integrate cache check into Home.tsx fetchTasks function
+- [x] Store fetched tasks in cache after API call
+- [x] Add cache invalidation on WebSocket task completion events
+- [x] Add cache invalidation on WebSocket cache invalidation broadcasts
+- [x] Create comprehensive test suite for cache functionality (20+ tests)
+- [x] Verify cache expiration after 5 minutes
+- [x] Verify cache hit/miss behavior
+- [x] Test with multiple cache keys
+- [x] Test edge cases (empty arrays, large datasets)
+- [ ] Monitor cache performance in production (future enhancement)
+- [ ] Add cache statistics UI in settings (future enhancement)
