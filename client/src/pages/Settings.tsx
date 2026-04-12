@@ -47,15 +47,26 @@ export default function Settings() {
       </header>
 
       <main className="container py-4 md:py-8 max-w-4xl space-y-8 md:space-y-12">
-        {/* Global Search Bar */}
-        <div ref={searchContainerRef} className="relative">
-          <SettingsSearch
-            searchResults={searchResults}
-            onSearchChange={setSearchQuery}
-            onResultClick={handleSearchResultClick}
-            isOpen={searchOpen}
-            onOpenChange={setSearchOpen}
-          />
+        {/* Header with Search and Section Title in Flex Row */}
+        <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-start md:items-center justify-between">
+          {/* Section Title */}
+          <div className="flex-1">
+            <h2 className="text-2xl font-bold">Integration & Automation</h2>
+            <p className="text-muted-foreground text-sm">
+              Configure external integrations and automated workflows
+            </p>
+          </div>
+          
+          {/* Global Search Bar */}
+          <div ref={searchContainerRef} className="relative w-full md:w-80 flex-shrink-0">
+            <SettingsSearch
+              searchResults={searchResults}
+              onSearchChange={setSearchQuery}
+              onResultClick={handleSearchResultClick}
+              isOpen={searchOpen}
+              onOpenChange={setSearchOpen}
+            />
+          </div>
         </div>
 
         {/* Settings Sections */}
@@ -63,11 +74,23 @@ export default function Settings() {
           <IntegrationAutomationSection />
         </div>
 
-        <div data-settings-section="Scheduling & Time">
+        <div data-settings-section="Scheduling & Time" className="pt-8 md:pt-12">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold">Scheduling & Time</h2>
+            <p className="text-muted-foreground text-sm">
+              Manage your work schedule and time-off settings
+            </p>
+          </div>
           <SchedulingTimeSection />
         </div>
 
-        <div data-settings-section="Performance & Monitoring">
+        <div data-settings-section="Performance & Monitoring" className="pt-8 md:pt-12">
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold">Performance & Monitoring</h2>
+            <p className="text-muted-foreground text-sm">
+              Monitor system health and performance metrics
+            </p>
+          </div>
           <PerformanceMonitoringSection />
         </div>
       </main>
