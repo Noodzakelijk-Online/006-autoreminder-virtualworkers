@@ -2013,3 +2013,5 @@ Each card now has:
 - [x] Add 'All' view mode as default to show all tasks
 - [x] Update Timeline component to support 'all' viewMode
 - [x] Add 'All' button to view mode selector
+- [x] Restart dev server after it became unresponsive
+- [x] Verify cards display correctly after restart
