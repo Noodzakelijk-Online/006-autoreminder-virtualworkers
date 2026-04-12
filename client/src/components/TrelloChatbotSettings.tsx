@@ -128,14 +128,14 @@ export function TrelloChatbotSettings() {
         return;
       }
       
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        console.error('Analytics API returned non-JSON response');
-        return;
+      try {
+        const data = await response.json();
+        setAnalytics(data);
+      } catch (parseError) {
+        console.error('Failed to parse analytics response as JSON:', parseError);
+        const text = await response.text();
+        console.error('Response text (first 200 chars):', text.substring(0, 200));
       }
-      
-      const data = await response.json();
-      setAnalytics(data);
     } catch (error) {
       console.error('Error loading analytics:', error);
     } finally {
