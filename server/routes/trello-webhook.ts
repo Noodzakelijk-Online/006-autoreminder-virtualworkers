@@ -516,10 +516,10 @@ router.get('/chatbot/analytics', async (req, res) => {
       return res.status(500).json({ error: 'Failed to retrieve analytics data' });
     }
     
-    res.json(stats);
+    return res.json(stats);
   } catch (error: any) {
     console.error('[TrelloWebhook] Error getting chatbot analytics:', error);
-    res.status(500).json({ error: error.message || 'Failed to load analytics' });
+    return res.status(500).json({ error: error.message || 'Failed to load analytics' });
   }
 });
 

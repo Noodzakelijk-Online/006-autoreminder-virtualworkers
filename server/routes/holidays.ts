@@ -351,7 +351,7 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
       await db.insert(holidays).values(holidayRecords);
     }
 
-    res.json({
+    return res.json({
       success: true,
       count: holidayRecords.length,
       countryCode: countryCode,
@@ -360,7 +360,7 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
     });
   } catch (error) {
     console.error('Error fetching holidays by timezone:', error);
-    res.status(500).json({ error: 'Failed to fetch holidays' });
+    return res.status(500).json({ error: 'Failed to fetch holidays' });
   }
 });
 
