@@ -73,10 +73,19 @@ router.get('/fetch/:country/:year', async (req: any, res: Response) => {
       await db.insert(holidays).values(holidayRecords);
     }
 
+    // Re-fetch from DB so records include auto-generated IDs
+    const savedHolidays = await db.select()
+      .from(holidays)
+      .where(and(
+        eq(holidays.userOpenId, user.openId),
+        eq(holidays.country, country)
+      ))
+      .orderBy(holidays.date);
+
     res.json({
       success: true,
-      count: holidayRecords.length,
-      holidays: holidayRecords
+      count: savedHolidays.length,
+      holidays: savedHolidays
     });
   } catch (error) {
     console.error('Error fetching holidays:', error);
@@ -269,43 +278,97 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
     
     // Map timezone to country code
     const timezoneToCountryMap: { [key: string]: string } = {
+      // Americas
       'America/New_York': 'US',
       'America/Chicago': 'US',
       'America/Denver': 'US',
+      'America/Phoenix': 'US',
       'America/Los_Angeles': 'US',
       'America/Anchorage': 'US',
       'Pacific/Honolulu': 'US',
-      'Europe/London': 'GB',
-      'Europe/Paris': 'FR',
-      'Europe/Berlin': 'DE',
-      'Europe/Amsterdam': 'NL',
-      'Europe/Madrid': 'ES',
-      'Europe/Rome': 'IT',
-      'Europe/Vienna': 'AT',
-      'Europe/Brussels': 'BE',
-      'Europe/Prague': 'CZ',
-      'Europe/Warsaw': 'PL',
-      'Europe/Moscow': 'RU',
-      'Asia/Tokyo': 'JP',
-      'Asia/Shanghai': 'CN',
-      'Asia/Hong_Kong': 'HK',
-      'Asia/Singapore': 'SG',
-      'Asia/Bangkok': 'TH',
-      'Asia/Manila': 'PH',
-      'Asia/Jakarta': 'ID',
-      'Asia/Kolkata': 'IN',
-      'Asia/Dubai': 'AE',
-      'Australia/Sydney': 'AU',
-      'Australia/Melbourne': 'AU',
-      'Pacific/Auckland': 'NZ',
       'America/Toronto': 'CA',
       'America/Vancouver': 'CA',
       'America/Mexico_City': 'MX',
+      'America/Bogota': 'CO',
+      'America/Lima': 'PE',
+      'America/Santiago': 'CL',
       'America/Sao_Paulo': 'BR',
+      'America/Argentina/Buenos_Aires': 'AR',
       'America/Buenos_Aires': 'AR',
+      'America/Caracas': 'VE',
+      // Europe
+      'Europe/London': 'GB',
+      'Europe/Dublin': 'IE',
+      'Europe/Lisbon': 'PT',
+      'Europe/Amsterdam': 'NL',
+      'Europe/Berlin': 'DE',
+      'Europe/Paris': 'FR',
+      'Europe/Madrid': 'ES',
+      'Europe/Rome': 'IT',
+      'Europe/Brussels': 'BE',
+      'Europe/Zurich': 'CH',
+      'Europe/Stockholm': 'SE',
+      'Europe/Oslo': 'NO',
+      'Europe/Copenhagen': 'DK',
+      'Europe/Helsinki': 'FI',
+      'Europe/Warsaw': 'PL',
+      'Europe/Prague': 'CZ',
+      'Europe/Vienna': 'AT',
+      'Europe/Budapest': 'HU',
+      'Europe/Bucharest': 'RO',
+      'Europe/Athens': 'GR',
+      'Europe/Kiev': 'UA',
+      'Europe/Moscow': 'RU',
+      'Europe/Istanbul': 'TR',
+      // Africa
       'Africa/Cairo': 'EG',
       'Africa/Johannesburg': 'ZA',
       'Africa/Lagos': 'NG',
+      'Africa/Nairobi': 'KE',
+      'Africa/Casablanca': 'MA',
+      'Africa/Accra': 'GH',
+      // Middle East
+      'Asia/Dubai': 'AE',
+      'Asia/Riyadh': 'SA',
+      'Asia/Kuwait': 'KW',
+      'Asia/Qatar': 'QA',
+      'Asia/Bahrain': 'BH',
+      'Asia/Tehran': 'IR',
+      'Asia/Jerusalem': 'IL',
+      'Asia/Beirut': 'LB',
+      // Asia
+      'Asia/Karachi': 'PK',
+      'Asia/Kolkata': 'IN',
+      'Asia/Colombo': 'LK',
+      'Asia/Dhaka': 'BD',
+      'Asia/Kathmandu': 'NP',
+      'Asia/Yangon': 'MM',
+      'Asia/Bangkok': 'TH',
+      'Asia/Jakarta': 'ID',
+      'Asia/Makassar': 'ID',
+      'Asia/Jayapura': 'ID',
+      'Asia/Ho_Chi_Minh': 'VN',
+      'Asia/Phnom_Penh': 'KH',
+      'Asia/Kuala_Lumpur': 'MY',
+      'Asia/Singapore': 'SG',
+      'Asia/Manila': 'PH',
+      'Asia/Shanghai': 'CN',
+      'Asia/Hong_Kong': 'HK',
+      'Asia/Taipei': 'TW',
+      'Asia/Seoul': 'KR',
+      'Asia/Tokyo': 'JP',
+      'Asia/Almaty': 'KZ',
+      'Asia/Tashkent': 'UZ',
+      // Pacific & Oceania
+      'Australia/Perth': 'AU',
+      'Australia/Darwin': 'AU',
+      'Australia/Adelaide': 'AU',
+      'Australia/Brisbane': 'AU',
+      'Australia/Sydney': 'AU',
+      'Australia/Melbourne': 'AU',
+      'Pacific/Auckland': 'NZ',
+      'Pacific/Fiji': 'FJ',
+      'Pacific/Guam': 'GU',
     };
 
     const countryCode = timezoneToCountryMap[timezone];
@@ -358,12 +421,21 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
       await db.insert(holidays).values(holidayRecords);
     }
 
+    // Re-fetch from DB so records include auto-generated IDs
+    const savedHolidays = await db.select()
+      .from(holidays)
+      .where(and(
+        eq(holidays.userOpenId, user.openId),
+        eq(holidays.country, countryCode)
+      ))
+      .orderBy(holidays.date);
+
     return res.json({
       success: true,
-      count: holidayRecords.length,
+      count: savedHolidays.length,
       countryCode: countryCode,
       timezone: timezone,
-      holidays: holidayRecords
+      holidays: savedHolidays
     });
   } catch (error: any) {
     console.error('[Holidays] Error fetching holidays by timezone:', error);
