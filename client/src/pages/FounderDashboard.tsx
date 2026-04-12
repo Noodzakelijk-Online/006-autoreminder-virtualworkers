@@ -1089,8 +1089,8 @@ export default function FounderDashboard() {
                         {/* Skills */}
                         {skills.length > 0 && (
                           <div className="flex flex-wrap gap-1">
-                            {skills.slice(0, 3).map((skill: string, i: number) => (
-                              <Badge key={i} variant="outline" className="text-xs">
+                            {skills.slice(0, 3).map((skill: string) => (
+                              <Badge key={skill} variant="outline" className="text-xs">
                                 {skill}
                               </Badge>
                             ))}
@@ -1221,8 +1221,8 @@ export default function FounderDashboard() {
                           )}
                           {task.labels && task.labels.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
-                              {task.labels.map((label: string, idx: number) => (
-                                <Badge key={idx} variant="secondary" className="text-xs">
+                              {task.labels.map((label: string) => (
+                                <Badge key={label} variant="secondary" className="text-xs">
                                   {label}
                                 </Badge>
                               ))}
