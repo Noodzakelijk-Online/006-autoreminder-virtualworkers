@@ -205,7 +205,8 @@ export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpande
 
   // Filter tasks based on viewMode
   const filteredTasksByView = tasks.filter(task => {
-    if (!task.date) return false;
+    // If task has no date, show it in all views
+    if (!task.date) return true;
     
     const taskDate = new Date(task.date);
     const now = new Date();

@@ -222,7 +222,9 @@ export default function Home() {
   const fetchTasks = useCallback(async () => {
     setIsLoadingTasks(true);
     try {
-      const atisResponse = await fetch('/api/atis/timeline-tasks?limit=100&filter=all');
+      const atisResponse = await fetch('/api/atis/timeline-tasks?limit=100&filter=all', {
+        credentials: 'include',
+      });
       if (atisResponse.ok) {
         const atisData = await atisResponse.json();
         const scheduledTasks = atisData.scheduled || atisData.tasks || [];
@@ -287,7 +289,9 @@ export default function Home() {
           });
 
           try {
-            const typesResponse = await fetch('/api/atis/task-types');
+            const typesResponse = await fetch('/api/atis/task-types', {
+              credentials: 'include',
+            });
             if (typesResponse.ok) {
               const types = await typesResponse.json();
               setTaskTypes(types);
@@ -358,8 +362,10 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    void fetchTasks();
-  }, [fetchTasks]);
+    if (isAuthenticated && user) {
+      void fetchTasks();
+    }
+  }, [fetchTasks, isAuthenticated, user]);
 
   const handleOpenInterview = (task: Task) => {
     setInterviewTask(task);
@@ -388,9 +394,9 @@ export default function Home() {
     try {
       if (targetTask.cardId) {
         await fetch(`/api/atis/cards/${targetTask.cardId}/reingest`, {
+          credentials: 'include',
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
         });
       }
 
@@ -407,8 +413,8 @@ export default function Home() {
 
       if (atisCardId) {
         const reprocessResponse = await fetch(`/api/atis/understanding/reprocess/${atisCardId}`, {
-          method: 'POST',
           credentials: 'include',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             interviewGoal: finalGoal?.goal,
