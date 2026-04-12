@@ -116,25 +116,20 @@ export function TrelloChatbotSettings() {
     setLoadingAnalytics(true);
     try {
       const response = await fetch('/api/chatbot/analytics');
+      const responseText = await response.text();
       
       if (!response.ok) {
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-          const error = await response.json();
-          console.error('Analytics API error:', error);
-        } else {
-          console.error('Analytics API returned non-JSON response:', response.status);
-        }
+        console.error('Analytics API error - status:', response.status);
+        console.error('Response:', responseText.substring(0, 200));
         return;
       }
       
       try {
-        const data = await response.json();
+        const data = JSON.parse(responseText);
         setAnalytics(data);
       } catch (parseError) {
         console.error('Failed to parse analytics response as JSON:', parseError);
-        const text = await response.text();
-        console.error('Response text (first 200 chars):', text.substring(0, 200));
+        console.error('Response text (first 200 chars):', responseText.substring(0, 200));
       }
     } catch (error) {
       console.error('Error loading analytics:', error);

@@ -114,6 +114,8 @@ async function startServer() {
   app.use("/api", timeTrackingRoutes);
   // Trello Webhook API (for chatbot)
   app.use("/api/trello-webhook", trelloWebhookRoutes);
+  // Chatbot API (alias for trello-webhook)
+  app.use("/api/chatbot", trelloWebhookRoutes);
   // Trello Configuration API
   app.use("/api/trello", trelloConfigRoutes);
   // Enhanced Interview System API

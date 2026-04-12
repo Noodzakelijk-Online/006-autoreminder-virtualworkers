@@ -257,4 +257,35 @@ router.get('/chatbot/analytics', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/trello-webhook/status
+ * Get webhook status
+ */
+router.get('/status', async (req: any, res: Response) => {
+  res.setHeader('Content-Type', 'application/json');
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    // Get webhook count for this user
+    const webhooks = await db.select().from(chatbotWebhooks).where(eq(chatbotWebhooks.isActive, 1));
+
+    return res.json({
+      status: webhooks.length > 0 ? 'active' : 'inactive',
+      webhookCount: webhooks.length,
+      lastUpdated: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting webhook status:', error);
+    return res.status(500).json({ error: error.message || 'Failed to get webhook status' });
+  }
+});
+
 export default router;
