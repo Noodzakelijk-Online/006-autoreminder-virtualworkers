@@ -127,15 +127,26 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
     try {
       const currentYear = new Date().getFullYear();
       const response = await fetch(`/api/holidays/by-timezone/${selectedWorker.timezone}/${currentYear}`);
+      const responseText = await response.text();
       
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to fetch holidays');
+        try {
+          const error = JSON.parse(responseText);
+          throw new Error(error.error || 'Failed to fetch holidays');
+        } catch (parseError) {
+          throw new Error(`Failed to fetch holidays (${response.status})`);
+        }
       }
 
-      const data = await response.json();
-      setHolidays(data.holidays);
-      toast.success(`Loaded ${data.count} holidays for ${selectedWorker.name} (${selectedWorker.timezone})`);
+      try {
+        const data = JSON.parse(responseText);
+        setHolidays(data.holidays);
+        toast.success(`Loaded ${data.count} holidays for ${selectedWorker.name} (${selectedWorker.timezone})`);
+      } catch (parseError) {
+        console.error('Failed to parse holidays response:', parseError);
+        console.error('Response text:', responseText.substring(0, 200));
+        throw new Error('Invalid response format from server');
+      }
     } catch (error: any) {
       console.error('Error fetching holidays by timezone:', error);
       toast.error(error.message || 'Failed to fetch holidays. Please try again.');

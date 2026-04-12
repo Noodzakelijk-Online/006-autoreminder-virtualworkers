@@ -252,6 +252,7 @@ router.get('/workers', async (req: any, res: Response) => {
  * Fetch holidays by timezone (converts timezone to country code)
  */
 router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
+  res.setHeader('Content-Type', 'application/json');
   try {
     const user = req.user;
     if (!user) {
