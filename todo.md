@@ -2000,3 +2000,16 @@ Each card now has:
 - [x] Test edge cases (empty arrays, large datasets)
 - [ ] Monitor cache performance in production (future enhancement)
 - [ ] Add cache statistics UI in settings (future enhancement)
+
+
+## Bug: Empty Timeline Cards After Day/Week Filter (Apr 12, 2026)
+- [x] Investigate timeline rendering issue - cards not displaying in Workload Timeline
+- [x] Check browser console for errors
+- [x] Review Timeline component changes from Day/Week filter implementation
+- [x] Identify root cause (rendering, filtering, or data issue)
+- [x] Fix the bug and restore card display
+- [x] Test Day/Week filters still work correctly
+- [x] Verify cards display properly in both Day and Week views
+- [x] Add 'All' view mode as default to show all tasks
+- [x] Update Timeline component to support 'all' viewMode
+- [x] Add 'All' button to view mode selector

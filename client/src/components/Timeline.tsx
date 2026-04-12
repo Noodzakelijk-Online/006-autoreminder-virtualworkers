@@ -17,10 +17,10 @@ interface TimelineProps {
   allExpanded?: boolean;
   onExpandChange?: (expanded: boolean) => void;
   onStartInterview?: (task: Task) => void;
-  viewMode?: 'day' | 'week';
+  viewMode?: 'day' | 'week' | 'all';
 }
 
-export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpanded, onExpandChange, onStartInterview, viewMode = 'day' }: TimelineProps) {
+export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpanded, onExpandChange, onStartInterview, viewMode = 'all' }: TimelineProps) {
   // Track individual card expansion states
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   
@@ -205,26 +205,42 @@ export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpande
 
   // Filter tasks based on viewMode
   const filteredTasksByView = tasks.filter(task => {
-    // If task has no date, show it in all views
-    if (!task.date) return true;
+    // If viewMode is 'all', show all tasks
+    if (viewMode === 'all') return true;
     
-    const taskDate = new Date(task.date);
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    // If task has no date or empty date string, show it in all views
+    if (!task.date || task.date.trim() === '') return true;
     
-    if (viewMode === 'day') {
-      // Show only today's tasks
-      return taskDate >= todayStart && taskDate < todayEnd;
-    } else if (viewMode === 'week') {
-      // Show tasks for this week (Monday to Sunday)
-      const weekStart = new Date(todayStart);
-      weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Set to Monday
-      const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-      return taskDate >= weekStart && taskDate < weekEnd;
+    try {
+      const taskDate = new Date(task.date);
+      // Check if date is valid
+      if (isNaN(taskDate.getTime())) return true;
+      
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+      
+      if (viewMode === 'day') {
+        // Show only today's tasks
+        return taskDate >= todayStart && taskDate < todayEnd;
+      } else if (viewMode === 'week') {
+        // Show tasks for this week (Sunday to Saturday)
+        const weekStart = new Date(todayStart);
+        // Get day of week (0 = Sunday, 1 = Monday, etc.)
+        const dayOfWeek = weekStart.getDay();
+        // Calculate days to subtract to get to Sunday
+        const daysToSubtract = dayOfWeek === 0 ? 0 : dayOfWeek;
+        weekStart.setDate(weekStart.getDate() - daysToSubtract);
+        const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return taskDate >= weekStart && taskDate < weekEnd;
+      }
+      
+      return true;
+    } catch (error) {
+      // If date parsing fails, show the task
+      console.error('[Timeline] Error parsing task date:', task.date, error);
+      return true;
     }
-    
-    return true;
   });
 
   return (
