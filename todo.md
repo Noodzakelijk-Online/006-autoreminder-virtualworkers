@@ -2061,3 +2061,5 @@ Each card now has:
 - [x] Implement automatic next page loading
 - [x] Add duplicate prevention (don't load same page twice)
 - [x] Test with multiple pages of tasks
+- [x] Restart dev server after it became unresponsive
+- [x] Verify dev server is running and responsive
