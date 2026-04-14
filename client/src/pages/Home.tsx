@@ -50,6 +50,8 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalTasks, setTotalTasks] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [allTasksLoaded, setAllTasksLoaded] = useState(false);
   const TASKS_PER_PAGE = 50;
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -226,6 +228,78 @@ export default function Home() {
       setIsRescheduling(false);
     }
   };
+
+  const loadMoreTasks = useCallback(async () => {
+    if (isLoadingMore || allTasksLoaded) return;
+    
+    setIsLoadingMore(true);
+    try {
+      const nextPage = currentPage + 1;
+      const offset = (nextPage - 1) * TASKS_PER_PAGE;
+      
+      const atisResponse = await fetch(
+        `/api/atis/timeline-tasks?limit=${TASKS_PER_PAGE}&offset=${offset}&filter=all`,
+        { credentials: 'include' }
+      );
+      
+      if (atisResponse.ok) {
+        const atisData = await atisResponse.json();
+        const scheduledTasks = atisData.scheduled || atisData.tasks || [];
+        
+        if (scheduledTasks.length === 0) {
+          setAllTasksLoaded(true);
+          setIsLoadingMore(false);
+          return;
+        }
+        
+        const newTasks: Task[] = scheduledTasks.map((t: any) => ({
+          id: `atis-${t.id}`,
+          cardId: t.trelloId,
+          cardName: t.name,
+          stepIndex: 0,
+          description: t.goal || t.description || t.name,
+          durationHours: (t.estimatedMinutes || 30) / 60,
+          startTime: '',
+          endTime: '',
+          date: t.dueDate ? new Date(t.dueDate).toISOString().split('T')[0] : '',
+          isCompleted: false,
+          isArchived: false,
+          isBlocker: t.status === 'overdue',
+          isPriority: t.complexity === 'complex' || t.status === 'overdue',
+          priorityLevel: t.status === 'overdue' ? 'CRITICAL' : t.complexity === 'complex' ? 'HIGH' : 'NORMAL',
+          hasDutch: false,
+          attachments: [],
+          goal: t.goal,
+          deliverable: t.deliverable,
+          taskType: t.taskType,
+          complexity: t.complexity,
+          boardName: t.boardName,
+          listName: t.listName,
+          url: t.url,
+          checklist: t.checklist || [],
+          hasUnderstanding: t.hasUnderstanding,
+          confidenceScore: t.confidenceScore,
+          atisCardId: t.atisCardId || t.id,
+          synced: false,
+        }));
+        
+        setTasks(prev => [...prev, ...newTasks]);
+        setCurrentPage(nextPage);
+        
+        const totalLoaded = nextPage * TASKS_PER_PAGE;
+        if (totalLoaded >= totalTasks) {
+          setAllTasksLoaded(true);
+        }
+      } else {
+        toast.error('Failed to load more tasks');
+      }
+    } catch (error) {
+      console.error('Error loading more tasks:', error);
+      toast.error('Failed to load more tasks');
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [currentPage, isLoadingMore, allTasksLoaded, totalTasks, TASKS_PER_PAGE]);
 
   const fetchTasks = useCallback(async () => {
     setIsLoadingTasks(true);
@@ -796,6 +870,9 @@ export default function Home() {
                   onExpandChange={(expanded) => setAllExpanded(expanded)}
                   onStartInterview={handleOpenInterview}
                   viewMode={viewMode}
+                  onLoadMore={loadMoreTasks}
+                  isLoadingMore={isLoadingMore}
+                  hasMore={!allTasksLoaded}
                 />
               </div>
             </div>
