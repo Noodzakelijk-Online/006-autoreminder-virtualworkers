@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { VirtualizedTimeline } from "@/components/VirtualizedTimeline";
+import { Timeline } from "@/components/Timeline";
 import { OverflowTasks } from "@/components/OverflowTasks";
 import { StatsPanel } from "@/components/StatsPanel";
 import { WeeklyProgressDashboard } from "@/components/WeeklyProgressDashboard";
@@ -47,10 +47,7 @@ export default function Home() {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalTasks, setTotalTasks] = useState(0);
-  const TASKS_PER_PAGE = 50;
+   const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [taskTypes, setTaskTypes] = useState<{ taskType: string; count: number }[]>([]);
@@ -242,8 +239,7 @@ export default function Home() {
         return;
       }
 
-      const offset = (currentPage - 1) * TASKS_PER_PAGE;
-      const atisResponse = await fetch(`/api/atis/timeline-tasks?limit=${TASKS_PER_PAGE}&offset=${offset}&filter=all`, {
+      const atisResponse = await fetch(`/api/atis/timeline-tasks?filter=all`, {
         credentials: 'include',
       });
       if (atisResponse.ok) {
@@ -296,7 +292,6 @@ export default function Home() {
 
           const metrics = atisData.metrics || {};
           const totalTasksCount = metrics.totalScheduled || atisData.total || atisTasks.length;
-          setTotalTasks(totalTasksCount);
           const completedTasks = atisTasks.filter(t => t.isCompleted).length;
           const totalHours = (metrics.totalScheduledMinutes || 0) / 60;
           const completedHours = atisTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
@@ -787,13 +782,13 @@ export default function Home() {
                   </div>
                 )}
                 
-                <VirtualizedTimeline 
+                <Timeline 
                   tasks={filteredTasks} 
                   onToggleTask={handleToggleTask} 
                   isLoading={isLoadingTasks}
                   onRefresh={() => void fetchTasks()}
                   allExpanded={allExpanded}
-                  onExpandChange={(expanded) => setAllExpanded(expanded)}
+                  onExpandChange={(expanded: boolean) => setAllExpanded(expanded)}
                   onStartInterview={handleOpenInterview}
                   viewMode={viewMode}
                 />
