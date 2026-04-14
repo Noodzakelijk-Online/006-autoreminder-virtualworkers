@@ -1,6 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useRef, useEffect, useState, useMemo, memo } from 'react';
-import { useInfiniteScroll } from '@/hooks/useInfiniteScroll';
 import { TaskCard as TaskCardBase } from './TaskCard';
 import { TimelineSkeleton } from './Skeletons';
 import { Task } from '@/types';
@@ -23,9 +22,6 @@ interface VirtualizedTimelineProps {
   onExpandChange?: (expanded: boolean) => void;
   onStartInterview?: (task: Task) => void;
   viewMode?: 'day' | 'week' | 'all';
-  onLoadMore?: () => void;
-  isLoadingMore?: boolean;
-  hasMore?: boolean;
 }
 
 export function VirtualizedTimeline({
@@ -37,16 +33,8 @@ export function VirtualizedTimeline({
   onExpandChange,
   onStartInterview,
   viewMode = 'all',
-  onLoadMore,
-  isLoadingMore = false,
-  hasMore = true,
 }: VirtualizedTimelineProps) {
-  const parentRef = useInfiniteScroll({
-    threshold: 500,
-    onLoadMore,
-    isLoading: isLoadingMore,
-    hasMore,
-  });
+  const parentRef = useRef<HTMLDivElement>(null);
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set());
@@ -358,21 +346,6 @@ export function VirtualizedTimeline({
               </div>
             );
           })}
-
-          {/* Loading indicator for infinite scroll */}
-          {isLoadingMore && (
-            <div
-              style={{
-                transform: `translateY(${totalSize}px)`,
-              }}
-              className="absolute w-full px-4 py-4 flex items-center justify-center"
-            >
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading more tasks...
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
