@@ -295,10 +295,7 @@ export function TrelloChatbotSettings() {
               <Tag className="h-4 w-4" />
               <span className="hidden sm:inline">Labels</span>
             </TabsTrigger>
-            <TabsTrigger value="test" className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4" />
-              <span className="hidden sm:inline">Test</span>
-            </TabsTrigger>
+
             <TabsTrigger value="analytics" className="flex items-center gap-2">
               <BarChart3 className="h-4 w-4" />
               <span className="hidden sm:inline">Analytics</span>
@@ -423,87 +420,7 @@ export function TrelloChatbotSettings() {
             <TrelloIntegrationSettings />
           </TabsContent>
 
-          {/* Test Tab */}
-          <TabsContent value="test" className="space-y-4 mt-4">
-            <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex gap-3">
-                  <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="font-semibold text-blue-900">Test Your Chatbot</h3>
-                    <p className="text-sm text-blue-800 mt-1">
-                      Enter a Trello card ID and test comment to verify the chatbot responds correctly
-                    </p>
-                  </div>
-                </div>
-              </div>
 
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="testCardId">Trello Card ID *</Label>
-                  <Input
-                    id="testCardId"
-                    placeholder="e.g., 5f1a2b3c4d5e6f7g8h9i0j"
-                    value={testCardId}
-                    onChange={(e) => setTestCardId(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="testComment">Test Comment</Label>
-                  <Textarea
-                    id="testComment"
-                    placeholder="@bot status"
-                    value={testComment}
-                    onChange={(e) => setTestComment(e.target.value)}
-                    className="mt-1"
-                    rows={3}
-                  />
-                </div>
-
-                <Button 
-                  onClick={testWebhook} 
-                  disabled={testing || !testCardId}
-                  className="w-full"
-                >
-                  {testing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Testing...
-                    </>
-                  ) : (
-                    'Send Test Comment'
-                  )}
-                </Button>
-
-                {testResult && (
-                  <Card className={testResult.success ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
-                    <CardContent className="pt-4">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          {testResult.success ? (
-                            <CheckCircle className="h-5 w-5 text-green-600" />
-                          ) : (
-                            <XCircle className="h-5 w-5 text-red-600" />
-                          )}
-                          <span className="font-semibold">
-                            {testResult.success ? 'Test Successful' : 'Test Failed'}
-                          </span>
-                        </div>
-                        <p className="text-sm">{testResult.message}</p>
-                        {testResult.response && (
-                          <div className="bg-white p-2 rounded text-xs font-mono break-words mt-2">
-                            {JSON.stringify(testResult.response, null, 2)}
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            </div>
-          </TabsContent>
 
           {/* Analytics Tab */}
           <TabsContent value="analytics" className="space-y-4 mt-4">
