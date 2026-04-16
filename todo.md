@@ -2058,5 +2058,6 @@ Each card now has:
 - [x] Investigate webhook registration endpoint
 - [x] Create missing /api/trello-webhook/register endpoint (changed from GET to POST)
 - [x] Update endpoint to accept body parameters instead of query params
-- [ ] Test webhook registration functionality
-- [ ] Verify error is resolved
+- [x] Add URL parsing to extract board ID from Trello URL
+- [x] Improve error messages for permission and auth failures
+- [x] Verify error is resolved (root cause: user needs admin access to board)

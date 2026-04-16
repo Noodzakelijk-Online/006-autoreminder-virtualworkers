@@ -174,13 +174,26 @@ export function TrelloChatbotSettings() {
       return;
     }
 
+    // Extract board ID from Trello URL if full URL is provided
+    let boardId = modelId;
+    if (modelId.includes('trello.com')) {
+      // Extract ID from URL like https://trello.com/b/ckEuBpNz/board-name
+      const match = modelId.match(/\/b\/([a-zA-Z0-9]+)/);
+      if (match && match[1]) {
+        boardId = match[1];
+      } else {
+        toast.error('Invalid Trello URL. Please use format: https://trello.com/b/BOARD_ID/board-name');
+        return;
+      }
+    }
+
     setRegistering(true);
     try {
       const response = await fetch('/api/trello-webhook/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          modelId,
+          modelId: boardId,
           description: description || 'VA Dashboard Chatbot',
           callbackUrl,
         }),

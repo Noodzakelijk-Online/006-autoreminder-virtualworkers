@@ -45,7 +45,19 @@ router.post('/register', async (req: any, res: Response) => {
     if (!response.ok) {
       const error = await response.text();
       console.error('[TrelloWebhook] Trello API error:', error);
-      return res.status(response.status).json({ error: 'Failed to register webhook with Trello' });
+      
+      // Provide user-friendly error messages based on Trello API response
+      let userMessage = 'Failed to register webhook with Trello';
+      
+      if (error.includes('invalid value for idModel')) {
+        userMessage = 'Invalid board ID or you do not have permission to register webhooks on this board. You need admin/owner access to register webhooks.';
+      } else if (error.includes('invalid token') || error.includes('unauthorized')) {
+        userMessage = 'Trello authentication failed. Please check your API credentials.';
+      } else if (error.includes('already exists')) {
+        userMessage = 'A webhook for this board already exists.';
+      }
+      
+      return res.status(response.status).json({ error: userMessage });
     }
 
     const webhookData = await response.json();
