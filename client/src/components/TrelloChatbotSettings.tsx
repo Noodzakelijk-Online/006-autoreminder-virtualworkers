@@ -19,7 +19,8 @@ import {
   RefreshCw,
   Trash2,
   AlertCircle,
-  Tag
+  Tag,
+  Info
 } from 'lucide-react';
 
 interface Webhook {
