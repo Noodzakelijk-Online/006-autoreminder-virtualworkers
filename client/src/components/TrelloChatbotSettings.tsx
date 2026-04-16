@@ -13,15 +13,12 @@ import {
   Webhook, 
   Settings as SettingsIcon,
   BarChart3,
-  Copy,
-  ExternalLink,
   CheckCircle,
   XCircle,
   Loader2,
   RefreshCw,
   Trash2,
   AlertCircle,
-  Info,
   Tag
 } from 'lucide-react';
 
@@ -275,7 +272,7 @@ export function TrelloChatbotSettings() {
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="setup" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
               <span className="hidden sm:inline">Setup</span>
@@ -283,10 +280,6 @@ export function TrelloChatbotSettings() {
             <TabsTrigger value="labels" className="flex items-center gap-2">
               <Tag className="h-4 w-4" />
               <span className="hidden sm:inline">Labels</span>
-            </TabsTrigger>
-            <TabsTrigger value="webhooks" className="flex items-center gap-2">
-              <Webhook className="h-4 w-4" />
-              <span className="hidden sm:inline">Webhooks</span>
             </TabsTrigger>
             <TabsTrigger value="test" className="flex items-center gap-2">
               <CheckCircle className="h-4 w-4" />
@@ -301,44 +294,21 @@ export function TrelloChatbotSettings() {
           {/* Setup Tab */}
           <TabsContent value="setup" className="space-y-4 mt-4">
             <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex gap-3">
-                  <Info className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="font-semibold text-blue-900">Webhook Setup Instructions</h3>
-                    <ol className="text-sm text-blue-800 mt-2 space-y-1 list-decimal list-inside">
-                      <li>Get your Trello board or workspace ID</li>
-                      <li>Enter the ID and optional description below</li>
-                      <li>Click "Register Webhook" to enable chatbot</li>
-                      <li>Use the Test tab to verify functionality</li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-
               {webhookStatus && (
-                <Card className={webhookStatus.isConfigured ? 'border-green-200 bg-green-50' : 'border-yellow-200 bg-yellow-50'}>
-                  <CardContent className="pt-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        {webhookStatus.isConfigured ? (
-                          <CheckCircle className="h-5 w-5 text-green-600" />
-                        ) : (
-                          <AlertCircle className="h-5 w-5 text-yellow-600" />
-                        )}
-                        <span className="font-semibold">
-                          {webhookStatus.isConfigured ? 'Webhook Configured' : 'Webhook Not Configured'}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-700">{webhookStatus.recommendation}</p>
-                      {webhookStatus.publicUrl && (
-                        <div className="text-xs text-gray-600 mt-2">
-                          Public URL: <code className="bg-white px-2 py-1 rounded">{webhookStatus.publicUrl}</code>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                <div className={`flex items-center gap-2 p-2 rounded-lg text-sm ${
+                  webhookStatus.isConfigured 
+                    ? 'bg-green-50 border border-green-200 text-green-800' 
+                    : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
+                }`}>
+                  {webhookStatus.isConfigured ? (
+                    <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
+                  )}
+                  <span className="font-medium">
+                    {webhookStatus.isConfigured ? 'Webhook Configured' : 'Webhook Not Configured'}
+                  </span>
+                </div>
               )}
 
               <div className="space-y-3">
@@ -382,60 +352,61 @@ export function TrelloChatbotSettings() {
                   )}
                 </Button>
               </div>
+
+              {/* Registered Webhooks List */}
+              <div className="space-y-3 pt-4 border-t">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Webhook className="h-4 w-4" />
+                  Registered Webhooks
+                </h3>
+                {loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : webhooks.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <Webhook className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No webhooks registered yet</p>
+                  </div>
+                ) : (
+                  webhooks.map((webhook) => (
+                    <Card key={webhook.id}>
+                      <CardContent className="pt-4">
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-semibold text-sm">{webhook.description}</h4>
+                                <Badge variant={webhook.active ? 'default' : 'secondary'}>
+                                  {webhook.active ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-1">ID: {webhook.idModel}</p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteWebhook(webhook.id)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          <div className="bg-muted p-2 rounded text-xs font-mono break-all">
+                            {webhook.callbackURL}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
             </div>
           </TabsContent>
 
           {/* Labels Tab */}
           <TabsContent value="labels" className="space-y-4 mt-4">
             <TrelloIntegrationSettings />
-          </TabsContent>
-
-          {/* Webhooks Tab */}
-          <TabsContent value="webhooks" className="space-y-4 mt-4">
-            <div className="space-y-3">
-              {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : webhooks.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Webhook className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No webhooks registered yet</p>
-                  <p className="text-xs">Use the Setup tab to register your first webhook</p>
-                </div>
-              ) : (
-                webhooks.map((webhook) => (
-                  <Card key={webhook.id}>
-                    <CardContent className="pt-4">
-                      <div className="space-y-3">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-semibold">{webhook.description}</h3>
-                              <Badge variant={webhook.active ? 'default' : 'secondary'}>
-                                {webhook.active ? 'Active' : 'Inactive'}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">ID: {webhook.idModel}</p>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => deleteWebhook(webhook.id)}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <div className="bg-muted p-2 rounded text-xs font-mono break-all">
-                          {webhook.callbackURL}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
-            </div>
           </TabsContent>
 
           {/* Test Tab */}

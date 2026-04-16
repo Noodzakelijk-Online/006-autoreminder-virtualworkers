@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+/*  */import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -125,6 +125,7 @@ export function TrelloIntegrationSettings() {
                     id={label.id}
                     checked={selectedLabels.includes(label.id)}
                     onCheckedChange={() => handleLabelToggle(label.id)}
+                    onClick={(e) => e.stopPropagation()}
                   />
                   <div className="flex items-center gap-2 flex-1">
                     <div
