@@ -4,26 +4,23 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { TrelloIntegrationSettings } from './TrelloIntegrationSettings';
-import { 
-  Bot, 
-  Webhook, 
+import {
+  Bot,
+  Webhook,
   Settings as SettingsIcon,
   BarChart3,
   CheckCircle,
-  XCircle,
   Loader2,
   RefreshCw,
   Trash2,
   AlertCircle,
   Tag,
-  Info
 } from 'lucide-react';
 
-interface Webhook {
+interface WebhookItem {
   id: string;
   description: string;
   idModel: string;
@@ -54,22 +51,17 @@ interface WebhookStatus {
 
 export function TrelloChatbotSettings() {
   const [activeTab, setActiveTab] = useState('setup');
-  const [webhooks, setWebhooks] = useState<Webhook[]>([]);
+  const [webhooks, setWebhooks] = useState<WebhookItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [registering, setRegistering] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [modelId, setModelId] = useState('');
   const [description, setDescription] = useState('');
-  const [testCardId, setTestCardId] = useState('');
-  const [testComment, setTestComment] = useState('@bot status');
-  const [testResult, setTestResult] = useState<any>(null);
   const [analytics, setAnalytics] = useState<AnalyticsStats | null>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [webhookStatus, setWebhookStatus] = useState<WebhookStatus | null>(null);
 
-  const callbackUrl = typeof window !== 'undefined' 
-    ? `${window.location.origin}/api/trello-webhook`
-    : '';
+  const callbackUrl =
+    typeof window !== 'undefined' ? `${window.location.origin}/api/trello-webhook` : '';
 
   // Retry logic with exponential backoff
   const retryFetch = async (url: string, maxRetries = 2, delay = 500) => {
@@ -82,14 +74,12 @@ export function TrelloChatbotSettings() {
         }
         lastError = new Error(`HTTP ${response.status}`);
         if (i < maxRetries) {
-          const waitTime = delay * Math.pow(2, i);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
+          await new Promise((resolve) => setTimeout(resolve, delay * Math.pow(2, i)));
         }
       } catch (error) {
         lastError = error;
         if (i < maxRetries) {
-          const waitTime = delay * Math.pow(2, i);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
+          await new Promise((resolve) => setTimeout(resolve, delay * Math.pow(2, i)));
         }
       }
     }
@@ -124,7 +114,6 @@ export function TrelloChatbotSettings() {
       const response = await retryFetch('/api/trello-webhook/list', 2, 500);
       if (response.ok) {
         const data = await response.json();
-        console.log('[TrelloChatbot] Webhooks response:', data);
         setWebhooks(data.webhooks || []);
       } else {
         const errorText = await response.text();
@@ -145,7 +134,7 @@ export function TrelloChatbotSettings() {
     try {
       const response = await retryFetch('/api/chatbot/analytics', 2, 500);
       const responseText = await response.text();
-      
+
       if (!response.ok) {
         console.error('Analytics API error - status:', response.status);
         if (response.status !== 503) {
@@ -153,13 +142,12 @@ export function TrelloChatbotSettings() {
         }
         return;
       }
-      
+
       try {
         const data = JSON.parse(responseText);
         setAnalytics(data);
       } catch (parseError) {
         console.error('Failed to parse analytics response as JSON:', parseError);
-        console.error('Response text (first 200 chars):', responseText.substring(0, 200));
       }
     } catch (error) {
       console.error('Error loading analytics:', error);
@@ -236,43 +224,6 @@ export function TrelloChatbotSettings() {
     }
   };
 
-  const testWebhook = async () => {
-    if (!testCardId) {
-      toast.error('Please enter a card ID');
-      return;
-    }
-
-    setTesting(true);
-    try {
-      const response = await fetch('/api/trello-webhook/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cardId: testCardId,
-          comment: testComment,
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setTestResult(data);
-        toast.success('Test webhook sent successfully');
-      } else {
-        toast.error('Failed to test webhook');
-      }
-    } catch (error) {
-      console.error('Error testing webhook:', error);
-      toast.error('Failed to test webhook');
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard');
-  };
-
   return (
     <Card className="w-full">
       <CardHeader>
@@ -280,9 +231,7 @@ export function TrelloChatbotSettings() {
           <Bot className="h-5 w-5" />
           Trello Chatbot Configuration
         </CardTitle>
-        <CardDescription>
-          Manage webhooks, test functionality, and monitor analytics
-        </CardDescription>
+        <CardDescription>Manage webhooks and monitor analytics</CardDescription>
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -306,11 +255,13 @@ export function TrelloChatbotSettings() {
           <TabsContent value="setup" className="space-y-4 mt-4">
             <div className="space-y-4">
               {webhookStatus && (
-                <div className={`flex items-center gap-2 p-2 rounded-lg text-sm ${
-                  webhookStatus.isConfigured 
-                    ? 'bg-green-50 border border-green-200 text-green-800' 
-                    : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
-                }`}>
+                <div
+                  className={`flex items-center gap-2 p-2 rounded-lg text-sm ${
+                    webhookStatus.isConfigured
+                      ? 'bg-green-50 border border-green-200 text-green-800'
+                      : 'bg-yellow-50 border border-yellow-200 text-yellow-800'
+                  }`}
+                >
                   {webhookStatus.isConfigured ? (
                     <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
                   ) : (
@@ -348,8 +299,8 @@ export function TrelloChatbotSettings() {
                   />
                 </div>
 
-                <Button 
-                  onClick={registerWebhook} 
+                <Button
+                  onClick={registerWebhook}
                   disabled={registering || !modelId}
                   className="w-full"
                 >
@@ -392,7 +343,9 @@ export function TrelloChatbotSettings() {
                                   {webhook.active ? 'Active' : 'Inactive'}
                                 </Badge>
                               </div>
-                              <p className="text-xs text-muted-foreground mt-1">ID: {webhook.idModel}</p>
+                              <p className="text-xs text-muted-foreground mt-1">
+                                ID: {webhook.idModel}
+                              </p>
                             </div>
                             <Button
                               variant="ghost"
@@ -446,7 +399,9 @@ export function TrelloChatbotSettings() {
                     </Card>
                     <Card>
                       <CardContent className="pt-4">
-                        <div className="text-2xl font-bold">{(analytics.overallResponseRate * 100).toFixed(0)}%</div>
+                        <div className="text-2xl font-bold">
+                          {(analytics.overallResponseRate * 100).toFixed(0)}%
+                        </div>
                         <p className="text-xs text-muted-foreground">Response Rate</p>
                       </CardContent>
                     </Card>
@@ -476,11 +431,7 @@ export function TrelloChatbotSettings() {
                     </Card>
                   )}
 
-                  <Button 
-                    onClick={loadAnalytics}
-                    variant="outline"
-                    className="w-full"
-                  >
+                  <Button onClick={loadAnalytics} variant="outline" className="w-full">
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Refresh Analytics
                   </Button>

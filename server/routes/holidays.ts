@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDb } from '../db';
-import { holidays } from '../../drizzle/schema';
+import { holidays, vaProfiles } from '../../drizzle/schema';
 import { eq, and } from 'drizzle-orm';
 
 const router = Router();
@@ -52,17 +52,34 @@ router.get('/fetch/:country/:year', async (req: any, res: Response) => {
       return res.status(503).json({ error: 'Database not available' });
     }
 
+    // Resolve owner identity — either the worker's userId or the founder's openId
+    const workerId = req.query.workerId ? parseInt(req.query.workerId as string) : null;
+    let targetUserId: number = user.id;
+    let targetOpenId: string = user.openId;
+
+    if (workerId) {
+      const { vaProfiles: vaTable } = await import('../../drizzle/schema');
+      const [worker] = await db
+        .select()
+        .from(vaTable)
+        .where(and(eq(vaTable.id, workerId), eq(vaTable.founderId, user.id)))
+        .limit(1);
+      if (!worker) return res.status(404).json({ error: 'Worker not found' });
+      targetUserId = worker.userId;
+      targetOpenId = String(worker.userId); // use userId as openId key for workers
+    }
+
     // Delete existing holidays for this user/country/year
     await db.delete(holidays)
       .where(and(
-        eq(holidays.userOpenId, user.openId),
+        eq(holidays.userOpenId, targetOpenId),
         eq(holidays.country, country)
       ));
 
     // Insert new holidays
     const holidayRecords = holidaysData.map((h: any) => ({
-      userId: user.id,
-      userOpenId: user.openId,
+      userId: targetUserId,
+      userOpenId: targetOpenId,
       date: h.date, // YYYY-MM-DD format
       name: h.localName || h.name,
       country: country,
@@ -77,7 +94,7 @@ router.get('/fetch/:country/:year', async (req: any, res: Response) => {
     const savedHolidays = await db.select()
       .from(holidays)
       .where(and(
-        eq(holidays.userOpenId, user.openId),
+        eq(holidays.userOpenId, targetOpenId),
         eq(holidays.country, country)
       ))
       .orderBy(holidays.date);
@@ -126,26 +143,41 @@ router.get('/', async (req: any, res: Response) => {
 
 /**
  * GET /api/holidays/list
- * Get user's stored holidays
+ * Get user's stored holidays. Pass ?workerId=N to get a worker's holidays.
  */
 router.get('/list', async (req: any, res: Response) => {
   try {
     const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
+    if (!db) return res.status(503).json({ error: 'Database not available' });
+
+    const workerId = req.query.workerId ? parseInt(req.query.workerId as string) : null;
+
+    if (workerId) {
+      // Verify the worker belongs to this founder
+      const [worker] = await db
+        .select()
+        .from(vaProfiles)
+        .where(and(eq(vaProfiles.id, workerId), eq(vaProfiles.founderId, user.id)))
+        .limit(1);
+      if (!worker) return res.status(404).json({ error: 'Worker not found' });
+
+      const workerHolidays = await db
+        .select()
+        .from(holidays)
+        .where(eq(holidays.userId, worker.userId))
+        .orderBy(holidays.date);
+      return res.json(workerHolidays);
     }
 
-    const userHolidays = await db.select()
+    const userHolidays = await db
+      .select()
       .from(holidays)
       .where(eq(holidays.userOpenId, user.openId))
       .orderBy(holidays.date);
-
-    res.json(userHolidays);
+    return res.json(userHolidays);
   } catch (error) {
     console.error('Error fetching holidays:', error);
     res.status(500).json({ error: 'Failed to fetch holidays' });
@@ -154,40 +186,39 @@ router.get('/list', async (req: any, res: Response) => {
 
 /**
  * POST /api/holidays/toggle/:id
- * Toggle holiday active status
+ * Toggle holiday active status. Pass ?workerId=N for a worker's holiday.
  */
 router.post('/toggle/:id', async (req: any, res: Response) => {
   try {
     const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
     const holidayId = parseInt(req.params.id);
-    if (isNaN(holidayId)) {
-      return res.status(400).json({ error: 'Invalid holiday ID' });
-    }
+    if (isNaN(holidayId)) return res.status(400).json({ error: 'Invalid holiday ID' });
 
     const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
+    if (!db) return res.status(503).json({ error: 'Database not available' });
+
+    const workerId = req.query.workerId ? parseInt(req.query.workerId as string) : null;
+
+    let ownerCondition;
+    if (workerId) {
+      const [worker] = await db
+        .select()
+        .from(vaProfiles)
+        .where(and(eq(vaProfiles.id, workerId), eq(vaProfiles.founderId, user.id)))
+        .limit(1);
+      if (!worker) return res.status(404).json({ error: 'Worker not found' });
+      ownerCondition = and(eq(holidays.id, holidayId), eq(holidays.userId, worker.userId));
+    } else {
+      ownerCondition = and(eq(holidays.id, holidayId), eq(holidays.userOpenId, user.openId));
     }
 
-    // Get current holiday
-    const [holiday] = await db.select()
-      .from(holidays)
-      .where(and(
-        eq(holidays.id, holidayId),
-        eq(holidays.userOpenId, user.openId)
-      ))
-      .limit(1);
+    const [holiday] = await db.select().from(holidays).where(ownerCondition).limit(1);
+    if (!holiday) return res.status(404).json({ error: 'Holiday not found' });
 
-    if (!holiday) {
-      return res.status(404).json({ error: 'Holiday not found' });
-    }
-
-    // Toggle active status
-    await db.update(holidays)
+    await db
+      .update(holidays)
       .set({ isActive: holiday.isActive === 1 ? 0 : 1 })
       .where(eq(holidays.id, holidayId));
 
@@ -430,17 +461,34 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
       return res.status(503).json({ error: 'Database not available' });
     }
 
+    // Resolve owner identity
+    const workerId = req.query.workerId ? parseInt(req.query.workerId as string) : null;
+    let targetUserId: number = user.id;
+    let targetOpenId: string = user.openId;
+
+    if (workerId) {
+      const { vaProfiles: vaTable } = await import('../../drizzle/schema');
+      const [worker] = await db
+        .select()
+        .from(vaTable)
+        .where(and(eq(vaTable.id, workerId), eq(vaTable.founderId, user.id)))
+        .limit(1);
+      if (!worker) return res.status(404).json({ error: 'Worker not found' });
+      targetUserId = worker.userId;
+      targetOpenId = String(worker.userId);
+    }
+
     // Delete existing holidays for this user/country/year
     await db.delete(holidays)
       .where(and(
-        eq(holidays.userOpenId, user.openId),
+        eq(holidays.userOpenId, targetOpenId),
         eq(holidays.country, countryCode)
       ));
 
     // Insert new holidays
     const holidayRecords = holidaysData.map((h: any) => ({
-      userId: user.id,
-      userOpenId: user.openId,
+      userId: targetUserId,
+      userOpenId: targetOpenId,
       date: h.date,
       name: h.localName || h.name,
       country: countryCode,
@@ -452,12 +500,12 @@ router.get('/by-timezone/:timezone/:year', async (req: any, res: Response) => {
     }
 
     // Re-fetch from DB so records include auto-generated IDs
-    console.log('[Holidays] Fetching saved holidays from DB for user:', user.openId, 'country:', countryCode);
+    console.log('[Holidays] Fetching saved holidays from DB for user:', targetOpenId, 'country:', countryCode);
     try {
       const savedHolidays = await db.select()
         .from(holidays)
         .where(and(
-          eq(holidays.userOpenId, user.openId),
+          eq(holidays.userOpenId, targetOpenId),
           eq(holidays.country, countryCode)
         ))
         .orderBy(holidays.date);
