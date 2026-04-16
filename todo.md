@@ -2052,3 +2052,11 @@ Each card now has:
 - [x] Implement React.memo for TaskCard components to prevent unnecessary re-renders
 - [ ] Add performance monitoring and metrics tracking
 - [ ] Test with 1000+ tasks to verify scalability
+
+
+## Bug: Webhook Registration Endpoint Missing (Apr 16, 2026)
+- [x] Investigate webhook registration endpoint
+- [x] Create missing /api/trello-webhook/register endpoint (changed from GET to POST)
+- [x] Update endpoint to accept body parameters instead of query params
+- [ ] Test webhook registration functionality
+- [ ] Verify error is resolved

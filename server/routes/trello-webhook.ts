@@ -8,17 +8,17 @@ const router = Router();
 const TRELLO_API_BASE = 'https://api.trello.com/1';
 
 /**
- * GET /api/trello-webhook/register
+ * POST /api/trello-webhook/register
  * Register a webhook for a Trello board/workspace
  */
-router.get('/register', async (req: any, res: Response) => {
+router.post('/register', async (req: any, res: Response) => {
   try {
     const user = req.user;
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { modelId, callbackUrl } = req.query;
+    const { modelId, callbackUrl } = req.body;
 
     if (!modelId || !callbackUrl) {
       return res.status(400).json({ error: 'Missing modelId or callbackUrl' });
