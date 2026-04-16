@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { Calendar, RefreshCw, Check, X, Users } from 'lucide-react';
+import { Calendar, RefreshCw, Check, X } from 'lucide-react';
 
 interface Holiday {
   id: number;
@@ -18,29 +19,20 @@ interface Country {
   name: string;
 }
 
-interface Worker {
-  id: number;
-  name: string;
-  timezone: string;
-  email?: string;
-}
-
 interface HolidayManagementProps {
-  country: string;
-  onCountryChange: (country: string) => void;
+  workerId: number | null;
+  workerTimezone: string | null;
+  workerName: string | null;
 }
 
-export function HolidayManagement({ country, onCountryChange }: HolidayManagementProps) {
+export function HolidayManagement({ workerId, workerTimezone, workerName }: HolidayManagementProps) {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
-  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [country, setCountry] = useState('');
   const [loading, setLoading] = useState(false);
   const [fetchingCountries, setFetchingCountries] = useState(true);
-  const [fetchingWorkers, setFetchingWorkers] = useState(true);
-  const [selectedWorker, setSelectedWorker] = useState<Worker | null>(null);
-  const [selectionMode, setSelectionMode] = useState<'general' | 'worker'>('general');
 
-  // Fetch countries and workers on mount
+  // Fetch countries on mount
   useEffect(() => {
     const fetchCountries = async () => {
       try {
@@ -55,101 +47,67 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
         setFetchingCountries(false);
       }
     };
-
-    const fetchWorkers = async () => {
-      try {
-        const response = await fetch('/api/holidays/workers');
-        if (response.ok) {
-          const data = await response.json();
-          setWorkers(data);
-        }
-      } catch (error) {
-        console.error('Error fetching workers:', error);
-      } finally {
-        setFetchingWorkers(false);
-      }
-    };
-
     fetchCountries();
-    fetchWorkers();
   }, []);
 
-  // Fetch user's holidays on mount
+  // Reload holidays when workerId changes
   useEffect(() => {
-    const fetchHolidays = async () => {
-      try {
-        const response = await fetch('/api/holidays/list');
-        if (response.ok) {
-          const data = await response.json();
-          setHolidays(data);
-        }
-      } catch (error) {
-        console.error('Error fetching holidays:', error);
-      }
-    };
+    fetchStoredHolidays();
+  }, [workerId]);
 
-    fetchHolidays();
-  }, []);
-
-  const handleFetchHolidaysGeneral = async () => {
-    if (!country) {
-      toast.error('Please select a country first');
-      return;
-    }
-
-    setLoading(true);
+  const fetchStoredHolidays = async () => {
     try {
-      const currentYear = new Date().getFullYear();
-      const response = await fetch(`/api/holidays/fetch/${country}/${currentYear}`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch holidays');
+      const url = workerId
+        ? `/api/holidays/list?workerId=${workerId}`
+        : '/api/holidays/list';
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        setHolidays(data);
       }
-
-      const data = await response.json();
-      setHolidays(data.holidays);
-      toast.success(`Loaded ${data.count} holidays for ${country}`);
     } catch (error) {
       console.error('Error fetching holidays:', error);
-      toast.error('Failed to fetch holidays. Please try again.');
-    } finally {
-      setLoading(false);
     }
   };
 
-  const handleFetchHolidaysByWorker = async () => {
-    if (!selectedWorker) {
-      toast.error('Please select a worker first');
-      return;
-    }
-
+  const handleFetchHolidays = async () => {
     setLoading(true);
     try {
       const currentYear = new Date().getFullYear();
-      const encodedTimezone = encodeURIComponent(selectedWorker.timezone);
-      const response = await fetch(`/api/holidays/by-timezone/${encodedTimezone}/${currentYear}`);
-      const responseText = await response.text();
-      
-      if (!response.ok) {
-        try {
-          const error = JSON.parse(responseText);
-          throw new Error(error.error || 'Failed to fetch holidays');
-        } catch (parseError) {
-          throw new Error(`Failed to fetch holidays (${response.status})`);
-        }
-      }
 
-      try {
+      if (workerId && workerTimezone) {
+        // Fetch by worker timezone
+        const encodedTimezone = encodeURIComponent(workerTimezone);
+        const url = `/api/holidays/by-timezone/${encodedTimezone}/${currentYear}?workerId=${workerId}`;
+        const response = await fetch(url);
+        const responseText = await response.text();
+
+        if (!response.ok) {
+          const err = (() => { try { return JSON.parse(responseText); } catch { return {}; } })();
+          throw new Error(err.error || `Failed to fetch holidays (${response.status})`);
+        }
+
         const data = JSON.parse(responseText);
-        setHolidays(data.holidays);
-        toast.success(`Loaded ${data.count} holidays for ${selectedWorker.name} (${selectedWorker.timezone})`);
-      } catch (parseError) {
-        console.error('Failed to parse holidays response:', parseError);
-        console.error('Response text:', responseText.substring(0, 200));
-        throw new Error('Invalid response format from server');
+        setHolidays(data.holidays || []);
+        toast.success(
+          `Loaded ${data.count} holidays for ${workerName ?? 'worker'} (${workerTimezone})`
+        );
+      } else {
+        // General mode — fetch by selected country
+        if (!country) {
+          toast.error('Please select a country first');
+          setLoading(false);
+          return;
+        }
+        const url = `/api/holidays/fetch/${country}/${currentYear}`;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch holidays');
+        const data = await response.json();
+        setHolidays(data.holidays || []);
+        toast.success(`Loaded ${data.count} holidays for ${country}`);
       }
     } catch (error: any) {
-      console.error('Error fetching holidays by timezone:', error);
+      console.error('Error fetching holidays:', error);
       toast.error(error.message || 'Failed to fetch holidays. Please try again.');
     } finally {
       setLoading(false);
@@ -158,21 +116,17 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
 
   const handleToggleHoliday = async (holidayId: number) => {
     try {
-      const response = await fetch(`/api/holidays/toggle/${holidayId}`, {
-        method: 'POST',
-      });
+      const url = workerId
+        ? `/api/holidays/toggle/${holidayId}?workerId=${workerId}`
+        : `/api/holidays/toggle/${holidayId}`;
+      const response = await fetch(url, { method: 'POST' });
 
-      if (!response.ok) {
-        throw new Error('Failed to toggle holiday');
-      }
+      if (!response.ok) throw new Error('Failed to toggle holiday');
 
       const data = await response.json();
-      
-      // Update local state
-      setHolidays(holidays.map(h => 
-        h.id === holidayId ? { ...h, isActive: data.isActive } : h
-      ));
-
+      setHolidays((prev) =>
+        prev.map((h) => (h.id === holidayId ? { ...h, isActive: data.isActive } : h))
+      );
       toast.success(data.isActive === 1 ? 'Holiday enabled' : 'Holiday disabled');
     } catch (error) {
       console.error('Error toggling holiday:', error);
@@ -180,8 +134,8 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
     }
   };
 
-  const activeHolidays = holidays.filter(h => h.isActive === 1);
-  const inactiveHolidays = holidays.filter(h => h.isActive === 0);
+  const activeHolidays = holidays.filter((h) => h.isActive === 1);
+  const inactiveHolidays = holidays.filter((h) => h.isActive === 0);
 
   return (
     <Card>
@@ -191,44 +145,46 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
           Holiday Calendar
         </CardTitle>
         <CardDescription>
-          Automatically mark public holidays as non-working days
+          {workerName
+            ? `Managing holidays for ${workerName} — automatically fetched from their timezone`
+            : 'Automatically mark public holidays as non-working days'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 md:space-y-4">
-        {/* Selection Mode Tabs */}
-        <div className="flex gap-2 border-b">
-          <button
-            onClick={() => setSelectionMode('general')}
-            className={`px-4 py-2 font-medium text-sm transition-colors ${
-              selectionMode === 'general'
-                ? 'border-b-2 border-primary text-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            General
-          </button>
-          <button
-            onClick={() => setSelectionMode('worker')}
-            className={`px-4 py-2 font-medium text-sm transition-colors flex items-center gap-2 ${
-              selectionMode === 'worker'
-                ? 'border-b-2 border-primary text-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Users className="h-4 w-4" />
-            By Worker
-          </button>
-        </div>
 
-        {/* General Mode */}
-        {selectionMode === 'general' && (
+        {/* Worker mode: show timezone badge + fetch button */}
+        {workerId && workerTimezone ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Timezone:</span>
+                <Badge variant="secondary">{workerTimezone}</Badge>
+              </div>
+              <Button
+                onClick={handleFetchHolidays}
+                disabled={loading}
+                className="flex items-center gap-2"
+                size="sm"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Loading...' : 'Fetch Holidays'}
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {holidays.length > 0
+                ? `${activeHolidays.length} active, ${inactiveHolidays.length} disabled`
+                : `No holidays loaded yet. Click "Fetch Holidays" to load holidays for ${workerName ?? 'this worker'}.`}
+            </p>
+          </div>
+        ) : (
+          /* General mode: country selector */
           <div className="space-y-2">
             <Label htmlFor="country" className="text-sm md:text-base">Country</Label>
             <div className="flex flex-col md:flex-row gap-2">
               <select
                 id="country"
                 value={country}
-                onChange={(e) => onCountryChange(e.target.value)}
+                onChange={(e) => setCountry(e.target.value)}
                 className="flex-1 px-3 py-2 border rounded-md bg-background"
                 disabled={fetchingCountries}
               >
@@ -240,7 +196,7 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
                 ))}
               </select>
               <Button
-                onClick={handleFetchHolidaysGeneral}
+                onClick={handleFetchHolidays}
                 disabled={loading || !country}
                 className="flex items-center gap-2"
               >
@@ -249,58 +205,9 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
-              {holidays.length > 0 
+              {holidays.length > 0
                 ? `${activeHolidays.length} active holidays, ${inactiveHolidays.length} disabled`
                 : 'No holidays loaded. Select a country and click "Fetch Holidays".'}
-            </p>
-          </div>
-        )}
-
-        {/* Worker Mode */}
-        {selectionMode === 'worker' && (
-          <div className="space-y-2">
-            <Label htmlFor="worker" className="text-sm md:text-base">Select Worker</Label>
-            <div className="flex flex-col md:flex-row gap-2">
-              <select
-                id="worker"
-                value={selectedWorker?.id || ''}
-                onChange={(e) => {
-                  const workerId = parseInt(e.target.value);
-                  const worker = workers.find(w => w.id === workerId) || null;
-                  setSelectedWorker(worker);
-                }}
-                className="flex-1 px-3 py-2 border rounded-md bg-background"
-                disabled={fetchingWorkers || workers.length === 0}
-              >
-                <option value="">Select a worker...</option>
-                {workers.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name} ({w.timezone})
-                  </option>
-                ))}
-              </select>
-              <Button
-                onClick={handleFetchHolidaysByWorker}
-                disabled={loading || !selectedWorker}
-                className="flex items-center gap-2"
-              >
-                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                {loading ? 'Loading...' : 'Fetch Holidays'}
-              </Button>
-            </div>
-            {selectedWorker && (
-              <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
-                <p className="text-sm text-blue-900 dark:text-blue-100">
-                  <strong>Showing holidays for:</strong> {selectedWorker.name} ({selectedWorker.timezone})
-                </p>
-              </div>
-            )}
-            <p className="text-sm text-muted-foreground">
-              {workers.length === 0 
-                ? 'No workers found. Create workers from the Founder Dashboard.'
-                : holidays.length > 0 
-                  ? `${activeHolidays.length} active holidays, ${inactiveHolidays.length} disabled`
-                  : 'No holidays loaded. Select a worker and click "Fetch Holidays".'}
             </p>
           </div>
         )}
@@ -317,8 +224,8 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
                     className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 p-2 md:p-3 hover:bg-accent/50"
                   >
                     <div className="flex-1">
-                      <div className="font-medium">{holiday.name}</div>
-                      <div className="text-sm text-muted-foreground">
+                      <div className="font-medium text-sm">{holiday.name}</div>
+                      <div className="text-xs text-muted-foreground">
                         {new Date(holiday.date + 'T00:00:00').toLocaleDateString('en-US', {
                           weekday: 'short',
                           month: 'short',
@@ -333,15 +240,9 @@ export function HolidayManagement({ country, onCountryChange }: HolidayManagemen
                       className="flex items-center gap-1"
                     >
                       {holiday.isActive === 1 ? (
-                        <>
-                          <Check className="h-3 w-3" />
-                          Active
-                        </>
+                        <><Check className="h-3 w-3" /> Active</>
                       ) : (
-                        <>
-                          <X className="h-3 w-3" />
-                          Disabled
-                        </>
+                        <><X className="h-3 w-3" /> Disabled</>
                       )}
                     </Button>
                   </div>
