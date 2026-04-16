@@ -286,7 +286,7 @@ export function TrelloChatbotSettings() {
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="flex w-full justify-between">
             <TabsTrigger value="setup" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
               <span className="hidden sm:inline">Setup</span>
