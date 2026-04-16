@@ -2061,3 +2061,12 @@ Each card now has:
 - [x] Add URL parsing to extract board ID from Trello URL
 - [x] Improve error messages for permission and auth failures
 - [x] Verify error is resolved (root cause: user needs admin access to board)
+
+
+## Feature: Webhook Auto-Discovery (Apr 16, 2026)
+- [x] Create backend endpoint to fetch user's accessible Trello boards
+- [x] Create endpoint to discover webhooks on each board
+- [x] Update frontend to display discovered webhooks
+- [x] Add "Auto-Discover" button to settings
+- [x] Display discovered webhooks in blue highlighted section
+- [x] Test auto-discovery with multiple boards

@@ -270,6 +270,73 @@ router.get('/chatbot/analytics', async (req, res) => {
 });
 
 /**
+ * GET /api/trello-webhook/discover
+ * Discover existing webhooks on boards the user has access to
+ */
+router.get('/discover', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const apiKey = process.env.TRELLO_API_KEY;
+    const token = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !token) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    // Fetch user's boards
+    const boardsResponse = await fetch(`${TRELLO_API_BASE}/members/me/boards?key=${apiKey}&token=${token}`, {
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!boardsResponse.ok) {
+      console.error('[TrelloWebhook] Failed to fetch boards:', await boardsResponse.text());
+      return res.status(boardsResponse.status).json({ error: 'Failed to fetch Trello boards' });
+    }
+
+    const boards = await boardsResponse.json();
+    const discoveredWebhooks: any[] = [];
+
+    // For each board, check for existing webhooks
+    for (const board of boards) {
+      try {
+        const webhooksResponse = await fetch(`${TRELLO_API_BASE}/boards/${board.id}/webhooks?key=${apiKey}&token=${token}`, {
+          headers: { 'Accept': 'application/json' },
+        });
+
+        if (webhooksResponse.ok) {
+          const webhooks = await webhooksResponse.json();
+          for (const webhook of webhooks) {
+            discoveredWebhooks.push({
+              id: webhook.id,
+              boardId: board.id,
+              boardName: board.name,
+              boardUrl: board.url,
+              callbackUrl: webhook.callbackURL,
+              description: webhook.description,
+              active: true,
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`[TrelloWebhook] Error checking webhooks for board ${board.id}:`, error);
+      }
+    }
+
+    return res.json({
+      boards: boards.map((b: any) => ({ id: b.id, name: b.name, url: b.url })),
+      discoveredWebhooks,
+    });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error discovering webhooks:', error);
+    return res.status(500).json({ error: error.message || 'Failed to discover webhooks' });
+  }
+});
+
+/**
  * GET /api/trello-webhook/status
  * Get webhook status
  */

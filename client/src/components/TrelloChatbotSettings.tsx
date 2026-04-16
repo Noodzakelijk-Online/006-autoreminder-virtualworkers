@@ -66,6 +66,9 @@ export function TrelloChatbotSettings() {
   const [analytics, setAnalytics] = useState<AnalyticsStats | null>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [webhookStatus, setWebhookStatus] = useState<WebhookStatus | null>(null);
+  const [discoveredWebhooks, setDiscoveredWebhooks] = useState<any[]>([]);
+  const [discoveringWebhooks, setDiscoveringWebhooks] = useState(false);
+  const [boards, setBoards] = useState<any[]>([]);
 
   const callbackUrl = typeof window !== 'undefined' 
     ? `${window.location.origin}/api/trello-webhook`
@@ -137,6 +140,32 @@ export function TrelloChatbotSettings() {
       console.error('[TrelloChatbot] Error loading webhooks:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const discoverWebhooks = async () => {
+    setDiscoveringWebhooks(true);
+    try {
+      const response = await fetch('/api/trello-webhook/discover');
+      if (response.ok) {
+        const data = await response.json();
+        setBoards(data.boards || []);
+        setDiscoveredWebhooks(data.discoveredWebhooks || []);
+        
+        if (data.discoveredWebhooks.length > 0) {
+          toast.success(`Found ${data.discoveredWebhooks.length} existing webhook(s)!`);
+        } else {
+          toast.info('No existing webhooks found on your boards.');
+        }
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Failed to discover webhooks');
+      }
+    } catch (error) {
+      console.error('[TrelloChatbot] Error discovering webhooks:', error);
+      toast.error('Failed to discover webhooks');
+    } finally {
+      setDiscoveringWebhooks(false);
     }
   };
 
@@ -351,21 +380,73 @@ export function TrelloChatbotSettings() {
                   />
                 </div>
 
-                <Button 
-                  onClick={registerWebhook} 
-                  disabled={registering || !modelId}
-                  className="w-full"
-                >
-                  {registering ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Registering...
-                    </>
-                  ) : (
-                    'Register Webhook'
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={registerWebhook} 
+                    disabled={registering || !modelId}
+                    className="flex-1"
+                  >
+                    {registering ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Registering...
+                      </>
+                    ) : (
+                      'Register Webhook'
+                    )}
+                  </Button>
+                  <Button 
+                    onClick={discoverWebhooks} 
+                    disabled={discoveringWebhooks}
+                    variant="outline"
+                    className="flex-1"
+                  >
+                    {discoveringWebhooks ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Discovering...
+                      </>
+                    ) : (
+                      'Auto-Discover'
+                    )}
+                  </Button>
+                </div>
               </div>
+
+              {/* Discovered Webhooks Section */}
+              {discoveredWebhooks.length > 0 && (
+                <div className="space-y-3 pt-4 border-t">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <Webhook className="h-4 w-4" />
+                    Discovered Webhooks ({discoveredWebhooks.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {discoveredWebhooks.map((webhook) => (
+                      <Card key={webhook.id} className="bg-blue-50 border-blue-200">
+                        <CardContent className="pt-4">
+                          <div className="space-y-2">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-semibold text-sm">{webhook.boardName}</h4>
+                                  <Badge variant="outline" className="text-xs">Existing</Badge>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">Board ID: {webhook.boardId}</p>
+                              </div>
+                            </div>
+                            <div className="bg-white p-2 rounded text-xs font-mono break-all border border-blue-100">
+                              {webhook.callbackUrl}
+                            </div>
+                            {webhook.description && (
+                              <p className="text-xs text-muted-foreground">{webhook.description}</p>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Registered Webhooks List */}
               <div className="space-y-3 pt-4 border-t">
