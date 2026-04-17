@@ -158,7 +158,7 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
         icon={<Clock className="h-5 w-5" />}
       >
         <div className="space-y-4 md:space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-3">
             <div className="space-y-2">
               <Label>Work Start Time</Label>
               <div className="flex gap-2">
