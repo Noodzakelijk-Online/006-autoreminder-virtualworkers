@@ -271,17 +271,12 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
 
       {/* Weekly Hours Target — only shown for global defaults */}
       {!workerId && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
-              <Target className="h-5 w-5" />
-              Weekly Hours Target
-            </CardTitle>
-            <CardDescription>
-              Set your target weekly hours and daily flexibility.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 md:space-y-6">
+        <CardWithTooltip
+          title="Weekly Hours Target"
+          tooltipContent="Set your target weekly hours and daily flexibility."
+          icon={<Target className="h-5 w-5" />}
+        >
+          <div className="space-y-4 md:space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Weekly Hours Target (Range)</Label>
@@ -323,24 +318,18 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </CardWithTooltip>
       )}
 
       {/* Break Settings — only shown for global defaults */}
       {!workerId && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Coffee className="h-5 w-5" />
-              Break Settings
-            </CardTitle>
-            <CardDescription>
-              Configure automatic breaks during work hours.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
+        <CardWithTooltip
+          title="Break Settings"
+          tooltipContent="Configure automatic breaks during work hours."
+          icon={<Coffee className="h-5 w-5" />}
+        >
+          <div className="space-y-4 md:space-y-6">       <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label>Enable Automatic Breaks</Label>
                 <p className="text-sm text-muted-foreground">
@@ -389,8 +378,8 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </CardWithTooltip>
       )}
 
       {/* Working Days & Timezone */}

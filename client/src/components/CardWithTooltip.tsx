@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Info } from 'lucide-react';
 import {
   Card,
@@ -23,7 +23,8 @@ interface CardWithTooltipProps {
 
 /**
  * Reusable card component with tooltip for settings pages
- * Displays a card with a title and optional tooltip on hover
+ * Displays a card with a title and optional tooltip on hover or keyboard focus
+ * Supports keyboard navigation: Tab to focus, Enter/Space to open tooltip
  */
 export const CardWithTooltip: React.FC<CardWithTooltipProps> = ({
   title,
@@ -32,6 +33,15 @@ export const CardWithTooltip: React.FC<CardWithTooltipProps> = ({
   children,
   className,
 }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setIsOpen(!isOpen);
+    }
+  };
+
   return (
     <Card className={className}>
       <CardHeader>
@@ -39,9 +49,15 @@ export const CardWithTooltip: React.FC<CardWithTooltipProps> = ({
           {icon && icon}
           {title}
           <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+            <Tooltip open={isOpen} onOpenChange={setIsOpen}>
+              <TooltipTrigger
+                asChild
+                onKeyDown={handleKeyDown}
+                tabIndex={0}
+                role="button"
+                aria-label={`Show information about ${title}`}
+              >
+                <Info className="h-4 w-4 text-muted-foreground cursor-help focus:outline-none focus:ring-2 focus:ring-primary rounded" />
               </TooltipTrigger>
               <TooltipContent>
                 <p>{tooltipContent}</p>
