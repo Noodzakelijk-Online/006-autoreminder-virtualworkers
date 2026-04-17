@@ -157,9 +157,9 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
         tooltipContent="Configure the daily work schedule. Tasks will be automatically scheduled within these hours."
         icon={<Clock className="h-5 w-5" />}
       >
-        <div className="space-y-4 md:space-y-6">
+        <div className="space-y-6">
+          {/* Start / End / Total */}
           <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-3">
-            {/* Work Start Time */}
             <div className="flex-1 space-y-2">
               <Label>Work Start Time</Label>
               <Input
@@ -172,7 +172,6 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
               />
             </div>
 
-            {/* Work End Time */}
             <div className="flex-1 space-y-2">
               <Label>Work End Time</Label>
               <Input
@@ -185,12 +184,10 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
               />
             </div>
 
-            {/* Equals Icon */}
             <div className="hidden md:flex items-end pb-2">
               <Equal className="h-5 w-5 text-muted-foreground" />
             </div>
 
-            {/* Total Hours Output */}
             <div className="flex-1 space-y-2">
               <Label>Total Hours</Label>
               <div className="flex gap-2">
@@ -216,6 +213,149 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
               </div>
               <p className="text-xs text-muted-foreground">hrs : mins</p>
             </div>
+          </div>
+
+          <div className="border-t pt-4 space-y-4">
+            {/* Working Days */}
+            <div className="space-y-2">
+              <Label>Working Days</Label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: '0', label: 'Sun' },
+                  { value: '1', label: 'Mon' },
+                  { value: '2', label: 'Tue' },
+                  { value: '3', label: 'Wed' },
+                  { value: '4', label: 'Thu' },
+                  { value: '5', label: 'Fri' },
+                  { value: '6', label: 'Sat' },
+                ].map((day) => {
+                  const isSelected = settings.workingDays.split(',').includes(day.value);
+                  return (
+                    <Button
+                      key={day.value}
+                      variant={isSelected ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => {
+                        const days = settings.workingDays.split(',').filter((d) => d);
+                        const newDays = isSelected
+                          ? days.filter((d) => d !== day.value)
+                          : [...days, day.value].sort();
+                        setSettings({ ...settings, workingDays: newDays.join(',') });
+                      }}
+                    >
+                      {day.label}
+                    </Button>
+                  );
+                })}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Selected: {settings.workingDays.split(',').filter((d) => d).length} days per week
+              </p>
+            </div>
+
+            {/* Timezone */}
+            <div className="space-y-2">
+              <Label htmlFor="timezone">
+                Timezone
+                {workerId && (
+                  <span className="ml-2 text-xs text-muted-foreground font-normal">
+                    (managed from employee profile)
+                  </span>
+                )}
+              </Label>
+              {workerId ? (
+                <div className="w-full px-3 py-2 border rounded-md bg-muted text-sm text-muted-foreground">
+                  {displayTimezone}
+                </div>
+              ) : (
+                <select
+                  id="timezone"
+                  value={settings.timezone}
+                  onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md bg-background"
+                >
+                  <optgroup label="Common Timezones">
+                    <option value="UTC">UTC (Coordinated Universal Time)</option>
+                    <option value="America/New_York">Eastern Time (US & Canada)</option>
+                    <option value="America/Chicago">Central Time (US & Canada)</option>
+                    <option value="America/Denver">Mountain Time (US & Canada)</option>
+                    <option value="America/Los_Angeles">Pacific Time (US & Canada)</option>
+                    <option value="Europe/London">London (GMT/BST)</option>
+                    <option value="Europe/Paris">Paris (CET/CEST)</option>
+                    <option value="Europe/Amsterdam">Amsterdam (CET/CEST)</option>
+                    <option value="Europe/Berlin">Berlin (CET/CEST)</option>
+                    <option value="Asia/Karachi">Karachi (PKT)</option>
+                    <option value="Asia/Kolkata">India (IST)</option>
+                    <option value="Asia/Tokyo">Tokyo (JST)</option>
+                    <option value="Asia/Shanghai">Shanghai (CST)</option>
+                    <option value="Asia/Singapore">Singapore (SGT)</option>
+                    <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
+                  </optgroup>
+                </select>
+              )}
+              <p className="text-sm text-muted-foreground">
+                Current time:{' '}
+                {new Date().toLocaleTimeString('en-US', { timeZone: displayTimezone })}
+              </p>
+            </div>
+
+            {/* Break Settings */}
+            {!workerId && (
+              <div className="border-t pt-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label className="flex items-center gap-2">
+                      <Coffee className="h-4 w-4" />
+                      Break Settings
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      Schedule short and long breaks between tasks
+                    </p>
+                  </div>
+                  <Switch
+                    checked={settings.enableBreaks}
+                    onCheckedChange={(checked) => setSettings({ ...settings, enableBreaks: checked })}
+                  />
+                </div>
+
+                {settings.enableBreaks && (
+                  <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                    {[
+                      { intervalKey: 'shortBreakInterval', durKey: 'shortBreakDuration', label: 'Short Break' },
+                      { intervalKey: 'longBreakInterval', durKey: 'longBreakDuration', label: 'Long Break' },
+                    ].map(({ intervalKey, durKey, label }) => (
+                      <div key={intervalKey} className="space-y-2">
+                        <Label>{label}</Label>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">Every</span>
+                          <Input
+                            type="number" min="30" max="480"
+                            value={(settings as any)[intervalKey]}
+                            onChange={(e) =>
+                              setSettings({ ...settings, [intervalKey]: parseInt(e.target.value) || 120 })
+                            }
+                            className="w-20"
+                          />
+                          <span className="text-sm text-muted-foreground">mins</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-muted-foreground">Duration:</span>
+                          <Input
+                            type="number" min="5" max="60"
+                            value={(settings as any)[durKey]}
+                            onChange={(e) =>
+                              setSettings({ ...settings, [durKey]: parseInt(e.target.value) || 10 })
+                            }
+                            className="w-20"
+                          />
+                          <span className="text-sm text-muted-foreground">mins</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </CardWithTooltip>
@@ -278,7 +418,7 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
           <div className="space-y-4 md:space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Weekly Hours Target (Range)</Label>
+                <Label>Weekly Hours Target </Label>
                 <div className="flex items-center gap-2">
                   <Input
                     type="number" min="20" max="80"
@@ -298,7 +438,7 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
               </div>
 
               <div className="space-y-2">
-                <Label>Daily Hours Flexibility (Range)</Label>
+                <Label>Daily Hours Flexibility </Label>
                 <div className="flex items-center gap-2">
                   <Input
                     type="number" min="4" max="16" step="0.5"
@@ -320,167 +460,6 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
           </div>
         </CardWithTooltip>
 
-      {/* Break Settings — only shown for global defaults */}
-      {!workerId && (
-        <CardWithTooltip
-          title="Break Settings"
-          tooltipContent="Configure automatic breaks during work hours."
-          icon={<Coffee className="h-5 w-5" />}
-        >
-          <div className="space-y-4 md:space-y-6">       <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label>Enable Automatic Breaks</Label>
-                <p className="text-sm text-muted-foreground">
-                  Schedule short and long breaks between tasks
-                </p>
-              </div>
-              <Switch
-                checked={settings.enableBreaks}
-                onCheckedChange={(checked) => setSettings({ ...settings, enableBreaks: checked })}
-              />
-            </div>
-
-            {settings.enableBreaks && (
-              <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-                {[
-                  { intervalKey: 'shortBreakInterval', durKey: 'shortBreakDuration', label: 'Short Break' },
-                  { intervalKey: 'longBreakInterval', durKey: 'longBreakDuration', label: 'Long Break' },
-                ].map(({ intervalKey, durKey, label }) => (
-                  <div key={intervalKey} className="space-y-2">
-                    <Label>{label}</Label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Every</span>
-                      <Input
-                        type="number" min="30" max="480"
-                        value={(settings as any)[intervalKey]}
-                        onChange={(e) =>
-                          setSettings({ ...settings, [intervalKey]: parseInt(e.target.value) || 120 })
-                        }
-                        className="w-20"
-                      />
-                      <span className="text-sm text-muted-foreground">mins</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Duration:</span>
-                      <Input
-                        type="number" min="5" max="60"
-                        value={(settings as any)[durKey]}
-                        onChange={(e) =>
-                          setSettings({ ...settings, [durKey]: parseInt(e.target.value) || 10 })
-                        }
-                        className="w-20"
-                      />
-                      <span className="text-sm text-muted-foreground">mins</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </CardWithTooltip>
-      )}
-
-      {/* Working Days & Timezone */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5" />
-            Working Days & Timezone
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Select which days are worked and the timezone for accurate scheduling.</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Working Days</Label>
-            <div className="flex flex-wrap gap-2">
-              {[
-                { value: '0', label: 'Sun' },
-                { value: '1', label: 'Mon' },
-                { value: '2', label: 'Tue' },
-                { value: '3', label: 'Wed' },
-                { value: '4', label: 'Thu' },
-                { value: '5', label: 'Fri' },
-                { value: '6', label: 'Sat' },
-              ].map((day) => {
-                const isSelected = settings.workingDays.split(',').includes(day.value);
-                return (
-                  <Button
-                    key={day.value}
-                    variant={isSelected ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => {
-                      const days = settings.workingDays.split(',').filter((d) => d);
-                      const newDays = isSelected
-                        ? days.filter((d) => d !== day.value)
-                        : [...days, day.value].sort();
-                      setSettings({ ...settings, workingDays: newDays.join(',') });
-                    }}
-                  >
-                    {day.label}
-                  </Button>
-                );
-              })}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Selected: {settings.workingDays.split(',').filter((d) => d).length} days per week
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="timezone">
-              Timezone
-              {workerId && (
-                <span className="ml-2 text-xs text-muted-foreground font-normal">
-                  (managed from employee profile)
-                </span>
-              )}
-            </Label>
-            {workerId ? (
-              <div className="w-full px-3 py-2 border rounded-md bg-muted text-sm text-muted-foreground">
-                {displayTimezone}
-              </div>
-            ) : (
-              <select
-                id="timezone"
-                value={settings.timezone}
-                onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}
-                className="w-full px-3 py-2 border rounded-md bg-background"
-              >
-                <optgroup label="Common Timezones">
-                  <option value="UTC">UTC (Coordinated Universal Time)</option>
-                  <option value="America/New_York">Eastern Time (US & Canada)</option>
-                  <option value="America/Chicago">Central Time (US & Canada)</option>
-                  <option value="America/Denver">Mountain Time (US & Canada)</option>
-                  <option value="America/Los_Angeles">Pacific Time (US & Canada)</option>
-                  <option value="Europe/London">London (GMT/BST)</option>
-                  <option value="Europe/Paris">Paris (CET/CEST)</option>
-                  <option value="Europe/Amsterdam">Amsterdam (CET/CEST)</option>
-                  <option value="Europe/Berlin">Berlin (CET/CEST)</option>
-                  <option value="Asia/Karachi">Karachi (PKT)</option>
-                  <option value="Asia/Kolkata">India (IST)</option>
-                  <option value="Asia/Tokyo">Tokyo (JST)</option>
-                  <option value="Asia/Shanghai">Shanghai (CST)</option>
-                  <option value="Asia/Singapore">Singapore (SGT)</option>
-                  <option value="Australia/Sydney">Sydney (AEDT/AEST)</option>
-                </optgroup>
-              </select>
-            )}
-            <p className="text-sm text-muted-foreground">
-              Current time:{' '}
-              {new Date().toLocaleTimeString('en-US', { timeZone: displayTimezone })}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
 
       <div className="flex justify-end">
         <Button onClick={handleSave} disabled={saving}>
