@@ -55,7 +55,7 @@ export function SettingsSearch({
   }));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 relative">
       {/* Search Input */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -80,7 +80,7 @@ export function SettingsSearch({
 
       {/* Search Results */}
       {isOpen && query && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-background border rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
+        <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-background border rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto w-full">
           {searchResults.length > 0 ? (
             <div className="p-2 space-y-3">
               {groupedResults.map(({ section, results }) => (
@@ -137,7 +137,7 @@ export function SettingsSearch({
       )}
 
       {/* Search Summary */}
-      {query && searchResults.length > 0 && (
+      {query && searchResults.length > 0 && !isOpen && (
         <div className="text-sm text-muted-foreground">
           Found <span className="font-semibold">{searchResults.length}</span> result
           {searchResults.length !== 1 ? 's' : ''} for "<span className="font-medium">{query}</span>"
