@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ArrowLeft } from 'lucide-react';
 import { IntegrationAutomationSection } from '@/components/IntegrationAutomationSection';
 import { SchedulingTimeSection } from '@/components/SchedulingTimeSection';
@@ -46,14 +47,13 @@ export default function Settings() {
         </div>
       </header>
 
-      <main className="container py-4 md:py-8 max-w-4xl space-y-8 md:space-y-12">
-        {/* Header with Search and Section Title in Flex Row */}
-        <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-start md:items-center justify-between">
-          {/* Section Title */}
-          <div className="flex-1">
-            <h2 className="text-2xl font-bold">Integration & Automation</h2>
+      <main className="container py-4 md:py-8 max-w-5xl">
+        {/* Header with Search */}
+        <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-start md:items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold">Settings</h2>
             <p className="text-muted-foreground text-sm">
-              Configure external integrations and automated workflows
+              Configure your preferences and integrations
             </p>
           </div>
           
@@ -69,30 +69,35 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Settings Sections */}
-        <div data-settings-section="Integration & Automation">
-          <IntegrationAutomationSection />
-        </div>
+        {/* Super Tabs */}
+        <Tabs defaultValue="integration" className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="integration">Integration & Automation</TabsTrigger>
+            <TabsTrigger value="scheduling">Scheduling & Time</TabsTrigger>
+            <TabsTrigger value="performance">Performance & Monitoring</TabsTrigger>
+          </TabsList>
 
-        <div data-settings-section="Scheduling & Time" className="pt-8 md:pt-12">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold">Scheduling & Time</h2>
-            <p className="text-muted-foreground text-sm">
-              Manage your work schedule and time-off settings
-            </p>
-          </div>
-          <SchedulingTimeSection />
-        </div>
+          {/* Integration & Automation Tab */}
+          <TabsContent value="integration" className="space-y-6">
+            <div data-settings-section="Integration & Automation">
+              <IntegrationAutomationSection />
+            </div>
+          </TabsContent>
 
-        <div data-settings-section="Performance & Monitoring" className="pt-8 md:pt-12">
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold">Performance & Monitoring</h2>
-            <p className="text-muted-foreground text-sm">
-              Monitor system health and performance metrics
-            </p>
-          </div>
-          <PerformanceMonitoringSection />
-        </div>
+          {/* Scheduling & Time Tab */}
+          <TabsContent value="scheduling" className="space-y-6">
+            <div data-settings-section="Scheduling & Time">
+              <SchedulingTimeSection />
+            </div>
+          </TabsContent>
+
+          {/* Performance & Monitoring Tab */}
+          <TabsContent value="performance" className="space-y-6">
+            <div data-settings-section="Performance & Monitoring">
+              <PerformanceMonitoringSection />
+            </div>
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );
