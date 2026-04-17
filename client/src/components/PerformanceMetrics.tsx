@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { RefreshCw, TrendingUp, TrendingDown, Activity, Zap, Database, Wifi } from 'lucide-react';
+import { RefreshCw, TrendingUp, TrendingDown, Activity, Zap, Database, Wifi, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface PerformanceMetrics {
@@ -94,6 +94,44 @@ export function PerformanceMetrics({ showSection }: PerformanceMetricsProps = {}
   const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
+
+  const handleClearCache = async () => {
+    if (!window.confirm('Are you sure you want to clear the cache? This will reset all cached data.')) {
+      return;
+    }
+
+    setClearingCache(true);
+    try {
+      const response = await fetch('/api/cache/clear', { method: 'POST' });
+      
+      if (!response.ok) {
+        throw new Error('Failed to clear cache');
+      }
+
+      // Reset cache metrics
+      if (metrics) {
+        setMetrics({
+          ...metrics,
+          cache: {
+            hits: 0,
+            misses: 0,
+            totalRequests: 0,
+            hitRate: 0,
+            missRate: 0,
+            lastUpdated: new Date().toISOString(),
+          },
+        });
+      }
+      
+      toast.success('Cache cleared successfully');
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+      toast.error('Failed to clear cache');
+    } finally {
+      setClearingCache(false);
+    }
+  };
 
   const fetchMetrics = async (showToast = false) => {
     try {
@@ -292,10 +330,20 @@ export function PerformanceMetrics({ showSection }: PerformanceMetricsProps = {}
                 />
               </div>
             </div>
-            <div className="pt-2 border-t">
+            <div className="pt-4 border-t space-y-3">
               <p className="text-xs text-muted-foreground">
                 Last updated: {new Date(metrics.cache.lastUpdated).toLocaleString()}
               </p>
+              <Button 
+                variant="destructive" 
+                size="sm"
+                onClick={handleClearCache}
+                disabled={clearingCache}
+                className="w-full"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {clearingCache ? 'Clearing...' : 'Clear Cache'}
+              </Button>
             </div>
           </CardContent>
         </Card>
