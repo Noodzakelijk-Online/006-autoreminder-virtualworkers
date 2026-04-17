@@ -5,8 +5,9 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
-import { Clock, Coffee, Utensils, Target } from 'lucide-react';
+import { Clock, Coffee, Utensils, Target, Info } from 'lucide-react';
 
 interface WorkingHoursSettingsShape {
   workStartHour: number;
@@ -155,10 +156,17 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
           <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
             <Clock className="h-5 w-5" />
             Working Hours
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Configure the daily work schedule. Tasks will be automatically scheduled within these hours.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </CardTitle>
-          <CardDescription>
-            Configure the daily work schedule. Tasks will be automatically scheduled within these hours.
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 md:space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -229,10 +237,17 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
           <CardTitle className="flex items-center gap-2">
             <Utensils className="h-5 w-5" />
             Meal Times
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Configure meal breaks. Tasks will be scheduled around these times.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </CardTitle>
-          <CardDescription>
-            Configure meal breaks. Tasks will be scheduled around these times.
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
@@ -395,10 +410,17 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
           <CardTitle className="flex items-center gap-2">
             <Clock className="h-5 w-5" />
             Working Days & Timezone
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Select which days are worked and the timezone for accurate scheduling.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </CardTitle>
-          <CardDescription>
-            Select which days are worked and the timezone for accurate scheduling.
-          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">

@@ -2061,3 +2061,12 @@ Each card now has:
 - [x] Add URL parsing to extract board ID from Trello URL
 - [x] Improve error messages for permission and auth failures
 - [x] Verify error is resolved (root cause: user needs admin access to board)
+
+
+## UI Improvement: Move Card Descriptions to Tooltips (Apr 16, 2026)
+- [x] Move Working Hours card description to tooltip
+- [x] Move Meal Times card description to tooltip
+- [x] Move Working Days & Timezone card description to tooltip
+- [x] Add info icon next to headings for tooltip trigger
+- [x] Test tooltip hover functionality
+- [x] Verify UI looks cleaner without descriptions
