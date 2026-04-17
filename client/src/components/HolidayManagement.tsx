@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardWithTooltip } from '@/components/CardWithTooltip';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -139,26 +140,14 @@ export function HolidayManagement({ workerId, workerTimezone, workerName }: Holi
   const inactiveHolidays = holidays.filter((h) => h.isActive === 0);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
-          <Calendar className="h-5 w-5" />
-          Holiday Calendar
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{workerName
-                  ? `Managing holidays for ${workerName} — automatically fetched from their timezone`
-                  : 'Automatically mark public holidays as non-working days'}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 md:space-y-4">
+    <CardWithTooltip
+      title="Holiday Calendar"
+      tooltipContent={workerName
+        ? `Managing holidays for ${workerName} — automatically fetched from their timezone`
+        : 'Automatically mark public holidays as non-working days'}
+      icon={<Calendar className="h-5 w-5" />}
+    >
+      <div className="space-y-3 md:space-y-4">
 
         {/* Worker mode: show timezone badge + fetch button */}
         {workerId && workerTimezone ? (
@@ -259,7 +248,7 @@ export function HolidayManagement({ workerId, workerTimezone, workerName }: Holi
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </CardWithTooltip>
   );
 }

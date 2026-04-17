@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { CardWithTooltip } from '@/components/CardWithTooltip';
 import { toast } from 'sonner';
 import { Clock, Coffee, Utensils, Target, Info } from 'lucide-react';
 
@@ -151,24 +152,12 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
       )}
 
       {/* Working Hours */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
-            <Clock className="h-5 w-5" />
-            Working Hours
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Configure the daily work schedule. Tasks will be automatically scheduled within these hours.</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 md:space-y-6">
+      <CardWithTooltip
+        title="Working Hours"
+        tooltipContent="Configure the daily work schedule. Tasks will be automatically scheduled within these hours."
+        icon={<Clock className="h-5 w-5" />}
+      >
+        <div className="space-y-4 md:space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Work Start Time</Label>
@@ -228,8 +217,8 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
               hours
             </span>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </CardWithTooltip>
 
       {/* Meal Times */}
       <Card>
