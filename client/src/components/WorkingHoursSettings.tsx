@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { CardWithTooltip } from '@/components/CardWithTooltip';
 import { toast } from 'sonner';
-import { Clock, Coffee, Utensils, Target, Info, Equal } from 'lucide-react';
+import { Clock, Coffee, Utensils, Target, Info } from 'lucide-react';
 
 interface WorkingHoursSettingsShape {
   workStartHour: number;
@@ -158,9 +158,8 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
         icon={<Clock className="h-5 w-5" />}
       >
         <div className="space-y-4 md:space-y-6">
-          <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-3">
-            {/* Work Start Time */}
-            <div className="flex-1 space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-1 md:gap-1">
+            <div className="space-y-2">
               <Label>Work Start Time</Label>
               <div className="flex gap-2">
                 <Input
@@ -184,8 +183,7 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
               </p>
             </div>
 
-            {/* Work End Time */}
-            <div className="flex-1 space-y-2">
+            <div className="space-y-2">
               <Label>Work End Time</Label>
               <div className="flex gap-2">
                 <Input
@@ -207,25 +205,17 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
                 {formatTime(settings.workEndHour, settings.workEndMinute)}
               </p>
             </div>
+          </div>
 
-            {/* Equals Icon */}
-            <div className="hidden md:flex items-end pb-2">
-              <Equal className="h-5 w-5 text-muted-foreground" />
-            </div>
-
-            {/* Total Hours Output */}
-            <div className="flex-1 space-y-2">
-              <Label>Total Hours</Label>
-              <div className="bg-secondary/50 border border-input rounded-md px-3 py-2 flex items-center justify-center h-10">
-                <span className="font-medium text-sm">
-                  {(
-                    (settings.workEndHour * 60 + settings.workEndMinute -
-                      (settings.workStartHour * 60 + settings.workStartMinute)) / 60
-                  ).toFixed(1)}{' '}
-                  <span className="text-xs text-muted-foreground">hrs</span>
-                </span>
-              </div>
-            </div>
+          <div className="text-sm text-muted-foreground bg-secondary/50 p-3 rounded-md">
+            Total working hours per day:{' '}
+            <span className="font-medium">
+              {(
+                (settings.workEndHour * 60 + settings.workEndMinute -
+                  (settings.workStartHour * 60 + settings.workStartMinute)) / 60
+              ).toFixed(1)}{' '}
+              hours
+            </span>
           </div>
         </div>
       </CardWithTooltip>
