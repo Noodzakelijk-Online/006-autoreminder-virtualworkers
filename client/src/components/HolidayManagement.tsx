@@ -3,8 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
-import { Calendar, RefreshCw, Check, X } from 'lucide-react';
+import { Calendar, RefreshCw, Check, X, Info } from 'lucide-react';
 
 interface Holiday {
   id: number;
@@ -143,12 +144,19 @@ export function HolidayManagement({ workerId, workerTimezone, workerName }: Holi
         <CardTitle className="flex items-center gap-2 text-lg md:text-xl">
           <Calendar className="h-5 w-5" />
           Holiday Calendar
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{workerName
+                  ? `Managing holidays for ${workerName} — automatically fetched from their timezone`
+                  : 'Automatically mark public holidays as non-working days'}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </CardTitle>
-        <CardDescription>
-          {workerName
-            ? `Managing holidays for ${workerName} — automatically fetched from their timezone`
-            : 'Automatically mark public holidays as non-working days'}
-        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 md:space-y-4">
 

@@ -2070,3 +2070,10 @@ Each card now has:
 - [x] Add info icon next to headings for tooltip trigger
 - [x] Test tooltip hover functionality
 - [x] Verify UI looks cleaner without descriptions
+
+
+## UI Improvement: Apply Tooltips to All Settings Cards (Apr 17, 2026)
+- [x] Apply tooltip pattern to HolidayManagement card
+- [ ] Apply tooltip pattern to SchedulingTimeSection cards
+- [ ] Apply tooltip pattern to any other Settings cards with descriptions
+- [ ] Test all tooltips display correctly on hover
