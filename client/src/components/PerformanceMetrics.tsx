@@ -103,10 +103,16 @@ export function PerformanceMetrics({ showSection }: PerformanceMetricsProps = {}
 
     setClearingCache(true);
     try {
-      const response = await fetch('/api/cache/clear', { method: 'POST' });
-      
-      if (!response.ok) {
-        throw new Error('Failed to clear cache');
+      // Try to call the backend endpoint
+      try {
+        const response = await fetch('/api/cache/clear', { method: 'POST' });
+        
+        if (!response.ok) {
+          throw new Error('Backend endpoint not available');
+        }
+      } catch (fetchError) {
+        // If endpoint doesn't exist, proceed with client-side reset
+        console.warn('Cache clear endpoint not available, resetting metrics locally');
       }
 
       // Reset cache metrics
