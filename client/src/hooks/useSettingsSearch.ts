@@ -142,6 +142,13 @@ const SEARCHABLE_SETTINGS: SearchResult[] = [
   {
     section: 'Scheduling & Time',
     tab: 'Working Hours',
+    title: 'Meal Times',
+    description: 'Configure meal breaks and times',
+    category: 'setting',
+  },
+  {
+    section: 'Scheduling & Time',
+    tab: 'Working Hours',
     title: 'Breakfast Time',
     description: 'Configure breakfast break time and duration',
     category: 'setting',
@@ -186,6 +193,13 @@ const SEARCHABLE_SETTINGS: SearchResult[] = [
     tab: 'Working Hours',
     title: 'Daily Hours Limits',
     description: 'Set minimum and maximum daily working hours',
+    category: 'setting',
+  },
+  {
+    section: 'Scheduling & Time',
+    tab: 'Working Hours',
+    title: 'Break Settings',
+    description: 'Configure short and long break intervals',
     category: 'setting',
   },
   {
