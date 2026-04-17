@@ -162,50 +162,27 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
             {/* Work Start Time */}
             <div className="flex-1 space-y-2">
               <Label>Work Start Time</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number" min="0" max="23"
-                  value={settings.workStartHour}
-                  onChange={(e) => setSettings({ ...settings, workStartHour: parseInt(e.target.value) || 0 })}
-                  className="w-20" placeholder="HH"
-                />
-                <span className="flex items-center">:</span>
-                <Input
-                  type="number" min="0" max="59"
-                  value={settings.workStartMinute}
-                  onChange={(e) => setSettings({ ...settings, workStartMinute: parseInt(e.target.value) || 0 })}
-                  className="w-20" placeholder="MM"
-                  disabled={!!workerId}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {formatTime(settings.workStartHour, settings.workStartMinute)}
-                {workerId && <span className="ml-2 text-yellow-600">(minutes not stored per worker)</span>}
-              </p>
+              <Input
+                type="time"
+                value={formatTime(settings.workStartHour, settings.workStartMinute)}
+                onChange={(e) => {
+                  const [h, m] = e.target.value.split(':').map(Number);
+                  setSettings({ ...settings, workStartHour: h || 0, workStartMinute: m || 0 });
+                }}
+              />
             </div>
 
             {/* Work End Time */}
             <div className="flex-1 space-y-2">
               <Label>Work End Time</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number" min="0" max="23"
-                  value={settings.workEndHour}
-                  onChange={(e) => setSettings({ ...settings, workEndHour: parseInt(e.target.value) || 0 })}
-                  className="w-20" placeholder="HH"
-                />
-                <span className="flex items-center">:</span>
-                <Input
-                  type="number" min="0" max="59"
-                  value={settings.workEndMinute}
-                  onChange={(e) => setSettings({ ...settings, workEndMinute: parseInt(e.target.value) || 0 })}
-                  className="w-20" placeholder="MM"
-                  disabled={!!workerId}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {formatTime(settings.workEndHour, settings.workEndMinute)}
-              </p>
+              <Input
+                type="time"
+                value={formatTime(settings.workEndHour, settings.workEndMinute)}
+                onChange={(e) => {
+                  const [h, m] = e.target.value.split(':').map(Number);
+                  setSettings({ ...settings, workEndHour: h || 0, workEndMinute: m || 0 });
+                }}
+              />
             </div>
 
             {/* Equals Icon */}
@@ -216,15 +193,28 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
             {/* Total Hours Output */}
             <div className="flex-1 space-y-2">
               <Label>Total Hours</Label>
-              <div className="bg-secondary/50 border border-input rounded-md px-3 py-2 flex items-center justify-center h-10">
-                <span className="font-medium text-sm">
-                  {(
+              <div className="flex gap-2">
+                <Input
+                  readOnly
+                  value={Math.floor(
                     (settings.workEndHour * 60 + settings.workEndMinute -
                       (settings.workStartHour * 60 + settings.workStartMinute)) / 60
-                  ).toFixed(1)}{' '}
-                  <span className="text-xs text-muted-foreground">hrs</span>
-                </span>
+                  )}
+                  className="w-20 bg-secondary/50 text-center"
+                  placeholder="HH"
+                />
+                <span className="flex items-center">:</span>
+                <Input
+                  readOnly
+                  value={String(
+                    (settings.workEndHour * 60 + settings.workEndMinute -
+                      (settings.workStartHour * 60 + settings.workStartMinute)) % 60
+                  ).padStart(2, '0')}
+                  className="w-20 bg-secondary/50 text-center"
+                  placeholder="MM"
+                />
               </div>
+              <p className="text-xs text-muted-foreground">hrs : mins</p>
             </div>
           </div>
         </div>
@@ -279,13 +269,12 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
         </CardContent>
       </Card>
 
-      {/* Weekly Hours Target — only shown for global defaults */}
-      {!workerId && (
-        <CardWithTooltip
-          title="Weekly Hours Target"
-          tooltipContent="Set your target weekly hours and daily flexibility."
-          icon={<Target className="h-5 w-5" />}
-        >
+      {/* Weekly Hours Target */}
+      <CardWithTooltip
+        title="Weekly Hours Target"
+        tooltipContent="Set your target weekly hours and daily flexibility."
+        icon={<Target className="h-5 w-5" />}
+      >
           <div className="space-y-4 md:space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -330,7 +319,6 @@ export function WorkingHoursSettings({ workerId, workerName, workerTimezone }: W
             </div>
           </div>
         </CardWithTooltip>
-      )}
 
       {/* Break Settings — only shown for global defaults */}
       {!workerId && (
