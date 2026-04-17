@@ -9,9 +9,16 @@ import { PerformanceMonitoringSection } from '@/components/PerformanceMonitoring
 import { SettingsSearch, SearchResult } from '@/components/SettingsSearch';
 import { useSettingsSearch } from '@/hooks/useSettingsSearch';
 
+const SECTION_TO_TAB: Record<string, string> = {
+  'Integration & Automation': 'integration',
+  'Scheduling & Time': 'scheduling',
+  'Performance & Monitoring': 'performance',
+};
+
 export default function Settings() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('integration');
   
   const searchResults = useSettingsSearch(searchQuery);
   const searchContainerRef = useRef<HTMLDivElement>(null);
@@ -20,7 +27,13 @@ export default function Settings() {
     setSearchQuery('');
     setSearchOpen(false);
     
-    // Scroll to the relevant section
+    // Switch to the correct tab
+    const tabValue = SECTION_TO_TAB[result.section];
+    if (tabValue) {
+      setActiveTab(tabValue);
+    }
+    
+    // Scroll to the relevant section after tab switch
     setTimeout(() => {
       const sectionElement = document.querySelector(
         `[data-settings-section="${result.section}"]`
@@ -70,7 +83,7 @@ export default function Settings() {
         </div>
 
         {/* Super Tabs */}
-        <Tabs defaultValue="integration" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-3 mb-6">
             <TabsTrigger value="integration">Integration & Automation</TabsTrigger>
             <TabsTrigger value="scheduling">Scheduling & Time</TabsTrigger>
