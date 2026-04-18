@@ -1231,9 +1231,15 @@ export default function APTLSSManagement() {
                           <p className="font-medium">
                             {wsLoadProgress.isLoading ? 'Loading workspaces…' : 'Workspaces loaded'}
                           </p>
-                          <p className="text-sm text-muted-foreground">
-                            {wsLoadProgress.currentWorkspace || (wsLoadProgress.isLoading ? 'Preparing…' : 'Done')}
-                          </p>
+                          {wsLoadProgress.currentWorkspace ? (
+                            <p className="text-sm text-muted-foreground truncate max-w-xs">
+                              {wsLoadProgress.currentWorkspace}
+                            </p>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              {wsLoadProgress.isLoading ? 'Preparing…' : 'Done'}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="text-right text-sm">
@@ -1279,6 +1285,15 @@ export default function APTLSSManagement() {
                 <p className="text-sm text-muted-foreground">
                   {workspaces.length} workspaces available
                 </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadWorkspaces()}
+                  disabled={wsLoadProgress?.isLoading}
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${wsLoadProgress?.isLoading ? 'animate-spin' : ''}`} />
+                  Load Workspaces
+                </Button>
               </div>
 
               <div className="grid gap-4">
