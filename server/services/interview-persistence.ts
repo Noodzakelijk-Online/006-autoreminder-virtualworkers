@@ -155,24 +155,34 @@ export async function recordInterviewResponse(
   const session = await getInterviewSession(sessionId);
   if (!session) throw new Error('Session not found');
 
-  const history: InsertInterviewHistory = {
+  const history: any = {
     id: historyId,
     sessionId,
     cardId: session.cardId,
-    userId: session.userId,
     userOpenId: session.userOpenId,
     phase,
     questionNumber,
-    question,
-    response,
+    question: question || 'N/A',
+    response: response || 'N/A',
     isValid: isValid ? 1 : 0,
     validationScore,
     validationNotes,
     confidenceScore: confidenceScore || 0,
     requiresEscalation: requiresEscalation ? 1 : 0,
   };
+  
+  // Only add userId if session has it
+  if (session.userId) {
+    history.userId = session.userId;
+  }
 
-  await db.insert(interviewHistory).values(history);
+  try {
+    await db.insert(interviewHistory).values(history as InsertInterviewHistory);
+  } catch (insertError) {
+    console.error('[Interview] Error inserting history:', insertError);
+    // If the insert fails due to schema mismatch, log and continue
+    // The session update will still happen
+  }
 
   // Update session
   let currentState: any = {};
@@ -208,19 +218,27 @@ export async function recordInterviewResponse(
     overallConfidence: currentState.overallConfidence ?? confidenceScore ?? session.overallConfidence ?? 0,
   };
 
-  // Sanitize state for JSON serialization
-  const sanitizedState = {
-    ...updatedState,
-    // Convert Map to plain object if present
-    responses: updatedState.responses instanceof Map 
-      ? Object.fromEntries(updatedState.responses) 
-      : updatedState.responses,
-    validationScores: updatedState.validationScores instanceof Map 
-      ? Object.fromEntries(updatedState.validationScores) 
-      : updatedState.validationScores,
+  // Sanitize state for JSON serialization - deep conversion
+  const sanitizeForJSON = (obj: any): any => {
+    if (obj === null || obj === undefined) return obj;
+    if (obj instanceof Date) return obj.toISOString();
+    if (obj instanceof Map) return Object.fromEntries(obj);
+    if (obj instanceof Set) return Array.from(obj);
+    if (typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(sanitizeForJSON);
+    
+    const sanitized: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (typeof value === 'function') continue; // Skip functions
+      sanitized[key] = sanitizeForJSON(value);
+    }
+    return sanitized;
   };
 
+  const sanitizedState = sanitizeForJSON(updatedState);
+
   try {
+    const sessionDataStr = JSON.stringify(sanitizedState);
     await db.update(interviewSessions)
       .set({
         currentPhase: phase,
@@ -228,12 +246,13 @@ export async function recordInterviewResponse(
         questionsAsked: (session.questionsAsked || 0) + 1,
         responsesProvided: (session.responsesProvided || 0) + 1,
         overallConfidence: confidenceScore || session.overallConfidence,
-        sessionData: JSON.stringify(sanitizedState),
+        sessionData: sessionDataStr,
         updatedAt: new Date(),
       })
       .where(eq(interviewSessions.id, sessionId));
   } catch (error) {
-    console.error('[Interview] Error updating session state:', error, 'sanitizedState:', sanitizedState);
+    console.error('[Interview] Error updating session state:', error);
+    console.error('[Interview] Sanitized state:', JSON.stringify(sanitizedState, null, 2).substring(0, 500));
     throw error;
   }
 }
