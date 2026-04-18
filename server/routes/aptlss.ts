@@ -669,11 +669,8 @@ router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) 
       return res.status(500).json({ error: 'Trello credentials not configured' });
     }
 
-    const allowedBoards = await fetchUserWorkspaceBoards(apiKey, token);
-    if (!allowedBoards.some((board) => board.id === boardId)) {
-      return res.status(404).json({ error: 'Board not found in user workspaces' });
-    }
-
+    // Skip expensive workspace validation - let Trello API validate the board directly
+    // This avoids N+1 requests and rate limiting issues
     const response = await fetchWithRetry(
       `https://api.trello.com/1/boards/${boardId}/cards?key=${apiKey}&token=${token}&checklists=all&list=true&board=true`,
       undefined,
@@ -688,7 +685,21 @@ router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) 
     );
     
     if (!response.ok) {
-      throw new Error(`Trello API error: ${response.statusText}`);
+      const statusCode = response.status;
+      const errorText = await response.text().catch(() => response.statusText);
+      console.error(`Trello API error for board ${boardId}: ${statusCode} - ${errorText}`);
+      
+      // Return appropriate error codes
+      if (statusCode === 401 || statusCode === 403) {
+        return res.status(401).json({ error: 'Unauthorized - Invalid Trello credentials' });
+      }
+      if (statusCode === 404) {
+        return res.status(404).json({ error: 'Board not found' });
+      }
+      if (statusCode === 429) {
+        return res.status(429).json({ error: 'Rate limited by Trello - please try again later' });
+      }
+      throw new Error(`Trello API error: ${statusCode} - ${errorText}`);
     }
 
     const cards = await response.json();
@@ -710,7 +721,7 @@ router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) 
     res.json(formattedCards);
   } catch (error) {
     console.error('Error fetching cards:', error);
-    res.status(500).json({ error: 'Failed to fetch cards' });
+    res.status(500).json({ error: 'Failed to fetch cards from Trello' });
   }
 });
 
