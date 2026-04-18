@@ -6,7 +6,7 @@
  */
 
 import type { PreAnalysisResult } from './pre-interview-analysis';
-import { validateAnswer, calculateInterviewConfidence, generateFollowUpQuestion, type ValidationResult } from './answer-validator';
+import { validateAnswer, calculateInterviewConfidence, generateFollowUpQuestion, detectLowConfidenceAndGenerateFollowUps, generateSmartFollowUpMessage, type ValidationResult } from './answer-validator';
 
 const FORGE_API_URL = process.env.BUILT_IN_FORGE_API_URL || process.env.VITE_FRONTEND_FORGE_API_URL;
 const FORGE_API_KEY = process.env.BUILT_IN_FORGE_API_KEY || process.env.VITE_FRONTEND_FORGE_API_KEY;
@@ -34,6 +34,7 @@ export interface InterviewState {
   }>;
   overallConfidence: number;
   isComplete: boolean;
+  lowConfidenceFollowUpsAsked: number;
 }
 
 export interface FinalGoal {
@@ -60,6 +61,7 @@ export async function startInterview(
     validations: [],
     overallConfidence: 0,
     isComplete: false,
+    lowConfidenceFollowUpsAsked: 0,
   };
 
   // Generate opening message based on pre-analysis
@@ -101,6 +103,25 @@ export async function processResponse(
 
   // Update overall confidence
   state.overallConfidence = calculateInterviewConfidence(state.validations);
+
+  // Check for low confidence and generate smart follow-ups
+  const lowConfidenceResult = detectLowConfidenceAndGenerateFollowUps(validation, 40);
+  
+  if (lowConfidenceResult.shouldAsk && state.lowConfidenceFollowUpsAsked < 2) {
+    // Ask smart follow-up questions for low confidence answers
+    const smartFollowUpMessage = generateSmartFollowUpMessage(lowConfidenceResult);
+    state.messages.push({
+      role: 'assistant',
+      content: smartFollowUpMessage,
+      timestamp: new Date(),
+    });
+    state.lowConfidenceFollowUpsAsked++;
+    
+    return {
+      nextMessage: smartFollowUpMessage,
+      isComplete: false,
+    };
+  }
 
   // If validation failed, ask follow-up question immediately
   if (!validation.isValid) {

@@ -361,3 +361,121 @@ export function generateFollowUpQuestion(validation: ValidationResult): string |
   // No issues
   return null;
 }
+
+/**
+ * Detect if confidence is too low and generate smart follow-ups
+ */
+export interface SmartFollowUpResult {
+  shouldAsk: boolean;
+  confidence: number;
+  followUpQuestions: string[];
+  primaryIssue: string;
+  explanation: string;
+}
+
+export function detectLowConfidenceAndGenerateFollowUps(
+  validation: ValidationResult,
+  confidenceThreshold: number = 40
+): SmartFollowUpResult {
+  const shouldAsk = validation.confidence < confidenceThreshold;
+
+  if (!shouldAsk) {
+    return {
+      shouldAsk: false,
+      confidence: validation.confidence,
+      followUpQuestions: [],
+      primaryIssue: '',
+      explanation: '',
+    };
+  }
+
+  // Categorize issues by type
+  const issuesByType = new Map<string, ValidationIssue[]>();
+  validation.issues.forEach(issue => {
+    if (!issuesByType.has(issue.type)) {
+      issuesByType.set(issue.type, []);
+    }
+    issuesByType.get(issue.type)!.push(issue);
+  });
+
+  // Generate follow-up questions based on issue types
+  const followUpQuestions: string[] = [];
+  let primaryIssue = '';
+
+  // Vague references (people, time, outcomes)
+  if (issuesByType.has('vague')) {
+    const vagueIssues = issuesByType.get('vague')!;
+    primaryIssue = 'Vague references';
+    vagueIssues.forEach(issue => {
+      followUpQuestions.push(issue.suggestedQuestion);
+    });
+  }
+
+  // Action vs outcome confusion
+  if (issuesByType.has('action_not_outcome')) {
+    const actionIssues = issuesByType.get('action_not_outcome')!;
+    if (!primaryIssue) primaryIssue = 'Action-focused instead of outcome-focused';
+    actionIssues.forEach(issue => {
+      followUpQuestions.push(issue.suggestedQuestion);
+    });
+  }
+
+  // Unmeasurable outcomes
+  if (issuesByType.has('unmeasurable')) {
+    const measurableIssues = issuesByType.get('unmeasurable')!;
+    if (!primaryIssue) primaryIssue = 'Unmeasurable outcome';
+    measurableIssues.forEach(issue => {
+      followUpQuestions.push(issue.suggestedQuestion);
+    });
+  }
+
+  // Missing critical information
+  if (issuesByType.has('missing_info')) {
+    const missingIssues = issuesByType.get('missing_info')!;
+    if (!primaryIssue) primaryIssue = 'Missing critical information';
+    missingIssues.forEach(issue => {
+      followUpQuestions.push(issue.suggestedQuestion);
+    });
+  }
+
+  // Unrealistic goals
+  if (issuesByType.has('unrealistic')) {
+    const unrealisticIssues = issuesByType.get('unrealistic')!;
+    if (!primaryIssue) primaryIssue = 'Unrealistic goal';
+    unrealisticIssues.forEach(issue => {
+      followUpQuestions.push(issue.suggestedQuestion);
+    });
+  }
+
+  // Limit to top 3 follow-up questions to avoid overwhelming the user
+  const topFollowUps = followUpQuestions.slice(0, 3);
+
+  const explanation = `Confidence is ${validation.confidence}% (below ${confidenceThreshold}% threshold). Primary issue: ${primaryIssue}`;
+
+  return {
+    shouldAsk: true,
+    confidence: validation.confidence,
+    followUpQuestions: topFollowUps,
+    primaryIssue,
+    explanation,
+  };
+}
+
+/**
+ * Generate a smart follow-up message that combines multiple clarifying questions
+ */
+export function generateSmartFollowUpMessage(followUpResult: SmartFollowUpResult): string {
+  if (!followUpResult.shouldAsk) {
+    return '';
+  }
+
+  let message = `I want to make sure I understand this correctly. Your answer is a bit unclear (confidence: ${followUpResult.confidence}%).\n\n`;
+  message += `**Issue:** ${followUpResult.primaryIssue}\n\n`;
+  message += `**Let me ask you this:**\n\n`;
+
+  followUpResult.followUpQuestions.forEach((q, index) => {
+    message += `${index + 1}. ${q}\n\n`;
+  });
+
+  return message.trim();
+}
