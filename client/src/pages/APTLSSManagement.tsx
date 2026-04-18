@@ -651,6 +651,13 @@ export default function APTLSSManagement() {
     void loadScheduledJobs();
   }, []);
 
+  // Auto-load all cards when workspaces are loaded
+  useEffect(() => {
+    if (workspaces.length > 0 && cards.length === 0 && autoLoadProgress === null) {
+      void autoLoadAllCards(false);
+    }
+  }, [workspaces.length, cards.length, autoLoadProgress]);
+
   //  History auto-refresh 
   useEffect(() => {
     const hasActive = history.some((j: any) => j.status === 'running');
@@ -795,6 +802,8 @@ export default function APTLSSManagement() {
     }
   };
 
+
+
   const loadScheduledJobs = async () => {
     try {
       const res = await fetch('/api/aptlss/scheduled');
@@ -906,6 +915,10 @@ export default function APTLSSManagement() {
 
   const autoLoadAllCards = async (selectedOnly = false) => {
     if (workspaces.length === 0) {
+      if (!selectedOnly) {
+        // Silent fail for auto-load, show error for manual load
+        return;
+      }
       toast.error('No workspaces available. Please refresh first.');
       return;
     }
