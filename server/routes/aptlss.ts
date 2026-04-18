@@ -21,6 +21,55 @@ const router = Router();
 
 const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived'];
 
+// In-memory cache for board cards with TTL
+interface CacheEntry {
+  data: any[];
+  timestamp: number;
+}
+
+const boardCardsCache = new Map<string, CacheEntry>();
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function getCachedBoardCards(boardId: string): any[] | null {
+  const entry = boardCardsCache.get(boardId);
+  if (!entry) return null;
+  
+  const now = Date.now();
+  if (now - entry.timestamp > CACHE_TTL_MS) {
+    boardCardsCache.delete(boardId);
+    return null;
+  }
+  
+  return entry.data;
+}
+
+function setCachedBoardCards(boardId: string, data: any[]): void {
+  boardCardsCache.set(boardId, {
+    data,
+    timestamp: Date.now()
+  });
+}
+
+function invalidateBoardCache(boardId: string): void {
+  boardCardsCache.delete(boardId);
+}
+
+function clearExpiredCache(): void {
+  const now = Date.now();
+  const entriesToDelete: string[] = [];
+  
+  boardCardsCache.forEach((entry, boardId) => {
+    if (now - entry.timestamp > CACHE_TTL_MS) {
+      entriesToDelete.push(boardId);
+    }
+  });
+  
+  entriesToDelete.forEach(boardId => boardCardsCache.delete(boardId));
+}
+
+// Clear expired cache every 5 minutes
+setInterval(clearExpiredCache, 5 * 60 * 1000);
+
 function isInactiveListName(listName?: string | null) {
   if (!listName) return false;
   const normalized = listName.toLowerCase();
@@ -662,11 +711,21 @@ router.get('/trello/boards', async (req: Request, res: Response) => {
 router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) => {
   try {
     const { boardId } = req.params;
+    const forceRefresh = req.query.refresh === 'true';
     const apiKey = process.env.TRELLO_API_KEY;
     const token = process.env.TRELLO_TOKEN;
 
     if (!apiKey || !token) {
       return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    // Check cache first (unless force refresh is requested)
+    if (!forceRefresh) {
+      const cachedCards = getCachedBoardCards(boardId);
+      if (cachedCards) {
+        console.log(`Returning cached cards for board ${boardId} (${cachedCards.length} cards)`);
+        return res.set('X-Cache', 'HIT').json(cachedCards);
+      }
     }
 
     // Skip expensive workspace validation - let Trello API validate the board directly
@@ -718,10 +777,27 @@ router.get('/trello/boards/:boardId/cards', async (req: Request, res: Response) 
       checklists: card.checklists || []
     }));
 
-    res.json(formattedCards);
+    // Cache the results
+    setCachedBoardCards(boardId, formattedCards);
+    console.log(`Cached cards for board ${boardId} (${formattedCards.length} cards, TTL: 10 minutes)`);
+
+    res.set('X-Cache', 'MISS').json(formattedCards);
   } catch (error) {
     console.error('Error fetching cards:', error);
     res.status(500).json({ error: 'Failed to fetch cards from Trello' });
+  }
+});
+
+// Clear cache for a specific board
+router.post('/trello/boards/:boardId/cache/clear', async (req: Request, res: Response) => {
+  try {
+    const { boardId } = req.params;
+    invalidateBoardCache(boardId);
+    console.log(`Cleared cache for board ${boardId}`);
+    res.json({ message: 'Cache cleared successfully' });
+  } catch (error) {
+    console.error('Error clearing cache:', error);
+    res.status(500).json({ error: 'Failed to clear cache' });
   }
 });
 
