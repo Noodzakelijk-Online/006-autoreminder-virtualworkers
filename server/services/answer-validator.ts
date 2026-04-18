@@ -108,9 +108,11 @@ export function validateAnswer(
 function checkVagueness(answer: string, context: string): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
-  // Check for vague people references
+  // Check for vague people references using word boundaries
   VAGUE_TERMS.people.forEach(term => {
-    if (answer.includes(term)) {
+    // Use word boundary regex to match whole words only
+    const regex = new RegExp(`\\b${term}\\b`, 'gi');
+    if (regex.test(answer)) {
       issues.push({
         type: 'vague',
         severity: 'critical',
@@ -148,7 +150,8 @@ function checkVagueness(answer: string, context: string): ValidationIssue[] {
 
   // Check for vague outcomes
   VAGUE_TERMS.outcomes.forEach(term => {
-    if (answer.includes(term)) {
+    const regex = new RegExp(`\\b${term}\\b`, 'gi');
+    if (regex.test(answer)) {
       issues.push({
         type: 'vague',
         severity: 'warning',
