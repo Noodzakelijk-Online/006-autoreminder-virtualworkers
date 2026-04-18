@@ -148,7 +148,17 @@ router.post('/:sessionId/respond', async (req: Request, res: Response) => {
     const preAnalysis = await analyzeCardBeforeInterview(card);
 
     // Parse stored session data
-    const sessionData = session.sessionData ? JSON.parse(session.sessionData) : {};
+    let sessionData: any = {};
+    try {
+      if (session.sessionData) {
+        sessionData = typeof session.sessionData === 'string'
+          ? JSON.parse(session.sessionData)
+          : session.sessionData;
+      }
+    } catch (parseError) {
+      console.error('[Interview] Error parsing sessionData:', parseError, 'raw:', session.sessionData);
+      sessionData = {};
+    }
 
     // Process response
     const result = await processResponse(sessionData, response, preAnalysis);
@@ -165,7 +175,7 @@ router.post('/:sessionId/respond', async (req: Request, res: Response) => {
       undefined,
       50,
       false,
-      typeof sessionData === 'string' ? JSON.parse(sessionData) : sessionData
+      sessionData
     );
 
     // Check if interview is complete
@@ -197,6 +207,9 @@ router.post('/:sessionId/respond', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Interview] Error processing response:', error);
+    if (error instanceof Error) {
+      console.error('[Interview] Error stack:', error.stack);
+    }
     return res.status(500).json({ error: 'Failed to process response', details: error instanceof Error ? error.message : String(error) });
   }
 });

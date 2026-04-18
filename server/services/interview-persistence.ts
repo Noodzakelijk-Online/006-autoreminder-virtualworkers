@@ -175,7 +175,22 @@ export async function recordInterviewResponse(
   await db.insert(interviewHistory).values(history);
 
   // Update session
-  const currentState = sessionDataOverride ?? (session.sessionData ? JSON.parse(session.sessionData) : {});
+  let currentState: any = {};
+  try {
+    if (sessionDataOverride) {
+      currentState = typeof sessionDataOverride === 'string' 
+        ? JSON.parse(sessionDataOverride) 
+        : sessionDataOverride;
+    } else if (session.sessionData) {
+      currentState = typeof session.sessionData === 'string'
+        ? JSON.parse(session.sessionData)
+        : session.sessionData;
+    }
+  } catch (parseError) {
+    console.error('[Interview] Error parsing session data:', parseError);
+    currentState = {};
+  }
+
   const validationCount = Array.isArray(currentState?.validations)
     ? currentState.validations.length
     : (session.questionsAsked || 0) + 1;
@@ -193,17 +208,34 @@ export async function recordInterviewResponse(
     overallConfidence: currentState.overallConfidence ?? confidenceScore ?? session.overallConfidence ?? 0,
   };
 
-  await db.update(interviewSessions)
-    .set({
-      currentPhase: phase,
-      currentQuestion: questionNumber + 1,
-      questionsAsked: (session.questionsAsked || 0) + 1,
-      responsesProvided: (session.responsesProvided || 0) + 1,
-      overallConfidence: confidenceScore || session.overallConfidence,
-      sessionData: JSON.stringify(updatedState),
-      updatedAt: new Date(),
-    })
-    .where(eq(interviewSessions.id, sessionId));
+  // Sanitize state for JSON serialization
+  const sanitizedState = {
+    ...updatedState,
+    // Convert Map to plain object if present
+    responses: updatedState.responses instanceof Map 
+      ? Object.fromEntries(updatedState.responses) 
+      : updatedState.responses,
+    validationScores: updatedState.validationScores instanceof Map 
+      ? Object.fromEntries(updatedState.validationScores) 
+      : updatedState.validationScores,
+  };
+
+  try {
+    await db.update(interviewSessions)
+      .set({
+        currentPhase: phase,
+        currentQuestion: questionNumber + 1,
+        questionsAsked: (session.questionsAsked || 0) + 1,
+        responsesProvided: (session.responsesProvided || 0) + 1,
+        overallConfidence: confidenceScore || session.overallConfidence,
+        sessionData: JSON.stringify(sanitizedState),
+        updatedAt: new Date(),
+      })
+      .where(eq(interviewSessions.id, sessionId));
+  } catch (error) {
+    console.error('[Interview] Error updating session state:', error, 'sanitizedState:', sanitizedState);
+    throw error;
+  }
 }
 
 /**
