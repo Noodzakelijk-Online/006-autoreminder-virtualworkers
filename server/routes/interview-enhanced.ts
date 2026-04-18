@@ -111,7 +111,7 @@ router.post('/start', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Interview] Error starting interview:', error);
-    return res.status(500).json({ error: 'Failed to start interview' });
+    return res.status(500).json({ error: 'Failed to start interview', details: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -165,7 +165,7 @@ router.post('/:sessionId/respond', async (req: Request, res: Response) => {
       undefined,
       50,
       false,
-      sessionData
+      typeof sessionData === 'string' ? JSON.parse(sessionData) : sessionData
     );
 
     // Check if interview is complete
@@ -197,7 +197,7 @@ router.post('/:sessionId/respond', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Interview] Error processing response:', error);
-    return res.status(500).json({ error: 'Failed to process response' });
+    return res.status(500).json({ error: 'Failed to process response', details: error instanceof Error ? error.message : String(error) });
   }
 });
 
@@ -228,10 +228,32 @@ router.get('/card/:cardId/latest', async (req: Request, res: Response) => {
       return res.json({ session: null });
     }
 
-    const sessionData = preferredSession.sessionData ? JSON.parse(preferredSession.sessionData) : null;
-    const results = preferredSession.status === 'completed'
-      ? await getInterviewResults(preferredSession.id)
-      : null;
+    let sessionData: any = null;
+    try {
+      if (preferredSession.sessionData) {
+        const parsed = typeof preferredSession.sessionData === 'string' 
+          ? JSON.parse(preferredSession.sessionData) 
+          : preferredSession.sessionData;
+        sessionData = parsed;
+      }
+    } catch (parseError) {
+      console.error('[Interview] Error parsing sessionData:', parseError);
+      sessionData = null;
+    }
+
+    let executionPlan = null;
+    if (preferredSession.status === 'completed') {
+      try {
+        const results = await getInterviewResults(preferredSession.id);
+        if (results?.executionPlan) {
+          executionPlan = typeof results.executionPlan === 'string'
+            ? JSON.parse(results.executionPlan)
+            : results.executionPlan;
+        }
+      } catch (parseError) {
+        console.error('[Interview] Error parsing executionPlan:', parseError);
+      }
+    }
 
     return res.json({
       session: {
@@ -242,14 +264,14 @@ router.get('/card/:cardId/latest', async (req: Request, res: Response) => {
         overallConfidence: preferredSession.overallConfidence,
         preAnalysisSummary: preferredSession.preAnalysisSummary,
         messages: sessionData?.messages || [],
-        finalGoal: results?.executionPlan ? JSON.parse(results.executionPlan) : null,
+        finalGoal: executionPlan,
         completedAt: preferredSession.completedAt,
         updatedAt: preferredSession.updatedAt,
       },
     });
   } catch (error) {
     console.error('[Interview] Error fetching latest card session:', error);
-    return res.status(500).json({ error: 'Failed to fetch latest interview session' });
+    return res.status(500).json({ error: 'Failed to fetch latest interview session', details: error instanceof Error ? error.message : String(error) });
   }
 });
 

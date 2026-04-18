@@ -65,10 +65,10 @@ export function GoalInterviewDialog({
       return;
     }
 
-    if (open && isStarting) {
+    if (open && isStarting && !sessionId) {
       void loadOrStartInterview();
     }
-  }, [open, cardId]);
+  }, [open, cardId, isStarting, sessionId]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -94,13 +94,16 @@ export function GoalInterviewDialog({
         body: JSON.stringify({ cardId }),
       });
 
-      if (!response.ok) throw new Error('Failed to start interview');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server error: ${response.status}`);
+      }
 
       const data = await response.json();
       setSessionId(data.sessionId || null);
       setMessages([{
         role: 'assistant',
-        content: data.firstMessage || 'Interview started. Please answer the following questions.',
+        content: data.firstMessage || 'Let\'s clarify your goal. Please tell me about what you want to accomplish.',
         timestamp: new Date(),
       }]);
       setConfidence(data.confidence || 0);
@@ -133,10 +136,14 @@ export function GoalInterviewDialog({
 
         if (session?.status === 'active' && session.id) {
           setSessionId(session.id);
-          setMessages(mapPersistedMessages(session.messages));
+          // Map messages from session data if available
+          const persistedMessages = session.messages || [];
+          setMessages(mapPersistedMessages(persistedMessages));
           setConfidence(session.overallConfidence || 0);
           setIsComplete(false);
           resumedExistingSession = true;
+          setIsStarting(false);
+          setIsResuming(false);
           return;
         }
       }
@@ -146,10 +153,9 @@ export function GoalInterviewDialog({
       console.error('Failed to resume interview, starting new session instead:', error);
       await startInterview();
     } finally {
-      if (resumedExistingSession) {
-        setIsStarting(false);
+      if (!resumedExistingSession) {
+        setIsResuming(false);
       }
-      setIsResuming(false);
     }
   };
 
@@ -169,7 +175,7 @@ export function GoalInterviewDialog({
 
     try {
       if (!sessionId) {
-        throw new Error('Interview session not initialized');
+        throw new Error('Interview session not initialized. Please refresh and try again.');
       }
 
       const response = await fetch(`/api/interview/${encodeURIComponent(sessionId)}/respond`, {
@@ -179,18 +185,25 @@ export function GoalInterviewDialog({
         body: JSON.stringify({ response: userMessage }),
       });
 
-      if (!response.ok) throw new Error('Failed to send message');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Server error: ${response.status}`);
+      }
 
       const data = await response.json();
 
       // Add AI response
+      const aiMessage = data.nextMessage || data.message || 'Could you tell me more about that?';
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: data.nextMessage || data.message || 'Could you tell me more about that?',
+        content: aiMessage,
         timestamp: new Date(),
       }]);
 
-      setConfidence(data.confidence || confidence);
+      // Update confidence if provided
+      if (data.confidence !== undefined) {
+        setConfidence(data.confidence);
+      }
 
       // Check if interview is complete
       if (data.isComplete && data.finalGoal) {
@@ -203,9 +216,10 @@ export function GoalInterviewDialog({
       }
     } catch (error) {
       console.error('Failed to send message:', error);
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Could you repeat that?',
+        content: `Sorry, I encountered an error: ${errorMessage}. Please try again or refresh the page.`,
         timestamp: new Date(),
       }]);
     } finally {
@@ -305,16 +319,16 @@ export function GoalInterviewDialog({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder={isResuming ? "Resuming your interview..." : "Type your answer..."}
-              disabled={isLoading || isStarting}
+              placeholder={isResuming ? "Resuming your interview..." : isStarting ? "Starting interview..." : "Type your answer..."}
+              disabled={isLoading || isStarting || isResuming}
               className="flex-1"
             />
             <Button
               onClick={sendMessage}
-              disabled={!input.trim() || isLoading || isStarting}
+              disabled={!input.trim() || isLoading || isStarting || isResuming}
               size="icon"
             >
-              {isLoading ? (
+              {isLoading || isStarting || isResuming ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Send className="w-4 h-4" />
