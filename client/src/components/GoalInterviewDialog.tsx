@@ -236,7 +236,7 @@ export function GoalInterviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl h-[600px] flex flex-col">
+      <DialogContent className="max-w-2xl flex flex-col h-[80vh] max-h-[80vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             <span>Goal Clarification Interview</span>
@@ -267,10 +267,11 @@ export function GoalInterviewDialog({
         </DialogHeader>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 pr-4" ref={scrollRef}>
-          <div className="space-y-4 py-4">
-            {messages.map((message, index) => (
-              <div
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+          <ScrollArea className="flex-1" ref={scrollRef}>
+            <div className="space-y-4 py-4 pr-4">
+              {messages.map((message, index) => (
+                <div
                 key={index}
                 className={cn(
                   "flex gap-3",
@@ -297,20 +298,21 @@ export function GoalInterviewDialog({
                     <span className="text-xs font-semibold text-primary-foreground">You</span>
                   </div>
                 )}
-              </div>
-            ))}
-            {isLoading && (
-              <div className="flex gap-3 justify-start">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-semibold text-primary">AI</span>
                 </div>
-                <div className="bg-muted rounded-lg px-4 py-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
+              ))}
+              {isLoading && (
+                <div className="flex gap-3 justify-start">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <span className="text-xs font-semibold text-primary">AI</span>
+                  </div>
+                  <div className="bg-muted rounded-lg px-4 py-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </ScrollArea>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
 
         {/* Input */}
         {!isComplete && (
