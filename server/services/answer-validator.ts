@@ -42,6 +42,45 @@ const ACTION_VERBS = [
 ];
 
 /**
+ * Example answers and templates for each question type
+ */
+const ANSWER_TEMPLATES = {
+  goal: [
+    'Complete [specific task] so that [measurable outcome] is achieved',
+    'Deliver [specific deliverable] to [specific person/team] by [date]',
+    'Increase [metric] from [current value] to [target value] by [date]',
+    'Resolve [specific issue] affecting [specific area/people]',
+    'Implement [specific feature/process] to [specific benefit]',
+  ],
+  success: [
+    '[Specific metric] reaches [target number]',
+    '[Deliverable] is approved by [specific person/team]',
+    '[Specific task] is completed with [quality criteria]',
+    '[Specific outcome] is achieved and [verification method]',
+    '[Specific person/team] confirms [specific result]',
+  ],
+  deadline: [
+    'By [specific date] (e.g., "by Friday, April 25")',
+    'Within [specific timeframe] (e.g., "within 2 weeks")',
+    'By end of [specific period] (e.g., "by end of Q2")',
+    '[Specific date and time] (e.g., "April 25 at 5 PM")',
+  ],
+  people: [
+    '[Specific name] from [specific department/team]',
+    '[Specific role] at [specific organization]',
+    '[Specific number] people from [specific team]',
+    '[Specific name] and [specific name]',
+  ],
+  constraints: [
+    'Budget is limited to [specific amount]',
+    'Must be completed with [specific resource/tool]',
+    'Cannot involve [specific person/team/process]',
+    'Must follow [specific rule/standard/process]',
+    'Timeline is fixed: [specific date]',
+  ],
+};
+
+/**
  * Validate a user answer
  */
 export function validateAnswer(
@@ -88,6 +127,14 @@ export function validateAnswer(
       suggestions.push(issue.suggestedQuestion);
     }
   });
+
+  // Add answer templates as suggestions if answer is too short or vague
+  if (answer.length < 20 || issues.length > 0) {
+    const templates = ANSWER_TEMPLATES[questionContext] || [];
+    if (templates.length > 0) {
+      suggestions.push(`Example: ${templates[0]}`);
+    }
+  }
 
   // Clamp confidence to 0-100
   confidence = Math.max(0, Math.min(100, confidence));

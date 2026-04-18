@@ -328,26 +328,38 @@ export function GoalInterviewDialog({
 
         {/* Input */}
         {!isComplete && (
-          <div className="flex gap-2 pt-4 border-t">
-            <Input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={isResuming ? "Resuming your interview..." : isStarting ? "Starting interview..." : "Type your answer..."}
-              disabled={isLoading || isStarting || isResuming}
-              className="flex-1"
-            />
-            <Button
-              onClick={sendMessage}
-              disabled={!input.trim() || isLoading || isStarting || isResuming}
-              size="icon"
-            >
-              {isLoading || isStarting || isResuming ? (
+          <div className="space-y-2 pt-4 border-t">
+            <div className="flex gap-2">
+              <Input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder={isResuming ? "Resuming your interview..." : isStarting ? "Starting interview..." : "Type your answer..."}
+                disabled={isLoading || isStarting || isResuming}
+                className="flex-1"
+              />
+              <Button
+                onClick={sendMessage}
+                disabled={!input.trim() || isLoading || isStarting || isResuming}
+                size="icon"
+              >
+                {isLoading || isStarting || isResuming ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Send className="w-4 h-4" />
                 )}
               </Button>
+            </div>
+            {messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs">
+                <p className="font-semibold text-blue-900 mb-2">💡 Tip: Be specific and measurable</p>
+                <ul className="space-y-1 text-blue-800 list-disc list-inside">
+                  <li>Include specific numbers, dates, or names</li>
+                  <li>Describe the measurable outcome, not just the action</li>
+                  <li>Be as detailed as possible</li>
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
