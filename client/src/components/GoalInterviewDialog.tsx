@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, Send, CheckCircle2, AlertCircle, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Message {
@@ -49,7 +49,10 @@ export function GoalInterviewDialog({
   const [isComplete, setIsComplete] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isResuming, setIsResuming] = useState(false);
+  const [finalGoal, setFinalGoal] = useState<any>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   // Start interview when dialog opens
   useEffect(() => {
@@ -72,10 +75,15 @@ export function GoalInterviewDialog({
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollAreaRef.current) {
+      const scrollElement = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (scrollElement) {
+        setTimeout(() => {
+          scrollElement.scrollTop = scrollElement.scrollHeight;
+        }, 0);
+      }
     }
-  }, [messages]);
+  }, [messages, isLoading]);
 
   const mapPersistedMessages = (persistedMessages: PersistedMessage[] = []): Message[] =>
     persistedMessages.map((message) => ({
@@ -208,11 +216,12 @@ export function GoalInterviewDialog({
       // Check if interview is complete
       if (data.isComplete && data.finalGoal) {
         setIsComplete(true);
-        // Show final goal for 2 seconds, then call onComplete
+        setFinalGoal(data.finalGoal);
+        // Show final goal for 3 seconds, then call onComplete
         setTimeout(() => {
           onComplete(data.finalGoal);
           onOpenChange(false);
-        }, 2000);
+        }, 3000);
       }
     } catch (error) {
       console.error('Failed to send message:', error);
@@ -268,7 +277,7 @@ export function GoalInterviewDialog({
 
         {/* Messages */}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          <ScrollArea className="flex-1" ref={scrollRef}>
+          <ScrollArea className="flex-1" ref={scrollAreaRef}>
             <div className="space-y-4 py-4 pr-4">
               {messages.map((message, index) => (
                 <div
@@ -283,16 +292,19 @@ export function GoalInterviewDialog({
                     <span className="text-xs font-semibold text-primary">AI</span>
                   </div>
                 )}
-                <div
-                  className={cn(
-                    "max-w-[80%] rounded-lg px-4 py-2",
-                    message.role === 'user'
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
-                  )}
-                >
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                </div>
+                  <div
+                    className={cn(
+                      "max-w-[80%] rounded-lg px-4 py-2",
+                      message.role === 'user'
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted"
+                    )}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    <p className="text-xs opacity-70 mt-1">
+                      {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
                 {message.role === 'user' && (
                   <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
                     <span className="text-xs font-semibold text-primary-foreground">You</span>
@@ -340,15 +352,59 @@ export function GoalInterviewDialog({
         )}
 
         {/* Complete state */}
-        {isComplete && (
-          <div className="flex items-center justify-center gap-2 py-4 text-green-600 border-t">
-            <CheckCircle2 className="w-5 h-5" />
-            <span className="font-medium">Interview complete! Generating execution plan...</span>
+        {isComplete && finalGoal && (
+          <div className="space-y-3 py-4 border-t">
+            <div className="flex items-center justify-center gap-2 text-green-600">
+              <CheckCircle2 className="w-5 h-5" />
+              <span className="font-medium">Interview complete!</span>
+            </div>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm">
+              <p className="font-semibold text-green-900 mb-2">Execution Plan:</p>
+              <div className="space-y-1 text-green-800 mb-3">
+                <p><strong>Goal:</strong> {finalGoal.goal}</p>
+                <p><strong>Priority:</strong> {finalGoal.priority}</p>
+                <p><strong>Confidence:</strong> {finalGoal.confidence}%</p>
+                {finalGoal.deadline && <p><strong>Deadline:</strong> {finalGoal.deadline}</p>}
+                {finalGoal.successCriteria?.length > 0 && (
+                  <div>
+                    <strong>Success Criteria:</strong>
+                    <ul className="list-disc list-inside ml-2">
+                      {finalGoal.successCriteria.map((criteria: string, i: number) => (
+                        <li key={i}>{criteria}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const planText = `Goal: ${finalGoal.goal}\nPriority: ${finalGoal.priority}\nConfidence: ${finalGoal.confidence}%${finalGoal.deadline ? `\nDeadline: ${finalGoal.deadline}` : ''}${finalGoal.successCriteria?.length > 0 ? `\nSuccess Criteria:\n${finalGoal.successCriteria.map((c: string) => `- ${c}`).join('\n')}` : ''}`;
+                  navigator.clipboard.writeText(planText);
+                  setCopySuccess(true);
+                  setTimeout(() => setCopySuccess(false), 2000);
+                }}
+                className="w-full"
+              >
+                {copySuccess ? (
+                  <>
+                    <Check className="w-4 h-4 mr-2" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy Execution Plan
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         )}
 
         {/* Confidence warning */}
-        {confidence < 50 && messages.length > 2 && !isComplete && (
+        {confidence < 50 && messages.length > 2 && !isComplete && !finalGoal && (
           <div className="flex items-center gap-2 px-3 py-2 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             <span>Low confidence - please provide more specific details</span>
