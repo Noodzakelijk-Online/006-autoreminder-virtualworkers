@@ -76,11 +76,11 @@ export function GoalInterviewDialog({
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (scrollAreaRef.current) {
-      const scrollElement = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
-      if (scrollElement) {
-        setTimeout(() => {
-          scrollElement.scrollTop = scrollElement.scrollHeight;
-        }, 0);
+      const viewport = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (viewport) {
+        requestAnimationFrame(() => {
+          viewport.scrollTop = viewport.scrollHeight;
+        });
       }
     }
   }, [messages, isLoading]);
@@ -277,8 +277,8 @@ export function GoalInterviewDialog({
 
         {/* Messages */}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-          <ScrollArea className="flex-1" ref={scrollAreaRef}>
-            <div className="space-y-4 py-4 pr-4">
+          <ScrollArea className="flex-1 h-full" ref={scrollAreaRef}>
+            <div className="space-y-4 py-4 pr-4 pl-4">
               {messages.map((message, index) => (
                 <div
                 key={index}
