@@ -704,11 +704,6 @@ export default function APTLSSManagement() {
 
       for (let i = 0; i < data.length; i++) {
         const w = data[i];
-        setWsLoadProgress(prev => prev ? {
-          ...prev,
-          currentWorkspace: w.name,
-        } : null);
-
         try {
           mapped.push({
             id: w.id,
@@ -722,13 +717,18 @@ export default function APTLSSManagement() {
           failedCount++;
         }
 
-        setWsLoadProgress(prev => prev ? {
-          ...prev,
-          loaded: i + 1,
-          totalBoards: mapped.reduce((s, ws) => s + ws.boardCount, 0),
-          totalCards: mapped.reduce((s, ws) => s + (ws.cardCount || 0), 0),
-          failed: failedCount,
-        } : null);
+        if (i % 5 === 0 || i === data.length - 1) {
+          const totalBoards = mapped.reduce((s, ws) => s + ws.boardCount, 0);
+          const totalCards = mapped.reduce((s, ws) => s + (ws.cardCount || 0), 0);
+          setWsLoadProgress(prev => prev ? {
+            ...prev,
+            currentWorkspace: w.name,
+            loaded: i + 1,
+            totalBoards,
+            totalCards,
+            failed: failedCount,
+          } : null);
+        }
       }
 
       setWorkspaces(mapped);

@@ -610,7 +610,8 @@ router.get('/trello/workspaces', async (req: Request, res: Response) => {
       boards: { id: string; name: string; cardCount?: number }[];
     }>();
     
-    // Get board counts for each workspace - process sequentially to avoid rate limits
+    // Group boards by workspace WITHOUT fetching card counts (too slow)
+    // Card counts can be fetched on-demand when needed
     for (const board of boards) {
       try {
         const workspaceId = board.workspaceId;
@@ -622,24 +623,14 @@ router.get('/trello/workspaces', async (req: Request, res: Response) => {
           });
         }
 
-        const cardsResponse = await fetchWithRetry(
-          `https://api.trello.com/1/boards/${board.id}/cards?key=${apiKey}&token=${token}`,
-          undefined,
-          {
-            maxRetries: 2,
-            initialDelayMs: 1000,
-            maxDelayMs: 10000
-          }
-        );
-        const cards = cardsResponse.ok ? await cardsResponse.json() : [];
         const workspace = workspaceMap.get(workspaceId)!;
         workspace.boards.push({
           id: board.id,
           name: board.name,
-          cardCount: Array.isArray(cards) ? cards.length : 0,
+          cardCount: 0, // Skip card count fetching - too slow
         });
       } catch (error) {
-        console.warn(`Error fetching cards for board ${board.name}:`, error);
+        console.warn(`Error processing board ${board.name}:`, error);
       }
     }
 
@@ -649,6 +640,7 @@ router.get('/trello/workspaces', async (req: Request, res: Response) => {
       cardCount: workspace.boards.reduce((sum, board) => sum + (board.cardCount || 0), 0),
     }));
 
+    console.log(`Loaded ${validWorkspaces.length} workspaces with ${boards.length} boards (card counts skipped for performance)`);
     res.json(validWorkspaces);
   } catch (error) {
     console.error('Error fetching workspaces:', error);
