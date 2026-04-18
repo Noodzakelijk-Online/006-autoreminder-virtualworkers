@@ -101,6 +101,7 @@ interface AutoLoadProgress {
   skipped: number;
   failed: number;
   failedBoards: { id: string; name: string; workspaceName: string }[];
+  skippedCards: { cardId: string; cardName: string; boardName: string; reason: string }[];
   currentBoard: string;
   cancelled?: boolean;
   startTime?: number;
@@ -376,6 +377,28 @@ function AutoLoadProgressCard({
             )}
           </div>
         </div>
+
+        {!progress.isLoading && progress.skippedCards.length > 0 && (
+          <div className="border-t pt-3">
+            <p className="text-sm font-medium text-blue-600 mb-2">Skipped Cards ({progress.skippedCards.length}):</p>
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {progress.skippedCards.map(card => (
+                <div
+                  key={card.cardId}
+                  className="text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950/20 px-2 py-1.5 rounded"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <p className="font-medium text-blue-700 dark:text-blue-300 truncate">{card.cardName}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{card.boardName}</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Reason: {card.reason}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {!progress.isLoading && progress.failedBoards.length > 0 && (
           <div className="border-t pt-3">
@@ -902,7 +925,9 @@ export default function APTLSSManagement() {
       return;
     }
 
-    const existingIds = new Set(cards.map(c => c.id));
+     const existingIds = new Set(cards.map(c => c.id));
+    const skippedCardsList: { cardId: string; cardName: string; boardName: string; reason: string }[] = [];
+    
     setAutoLoadProgress({
       isLoading: true,
       current: 0,
@@ -911,6 +936,7 @@ export default function APTLSSManagement() {
       skipped: 0,
       failed: 0,
       failedBoards: [],
+      skippedCards: [],
       currentBoard: '',
       cancelled: false,
       startTime: Date.now(),
@@ -948,6 +974,12 @@ export default function APTLSSManagement() {
           for (const card of raw) {
             if (existingIds.has(card.id)) {
               skippedCount++;
+              skippedCardsList.push({
+                cardId: card.id,
+                cardName: card.name,
+                boardName: board.name,
+                reason: 'Already cached in your system',
+              });
             } else {
               newCards.push(mapRawCard(card, board.name));
               existingIds.add(card.id);
@@ -964,7 +996,7 @@ export default function APTLSSManagement() {
 
       setAutoLoadProgress(prev =>
         prev
-          ? { ...prev, loaded: loadedCount, skipped: skippedCount, failed: failedBoards.length, failedBoards: [...failedBoards] }
+          ? { ...prev, loaded: loadedCount, skipped: skippedCount, failed: failedBoards.length, failedBoards: [...failedBoards], skippedCards: skippedCardsList }
           : null,
       );
     }
@@ -987,7 +1019,7 @@ export default function APTLSSManagement() {
     const existingIds = new Set(cards.map(c => c.id));
 
     setAutoLoadProgress(prev =>
-      prev ? { ...prev, isLoading: true, current: 0, total: toRetry.length, failedBoards: [], failed: 0 } : null,
+      prev ? { ...prev, isLoading: true, current: 0, total: toRetry.length, failedBoards: [], failed: 0, skippedCards: [] } : null,
     );
 
     const newCards: TrelloCard[] = [];
