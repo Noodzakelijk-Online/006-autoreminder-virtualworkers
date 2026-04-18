@@ -526,6 +526,17 @@ export default function APTLSSManagement() {
   const [autoLoadProgress, setAutoLoadProgress] = useState<AutoLoadProgress | null>(null);
   const cancelLoadRef = useRef(false);
 
+  //  Workspace load progress 
+  const [wsLoadProgress, setWsLoadProgress] = useState<{
+    isLoading: boolean;
+    loaded: number;
+    total: number;
+    totalBoards: number;
+    totalCards: number;
+    failed: number;
+    currentWorkspace: string;
+  } | null>(null);
+
   //  Workspace selector dialog 
   const [showWorkspaceSelector, setShowWorkspaceSelector] = useState(false);
   const [selectedWorkspacesForLoad, setSelectedWorkspacesForLoad] = useState<Set<string>>(new Set());
@@ -663,6 +674,15 @@ export default function APTLSSManagement() {
   //  API helpers 
   const loadWorkspaces = async () => {
     setLoading(true);
+    setWsLoadProgress({
+      isLoading: true,
+      loaded: 0,
+      total: 0,
+      totalBoards: 0,
+      totalCards: 0,
+      failed: 0,
+      currentWorkspace: 'Fetching workspace list…',
+    });
     try {
       const res = await fetch('/api/trello/workspaces');
       if (!res.ok) {
@@ -671,20 +691,53 @@ export default function APTLSSManagement() {
       }
       const data = await res.json();
       if (!Array.isArray(data)) throw new Error(data.error || 'Invalid response format');
-      setWorkspaces(
-        data.map((w: any) => ({
-          id: w.id,
-          name: w.name,
-          boardCount: w.boardCount || 0,
-          cardCount: w.cardCount || 0,
-          boards: w.boards || [],
-          selected: false,
-        })),
-      );
-      toast.success(`Loaded ${data.length} workspaces`);
+
+      // Update total so the progress bar has a denominator immediately
+      setWsLoadProgress(prev => prev ? {
+        ...prev,
+        total: data.length,
+        currentWorkspace: 'Processing workspaces…',
+      } : null);
+
+      const mapped: TrelloWorkspace[] = [];
+      let failedCount = 0;
+
+      for (let i = 0; i < data.length; i++) {
+        const w = data[i];
+        setWsLoadProgress(prev => prev ? {
+          ...prev,
+          currentWorkspace: w.name,
+        } : null);
+
+        try {
+          mapped.push({
+            id: w.id,
+            name: w.name,
+            boardCount: w.boardCount || 0,
+            cardCount: w.cardCount || 0,
+            boards: w.boards || [],
+            selected: false,
+          });
+        } catch {
+          failedCount++;
+        }
+
+        setWsLoadProgress(prev => prev ? {
+          ...prev,
+          loaded: i + 1,
+          totalBoards: mapped.reduce((s, ws) => s + ws.boardCount, 0),
+          totalCards: mapped.reduce((s, ws) => s + (ws.cardCount || 0), 0),
+          failed: failedCount,
+        } : null);
+      }
+
+      setWorkspaces(mapped);
+      setWsLoadProgress(prev => prev ? { ...prev, isLoading: false, currentWorkspace: '' } : null);
+      toast.success(`Loaded ${mapped.length} workspaces`);
     } catch (err) {
       toast.error('Failed to load workspaces');
       console.error(err);
+      setWsLoadProgress(prev => prev ? { ...prev, isLoading: false, failed: (prev.failed ?? 0) + 1 } : null);
     } finally {
       setLoading(false);
     }
@@ -1164,6 +1217,64 @@ export default function APTLSSManagement() {
 
             {/*  Workspaces Tab  */}
             <TabsContent value="workspaces" className="space-y-4">
+
+              {/* Workspace load progress */}
+              {wsLoadProgress && (
+                <Card className="bg-primary/5 border-primary/20">
+                  <CardContent className="py-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {wsLoadProgress.isLoading && (
+                          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                        )}
+                        <div>
+                          <p className="font-medium">
+                            {wsLoadProgress.isLoading ? 'Loading workspaces…' : 'Workspaces loaded'}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {wsLoadProgress.currentWorkspace || (wsLoadProgress.isLoading ? 'Preparing…' : 'Done')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right text-sm">
+                        <p className="font-medium">
+                          {wsLoadProgress.loaded}
+                          {wsLoadProgress.total > 0 ? ` / ${wsLoadProgress.total}` : ''} workspaces
+                        </p>
+                        {wsLoadProgress.total > 0 && (
+                          <p className="text-muted-foreground">
+                            {Math.round((wsLoadProgress.loaded / wsLoadProgress.total) * 100)}%
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {wsLoadProgress.total > 0 && (
+                      <Progress
+                        value={(wsLoadProgress.loaded / wsLoadProgress.total) * 100}
+                        className="h-2"
+                      />
+                    )}
+
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex gap-4">
+                        <span className="text-green-600">✓ Workspaces: {wsLoadProgress.loaded}</span>
+                        <span className="text-blue-600">⊞ Boards: {wsLoadProgress.totalBoards}</span>
+                        <span className="text-muted-foreground">🗂 Cards: {wsLoadProgress.totalCards.toLocaleString()}</span>
+                        {wsLoadProgress.failed > 0 && (
+                          <span className="text-red-600">✗ Failed: {wsLoadProgress.failed}</span>
+                        )}
+                      </div>
+                      {!wsLoadProgress.isLoading && (
+                        <Button size="sm" variant="ghost" onClick={() => setWsLoadProgress(null)}>
+                          Dismiss
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <div className="flex items-center justify-between">
                 <p className="text-sm text-muted-foreground">
                   {workspaces.length} workspaces available
@@ -1171,14 +1282,13 @@ export default function APTLSSManagement() {
               </div>
 
               <div className="grid gap-4">
-                {workspaces.length === 0 ? (
+                {workspaces.length === 0 && !wsLoadProgress ? (
                   <Card>
                     <CardContent className="py-12 text-center text-muted-foreground">
-                      <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-                      Loading workspaces
+                      No workspaces loaded. Click Refresh to load.
                     </CardContent>
                   </Card>
-                ) : (
+                ) : workspaces.length === 0 && wsLoadProgress?.isLoading ? null : (
                   workspaces.map(workspace => (
                     <Card key={workspace.id}>
                       <CardHeader>
