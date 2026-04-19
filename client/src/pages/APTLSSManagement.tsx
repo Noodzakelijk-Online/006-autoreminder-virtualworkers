@@ -45,15 +45,11 @@ import {
   MessageSquare,
   X,
   AlertTriangle,
-  Calendar,
-  Save,
-  Info,
 } from "lucide-react";
 import { GoalInterviewDialog } from "@/components/GoalInterviewDialog";
 import { AresConfigurationPanel } from "@/components/AresConfigurationPanel";
 import { Link } from "wouter";
 import { useLoadingQueue } from "@/contexts/LoadingQueueContext";
-import { trpc } from "@/lib/trpc";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -134,7 +130,6 @@ interface AutoLoadProgress {
 const HISTORY_REFRESH_MS = 5000;
 const CARDS_STORAGE_KEY = "aptlss_loaded_cards";
 const WORKSPACE_SELECTION_KEY = "aptlss_selected_workspaces";
-const SETTINGS_STORAGE_KEY = "aptlss_generation_settings";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -586,65 +581,15 @@ export default function APTLSSManagement() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobDetails, setJobDetails] = useState<any>(null);
 
-  //  Settings — load persisted values from localStorage on init
-  interface SettingsState {
-    skipExisting: boolean;
-    validateBeforeGenerate: boolean;
-    autoReminder: boolean;
-    batchSize: number;
-    scheduledTime: string;
-    scheduledJobs: any[];
-  }
-  const [settings, setSettings] = useState<SettingsState>(() => {
-    const defaults: SettingsState = {
-      skipExisting: true,
-      validateBeforeGenerate: true,
-      autoReminder: false,
-      batchSize: 10,
-      scheduledTime: "",
-      scheduledJobs: [] as any[],
-    };
-    try {
-      const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return { ...defaults, ...parsed, scheduledJobs: [] }; // scheduledJobs always from API
-      }
-    } catch { /* ignore */ }
-    return defaults;
+  //  Settings
+  const [settings, setSettings] = useState({
+    skipExisting: true,
+    validateBeforeGenerate: true,
+    autoReminder: false,
+    batchSize: 10,
+    scheduledTime: "",
+    scheduledJobs: [] as any[],
   });
-
-  // Track unsaved changes for save feedback
-  const [settingsDirty, setSettingsDirty] = useState(false);
-  const [settingsSaved, setSettingsSaved] = useState(false);
-
-  // Active ARES configuration (for linking "Validate Before Generate")
-  const { data: aresConfigs } = trpc.ares.getConfigurations.useQuery(undefined, {
-    retry: false,
-  });
-  const activeAresConfig = aresConfigs?.find((c: any) => c.isDefault) ?? aresConfigs?.[0] ?? null;
-
-  // Save settings to localStorage
-  const saveSettings = () => {
-    const toSave = {
-      skipExisting: settings.skipExisting,
-      validateBeforeGenerate: settings.validateBeforeGenerate,
-      autoReminder: settings.autoReminder,
-      batchSize: settings.batchSize,
-    };
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(toSave));
-    setSettingsDirty(false);
-    setSettingsSaved(true);
-    toast.success('Settings saved');
-    setTimeout(() => setSettingsSaved(false), 2500);
-  };
-
-  // Helper to update a setting and mark dirty
-  const updateSetting = <K extends keyof typeof settings>(key: K, value: typeof settings[K]) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-    setSettingsDirty(true);
-    setSettingsSaved(false);
-  };
 
   //  Auto-load
   const [autoLoadProgress, setAutoLoadProgress] =
@@ -2099,276 +2044,83 @@ export default function APTLSSManagement() {
             </TabsContent>
 
             {/*  Settings Tab  */}
-            <TabsContent value="settings" className="space-y-6">
-
-              {/* ── Section 1: Generation Settings ── */}
-              <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide px-1">
-                  Generation
-                </h3>
-                <Card>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <CardTitle className="text-base">Generation Settings</CardTitle>
-                        <CardDescription>
-                          Configure how APTLSS checklists are generated
-                        </CardDescription>
-                      </div>
-                      {/* Save feedback */}
-                      <div className="flex items-center gap-2">
-                        {settingsSaved && (
-                          <span className="text-xs text-green-600 flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" /> Saved
-                          </span>
-                        )}
-                        <Button
-                          size="sm"
-                          variant={settingsDirty ? 'default' : 'outline'}
-                          onClick={saveSettings}
-                          disabled={!settingsDirty}
-                        >
-                          <Save className="h-3.5 w-3.5 mr-1.5" />
-                          {settingsDirty ? 'Save Changes' : 'Saved'}
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-5">
-                    {/* Skip Existing */}
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Skip Existing APTLSS</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Don't regenerate for cards that already have APTLSS
-                        </p>
-                      </div>
-                      <Switch
-                        checked={settings.skipExisting}
-                        onCheckedChange={v => updateSetting('skipExisting', v)}
-                      />
-                    </div>
-
-                    <div className="border-t" />
-
-                    {/* Validate Before Generate */}
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-0.5 flex-1">
-                        <Label>Validate Before Generate</Label>
-                        <p className="text-sm text-muted-foreground">
-                          Run ARES validation before generating APTLSS
-                        </p>
-                        {/* Active ARES config link */}
-                        {settings.validateBeforeGenerate && (
-                          <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Info className="h-3 w-3 shrink-0" />
-                            {activeAresConfig ? (
-                              <span>
-                                Using ARES config:{' '}
-                                <span className="font-medium text-foreground">
-                                  {activeAresConfig.name}
-                                </span>
-                                {' '}
-                                <span className="capitalize">
-                                  ({activeAresConfig.strictnessLevel})
-                                </span>
-                                {activeAresConfig.isDefault && (
-                                  <Badge variant="secondary" className="ml-1 text-[10px] py-0 h-4">
-                                    default
-                                  </Badge>
-                                )}
-                              </span>
-                            ) : (
-                              <span className="text-amber-600">
-                                No ARES configuration found — configure one in the ARES section below.
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <Switch
-                        checked={settings.validateBeforeGenerate}
-                        onCheckedChange={v => updateSetting('validateBeforeGenerate', v)}
-                      />
-                    </div>
-
-                    <div className="border-t" />
-
-                    {/* Batch Size */}
-                    <div className="space-y-2">
-                      <Label>Batch Size</Label>
-                      <div className="flex items-center gap-3">
-                        <Input
-                          type="number"
-                          min="1"
-                          max="50"
-                          value={settings.batchSize}
-                          onChange={e => updateSetting('batchSize', parseInt(e.target.value) || 10)}
-                          className="w-24"
-                        />
-                        <p className="text-sm text-muted-foreground">
-                          Cards processed simultaneously (1–50)
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* ── Section 2: Schedule Generation ── */}
-              <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide px-1">
-                  Scheduling
-                </h3>
-                <Card>
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Calendar className="h-4 w-4" />
-                      Schedule Generation
-                    </CardTitle>
-                    <CardDescription>
-                      Schedule bulk APTLSS generation for off-hours
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label>Schedule Date & Time</Label>
-                      <Input
-                        type="datetime-local"
-                        value={settings.scheduledTime}
-                        onChange={e => {
-                          const t = new Date(e.target.value);
-                          if (t > new Date()) {
-                            setSettings(prev => ({ ...prev, scheduledTime: e.target.value }));
-                          } else {
-                            toast.error('Please select a future date and time');
-                          }
-                        }}
-                        className="w-full md:w-72"
-                      />
+            <TabsContent value="settings" className="space-y-4">
+              {/* ARES Configuration */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>ARES Configuration</CardTitle>
+                  <CardDescription>
+                    Manage Automated Requirement Evaluation System settings
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <AresConfigurationPanel
+                    cardId=""
+                    cardName="APTLSS Configuration"
+                  />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Generation Settings</CardTitle>
+                  <CardDescription>
+                    Configure how APTLSS checklists are generated
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Skip Existing APTLSS</Label>
                       <p className="text-sm text-muted-foreground">
-                        Selected cards will be processed at this time
+                        Don't regenerate for cards that already have APTLSS
                       </p>
                     </div>
-
-                    <Button
-                      onClick={async () => {
-                        const selected = cards.filter(c => c.selected);
-                        if (selected.length === 0) { toast.error('Please select cards first'); return; }
-                        if (!settings.scheduledTime) { toast.error('Please select a schedule time'); return; }
-                        try {
-                          await fetch('/api/aptlss/schedule', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              cardIds: selected.map(c => c.id),
-                              scheduledTime: settings.scheduledTime,
-                              settings: {
-                                skipExisting: settings.skipExisting,
-                                validateBeforeGenerate: settings.validateBeforeGenerate,
-                                batchSize: settings.batchSize,
-                              },
-                            }),
-                          });
-                          toast.success(
-                            `Scheduled generation for ${selected.length} cards at ${new Date(settings.scheduledTime).toLocaleString()}`
-                          );
-                          await loadScheduledJobs();
-                          setSettings(prev => ({ ...prev, scheduledTime: '' }));
-                        } catch {
-                          toast.error('Failed to schedule generation');
-                        }
-                      }}
-                      disabled={selectedCount === 0 || !settings.scheduledTime}
-                      className="w-full md:w-auto"
-                    >
-                      <Calendar className="h-4 w-4 mr-2" />
-                      Schedule for {selectedCount} Selected Card{selectedCount !== 1 ? 's' : ''}
-                    </Button>
-
-                    {selectedCount === 0 && (
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Info className="h-3 w-3" />
-                        Select cards in the Cards tab first, then schedule here.
+                    <Switch
+                      checked={settings.skipExisting}
+                      onCheckedChange={checked =>
+                        setSettings(prev => ({
+                          ...prev,
+                          skipExisting: checked,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Validate Before Generate</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Run ARES validation before generating APTLSS
                       </p>
-                    )}
-
-                    {/* Scheduled jobs list */}
-                    <div className="border-t pt-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-sm font-medium">Scheduled Jobs</p>
-                        <Button variant="ghost" size="sm" onClick={() => void loadScheduledJobs()}>
-                          <RefreshCw className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                      {settings.scheduledJobs && settings.scheduledJobs.length > 0 ? (
-                        <div className="space-y-2">
-                          {settings.scheduledJobs.map((job: any) => {
-                            const cardIds = Array.isArray(job.cardIds)
-                              ? job.cardIds
-                              : (() => { try { return JSON.parse(job.cardIds); } catch { return []; } })();
-                            return (
-                              <div
-                                key={job.id}
-                                className="flex items-center justify-between p-3 border rounded-lg bg-muted/30"
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium">
-                                    {cardIds.length} card{cardIds.length !== 1 ? 's' : ''}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {new Date(job.scheduledTime).toLocaleString()}
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-2 shrink-0">
-                                  <Badge variant={job.status === 'pending' ? 'secondary' : 'default'}>
-                                    {job.status}
-                                  </Badge>
-                                  {job.status === 'pending' && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="text-destructive hover:text-destructive h-7 px-2"
-                                      onClick={async () => {
-                                        try {
-                                          await fetch(`/api/aptlss/scheduled/${job.id}`, { method: 'DELETE' });
-                                          toast.success('Scheduled job cancelled');
-                                          await loadScheduledJobs();
-                                        } catch {
-                                          toast.error('Failed to cancel job');
-                                        }
-                                      }}
-                                    >
-                                      <X className="h-3.5 w-3.5 mr-1" />
-                                      Cancel
-                                    </Button>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground text-center py-4 border rounded-lg bg-muted/20">
-                          No scheduled jobs
-                        </p>
-                      )}
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* ── Section 3: ARES Configuration ── */}
-              <div className="space-y-1">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide px-1">
-                  ARES — Automated Requirement Evaluation System
-                </h3>
-                <AresConfigurationPanel
-                  cardId=""
-                  cardName="APTLSS Configuration"
-                />
-              </div>
-
+                    <Switch
+                      checked={settings.validateBeforeGenerate}
+                      onCheckedChange={checked =>
+                        setSettings(prev => ({
+                          ...prev,
+                          validateBeforeGenerate: checked,
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Enable Auto-Reminder</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Automatically set up reminders for generated APTLSS
+                      </p>
+                    </div>
+                    <Switch
+                      checked={settings.autoReminder}
+                      onCheckedChange={checked =>
+                        setSettings(prev => ({
+                          ...prev,
+                          autoReminder: checked,
+                        }))
+                      }
+                    />
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
           </CardContent>
         </Card>
