@@ -1474,7 +1474,7 @@ export default function APTLSSManagement() {
       )}
 
       {/*  Main Tabs  */}
-      <Tabs defaultValue="cards" className="flex-1">
+      <Tabs defaultValue="workspaces" className="flex-1">
         <Card>
           <CardHeader>
             <TabsList className="grid w-full grid-cols-4">
