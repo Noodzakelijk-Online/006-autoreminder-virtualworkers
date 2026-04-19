@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { drizzle as drizzleMySQL } from "drizzle-orm/mysql2";
 import { InsertUser, users } from "../drizzle/schema";
+import * as schema from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: any = null;
@@ -28,8 +29,8 @@ export async function getDb() {
         console.warn("[Database] SQLite support is planned but not yet implemented. Please use MySQL.");
         _db = null;
       } else {
-        // MySQL: use connection string directly
-        _db = drizzleMySQL(process.env.DATABASE_URL);
+        // MySQL: use connection string directly with schema for db.query support
+        _db = drizzleMySQL(process.env.DATABASE_URL, { schema, mode: 'default' });
         console.log("[Database] Connected to MySQL");
       }
     } catch (error) {
