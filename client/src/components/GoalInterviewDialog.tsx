@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Loader2, Send, CheckCircle2, AlertCircle, Copy, Check } from 'lucide-react';
+import { Loader2, Send, CheckCircle2, AlertCircle, Copy, Check, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Message {
@@ -243,13 +243,37 @@ export function GoalInterviewDialog({
     }
   };
 
+  const startNewConversation = async () => {
+    setMessages([]);
+    setInput('');
+    setConfidence(0);
+    setIsComplete(false);
+    setFinalGoal(null);
+    setSessionId(null);
+    setIsStarting(true);
+    setIsResuming(false);
+    await startInterview();
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl flex flex-col h-[80vh] max-h-[80vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center justify-between">
             <span>Goal Clarification Interview</span>
-            <div className="flex items-center gap-2 text-sm font-normal">
+            <div className="flex items-center gap-3 text-sm font-normal">
+              {messages.length > 1 && !isComplete && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={startNewConversation}
+                  title="Start a new conversation"
+                  className="h-8 w-8 p-0 hover:bg-destructive/10"
+                >
+                  <RotateCcw className="w-4 h-4 text-muted-foreground hover:text-destructive" />
+                </Button>
+              )}
+              <div className="flex items-center gap-2">
               <span className="text-muted-foreground">Confidence:</span>
               <div className="flex items-center gap-1">
                 <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
@@ -267,6 +291,7 @@ export function GoalInterviewDialog({
                 )}>
                   {confidence}%
                 </span>
+              </div>
               </div>
             </div>
           </DialogTitle>

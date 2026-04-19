@@ -2077,3 +2077,10 @@ Each card now has:
 - [ ] Apply tooltip pattern to SchedulingTimeSection cards
 - [ ] Apply tooltip pattern to any other Settings cards with descriptions
 - [ ] Test all tooltips display correctly on hover
+
+## Smart Follow-ups Feature (Apr 18, 2026)
+- [x] Implement low-confidence detection when confidence < 40%
+- [x] Generate context-aware clarifying questions
+- [x] Integrate into interview response flow
+- [x] Add comprehensive unit tests (17 tests passing)
+- [x] Add "Start New Conversation" button to clear messages
