@@ -9,6 +9,15 @@ import * as aresDb from '../db-ares';
  * Handles all ARES (Automated Requirement Evaluation System) configuration operations
  */
 
+// Helper to safely convert user ID from string to number
+function getUserIdOrThrow(userId: any): number {
+  const numId = Number(userId);
+  if (!Number.isFinite(numId)) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Invalid user ID' });
+  }
+  return numId;
+}
+
 export const aresRouter = router({
   // ─── Configuration Management ────────────────────────────────────────────────
   
@@ -26,9 +35,10 @@ export const aresRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.createAresConfiguration({
           id: uuid(),
-          userId: ctx.user.id,
+          userId,
           name: input.name,
           description: input.description,
           strictnessLevel: input.strictnessLevel,
@@ -42,6 +52,7 @@ export const aresRouter = router({
         });
         return config;
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Failed to create ARES configuration',
@@ -53,8 +64,10 @@ export const aresRouter = router({
   getConfigurations: protectedProcedure
     .query(async ({ ctx }) => {
       try {
-        return await aresDb.getUserAresConfigurations(ctx.user.id);
+        const userId = getUserIdOrThrow(ctx.user.id);
+        return await aresDb.getUserAresConfigurations(userId);
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
           message: 'Failed to fetch ARES configurations',
@@ -67,8 +80,9 @@ export const aresRouter = router({
     .input(z.object({ configId: z.string() }))
     .query(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
@@ -100,8 +114,9 @@ export const aresRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
@@ -134,8 +149,9 @@ export const aresRouter = router({
     .input(z.object({ configId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
@@ -158,15 +174,16 @@ export const aresRouter = router({
     .input(z.object({ configId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
           });
         }
 
-        await aresDb.setDefaultAresConfiguration(ctx.user.id, input.configId);
+        await aresDb.setDefaultAresConfiguration(userId, input.configId);
         return { success: true };
       } catch (error) {
         if (error instanceof TRPCError) throw error;
@@ -193,8 +210,9 @@ export const aresRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
@@ -227,8 +245,9 @@ export const aresRouter = router({
     .input(z.object({ configId: z.string() }))
     .query(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
@@ -259,8 +278,9 @@ export const aresRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
@@ -290,8 +310,9 @@ export const aresRouter = router({
     .input(z.object({ ruleId: z.string(), configId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
@@ -320,8 +341,9 @@ export const aresRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
@@ -343,8 +365,9 @@ export const aresRouter = router({
     .input(z.object({ configId: z.string() }))
     .query(async ({ ctx, input }) => {
       try {
+        const userId = getUserIdOrThrow(ctx.user.id);
         const config = await aresDb.getAresConfiguration(input.configId);
-        if (!config || config.userId !== ctx.user.id) {
+        if (!config || config.userId !== userId) {
           throw new TRPCError({
             code: 'NOT_FOUND',
             message: 'Configuration not found',
