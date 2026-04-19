@@ -40,7 +40,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { Loader2 } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 
 interface AresConfigurationPanelProps {
   cardId: string;
@@ -58,7 +58,12 @@ export function AresConfigurationPanel({ cardId, cardName }: AresConfigurationPa
   const [confidenceThreshold, setConfidenceThreshold] = useState(40);
 
   // Queries
-  const { data: configurations, isLoading: isLoadingConfigs, refetch: refetchConfigs } = trpc.ares.getConfigurations.useQuery();
+  const {
+    data: configurations,
+    isLoading: isLoadingConfigs,
+    error: configsError,
+    refetch: refetchConfigs,
+  } = trpc.ares.getConfigurations.useQuery(undefined, { retry: false });
   
   const { data: selectedConfig } = trpc.ares.getConfiguration.useQuery(
     { configId: selectedConfigId || '' },
@@ -231,6 +236,40 @@ export function AresConfigurationPanel({ cardId, cardName }: AresConfigurationPa
     return (
       <div className="flex items-center justify-center p-8">
         <Loader2 className="w-6 h-6 animate-spin" />
+      </div>
+    );
+  }
+
+  if (configsError) {
+    const isTableMissing =
+      configsError.message?.toLowerCase().includes("doesn't exist") ||
+      configsError.message?.toLowerCase().includes('table') ||
+      configsError.message?.toLowerCase().includes('database') ||
+      configsError.message?.toLowerCase().includes('unknown table') ||
+      configsError.message?.toLowerCase().includes('no such table');
+
+    return (
+      <div className="flex flex-col items-center justify-center p-8 gap-4 text-center">
+        <AlertCircle className="w-10 h-10 text-destructive" />
+        <div>
+          <p className="font-semibold text-destructive">
+            {isTableMissing ? 'Database tables not found' : 'Failed to load ARES configurations'}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1 max-w-md">
+            {isTableMissing
+              ? 'The ARES database tables have not been created yet. Run the migration to set up the required tables.'
+              : configsError.message}
+          </p>
+          {isTableMissing && (
+            <code className="block mt-3 text-xs bg-muted px-3 py-2 rounded font-mono">
+              pnpm db:push
+            </code>
+          )}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetchConfigs()}>
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Retry
+        </Button>
       </div>
     );
   }
