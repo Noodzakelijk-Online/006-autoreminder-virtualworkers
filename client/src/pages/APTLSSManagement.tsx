@@ -1,13 +1,19 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -15,15 +21,15 @@ import {
   DialogTitle,
   DialogDescription,
   DialogFooter,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { toast } from 'sonner';
+} from "@/components/ui/select";
+import { toast } from "sonner";
 import {
   CheckCircle2,
   Loader2,
@@ -39,11 +45,11 @@ import {
   MessageSquare,
   X,
   AlertTriangle,
-} from 'lucide-react';
-import { GoalInterviewDialog } from '@/components/GoalInterviewDialog';
-import { AresConfigurationPanel } from '@/components/AresConfigurationPanel';
-import { Link } from 'wouter';
-import { useLoadingQueue } from '@/contexts/LoadingQueueContext';
+} from "lucide-react";
+import { GoalInterviewDialog } from "@/components/GoalInterviewDialog";
+import { AresConfigurationPanel } from "@/components/AresConfigurationPanel";
+import { Link } from "wouter";
+import { useLoadingQueue } from "@/contexts/LoadingQueueContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -83,13 +89,19 @@ interface GenerationProgress {
   failed: number;
   jobId?: string;
   current?: string;
-  status: 'idle' | 'submitting' | 'running' | 'completed' | 'completed_with_errors' | 'failed';
+  status:
+    | "idle"
+    | "submitting"
+    | "running"
+    | "completed"
+    | "completed_with_errors"
+    | "failed";
   completedAt?: string | null;
 }
 
 interface GenerationJobStatusResponse {
   jobId: string;
-  status: 'running' | 'completed' | 'completed_with_errors' | 'failed';
+  status: "running" | "completed" | "completed_with_errors" | "failed";
   progress: { total: number; completed: number; failed: number };
   completedAt?: string | null;
 }
@@ -102,7 +114,12 @@ interface AutoLoadProgress {
   skipped: number;
   failed: number;
   failedBoards: { id: string; name: string; workspaceName: string }[];
-  skippedCards: { cardId: string; cardName: string; boardName: string; reason: string }[];
+  skippedCards: {
+    cardId: string;
+    cardName: string;
+    boardName: string;
+    reason: string;
+  }[];
   currentBoard: string;
   cancelled?: boolean;
   startTime?: number;
@@ -111,8 +128,8 @@ interface AutoLoadProgress {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const HISTORY_REFRESH_MS = 5000;
-const CARDS_STORAGE_KEY = 'aptlss_loaded_cards';
-const WORKSPACE_SELECTION_KEY = 'aptlss_selected_workspaces';
+const CARDS_STORAGE_KEY = "aptlss_loaded_cards";
+const WORKSPACE_SELECTION_KEY = "aptlss_selected_workspaces";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -123,34 +140,33 @@ function formatTimeRemaining(seconds: number): string {
   return `${minutes}m ${secs}s`;
 }
 
-function getJobBadgeVariant(status: string): 'default' | 'secondary' | 'outline' | 'destructive' {
-  if (status === 'completed') return 'default';
-  if (status === 'running' || status === 'submitting') return 'secondary';
-  if (status === 'completed_with_errors') return 'outline';
-  return 'destructive';
+function getJobBadgeVariant(
+  status: string
+): "default" | "secondary" | "outline" | "destructive" {
+  if (status === "completed") return "default";
+  if (status === "running" || status === "submitting") return "secondary";
+  if (status === "completed_with_errors") return "outline";
+  return "destructive";
 }
 
 async function fetchBoardCards(boardId: string): Promise<any[]> {
   const response = await fetch(`/api/trello/boards/${boardId}/cards`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const data = await response.json();
-  if (!Array.isArray(data)) throw new Error('Invalid response format');
+  if (!Array.isArray(data)) throw new Error("Invalid response format");
   return data;
 }
 
-function mapRawCard(
-  raw: any,
-  boardName: string,
-): TrelloCard {
+function mapRawCard(raw: any, boardName: string): TrelloCard {
   return {
     id: raw.id,
     name: raw.name,
-    desc: raw.desc || '',
+    desc: raw.desc || "",
     idBoard: raw.idBoard,
     idList: raw.idList,
     boardName,
-    listName: raw.listName || '',
-    hasAPTLSS: raw.checklists?.some((cl: any) => cl.name === 'APTLSS') || false,
+    listName: raw.listName || "",
+    hasAPTLSS: raw.checklists?.some((cl: any) => cl.name === "APTLSS") || false,
     selected: false,
     due: raw.due,
     badges: raw.badges,
@@ -178,7 +194,7 @@ function WorkspaceSelectorDialog({
   onLoad,
   isLoading,
 }: WorkspaceSelectorDialogProps) {
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Focus search on open
@@ -187,8 +203,11 @@ function WorkspaceSelectorDialog({
   }, [open]);
 
   const filtered = useMemo(
-    () => workspaces.filter(w => w.name.toLowerCase().includes(search.toLowerCase())),
-    [workspaces, search],
+    () =>
+      workspaces.filter(w =>
+        w.name.toLowerCase().includes(search.toLowerCase())
+      ),
+    [workspaces, search]
   );
 
   const totalBoards = workspaces
@@ -219,7 +238,8 @@ function WorkspaceSelectorDialog({
         <DialogHeader>
           <DialogTitle>Select Workspaces to Load</DialogTitle>
           <DialogDescription>
-            Choose which workspaces to load cards from. Loading fewer workspaces is faster.
+            Choose which workspaces to load cards from. Loading fewer workspaces
+            is faster.
           </DialogDescription>
         </DialogHeader>
 
@@ -238,10 +258,10 @@ function WorkspaceSelectorDialog({
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={selectFiltered}>
               <CheckSquare className="h-3 w-3 mr-1" />
-              {search ? 'Select Filtered' : 'Select All'}
+              {search ? "Select Filtered" : "Select All"}
             </Button>
             <Button size="sm" variant="outline" onClick={clearFiltered}>
-              {search ? 'Clear Filtered' : 'Clear All'}
+              {search ? "Clear Filtered" : "Clear All"}
             </Button>
           </div>
 
@@ -262,8 +282,12 @@ function WorkspaceSelectorDialog({
                   />
                   <span className="flex-1 text-sm">{workspace.name}</span>
                   <span className="text-xs text-muted-foreground shrink-0">
-                    {workspace.boardCount} boards •{' '}
-                    {workspace.boards?.reduce((s, b: any) => s + (b.cardCount || 0), 0) || 0} cards
+                    {workspace.boardCount} boards •{" "}
+                    {workspace.boards?.reduce(
+                      (s, b: any) => s + (b.cardCount || 0),
+                      0
+                    ) || 0}{" "}
+                    cards
                   </span>
                 </label>
               ))
@@ -271,7 +295,8 @@ function WorkspaceSelectorDialog({
           </div>
 
           <p className="text-sm text-muted-foreground">
-            {selected.size} workspace{selected.size !== 1 ? 's' : ''} selected ({totalBoards} boards)
+            {selected.size} workspace{selected.size !== 1 ? "s" : ""} selected (
+            {totalBoards} boards)
             {search && (
               <span className="ml-2">
                 · Showing {filtered.length} of {workspaces.length}
@@ -301,7 +326,11 @@ interface AutoLoadProgressCardProps {
   onCancel: () => void;
   onRetryFailed: () => void;
   onDismiss: () => void;
-  onRetryBoard: (board: { id: string; name: string; workspaceName: string }) => void;
+  onRetryBoard: (board: {
+    id: string;
+    name: string;
+    workspaceName: string;
+  }) => void;
 }
 
 function AutoLoadProgressCard({
@@ -311,10 +340,12 @@ function AutoLoadProgressCard({
   onDismiss,
   onRetryBoard,
 }: AutoLoadProgressCardProps) {
-  const pct = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
+  const pct =
+    progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
 
   const estimatedRemaining = useMemo(() => {
-    if (!progress.isLoading || !progress.startTime || progress.current < 2) return null;
+    if (!progress.isLoading || !progress.startTime || progress.current < 2)
+      return null;
     const elapsed = (Date.now() - progress.startTime) / 1000;
     const avg = elapsed / progress.current;
     return formatTimeRemaining((progress.total - progress.current) * avg);
@@ -325,13 +356,15 @@ function AutoLoadProgressCard({
       <CardContent className="py-4 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {progress.isLoading && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
+            {progress.isLoading && (
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            )}
             <div>
               <p className="font-medium">
-                {progress.isLoading ? 'Loading cards…' : 'Loading complete'}
+                {progress.isLoading ? "Loading cards…" : "Loading complete"}
               </p>
               <p className="text-sm text-muted-foreground">
-                {progress.currentBoard || 'Preparing…'}
+                {progress.currentBoard || "Preparing…"}
               </p>
             </div>
           </div>
@@ -357,7 +390,9 @@ function AutoLoadProgressCard({
             {progress.failed > 0 && (
               <span className="text-red-600">✗ Failed: {progress.failed}</span>
             )}
-            {progress.cancelled && <span className="text-amber-600">⚠ Cancelled</span>}
+            {progress.cancelled && (
+              <span className="text-amber-600">⚠ Cancelled</span>
+            )}
           </div>
           <div className="flex gap-2">
             {progress.isLoading && (
@@ -381,7 +416,9 @@ function AutoLoadProgressCard({
 
         {!progress.isLoading && progress.skippedCards.length > 0 && (
           <div className="border-t pt-3">
-            <p className="text-sm font-medium text-blue-600 mb-2">Skipped Cards ({progress.skippedCards.length}):</p>
+            <p className="text-sm font-medium text-blue-600 mb-2">
+              Skipped Cards ({progress.skippedCards.length}):
+            </p>
             <div className="max-h-40 overflow-y-auto space-y-1">
               {progress.skippedCards.map(card => (
                 <div
@@ -390,9 +427,15 @@ function AutoLoadProgressCard({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
-                      <p className="font-medium text-blue-700 dark:text-blue-300 truncate">{card.cardName}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{card.boardName}</p>
-                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Reason: {card.reason}</p>
+                      <p className="font-medium text-blue-700 dark:text-blue-300 truncate">
+                        {card.cardName}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {card.boardName}
+                      </p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                        Reason: {card.reason}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -403,7 +446,9 @@ function AutoLoadProgressCard({
 
         {!progress.isLoading && progress.failedBoards.length > 0 && (
           <div className="border-t pt-3">
-            <p className="text-sm font-medium text-red-600 mb-2">Failed Boards:</p>
+            <p className="text-sm font-medium text-red-600 mb-2">
+              Failed Boards:
+            </p>
             <div className="max-h-32 overflow-y-auto space-y-1">
               {progress.failedBoards.map(board => (
                 <div
@@ -441,7 +486,7 @@ interface CardRowProps {
 
 function CardRow({ card, onToggle, onInterview }: CardRowProps) {
   return (
-    <Card className={card.selected ? 'border-primary' : ''}>
+    <Card className={card.selected ? "border-primary" : ""}>
       <CardContent className="py-4">
         <div className="flex items-start gap-4">
           <Checkbox
@@ -473,7 +518,7 @@ function CardRow({ card, onToggle, onInterview }: CardRowProps) {
               )}
             </div>
             <p className="text-sm text-muted-foreground line-clamp-2">
-              {card.desc || 'No description'}
+              {card.desc || "No description"}
             </p>
             <div className="flex gap-2 mt-2 flex-wrap">
               {card.boardName && (
@@ -508,49 +553,50 @@ function CardRow({ card, onToggle, onInterview }: CardRowProps) {
   );
 }
 
-//  Main Component 
+//  Main Component
 
 export default function APTLSSManagement() {
   const { addOperation, updateOperation } = useLoadingQueue();
 
-  //  Data state 
+  //  Data state
   const [workspaces, setWorkspaces] = useState<TrelloWorkspace[]>([]);
   const [boards, setBoards] = useState<TrelloBoard[]>([]);
   const [cards, setCards] = useState<TrelloCard[]>([]);
 
-  //  UI / filter state 
+  //  UI / filter state
   const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterBoard, setFilterBoard] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterBoard, setFilterBoard] = useState<string>("all");
 
-  //  Generation progress 
+  //  Generation progress
   const [progress, setProgress] = useState<GenerationProgress>({
     total: 0,
     completed: 0,
     failed: 0,
-    status: 'idle',
+    status: "idle",
   });
 
-  //  History 
+  //  History
   const [history, setHistory] = useState<any[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobDetails, setJobDetails] = useState<any>(null);
 
-  //  Settings 
+  //  Settings
   const [settings, setSettings] = useState({
     skipExisting: true,
     validateBeforeGenerate: true,
     autoReminder: false,
     batchSize: 10,
-    scheduledTime: '',
+    scheduledTime: "",
     scheduledJobs: [] as any[],
   });
 
-  //  Auto-load 
-  const [autoLoadProgress, setAutoLoadProgress] = useState<AutoLoadProgress | null>(null);
+  //  Auto-load
+  const [autoLoadProgress, setAutoLoadProgress] =
+    useState<AutoLoadProgress | null>(null);
   const cancelLoadRef = useRef(false);
 
-  //  Workspace load progress 
+  //  Workspace load progress
   const [wsLoadProgress, setWsLoadProgress] = useState<{
     isLoading: boolean;
     loaded: number;
@@ -561,20 +607,22 @@ export default function APTLSSManagement() {
     currentWorkspace: string;
   } | null>(null);
 
-  //  Workspace selector dialog 
+  //  Workspace selector dialog
   const [showWorkspaceSelector, setShowWorkspaceSelector] = useState(false);
-  const [selectedWorkspacesForLoad, setSelectedWorkspacesForLoad] = useState<Set<string>>(new Set());
+  const [selectedWorkspacesForLoad, setSelectedWorkspacesForLoad] = useState<
+    Set<string>
+  >(new Set());
 
-  //  Goal interview 
+  //  Goal interview
   const [interviewCardId, setInterviewCardId] = useState<string | null>(null);
-  const [interviewCardName, setInterviewCardName] = useState<string>('');
+  const [interviewCardName, setInterviewCardName] = useState<string>("");
   const [clarifiedGoal, setClarifiedGoal] = useState<any | null>(null);
   const [clarifiedCardId, setClarifiedCardId] = useState<string | null>(null);
 
-  //  Clear-cache confirmation 
+  //  Clear-cache confirmation
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
-  //  Derived / memoised 
+  //  Derived / memoised
   const filteredCards = useMemo(() => {
     const seen = new Set<string>();
     return cards.filter(card => {
@@ -584,23 +632,31 @@ export default function APTLSSManagement() {
         !searchTerm ||
         card.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         card.desc.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesBoard = filterBoard === 'all' || card.idBoard === filterBoard;
+      const matchesBoard =
+        filterBoard === "all" || card.idBoard === filterBoard;
       return matchesSearch && matchesBoard;
     });
   }, [cards, searchTerm, filterBoard]);
 
-  const selectedCount = useMemo(() => cards.filter(c => c.selected).length, [cards]);
-  const progressPercent = progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;
-  const activeJob = history.find((job: any) => job.id === progress.jobId) ?? null;
+  const selectedCount = useMemo(
+    () => cards.filter(c => c.selected).length,
+    [cards]
+  );
+  const progressPercent =
+    progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;
+  const activeJob =
+    history.find((job: any) => job.id === progress.jobId) ?? null;
 
   // Unique boards for the filter dropdown
   const boardOptions = useMemo(() => {
     const map = new Map<string, string>();
-    cards.forEach(c => { if (c.idBoard && c.boardName) map.set(c.idBoard, c.boardName); });
+    cards.forEach(c => {
+      if (c.idBoard && c.boardName) map.set(c.idBoard, c.boardName);
+    });
     return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
   }, [cards]);
 
-  //  Persistence 
+  //  Persistence
   // Load from localStorage on mount
   useEffect(() => {
     const savedCards = localStorage.getItem(CARDS_STORAGE_KEY);
@@ -620,7 +676,8 @@ export default function APTLSSManagement() {
     if (savedWs) {
       try {
         const parsed = JSON.parse(savedWs);
-        if (Array.isArray(parsed)) setSelectedWorkspacesForLoad(new Set(parsed));
+        if (Array.isArray(parsed))
+          setSelectedWorkspacesForLoad(new Set(parsed));
       } catch {
         localStorage.removeItem(WORKSPACE_SELECTION_KEY);
       }
@@ -635,16 +692,21 @@ export default function APTLSSManagement() {
     saveCardsTimer.current = setTimeout(() => {
       localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify(cards));
     }, 500);
-    return () => { if (saveCardsTimer.current) clearTimeout(saveCardsTimer.current); };
+    return () => {
+      if (saveCardsTimer.current) clearTimeout(saveCardsTimer.current);
+    };
   }, [cards]);
 
   useEffect(() => {
     if (selectedWorkspacesForLoad.size > 0) {
-      localStorage.setItem(WORKSPACE_SELECTION_KEY, JSON.stringify(Array.from(selectedWorkspacesForLoad)));
+      localStorage.setItem(
+        WORKSPACE_SELECTION_KEY,
+        JSON.stringify(Array.from(selectedWorkspacesForLoad))
+      );
     }
   }, [selectedWorkspacesForLoad]);
 
-  //  Initial data load 
+  //  Initial data load
   useEffect(() => {
     void loadWorkspaces();
     void loadBoards();
@@ -654,35 +716,46 @@ export default function APTLSSManagement() {
 
   // Auto-load all cards when workspaces are loaded
   useEffect(() => {
-    if (workspaces.length > 0 && cards.length === 0 && autoLoadProgress === null) {
+    if (
+      workspaces.length > 0 &&
+      cards.length === 0 &&
+      autoLoadProgress === null
+    ) {
       void autoLoadAllCards(false);
     }
   }, [workspaces.length, cards.length, autoLoadProgress]);
 
-  //  History auto-refresh 
+  //  History auto-refresh
   useEffect(() => {
-    const hasActive = history.some((j: any) => j.status === 'running');
+    const hasActive = history.some((j: any) => j.status === "running");
     if (!hasActive) return;
     const id = window.setInterval(() => void loadHistory(), HISTORY_REFRESH_MS);
     return () => window.clearInterval(id);
   }, [history]);
 
-  //  Job details auto-refresh 
+  //  Job details auto-refresh
   useEffect(() => {
     if (!selectedJobId) return;
-    const id = window.setInterval(() => void toggleJobDetails(selectedJobId, true), HISTORY_REFRESH_MS);
+    const id = window.setInterval(
+      () => void toggleJobDetails(selectedJobId, true),
+      HISTORY_REFRESH_MS
+    );
     return () => window.clearInterval(id);
   }, [selectedJobId]);
 
-  //  Generation status polling 
+  //  Generation status polling
   useEffect(() => {
-    if (!progress.jobId || (progress.status !== 'running' && progress.status !== 'submitting')) return;
+    if (
+      !progress.jobId ||
+      (progress.status !== "running" && progress.status !== "submitting")
+    )
+      return;
 
     const poll = async () => {
       try {
         const res = await fetch(`/api/aptlss/status/${progress.jobId}`);
         if (!res.ok) return;
-        const data = await res.json() as GenerationJobStatusResponse;
+        const data = (await res.json()) as GenerationJobStatusResponse;
         setProgress(prev => ({
           ...prev,
           total: data.progress.total,
@@ -691,9 +764,9 @@ export default function APTLSSManagement() {
           status: data.status,
           completedAt: data.completedAt ?? null,
         }));
-        if (data.status !== 'running') await loadHistory();
+        if (data.status !== "running") await loadHistory();
       } catch (err) {
-        console.error('Failed to poll generation status:', err);
+        console.error("Failed to poll generation status:", err);
       }
     };
 
@@ -702,7 +775,7 @@ export default function APTLSSManagement() {
     return () => window.clearInterval(id);
   }, [progress.jobId, progress.status]);
 
-  //  API helpers 
+  //  API helpers
   const loadWorkspaces = async () => {
     setLoading(true);
     setWsLoadProgress({
@@ -712,23 +785,28 @@ export default function APTLSSManagement() {
       totalBoards: 0,
       totalCards: 0,
       failed: 0,
-      currentWorkspace: 'Fetching workspace list…',
+      currentWorkspace: "Fetching workspace list…",
     });
     try {
-      const res = await fetch('/api/trello/workspaces');
+      const res = await fetch("/api/trello/workspaces");
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        const err = await res.json().catch(() => ({ error: "Unknown error" }));
         throw new Error(err.error || res.statusText);
       }
       const data = await res.json();
-      if (!Array.isArray(data)) throw new Error(data.error || 'Invalid response format');
+      if (!Array.isArray(data))
+        throw new Error(data.error || "Invalid response format");
 
       // Update total so the progress bar has a denominator immediately
-      setWsLoadProgress(prev => prev ? {
-        ...prev,
-        total: data.length,
-        currentWorkspace: 'Processing workspaces…',
-      } : null);
+      setWsLoadProgress(prev =>
+        prev
+          ? {
+              ...prev,
+              total: data.length,
+              currentWorkspace: "Processing workspaces…",
+            }
+          : null
+      );
 
       const mapped: TrelloWorkspace[] = [];
       let failedCount = 0;
@@ -750,25 +828,38 @@ export default function APTLSSManagement() {
 
         if (i % 5 === 0 || i === data.length - 1) {
           const totalBoards = mapped.reduce((s, ws) => s + ws.boardCount, 0);
-          const totalCards = mapped.reduce((s, ws) => s + (ws.cardCount || 0), 0);
-          setWsLoadProgress(prev => prev ? {
-            ...prev,
-            currentWorkspace: w.name,
-            loaded: i + 1,
-            totalBoards,
-            totalCards,
-            failed: failedCount,
-          } : null);
+          const totalCards = mapped.reduce(
+            (s, ws) => s + (ws.cardCount || 0),
+            0
+          );
+          setWsLoadProgress(prev =>
+            prev
+              ? {
+                  ...prev,
+                  currentWorkspace: w.name,
+                  loaded: i + 1,
+                  totalBoards,
+                  totalCards,
+                  failed: failedCount,
+                }
+              : null
+          );
         }
       }
 
       setWorkspaces(mapped);
-      setWsLoadProgress(prev => prev ? { ...prev, isLoading: false, currentWorkspace: '' } : null);
+      setWsLoadProgress(prev =>
+        prev ? { ...prev, isLoading: false, currentWorkspace: "" } : null
+      );
       toast.success(`Loaded ${mapped.length} workspaces`);
     } catch (err) {
-      toast.error('Failed to load workspaces');
+      toast.error("Failed to load workspaces");
       console.error(err);
-      setWsLoadProgress(prev => prev ? { ...prev, isLoading: false, failed: (prev.failed ?? 0) + 1 } : null);
+      setWsLoadProgress(prev =>
+        prev
+          ? { ...prev, isLoading: false, failed: (prev.failed ?? 0) + 1 }
+          : null
+      );
     } finally {
       setLoading(false);
     }
@@ -776,7 +867,7 @@ export default function APTLSSManagement() {
 
   const loadBoards = async () => {
     try {
-      const res = await fetch('/api/trello/boards');
+      const res = await fetch("/api/trello/boards");
       if (!res.ok) return;
       const data = await res.json();
       if (!Array.isArray(data)) return;
@@ -786,32 +877,30 @@ export default function APTLSSManagement() {
           name: b.name,
           cardCount: b.cardCount || 0,
           selected: false,
-        })),
+        }))
       );
     } catch (err) {
-      console.error('Failed to load boards:', err);
+      console.error("Failed to load boards:", err);
     }
   };
 
   const loadHistory = async () => {
     try {
-      const res = await fetch('/api/aptlss/history');
+      const res = await fetch("/api/aptlss/history");
       const data = await res.json();
       setHistory(data);
     } catch (err) {
-      console.error('Error loading history:', err);
+      console.error("Error loading history:", err);
     }
   };
 
-
-
   const loadScheduledJobs = async () => {
     try {
-      const res = await fetch('/api/aptlss/scheduled');
+      const res = await fetch("/api/aptlss/scheduled");
       const jobs = await res.json();
       setSettings(prev => ({ ...prev, scheduledJobs: jobs }));
     } catch (err) {
-      console.error('Error loading scheduled jobs:', err);
+      console.error("Error loading scheduled jobs:", err);
     }
   };
 
@@ -827,38 +916,46 @@ export default function APTLSSManagement() {
       setJobDetails(data);
       if (!keepOpen) setSelectedJobId(jobId);
     } catch (err) {
-      console.error('Error loading job details:', err);
-      toast.error('Failed to load job details');
+      console.error("Error loading job details:", err);
+      toast.error("Failed to load job details");
     }
   };
 
   const retryFailedItems = async (jobId: string) => {
     try {
-      const res = await fetch(`/api/aptlss/history/${jobId}/retry`, { method: 'POST' });
+      const res = await fetch(`/api/aptlss/history/${jobId}/retry`, {
+        method: "POST",
+      });
       const result = await res.json();
       if (result.success) {
         toast.success(`Retrying ${result.itemsToRetry} failed items`);
         void loadHistory();
       } else {
-        toast.info(result.message || 'No items to retry');
+        toast.info(result.message || "No items to retry");
       }
     } catch (err) {
-      console.error('Error retrying items:', err);
-      toast.error('Failed to retry items');
+      console.error("Error retrying items:", err);
+      toast.error("Failed to retry items");
     }
   };
 
-  //  Card selection helpers 
+  //  Card selection helpers
   const toggleCardSelection = useCallback((cardId: string) => {
-    setCards(prev => prev.map(c => (c.id === cardId ? { ...c, selected: !c.selected } : c)));
+    setCards(prev =>
+      prev.map(c => (c.id === cardId ? { ...c, selected: !c.selected } : c))
+    );
   }, []);
 
-  const selectAllCards = () => setCards(prev => prev.map(c => ({ ...c, selected: true })));
-  const deselectAllCards = () => setCards(prev => prev.map(c => ({ ...c, selected: false })));
+  const selectAllCards = () =>
+    setCards(prev => prev.map(c => ({ ...c, selected: true })));
+  const deselectAllCards = () =>
+    setCards(prev => prev.map(c => ({ ...c, selected: false })));
 
   const selectAllFiltered = () => {
     const ids = new Set(filteredCards.map(c => c.id));
-    setCards(prev => prev.map(c => (ids.has(c.id) ? { ...c, selected: true } : c)));
+    setCards(prev =>
+      prev.map(c => (ids.has(c.id) ? { ...c, selected: true } : c))
+    );
     toast.success(`Selected ${ids.size} filtered cards`);
   };
 
@@ -872,27 +969,29 @@ export default function APTLSSManagement() {
     const now = new Date();
     const count = cards.filter(c => c.due && new Date(c.due) < now).length;
     setCards(prev =>
-      prev.map(c => ({ ...c, selected: !!(c.due && new Date(c.due) < now) })),
+      prev.map(c => ({ ...c, selected: !!(c.due && new Date(c.due) < now) }))
     );
     toast.success(`Selected ${count} overdue cards`);
   };
 
   const selectWithAttachments = () => {
     const count = cards.filter(c => (c.badges?.attachments ?? 0) > 0).length;
-    setCards(prev => prev.map(c => ({ ...c, selected: (c.badges?.attachments ?? 0) > 0 })));
+    setCards(prev =>
+      prev.map(c => ({ ...c, selected: (c.badges?.attachments ?? 0) > 0 }))
+    );
     toast.success(`Selected ${count} cards with attachments`);
   };
 
-  //  Cache 
+  //  Cache
   const clearCache = () => {
     localStorage.removeItem(CARDS_STORAGE_KEY);
     setCards([]);
     setAutoLoadProgress(null);
     setShowClearConfirm(false);
-    toast.success('Card cache cleared');
+    toast.success("Card cache cleared");
   };
 
-  //  Board card loading (shared) 
+  //  Board card loading (shared)
   const loadCardsForBoard = async (boardId: string, boardName: string) => {
     try {
       const raw = await fetchBoardCards(boardId);
@@ -903,15 +1002,15 @@ export default function APTLSSManagement() {
       });
       toast.success(`Loaded ${newCards.length} cards from ${boardName}`);
     } catch (err) {
-      console.error('Error loading cards:', err);
+      console.error("Error loading cards:", err);
       toast.error(`Failed to load cards from ${boardName}`);
     }
   };
 
-  //  Auto-load all cards 
+  //  Auto-load all cards
   const cancelAutoLoad = () => {
     cancelLoadRef.current = true;
-    toast.info('Cancelling load operation');
+    toast.info("Cancelling load operation");
   };
 
   const autoLoadAllCards = async (selectedOnly = false) => {
@@ -920,28 +1019,45 @@ export default function APTLSSManagement() {
         // Silent fail for auto-load, show error for manual load
         return;
       }
-      toast.error('No workspaces available. Please refresh first.');
+      toast.error("No workspaces available. Please refresh first.");
       return;
     }
 
     cancelLoadRef.current = false;
 
-    const allBoards: { id: string; name: string; workspaceName: string; cardCount: number }[] = [];
+    const allBoards: {
+      id: string;
+      name: string;
+      workspaceName: string;
+      cardCount: number;
+    }[] = [];
     for (const ws of workspaces) {
       if (selectedOnly && !selectedWorkspacesForLoad.has(ws.id)) continue;
       for (const board of ws.boards) {
-        allBoards.push({ id: board.id, name: board.name, workspaceName: ws.name, cardCount: board.cardCount || 0 });
+        allBoards.push({
+          id: board.id,
+          name: board.name,
+          workspaceName: ws.name,
+          cardCount: board.cardCount || 0,
+        });
       }
     }
 
     if (allBoards.length === 0) {
-      toast.error(selectedOnly ? 'No boards in selected workspaces.' : 'No boards found.');
+      toast.error(
+        selectedOnly ? "No boards in selected workspaces." : "No boards found."
+      );
       return;
     }
 
-     const existingIds = new Set(cards.map(c => c.id));
-    const skippedCardsList: { cardId: string; cardName: string; boardName: string; reason: string }[] = [];
-    
+    const existingIds = new Set(cards.map(c => c.id));
+    const skippedCardsList: {
+      cardId: string;
+      cardName: string;
+      boardName: string;
+      reason: string;
+    }[] = [];
+
     setAutoLoadProgress({
       isLoading: true,
       current: 0,
@@ -951,24 +1067,27 @@ export default function APTLSSManagement() {
       failed: 0,
       failedBoards: [],
       skippedCards: [],
-      currentBoard: '',
+      currentBoard: "",
       cancelled: false,
       startTime: Date.now(),
     });
 
-    const opId = 'aptlss-load-cards';
+    const opId = "aptlss-load-cards";
     addOperation(opId, `Loading cards from ${allBoards.length} boards`);
     setShowWorkspaceSelector(false);
 
     const newCards: TrelloCard[] = [];
-    const failedBoards: { id: string; name: string; workspaceName: string }[] = [];
+    const failedBoards: { id: string; name: string; workspaceName: string }[] =
+      [];
     let loadedCount = 0;
     let skippedCount = 0;
 
     for (let i = 0; i < allBoards.length; i++) {
       if (cancelLoadRef.current) {
-        setAutoLoadProgress(prev => prev ? { ...prev, isLoading: false, cancelled: true } : null);
-        updateOperation(opId, { status: 'cancelled' });
+        setAutoLoadProgress(prev =>
+          prev ? { ...prev, isLoading: false, cancelled: true } : null
+        );
+        updateOperation(opId, { status: "cancelled" });
         toast.warning(`Load cancelled. ${loadedCount} cards loaded.`);
         if (newCards.length > 0) setCards(prev => [...prev, ...newCards]);
         return;
@@ -976,14 +1095,25 @@ export default function APTLSSManagement() {
 
       const board = allBoards[i];
       setAutoLoadProgress(prev =>
-        prev ? { ...prev, current: i + 1, currentBoard: `${board.workspaceName} / ${board.name}` } : null,
+        prev
+          ? {
+              ...prev,
+              current: i + 1,
+              currentBoard: `${board.workspaceName} / ${board.name}`,
+            }
+          : null
       );
-      updateOperation(opId, { progress: Math.round(((i + 1) / allBoards.length) * 100), current: i + 1, total: allBoards.length });
+      updateOperation(opId, {
+        progress: Math.round(((i + 1) / allBoards.length) * 100),
+        current: i + 1,
+        total: allBoards.length,
+      });
 
       let success = false;
       for (let attempt = 0; attempt < 3 && !success; attempt++) {
         try {
-          if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+          if (attempt > 0)
+            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
           const raw = await fetchBoardCards(board.id);
           for (const card of raw) {
             if (existingIds.has(card.id)) {
@@ -992,7 +1122,7 @@ export default function APTLSSManagement() {
                 cardId: card.id,
                 cardName: card.name,
                 boardName: board.name,
-                reason: 'Already cached in your system',
+                reason: "Already cached in your system",
               });
             } else {
               newCards.push(mapRawCard(card, board.name));
@@ -1002,7 +1132,10 @@ export default function APTLSSManagement() {
           }
           success = true;
         } catch (err) {
-          console.error(`Attempt ${attempt + 1} failed for ${board.name}:`, err);
+          console.error(
+            `Attempt ${attempt + 1} failed for ${board.name}:`,
+            err
+          );
         }
       }
 
@@ -1010,20 +1143,31 @@ export default function APTLSSManagement() {
 
       setAutoLoadProgress(prev =>
         prev
-          ? { ...prev, loaded: loadedCount, skipped: skippedCount, failed: failedBoards.length, failedBoards: [...failedBoards], skippedCards: skippedCardsList }
-          : null,
+          ? {
+              ...prev,
+              loaded: loadedCount,
+              skipped: skippedCount,
+              failed: failedBoards.length,
+              failedBoards: [...failedBoards],
+              skippedCards: skippedCardsList,
+            }
+          : null
       );
     }
 
     if (newCards.length > 0) setCards(prev => [...prev, ...newCards]);
-    setAutoLoadProgress(prev => prev ? { ...prev, isLoading: false } : null);
+    setAutoLoadProgress(prev => (prev ? { ...prev, isLoading: false } : null));
 
     if (failedBoards.length === 0) {
-      updateOperation(opId, { status: 'completed', progress: 100 });
-      toast.success(`Loaded ${loadedCount} new cards (${skippedCount} already cached)`);
+      updateOperation(opId, { status: "completed", progress: 100 });
+      toast.success(
+        `Loaded ${loadedCount} new cards (${skippedCount} already cached)`
+      );
     } else {
-      updateOperation(opId, { status: 'failed', progress: 100 });
-      toast.warning(`Loaded ${loadedCount} cards, ${failedBoards.length} boards failed`);
+      updateOperation(opId, { status: "failed", progress: 100 });
+      toast.warning(
+        `Loaded ${loadedCount} cards, ${failedBoards.length} boards failed`
+      );
     }
   };
 
@@ -1033,23 +1177,41 @@ export default function APTLSSManagement() {
     const existingIds = new Set(cards.map(c => c.id));
 
     setAutoLoadProgress(prev =>
-      prev ? { ...prev, isLoading: true, current: 0, total: toRetry.length, failedBoards: [], failed: 0, skippedCards: [] } : null,
+      prev
+        ? {
+            ...prev,
+            isLoading: true,
+            current: 0,
+            total: toRetry.length,
+            failedBoards: [],
+            failed: 0,
+            skippedCards: [],
+          }
+        : null
     );
 
     const newCards: TrelloCard[] = [];
-    const stillFailed: { id: string; name: string; workspaceName: string }[] = [];
+    const stillFailed: { id: string; name: string; workspaceName: string }[] =
+      [];
     let loadedCount = 0;
 
     for (let i = 0; i < toRetry.length; i++) {
       const board = toRetry[i];
       setAutoLoadProgress(prev =>
-        prev ? { ...prev, current: i + 1, currentBoard: `${board.workspaceName} / ${board.name}` } : null,
+        prev
+          ? {
+              ...prev,
+              current: i + 1,
+              currentBoard: `${board.workspaceName} / ${board.name}`,
+            }
+          : null
       );
 
       let success = false;
       for (let attempt = 0; attempt < 3 && !success; attempt++) {
         try {
-          if (attempt > 0) await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+          if (attempt > 0)
+            await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
           const raw = await fetchBoardCards(board.id);
           for (const card of raw) {
             if (!existingIds.has(card.id)) {
@@ -1060,36 +1222,59 @@ export default function APTLSSManagement() {
           }
           success = true;
         } catch (err) {
-          console.error(`Retry attempt ${attempt + 1} failed for ${board.name}:`, err);
+          console.error(
+            `Retry attempt ${attempt + 1} failed for ${board.name}:`,
+            err
+          );
         }
       }
       if (!success) stillFailed.push(board);
 
       setAutoLoadProgress(prev =>
-        prev ? { ...prev, loaded: prev.loaded + loadedCount, failed: stillFailed.length, failedBoards: [...stillFailed] } : null,
+        prev
+          ? {
+              ...prev,
+              loaded: prev.loaded + loadedCount,
+              failed: stillFailed.length,
+              failedBoards: [...stillFailed],
+            }
+          : null
       );
     }
 
     if (newCards.length > 0) setCards(prev => [...prev, ...newCards]);
-    setAutoLoadProgress(prev => prev ? { ...prev, isLoading: false } : null);
+    setAutoLoadProgress(prev => (prev ? { ...prev, isLoading: false } : null));
 
     if (stillFailed.length === 0) {
       toast.success(`Retry successful! Loaded ${loadedCount} cards`);
     } else {
-      toast.warning(`Loaded ${loadedCount} cards, ${stillFailed.length} boards still failing`);
+      toast.warning(
+        `Loaded ${loadedCount} cards, ${stillFailed.length} boards still failing`
+      );
     }
   };
 
-  const retryOneBoard = async (board: { id: string; name: string; workspaceName: string }) => {
+  const retryOneBoard = async (board: {
+    id: string;
+    name: string;
+    workspaceName: string;
+  }) => {
     try {
       const raw = await fetchBoardCards(board.id);
       const existingIds = new Set(cards.map(c => c.id));
-      const newCards = raw.filter(c => !existingIds.has(c.id)).map(c => mapRawCard(c, board.name));
+      const newCards = raw
+        .filter(c => !existingIds.has(c.id))
+        .map(c => mapRawCard(c, board.name));
       if (newCards.length > 0) setCards(prev => [...prev, ...newCards]);
       setAutoLoadProgress(prev =>
         prev
-          ? { ...prev, failedBoards: prev.failedBoards.filter(b => b.id !== board.id), failed: prev.failed - 1, loaded: prev.loaded + newCards.length }
-          : null,
+          ? {
+              ...prev,
+              failedBoards: prev.failedBoards.filter(b => b.id !== board.id),
+              failed: prev.failed - 1,
+              loaded: prev.loaded + newCards.length,
+            }
+          : null
       );
       toast.success(`Loaded ${newCards.length} cards from ${board.name}`);
     } catch {
@@ -1097,22 +1282,27 @@ export default function APTLSSManagement() {
     }
   };
 
-  //  Generation 
+  //  Generation
   const startGeneration = async () => {
     const selected = cards.filter(c => c.selected);
     if (selected.length === 0) {
-      toast.error('Please select at least one card');
+      toast.error("Please select at least one card");
       return;
     }
 
-    setProgress({ total: selected.length, completed: 0, failed: 0, status: 'submitting' });
+    setProgress({
+      total: selected.length,
+      completed: 0,
+      failed: 0,
+      status: "submitting",
+    });
     toast.info(`Starting APTLSS generation for ${selected.length} cards`);
 
     try {
-      const res = await fetch('/api/aptlss/generate-batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+      const res = await fetch("/api/aptlss/generate-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           cardIds: selected.map(c => c.id),
           settings: { ...settings, clarifiedGoal },
@@ -1120,15 +1310,16 @@ export default function APTLSSManagement() {
       });
 
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to generate APTLSS');
+      if (!res.ok || !data.success)
+        throw new Error(data.error || "Failed to generate APTLSS");
 
       setProgress({
         jobId: data.jobId,
         total: data.total || selected.length,
         completed: data.completed || 0,
         failed: data.failed || 0,
-        current: '',
-        status: data.failed > 0 ? 'completed_with_errors' : 'completed',
+        current: "",
+        status: data.failed > 0 ? "completed_with_errors" : "completed",
         completedAt: new Date().toISOString(),
       });
 
@@ -1138,26 +1329,35 @@ export default function APTLSSManagement() {
       await toggleJobDetails(data.jobId, true);
 
       if (data.failed > 0) {
-        toast.warning(`APTLSS generation completed with ${data.failed} failure(s)`);
+        toast.warning(
+          `APTLSS generation completed with ${data.failed} failure(s)`
+        );
       } else {
-        toast.success(`Generated APTLSS for ${data.completed || selected.length} cards`);
+        toast.success(
+          `Generated APTLSS for ${data.completed || selected.length} cards`
+        );
       }
     } catch (err) {
-      console.error('Failed to generate APTLSS:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to generate APTLSS');
-      setProgress(prev => ({ ...prev, status: 'failed' }));
+      console.error("Failed to generate APTLSS:", err);
+      toast.error(
+        err instanceof Error ? err.message : "Failed to generate APTLSS"
+      );
+      setProgress(prev => ({ ...prev, status: "failed" }));
     }
   };
 
-  //  Render 
+  //  Render
   return (
     <div className="container mx-auto py-4 md:py-6 space-y-4 md:space-y-6">
-
       {/*  Header  */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-4">
         <div className="flex items-center gap-2 md:gap-4">
           <Link href="/">
-            <Button variant="ghost" size="icon" className="h-8 w-8 md:h-10 md:w-10">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 md:h-10 md:w-10"
+            >
               <ArrowLeft className="h-4 w-4 md:h-5 md:w-5" />
             </Button>
           </Link>
@@ -1168,28 +1368,47 @@ export default function APTLSSManagement() {
             </p>
           </div>
         </div>
-        <Button onClick={() => { void loadWorkspaces(); void loadBoards(); }} variant="outline" disabled={loading} className="w-full md:w-auto">
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+        <Button
+          onClick={() => {
+            void loadWorkspaces();
+            void loadBoards();
+          }}
+          variant="outline"
+          disabled={loading}
+          className="w-full md:w-auto"
+        >
+          <RefreshCw
+            className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
+          />
           Refresh
         </Button>
       </div>
 
       {/*  Generation Progress Card  */}
-      {progress.status !== 'idle' && (
+      {progress.status !== "idle" && (
         <Card>
           <CardHeader>
             <CardTitle className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-lg md:text-xl">
               <span>Generation Progress</span>
               <div className="flex items-center gap-2">
                 <Badge variant={getJobBadgeVariant(progress.status)}>
-                  {progress.status.replace(/_/g, ' ')}
+                  {progress.status.replace(/_/g, " ")}
                 </Badge>
-                {(progress.status === 'completed' || progress.status === 'completed_with_errors' || progress.status === 'failed') && (
+                {(progress.status === "completed" ||
+                  progress.status === "completed_with_errors" ||
+                  progress.status === "failed") && (
                   <Button
                     size="icon"
                     variant="ghost"
                     className="h-6 w-6"
-                    onClick={() => setProgress({ total: 0, completed: 0, failed: 0, status: 'idle' })}
+                    onClick={() =>
+                      setProgress({
+                        total: 0,
+                        completed: 0,
+                        failed: 0,
+                        status: "idle",
+                      })
+                    }
                     title="Dismiss"
                   >
                     <X className="h-4 w-4" />
@@ -1198,34 +1417,41 @@ export default function APTLSSManagement() {
               </div>
             </CardTitle>
             <CardDescription className="text-xs md:text-sm">
-              {progress.jobId ? `Job ${progress.jobId}` : 'Submitting generation request'}
+              {progress.jobId
+                ? `Job ${progress.jobId}`
+                : "Submitting generation request"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Progress value={progressPercent} className="h-2" />
             <div className="flex justify-between text-sm">
-              <span>Completed: {progress.completed}/{progress.total}</span>
+              <span>
+                Completed: {progress.completed}/{progress.total}
+              </span>
               <span>Failed: {progress.failed}</span>
               <span>{Math.round(progressPercent)}%</span>
             </div>
-            {progress.status === 'submitting' && (
+            {progress.status === "submitting" && (
               <p className="text-sm text-muted-foreground">
-                The server is creating the batch job and will respond with the final result when processing finishes.
+                The server is creating the batch job and will respond with the
+                final result when processing finishes.
               </p>
             )}
-            {progress.status === 'running' && (
+            {progress.status === "running" && (
               <p className="text-sm text-muted-foreground">
                 Polling server for live job status
               </p>
             )}
-            {progress.status === 'completed_with_errors' && (
+            {progress.status === "completed_with_errors" && (
               <p className="text-sm text-amber-700">
-                Batch finished with partial failures. Review the History tab to retry failed cards.
+                Batch finished with partial failures. Review the History tab to
+                retry failed cards.
               </p>
             )}
-            {progress.status === 'failed' && (
+            {progress.status === "failed" && (
               <p className="text-sm text-red-700">
-                Request failed before the batch completed. Check the History tab for partial records.
+                Request failed before the batch completed. Check the History tab
+                for partial records.
               </p>
             )}
             {progress.completedAt && (
@@ -1234,7 +1460,11 @@ export default function APTLSSManagement() {
               </p>
             )}
             {activeJob?.failedCards > 0 && (
-              <Button variant="outline" size="sm" onClick={() => retryFailedItems(activeJob.id)}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => retryFailedItems(activeJob.id)}
+              >
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Retry {activeJob.failedCards} Failed Items
               </Button>
@@ -1252,7 +1482,9 @@ export default function APTLSSManagement() {
               <TabsTrigger value="cards">
                 Cards
                 {cards.length > 0 && (
-                  <Badge variant="secondary" className="ml-2 text-xs">{cards.length}</Badge>
+                  <Badge variant="secondary" className="ml-2 text-xs">
+                    {cards.length}
+                  </Badge>
                 )}
               </TabsTrigger>
               <TabsTrigger value="history">History</TabsTrigger>
@@ -1260,10 +1492,8 @@ export default function APTLSSManagement() {
             </TabsList>
           </CardHeader>
           <CardContent>
-
             {/*  Workspaces Tab  */}
             <TabsContent value="workspaces" className="space-y-4">
-
               {/* Workspace load progress */}
               {wsLoadProgress && (
                 <Card className="bg-primary/5 border-primary/20">
@@ -1275,7 +1505,9 @@ export default function APTLSSManagement() {
                         )}
                         <div>
                           <p className="font-medium">
-                            {wsLoadProgress.isLoading ? 'Loading workspaces…' : 'Workspaces loaded'}
+                            {wsLoadProgress.isLoading
+                              ? "Loading workspaces…"
+                              : "Workspaces loaded"}
                           </p>
                           {wsLoadProgress.currentWorkspace ? (
                             <p className="text-sm text-muted-foreground truncate max-w-xs">
@@ -1283,7 +1515,7 @@ export default function APTLSSManagement() {
                             </p>
                           ) : (
                             <p className="text-sm text-muted-foreground">
-                              {wsLoadProgress.isLoading ? 'Preparing…' : 'Done'}
+                              {wsLoadProgress.isLoading ? "Preparing…" : "Done"}
                             </p>
                           )}
                         </div>
@@ -1291,11 +1523,18 @@ export default function APTLSSManagement() {
                       <div className="text-right text-sm">
                         <p className="font-medium">
                           {wsLoadProgress.loaded}
-                          {wsLoadProgress.total > 0 ? ` / ${wsLoadProgress.total}` : ''} workspaces
+                          {wsLoadProgress.total > 0
+                            ? ` / ${wsLoadProgress.total}`
+                            : ""}{" "}
+                          workspaces
                         </p>
                         {wsLoadProgress.total > 0 && (
                           <p className="text-muted-foreground">
-                            {Math.round((wsLoadProgress.loaded / wsLoadProgress.total) * 100)}%
+                            {Math.round(
+                              (wsLoadProgress.loaded / wsLoadProgress.total) *
+                                100
+                            )}
+                            %
                           </p>
                         )}
                       </div>
@@ -1303,22 +1542,36 @@ export default function APTLSSManagement() {
 
                     {wsLoadProgress.total > 0 && (
                       <Progress
-                        value={(wsLoadProgress.loaded / wsLoadProgress.total) * 100}
+                        value={
+                          (wsLoadProgress.loaded / wsLoadProgress.total) * 100
+                        }
                         className="h-2"
                       />
                     )}
 
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex gap-4">
-                        <span className="text-green-600">✓ Workspaces: {wsLoadProgress.loaded}</span>
-                        <span className="text-blue-600">⊞ Boards: {wsLoadProgress.totalBoards}</span>
-                        <span className="text-muted-foreground">🗂 Cards: {wsLoadProgress.totalCards.toLocaleString()}</span>
+                        <span className="text-green-600">
+                          ✓ Workspaces: {wsLoadProgress.loaded}
+                        </span>
+                        <span className="text-blue-600">
+                          ⊞ Boards: {wsLoadProgress.totalBoards}
+                        </span>
+                        <span className="text-muted-foreground">
+                          🗂 Cards: {wsLoadProgress.totalCards.toLocaleString()}
+                        </span>
                         {wsLoadProgress.failed > 0 && (
-                          <span className="text-red-600">✗ Failed: {wsLoadProgress.failed}</span>
+                          <span className="text-red-600">
+                            ✗ Failed: {wsLoadProgress.failed}
+                          </span>
                         )}
                       </div>
                       {!wsLoadProgress.isLoading && (
-                        <Button size="sm" variant="ghost" onClick={() => setWsLoadProgress(null)}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setWsLoadProgress(null)}
+                        >
                           Dismiss
                         </Button>
                       )}
@@ -1337,7 +1590,9 @@ export default function APTLSSManagement() {
                   onClick={() => void loadWorkspaces()}
                   disabled={wsLoadProgress?.isLoading}
                 >
-                  <RefreshCw className={`h-4 w-4 mr-2 ${wsLoadProgress?.isLoading ? 'animate-spin' : ''}`} />
+                  <RefreshCw
+                    className={`h-4 w-4 mr-2 ${wsLoadProgress?.isLoading ? "animate-spin" : ""}`}
+                  />
                   Load Workspaces
                 </Button>
               </div>
@@ -1349,16 +1604,23 @@ export default function APTLSSManagement() {
                       No workspaces loaded. Click Refresh to load.
                     </CardContent>
                   </Card>
-                ) : workspaces.length === 0 && wsLoadProgress?.isLoading ? null : (
+                ) : workspaces.length === 0 &&
+                  wsLoadProgress?.isLoading ? null : (
                   workspaces.map(workspace => (
                     <Card key={workspace.id}>
                       <CardHeader>
                         <div className="flex items-center justify-between flex-wrap gap-2">
                           <div>
-                            <CardTitle className="text-lg">{workspace.name}</CardTitle>
+                            <CardTitle className="text-lg">
+                              {workspace.name}
+                            </CardTitle>
                             <CardDescription>
-                              {workspace.boardCount} boards {' '}
-                              {workspace.boards?.reduce((s, b: any) => s + (b.cardCount || 0), 0) || 0} total cards
+                              {workspace.boardCount} boards{" "}
+                              {workspace.boards?.reduce(
+                                (s, b: any) => s + (b.cardCount || 0),
+                                0
+                              ) || 0}{" "}
+                              total cards
                             </CardDescription>
                           </div>
                           <Button
@@ -1369,8 +1631,14 @@ export default function APTLSSManagement() {
                               const boardsToLoad = workspace.boards;
                               if (boardsToLoad.length === 0) return;
                               Promise.all(
-                                boardsToLoad.map(b => loadCardsForBoard(b.id, b.name))
-                              ).then(() => toast.success(`Loaded all boards from ${workspace.name}`));
+                                boardsToLoad.map(b =>
+                                  loadCardsForBoard(b.id, b.name)
+                                )
+                              ).then(() =>
+                                toast.success(
+                                  `Loaded all boards from ${workspace.name}`
+                                )
+                              );
                             }}
                             disabled={loading}
                           >
@@ -1382,7 +1650,9 @@ export default function APTLSSManagement() {
                       {workspace.boards && workspace.boards.length > 0 && (
                         <CardContent>
                           <div className="space-y-2">
-                            <p className="text-sm font-medium text-muted-foreground mb-2">Boards:</p>
+                            <p className="text-sm font-medium text-muted-foreground mb-2">
+                              Boards:
+                            </p>
                             <div className="grid gap-2">
                               {workspace.boards.map((board: any) => (
                                 <div
@@ -1391,12 +1661,16 @@ export default function APTLSSManagement() {
                                 >
                                   <div>
                                     <p className="font-medium">{board.name}</p>
-                                    <p className="text-xs text-muted-foreground">{board.cardCount || 0} cards</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {board.cardCount || 0} cards
+                                    </p>
                                   </div>
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={() => loadCardsForBoard(board.id, board.name)}
+                                    onClick={() =>
+                                      loadCardsForBoard(board.id, board.name)
+                                    }
                                   >
                                     Load Cards
                                   </Button>
@@ -1414,7 +1688,6 @@ export default function APTLSSManagement() {
 
             {/*  Cards Tab  */}
             <TabsContent value="cards" className="space-y-4">
-
               {/* Auto-load progress */}
               {autoLoadProgress && (
                 <AutoLoadProgressCard
@@ -1431,14 +1704,23 @@ export default function APTLSSManagement() {
                 <div className="flex items-center gap-2 px-3 py-2 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-md text-sm text-green-800 dark:text-green-300">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
                   <span>
-                    Goal clarified for <strong>{clarifiedCardId ? cards.find(c => c.id === clarifiedCardId)?.name ?? 'card' : 'card'}</strong>.
-                    This goal will be used for the next generation.
+                    Goal clarified for{" "}
+                    <strong>
+                      {clarifiedCardId
+                        ? (cards.find(c => c.id === clarifiedCardId)?.name ??
+                          "card")
+                        : "card"}
+                    </strong>
+                    . This goal will be used for the next generation.
                   </span>
                   <Button
                     size="icon"
                     variant="ghost"
                     className="h-5 w-5 ml-auto shrink-0"
-                    onClick={() => { setClarifiedGoal(null); setClarifiedCardId(null); }}
+                    onClick={() => {
+                      setClarifiedGoal(null);
+                      setClarifiedCardId(null);
+                    }}
                     title="Clear clarified goal"
                   >
                     <X className="h-3 w-3" />
@@ -1469,7 +1751,9 @@ export default function APTLSSManagement() {
                     onClick={() => setShowWorkspaceSelector(true)}
                     variant="outline"
                     size="sm"
-                    disabled={autoLoadProgress?.isLoading || workspaces.length === 0}
+                    disabled={
+                      autoLoadProgress?.isLoading || workspaces.length === 0
+                    }
                   >
                     <Filter className="h-4 w-4 mr-2" />
                     Select Workspaces
@@ -1478,14 +1762,16 @@ export default function APTLSSManagement() {
                     onClick={() => autoLoadAllCards(false)}
                     variant="default"
                     size="sm"
-                    disabled={autoLoadProgress?.isLoading || workspaces.length === 0}
+                    disabled={
+                      autoLoadProgress?.isLoading || workspaces.length === 0
+                    }
                   >
                     {autoLoadProgress?.isLoading ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
                       <Download className="h-4 w-4 mr-2" />
                     )}
-                    {autoLoadProgress?.isLoading ? 'Loading' : 'Load All Cards'}
+                    {autoLoadProgress?.isLoading ? "Loading" : "Load All Cards"}
                   </Button>
                 </div>
               </div>
@@ -1506,36 +1792,76 @@ export default function APTLSSManagement() {
                       </div>
                     </div>
                     {boardOptions.length > 0 && (
-                      <Select value={filterBoard} onValueChange={setFilterBoard}>
+                      <Select
+                        value={filterBoard}
+                        onValueChange={setFilterBoard}
+                      >
                         <SelectTrigger className="w-full md:w-48">
                           <SelectValue placeholder="Filter by board" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Boards</SelectItem>
                           {boardOptions.map(b => (
-                            <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                            <SelectItem key={b.id} value={b.id}>
+                              {b.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     )}
                   </div>
                   <div className="flex gap-2 flex-wrap mt-4">
-                    <Button onClick={selectAllCards} variant="outline" size="sm">Select All</Button>
-                    {(searchTerm || filterBoard !== 'all') && (
-                      <Button onClick={selectAllFiltered} variant="outline" size="sm">
+                    <Button
+                      onClick={selectAllCards}
+                      variant="outline"
+                      size="sm"
+                    >
+                      Select All
+                    </Button>
+                    {(searchTerm || filterBoard !== "all") && (
+                      <Button
+                        onClick={selectAllFiltered}
+                        variant="outline"
+                        size="sm"
+                      >
                         Select Filtered ({filteredCards.length})
                       </Button>
                     )}
-                    <Button onClick={deselectAllCards} variant="outline" size="sm">Deselect All</Button>
-                    <Button onClick={selectWithoutAPTLSS} variant="outline" size="sm">Without APTLSS</Button>
-                    <Button onClick={selectOverdue} variant="outline" size="sm">Overdue</Button>
-                    <Button onClick={selectWithAttachments} variant="outline" size="sm">With Attachments</Button>
                     <Button
-                      onClick={startGeneration}
-                      disabled={selectedCount === 0 || progress.status === 'running' || progress.status === 'submitting'}
+                      onClick={deselectAllCards}
+                      variant="outline"
                       size="sm"
                     >
-                      {progress.status === 'running' || progress.status === 'submitting' ? (
+                      Deselect All
+                    </Button>
+                    <Button
+                      onClick={selectWithoutAPTLSS}
+                      variant="outline"
+                      size="sm"
+                    >
+                      Without APTLSS
+                    </Button>
+                    <Button onClick={selectOverdue} variant="outline" size="sm">
+                      Overdue
+                    </Button>
+                    <Button
+                      onClick={selectWithAttachments}
+                      variant="outline"
+                      size="sm"
+                    >
+                      With Attachments
+                    </Button>
+                    <Button
+                      onClick={startGeneration}
+                      disabled={
+                        selectedCount === 0 ||
+                        progress.status === "running" ||
+                        progress.status === "submitting"
+                      }
+                      size="sm"
+                    >
+                      {progress.status === "running" ||
+                      progress.status === "submitting" ? (
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                       ) : (
                         <Play className="h-4 w-4 mr-2" />
@@ -1553,7 +1879,7 @@ export default function APTLSSManagement() {
                     <CardContent className="py-12 text-center text-muted-foreground">
                       {cards.length === 0
                         ? 'No cards loaded. Use "Load All Cards" or select workspaces above.'
-                        : 'No cards match the current filters.'}
+                        : "No cards match the current filters."}
                     </CardContent>
                   </Card>
                 ) : (
@@ -1578,7 +1904,11 @@ export default function APTLSSManagement() {
                 <p className="text-sm text-muted-foreground">
                   View past generation jobs and retry failed items
                 </p>
-                <Button variant="outline" size="sm" onClick={() => void loadHistory()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadHistory()}
+                >
                   <RefreshCw className="h-4 w-4 mr-2" />
                   Refresh
                 </Button>
@@ -1588,7 +1918,8 @@ export default function APTLSSManagement() {
                 {history.length === 0 ? (
                   <Card>
                     <CardContent className="py-8 text-center text-muted-foreground">
-                      No generation history yet. Start a batch generation to see results here.
+                      No generation history yet. Start a batch generation to see
+                      results here.
                     </CardContent>
                   </Card>
                 ) : (
@@ -1597,18 +1928,28 @@ export default function APTLSSManagement() {
                       <CardHeader>
                         <div className="flex items-center justify-between">
                           <div>
-                            <CardTitle className="text-base">Job {job.id}</CardTitle>
-                            <CardDescription>{new Date(job.createdAt).toLocaleString()}</CardDescription>
+                            <CardTitle className="text-base">
+                              Job {job.id}
+                            </CardTitle>
+                            <CardDescription>
+                              {new Date(job.createdAt).toLocaleString()}
+                            </CardDescription>
                           </div>
                           <Badge variant={getJobBadgeVariant(job.status)}>
-                            {job.status.replace(/_/g, ' ')}
+                            {job.status.replace(/_/g, " ")}
                           </Badge>
                         </div>
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
                           <Progress
-                            value={job.totalCards > 0 ? ((job.completedCards + job.failedCards) / job.totalCards) * 100 : 0}
+                            value={
+                              job.totalCards > 0
+                                ? ((job.completedCards + job.failedCards) /
+                                    job.totalCards) *
+                                  100
+                                : 0
+                            }
                             className="h-2"
                           />
                           <div className="grid grid-cols-3 gap-4 text-sm">
@@ -1618,27 +1959,38 @@ export default function APTLSSManagement() {
                             </div>
                             <div>
                               <p className="text-muted-foreground">Completed</p>
-                              <p className="font-medium text-green-600">{job.completedCards}</p>
+                              <p className="font-medium text-green-600">
+                                {job.completedCards}
+                              </p>
                             </div>
                             <div>
                               <p className="text-muted-foreground">Failed</p>
-                              <p className="font-medium text-red-600">{job.failedCards}</p>
+                              <p className="font-medium text-red-600">
+                                {job.failedCards}
+                              </p>
                             </div>
                           </div>
                           {job.completedAt && (
                             <p className="text-xs text-muted-foreground">
-                              Completed at {new Date(job.completedAt).toLocaleString()}
+                              Completed at{" "}
+                              {new Date(job.completedAt).toLocaleString()}
                             </p>
                           )}
                           {job.failedCards > 0 && (
-                            <Button variant="outline" size="sm" onClick={() => retryFailedItems(job.id)}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => retryFailedItems(job.id)}
+                            >
                               <RefreshCw className="h-4 w-4 mr-2" />
                               Retry {job.failedCards} Failed Items
                             </Button>
                           )}
                           {selectedJobId === job.id && jobDetails && (
                             <div className="mt-4 space-y-2">
-                              <p className="text-sm font-medium">Item Details:</p>
+                              <p className="text-sm font-medium">
+                                Item Details:
+                              </p>
                               <div className="max-h-[300px] overflow-y-auto space-y-2">
                                 {jobDetails.items.map((item: any) => (
                                   <div
@@ -1646,21 +1998,27 @@ export default function APTLSSManagement() {
                                     className="flex items-center justify-between p-3 border rounded text-sm"
                                   >
                                     <div className="flex-1">
-                                      <p className="font-medium">{item.cardName}</p>
+                                      <p className="font-medium">
+                                        {item.cardName}
+                                      </p>
                                       {item.boardName && (
-                                        <p className="text-xs text-muted-foreground">{item.boardName}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {item.boardName}
+                                        </p>
                                       )}
                                       {item.error && (
-                                        <p className="text-xs text-red-600 mt-1">Error: {item.error}</p>
+                                        <p className="text-xs text-red-600 mt-1">
+                                          Error: {item.error}
+                                        </p>
                                       )}
                                     </div>
                                     <Badge
                                       variant={
-                                        item.status === 'completed'
-                                          ? 'default'
-                                          : item.status === 'failed'
-                                          ? 'destructive'
-                                          : 'secondary'
+                                        item.status === "completed"
+                                          ? "default"
+                                          : item.status === "failed"
+                                            ? "destructive"
+                                            : "secondary"
                                       }
                                     >
                                       {item.status}
@@ -1670,8 +2028,12 @@ export default function APTLSSManagement() {
                               </div>
                             </div>
                           )}
-                          <Button variant="ghost" size="sm" onClick={() => toggleJobDetails(job.id)}>
-                            {selectedJobId === job.id ? 'Hide' : 'Show'} Details
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleJobDetails(job.id)}
+                          >
+                            {selectedJobId === job.id ? "Hide" : "Show"} Details
                           </Button>
                         </div>
                       </CardContent>
@@ -1685,8 +2047,24 @@ export default function APTLSSManagement() {
             <TabsContent value="settings" className="space-y-4">
               <Card>
                 <CardHeader>
+                  <CardTitle>ARES Configuration</CardTitle>
+                  <CardDescription>
+                    Manage Automated Requirement Evaluation System settings
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <AresConfigurationPanel
+                    cardId=""
+                    cardName="APTLSS Configuration"
+                  />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
                   <CardTitle>Generation Settings</CardTitle>
-                  <CardDescription>Configure how APTLSS checklists are generated</CardDescription>
+                  <CardDescription>
+                    Configure how APTLSS checklists are generated
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div className="flex items-center justify-between">
@@ -1698,7 +2076,12 @@ export default function APTLSSManagement() {
                     </div>
                     <Switch
                       checked={settings.skipExisting}
-                      onCheckedChange={checked => setSettings(prev => ({ ...prev, skipExisting: checked }))}
+                      onCheckedChange={checked =>
+                        setSettings(prev => ({
+                          ...prev,
+                          skipExisting: checked,
+                        }))
+                      }
                     />
                   </div>
                   <div className="flex items-center justify-between">
@@ -1710,7 +2093,12 @@ export default function APTLSSManagement() {
                     </div>
                     <Switch
                       checked={settings.validateBeforeGenerate}
-                      onCheckedChange={checked => setSettings(prev => ({ ...prev, validateBeforeGenerate: checked }))}
+                      onCheckedChange={checked =>
+                        setSettings(prev => ({
+                          ...prev,
+                          validateBeforeGenerate: checked,
+                        }))
+                      }
                     />
                   </div>
                   <div className="flex items-center justify-between">
@@ -1722,7 +2110,12 @@ export default function APTLSSManagement() {
                     </div>
                     <Switch
                       checked={settings.autoReminder}
-                      onCheckedChange={checked => setSettings(prev => ({ ...prev, autoReminder: checked }))}
+                      onCheckedChange={checked =>
+                        setSettings(prev => ({
+                          ...prev,
+                          autoReminder: checked,
+                        }))
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -1732,7 +2125,12 @@ export default function APTLSSManagement() {
                       min="1"
                       max="50"
                       value={settings.batchSize}
-                      onChange={e => setSettings(prev => ({ ...prev, batchSize: parseInt(e.target.value) || 10 }))}
+                      onChange={e =>
+                        setSettings(prev => ({
+                          ...prev,
+                          batchSize: parseInt(e.target.value) || 10,
+                        }))
+                      }
                     />
                     <p className="text-sm text-muted-foreground">
                       Number of cards to process simultaneously
@@ -1741,7 +2139,7 @@ export default function APTLSSManagement() {
                 </CardContent>
               </Card>
 
-              <Card>
+              {/* <Card>
                 <CardHeader>
                   <CardTitle>Schedule Generation</CardTitle>
                   <CardDescription>Schedule bulk APTLSS generation for off-hours</CardDescription>
@@ -1847,20 +2245,10 @@ export default function APTLSSManagement() {
                     </div>
                   </div>
                 </CardContent>
-              </Card>
+              </Card> */}
 
               {/* ARES Configuration */}
-              <Card>
-                <CardHeader>
-                  <CardTitle>ARES Configuration</CardTitle>
-                  <CardDescription>Manage Automated Requirement Evaluation System settings</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <AresConfigurationPanel cardId="" cardName="APTLSS Configuration" />
-                </CardContent>
-              </Card>
             </TabsContent>
-
           </CardContent>
         </Card>
       </Tabs>
@@ -1885,12 +2273,21 @@ export default function APTLSSManagement() {
               Clear Card Cache?
             </DialogTitle>
             <DialogDescription>
-              This will remove all {cards.length} loaded cards from the local cache. You will need to reload them from Trello. This action cannot be undone.
+              This will remove all {cards.length} loaded cards from the local
+              cache. You will need to reload them from Trello. This action
+              cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowClearConfirm(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={clearCache}>Clear Cache</Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowClearConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={clearCache}>
+              Clear Cache
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1901,13 +2298,15 @@ export default function APTLSSManagement() {
         onOpenChange={open => {
           if (!open) {
             setInterviewCardId(null);
-            setInterviewCardName('');
+            setInterviewCardName("");
           }
         }}
-        cardId={interviewCardId || ''}
+        cardId={interviewCardId || ""}
         cardName={interviewCardName}
         onComplete={finalGoal => {
-          toast.success('Goal clarified! It will be used for the next generation.');
+          toast.success(
+            "Goal clarified! It will be used for the next generation."
+          );
           setClarifiedGoal(finalGoal);
           setClarifiedCardId(interviewCardId);
         }}
