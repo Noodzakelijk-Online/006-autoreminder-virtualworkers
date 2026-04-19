@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -1359,3 +1359,70 @@ export type ExecutionPlanStep = typeof executionPlanSteps.$inferSelect;
 export type InsertExecutionPlanStep = typeof executionPlanSteps.$inferInsert;
 export type ExecutionPlanStatusHistoryRecord = typeof executionPlanStatusHistory.$inferSelect;
 export type InsertExecutionPlanStatusHistory = typeof executionPlanStatusHistory.$inferInsert;
+
+
+// ─── ARES Configuration Tables ────────────────────────────────────────────────
+// ARES = Automated Requirement Evaluation System
+// Manages validation rules, thresholds, and strictness levels for goal validation
+
+export const aresConfigurations = mysqlTable('ares_configurations', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  userId: int('userId').notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  description: text('description'),
+  strictnessLevel: mysqlEnum('strictnessLevel', ['lenient', 'moderate', 'strict']).default('moderate').notNull(),
+  confidenceThreshold: int('confidenceThreshold').default(40).notNull(), // Minimum confidence % required
+  enableVaguenessCheck: boolean('enableVaguenessCheck').default(true).notNull(),
+  enableMeasurabilityCheck: boolean('enableMeasurabilityCheck').default(true).notNull(),
+  enableTimelineCheck: boolean('enableTimelineCheck').default(true).notNull(),
+  enableResourceCheck: boolean('enableResourceCheck').default(false).notNull(),
+  enableDependencyCheck: boolean('enableDependencyCheck').default(false).notNull(),
+  isDefault: boolean('isDefault').default(false).notNull(),
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+export const aresValidationRules = mysqlTable('ares_validation_rules', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  configId: varchar('configId', { length: 64 }).notNull(),
+  ruleType: mysqlEnum('ruleType', [
+    'vagueness',
+    'measurability',
+    'timeline',
+    'resources',
+    'dependencies',
+    'clarity',
+    'specificity',
+    'actionability'
+  ]).notNull(),
+  ruleName: varchar('ruleName', { length: 255 }).notNull(),
+  description: text('description'),
+  severity: mysqlEnum('severity', ['info', 'warning', 'error']).default('warning').notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  threshold: int('threshold').default(50), // Percentage or score threshold
+  customLogic: text('customLogic'), // JSON string for custom validation logic
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+export const aresValidationHistory = mysqlTable('ares_validation_history', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  configId: varchar('configId', { length: 64 }).notNull(),
+  cardId: varchar('cardId', { length: 64 }).notNull(),
+  cardName: text('cardName').notNull(),
+  goalDefinition: text('goalDefinition'),
+  confidenceScore: int('confidenceScore').notNull(),
+  passed: boolean('passed').notNull(),
+  failedRules: text('failedRules'), // JSON array of failed rule IDs
+  warnings: text('warnings'), // JSON array of warnings
+  validationDetails: text('validationDetails'), // JSON object with detailed results
+  validatedAt: timestamp('validatedAt').defaultNow().notNull(),
+  validatedBy: int('validatedBy').notNull(),
+});
+
+export type AresConfiguration = typeof aresConfigurations.$inferSelect;
+export type InsertAresConfiguration = typeof aresConfigurations.$inferInsert;
+export type AresValidationRule = typeof aresValidationRules.$inferSelect;
+export type InsertAresValidationRule = typeof aresValidationRules.$inferInsert;
+export type AresValidationHistoryRecord = typeof aresValidationHistory.$inferSelect;
+export type InsertAresValidationHistory = typeof aresValidationHistory.$inferInsert;

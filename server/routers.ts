@@ -6,6 +6,7 @@ import { invalidateCache } from "./services/trello-cache";
 import { interviewRouter } from "./routes/interview";
 import { settingsRouter } from "./routes/settings";
 import { atisTaskSelectorRouter } from "./routes/atis-task-selector";
+import { aresRouter } from "./routers/ares";
 
 import { aggregateCardContext, formatContextForAI } from "./services/context-aggregator";
 import { websocketService } from "./services/websocket";
@@ -43,6 +44,7 @@ export const appRouter = router({
 
   interview: interviewRouter,
   settings: settingsRouter,
+  ares: aresRouter,
   atis: router({
     ...atisTaskSelectorRouter,
     startAnalysis: protectedProcedure

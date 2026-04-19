@@ -41,6 +41,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { GoalInterviewDialog } from '@/components/GoalInterviewDialog';
+import { AresConfigurationPanel } from '@/components/AresConfigurationPanel';
 import { Link } from 'wouter';
 import { useLoadingQueue } from '@/contexts/LoadingQueueContext';
 
@@ -1845,6 +1846,17 @@ export default function APTLSSManagement() {
                       )}
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* ARES Configuration */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>ARES Configuration</CardTitle>
+                  <CardDescription>Manage Automated Requirement Evaluation System settings</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <AresConfigurationPanel cardId="" cardName="APTLSS Configuration" />
                 </CardContent>
               </Card>
             </TabsContent>
