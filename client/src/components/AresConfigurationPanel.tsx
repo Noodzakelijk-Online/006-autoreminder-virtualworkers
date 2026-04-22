@@ -65,7 +65,7 @@ export function AresConfigurationPanel({ cardId, cardName }: AresConfigurationPa
     refetch: refetchConfigs,
   } = trpc.ares.getConfigurations.useQuery(undefined, { retry: false });
   
-  const { data: selectedConfig } = trpc.ares.getConfiguration.useQuery(
+  const { data: selectedConfig, refetch: refetchSelectedConfig } = trpc.ares.getConfiguration.useQuery(
     { configId: selectedConfigId || '' },
     { enabled: !!selectedConfigId }
   );
@@ -104,6 +104,7 @@ export function AresConfigurationPanel({ cardId, cardName }: AresConfigurationPa
       toast.success('Configuration updated successfully');
       refetchConfigs();
       refetchRules();
+      refetchSelectedConfig();
     },
     onError: (error) => {
       toast.error(`Failed to update configuration: ${error.message}`);
@@ -426,6 +427,7 @@ export function AresConfigurationPanel({ cardId, cardName }: AresConfigurationPa
                         <span className="text-sm">{label}</span>
                         <Switch
                           checked={selectedConfig[key as keyof typeof selectedConfig] as boolean}
+                          disabled={updateConfigMutation.isPending}
                           onCheckedChange={(checked) => {
                             updateConfigMutation.mutate({
                               configId: selectedConfig.id,
