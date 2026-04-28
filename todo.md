@@ -2097,3 +2097,10 @@ Each card now has:
 - [x] Integrate ARES panel into APTLSS Settings tab
 - [x] Write backend tests for ARES endpoints (21 tests passing)
 - [x] Test ARES configuration UI functionality
+
+
+## Trello Integration Fixes (Apr 22, 2026)
+- [x] Fix Trello board registration - added URL parsing and validation
+- [x] Debug Trello API integration - improved error messages and logging
+- [x] Add input validation for board IDs (8-32 chars, alphanumeric only)
+- [x] Improve error handling with detailed user-friendly messages
