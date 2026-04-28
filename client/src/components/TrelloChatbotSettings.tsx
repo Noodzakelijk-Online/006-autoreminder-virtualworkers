@@ -163,13 +163,17 @@ export default function TrelloChatbotSettings() {
         setModelId('');
         setDescription('');
         loadWebhooks();
+        toast.success('Webhook registered successfully');
       } else {
-        const error = await response.json();
-        console.error('[TrelloChatbotSettings] Webhook registration failed:', error);
+        const errorData = await response.json();
+        const errorMessage = errorData?.error || errorData?.message || 'Failed to register webhook';
+        console.error('[TrelloChatbotSettings] Webhook registration failed:', errorMessage);
+        toast.error(errorMessage);
       }
     } catch (error) {
-      console.error('Error registering webhook:', error);
-      toast.error('Failed to register webhook');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to register webhook';
+      console.error('Error registering webhook:', errorMessage);
+      toast.error(errorMessage);
     } finally {
       setRegistering(false);
     }

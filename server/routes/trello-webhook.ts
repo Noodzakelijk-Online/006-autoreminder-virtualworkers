@@ -8,6 +8,14 @@ const router = Router();
 const TRELLO_API_BASE = 'https://api.trello.com/1';
 
 /**
+ * GET /api/trello-webhook
+ * Health check endpoint for Trello webhook validation
+ */
+router.get('/', (req: any, res: Response) => {
+  res.status(200).json({ status: 'ok', message: 'Webhook endpoint is ready' });
+});
+
+/**
  * POST /api/trello-webhook/register
  * Register a webhook for a Trello board/workspace
  */
