@@ -60,8 +60,14 @@ export function BulkBoardSelector({ onRegister, isRegistering = false }: BulkBoa
     const newSelected = new Set(selectedBoardIds);
     if (newSelected.has(boardId)) {
       newSelected.delete(boardId);
+      setError(null);
     } else {
+      if (newSelected.size >= 50) {
+        setError('Maximum 50 boards can be selected at once. Please register in batches.');
+        return;
+      }
       newSelected.add(boardId);
+      setError(null);
     }
     setSelectedBoardIds(newSelected);
     setSelectAll(newSelected.size === filteredBoards.length && filteredBoards.length > 0);
@@ -72,10 +78,17 @@ export function BulkBoardSelector({ onRegister, isRegistering = false }: BulkBoa
     if (selectAll) {
       setSelectedBoardIds(new Set());
       setSelectAll(false);
+      setError(null);
     } else {
       const allIds = new Set(filteredBoards.map(b => b.id));
+      if (allIds.size > 50) {
+        setError(`Only 50 boards can be selected at once. You have ${filteredBoards.length} boards. Please select up to 50 and register in batches.`);
+        setSelectAll(false);
+        return;
+      }
       setSelectedBoardIds(allIds);
       setSelectAll(true);
+      setError(null);
     }
   };
 
@@ -185,6 +198,18 @@ export function BulkBoardSelector({ onRegister, isRegistering = false }: BulkBoa
         {!loading && boards.length === 0 && !error && (
           <div className="text-center py-8 text-gray-500">
             <p className="text-sm">No boards available</p>
+          </div>
+        )}
+
+        {/* Selection Count */}
+        {selectedBoardIds.size > 0 && (
+          <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-md">
+            <span className="text-sm font-medium text-blue-900">
+              {selectedBoardIds.size} board{selectedBoardIds.size !== 1 ? 's' : ''} selected
+            </span>
+            {selectedBoardIds.size >= 45 && (
+              <span className="text-xs text-blue-700">Approaching limit (50 max)</span>
+            )}
           </div>
         )}
 
