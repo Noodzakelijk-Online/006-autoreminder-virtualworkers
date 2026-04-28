@@ -1,34 +1,28 @@
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { toast } from 'sonner';
-import { TrelloIntegrationSettings } from './TrelloIntegrationSettings';
-import {
-  Bot,
-  Webhook,
-  Settings as SettingsIcon,
-  BarChart3,
-  CheckCircle,
-  Loader2,
-  RefreshCw,
-  Trash2,
-  AlertCircle,
-  Tag,
-} from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CheckCircle, AlertCircle, Trash2, BarChart3 } from 'lucide-react';
 
-interface WebhookItem {
-  id: string;
-  description: string;
-  idModel: string;
-  callbackURL: string;
-  active: boolean;
+interface WebhookStatus {
+  callbackUrl: string;
+  publicUrl: string;
+  isConfigured: boolean;
+  isReachable: boolean;
+  recommendation: string;
 }
 
-interface AnalyticsStats {
+interface Webhook {
+  id: string;
+  trelloWebhookId: string;
+  modelId: string;
+  isActive: number;
+  createdAt?: string;
+}
+
+interface Analytics {
   totalConversations: number;
   totalCommands: Record<string, number>;
   avgResponseTimeMs: number;
@@ -41,50 +35,35 @@ interface AnalyticsStats {
   topCommands: Array<{ command: string; count: number }>;
 }
 
-interface WebhookStatus {
-  callbackUrl: string | null;
-  publicUrl: string | null;
-  isConfigured: boolean;
-  isReachable: boolean;
-  recommendation: string;
-}
+const retryFetch = async (url: string, retries: number = 2, delay: number = 500) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return response;
+      if (i < retries - 1) await new Promise(r => setTimeout(r, delay));
+    } catch (error) {
+      if (i < retries - 1) await new Promise(r => setTimeout(r, delay));
+      else throw error;
+    }
+  }
+  throw new Error('Max retries exceeded');
+};
 
-export function TrelloChatbotSettings() {
-  const [activeTab, setActiveTab] = useState('setup');
-  const [webhooks, setWebhooks] = useState<WebhookItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [registering, setRegistering] = useState(false);
+export default function TrelloChatbotSettings() {
+  const toast = {
+    error: (msg: string) => console.error(msg),
+    success: (msg: string) => console.log(msg),
+  };
   const [modelId, setModelId] = useState('');
   const [description, setDescription] = useState('');
-  const [analytics, setAnalytics] = useState<AnalyticsStats | null>(null);
-  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [webhookStatus, setWebhookStatus] = useState<WebhookStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
 
-  const callbackUrl =
-    typeof window !== 'undefined' ? `${window.location.origin}/api/trello-webhook` : '';
-
-  // Retry logic with exponential backoff
-  const retryFetch = async (url: string, maxRetries = 2, delay = 500) => {
-    let lastError: any;
-    for (let i = 0; i <= maxRetries; i++) {
-      try {
-        const response = await fetch(url);
-        if (response.ok || response.status !== 503) {
-          return response;
-        }
-        lastError = new Error(`HTTP ${response.status}`);
-        if (i < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, delay * Math.pow(2, i)));
-        }
-      } catch (error) {
-        lastError = error;
-        if (i < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, delay * Math.pow(2, i)));
-        }
-      }
-    }
-    throw lastError;
-  };
+  const callbackUrl = `${window.location.origin}/api/trello-webhook`;
 
   useEffect(() => {
     loadWebhookStatus();
@@ -163,16 +142,28 @@ export function TrelloChatbotSettings() {
     }
 
     // Extract board ID from Trello URL if full URL is provided
-    let boardId = modelId;
-    if (modelId.includes('trello.com')) {
+    let boardId = modelId.trim();
+    if (boardId.includes('trello.com')) {
       // Extract ID from URL like https://trello.com/b/ckEuBpNz/board-name
-      const match = modelId.match(/\/b\/([a-zA-Z0-9]+)/);
+      const match = boardId.match(/\/b\/([a-zA-Z0-9]+)/);
       if (match && match[1]) {
         boardId = match[1];
       } else {
         toast.error('Invalid Trello URL. Please use format: https://trello.com/b/BOARD_ID/board-name');
         return;
       }
+    }
+
+    // Validate board ID format (Trello IDs are typically 24 characters or similar)
+    if (boardId.length < 8 || boardId.length > 32) {
+      toast.error('Invalid board ID. Trello board IDs are typically 24-32 characters long.');
+      return;
+    }
+
+    // Check if board ID contains only valid characters
+    if (!/^[a-zA-Z0-9]+$/.test(boardId)) {
+      toast.error('Invalid board ID. Board IDs can only contain letters and numbers.');
+      return;
     }
 
     setRegistering(true);
@@ -194,7 +185,7 @@ export function TrelloChatbotSettings() {
         loadWebhooks();
       } else {
         const error = await response.json();
-        toast.error(error.error || 'Failed to register webhook');
+        toast.error(error.error || error.details || 'Failed to register webhook');
       }
     } catch (error) {
       console.error('Error registering webhook:', error);
@@ -205,8 +196,6 @@ export function TrelloChatbotSettings() {
   };
 
   const deleteWebhook = async (webhookId: string) => {
-    if (!window.confirm('Are you sure you want to delete this webhook?')) return;
-
     try {
       const response = await fetch(`/api/trello-webhook/${webhookId}`, {
         method: 'DELETE',
@@ -225,215 +214,156 @@ export function TrelloChatbotSettings() {
   };
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Bot className="h-5 w-5" />
-          Trello Chatbot Configuration
-        </CardTitle>
-        <CardDescription>Manage webhooks and monitor analytics</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="flex w-full justify-between">
-            <TabsTrigger value="setup" className="flex items-center gap-2">
-              <SettingsIcon className="h-4 w-4" />
-              <span className="hidden sm:inline">Setup</span>
-            </TabsTrigger>
-            <TabsTrigger value="labels" className="flex items-center gap-2">
-              <Tag className="h-4 w-4" />
-              <span className="hidden sm:inline">Labels</span>
-            </TabsTrigger>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
+              T
+            </div>
+            Trello Chatbot Configuration
+          </CardTitle>
+          <CardDescription>Manage webhooks and monitor analytics</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="setup" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="setup">Setup</TabsTrigger>
+              <TabsTrigger value="labels">Labels</TabsTrigger>
+              <TabsTrigger value="analytics">Analytics</TabsTrigger>
+            </TabsList>
 
-            <TabsTrigger value="analytics" className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Analytics</span>
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Setup Tab */}
-          <TabsContent value="setup" className="space-y-4 mt-4">
-            <div className="space-y-4">
-              {webhooks && webhooks.length > 0 && (
-                <div className="flex items-center gap-2 p-2 rounded-lg text-sm bg-green-50 border border-green-200 text-green-800">
-                  <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
-                  <span className="font-medium">Webhook Configured ({webhooks.length})</span>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="modelId">Trello Board/Workspace ID *</Label>
-                  <Input
-                    id="modelId"
-                    placeholder="e.g., 5f1a2b3c4d5e6f7g8h9i0j"
-                    value={modelId}
-                    onChange={(e) => setModelId(e.target.value)}
-                    className="mt-1"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Find this in your Trello board URL: trello.com/b/{'{id}'}
-                  </p>
-                </div>
-
-                <div>
-                  <Label htmlFor="description">Description (optional)</Label>
-                  <Input
-                    id="description"
-                    placeholder="e.g., Main workspace chatbot"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
-
-                <Button
-                  onClick={registerWebhook}
-                  disabled={registering || !modelId}
-                  className="w-full"
-                >
-                  {registering ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Registering...
-                    </>
-                  ) : (
-                    'Register Webhook'
-                  )}
-                </Button>
-              </div>
-
-              {/* Registered Webhooks List */}
-              <div className="space-y-3 pt-4 border-t">
-                <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <Webhook className="h-4 w-4" />
-                  Registered Webhooks
-                </h3>
-                {loading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            {/* Setup Tab */}
+            <TabsContent value="setup" className="space-y-4 mt-4">
+              <div className="space-y-4">
+                {webhooks && webhooks.length > 0 && (
+                  <div className="flex items-center gap-2 p-2 rounded-lg text-sm bg-green-50 border border-green-200 text-green-800">
+                    <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+                    <span className="font-medium">Webhook Configured ({webhooks.length})</span>
                   </div>
-                ) : webhooks.length === 0 ? (
-                  <div className="text-center py-6 text-muted-foreground">
-                    <Webhook className="h-6 w-6 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">No webhooks registered yet</p>
+                )}
+
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor="modelId">Trello Board/Workspace ID *</Label>
+                    <Input
+                      id="modelId"
+                      placeholder="e.g., 5f1a2b3c4d5e6f7g8h9i0j"
+                      value={modelId}
+                      onChange={(e) => setModelId(e.target.value)}
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Find this in your Trello board URL: trello.com/b/{'{id}'}/board-name
+                    </p>
                   </div>
-                ) : (
-                  webhooks.map((webhook) => (
-                    <Card key={webhook.id}>
-                      <CardContent className="pt-4">
-                        <div className="space-y-3">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-semibold text-sm">{webhook.description}</h4>
-                                <Badge variant={webhook.active ? 'default' : 'secondary'}>
-                                  {webhook.active ? 'Active' : 'Inactive'}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                ID: {webhook.idModel}
-                              </p>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => deleteWebhook(webhook.id)}
-                              className="text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+
+                  <div>
+                    <Label htmlFor="description">Description (optional)</Label>
+                    <Input
+                      id="description"
+                      placeholder="e.g., Main workspace chatbot"
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <Button
+                    onClick={registerWebhook}
+                    disabled={registering}
+                    className="w-full"
+                  >
+                    {registering ? 'Registering...' : 'Register Webhook'}
+                  </Button>
+                </div>
+
+                {webhooks.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="font-semibold mb-3 flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4" />
+                      Registered Webhooks
+                    </h3>
+                    <div className="space-y-2">
+                      {webhooks.map((webhook) => (
+                        <div
+                          key={webhook.id}
+                          className="flex items-center justify-between p-3 border rounded-lg bg-gray-50"
+                        >
+                          <div>
+                            <p className="font-medium text-sm">{webhook.modelId}</p>
+                            <p className="text-xs text-gray-500">
+                              {webhook.isActive ? 'Active' : 'Inactive'}
+                            </p>
                           </div>
-                          <div className="bg-muted p-2 rounded text-xs font-mono break-all">
-                            {webhook.callbackURL}
-                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteWebhook(webhook.trelloWebhookId)}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-600" />
+                          </Button>
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
-            </div>
-          </TabsContent>
+            </TabsContent>
 
-          {/* Labels Tab */}
-          <TabsContent value="labels" className="space-y-4 mt-4">
-            <TrelloIntegrationSettings />
-          </TabsContent>
+            {/* Labels Tab */}
+            <TabsContent value="labels" className="space-y-4 mt-4">
+              <div className="p-4 border rounded-lg bg-gray-50">
+                <p className="text-sm text-gray-600">Label management coming soon</p>
+              </div>
+            </TabsContent>
 
-
-
-          {/* Analytics Tab */}
-          <TabsContent value="analytics" className="space-y-4 mt-4">
-            <div className="space-y-4">
+            {/* Analytics Tab */}
+            <TabsContent value="analytics" className="space-y-4 mt-4">
               {loadingAnalytics ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
+                <div className="p-4 text-center text-gray-500">Loading analytics...</div>
               ) : analytics ? (
-                <>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <Card>
-                      <CardContent className="pt-4">
-                        <div className="text-2xl font-bold">{analytics.totalConversations}</div>
-                        <p className="text-xs text-muted-foreground">Total Conversations</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="pt-4">
-                        <div className="text-2xl font-bold">{analytics.totalCheckins}</div>
-                        <p className="text-xs text-muted-foreground">Total Check-ins</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="pt-4">
-                        <div className="text-2xl font-bold">
-                          {(analytics.overallResponseRate * 100).toFixed(0)}%
-                        </div>
-                        <p className="text-xs text-muted-foreground">Response Rate</p>
-                      </CardContent>
-                    </Card>
-                    <Card>
-                      <CardContent className="pt-4">
-                        <div className="text-2xl font-bold">{analytics.avgResponseTimeMs}ms</div>
-                        <p className="text-xs text-muted-foreground">Avg Response Time</p>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  {analytics.topCommands.length > 0 && (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-base">Top Commands</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          {analytics.topCommands.map((cmd) => (
-                            <div key={cmd.command} className="flex justify-between items-center">
-                              <span className="text-sm font-mono">{cmd.command}</span>
-                              <Badge variant="secondary">{cmd.count}</Badge>
-                            </div>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  <Button onClick={loadAnalytics} variant="outline" className="w-full">
-                    <RefreshCw className="h-4 w-4 mr-2" />
-                    Refresh Analytics
-                  </Button>
-                </>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <BarChart3 className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No analytics data available yet</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Total Conversations</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{analytics.totalConversations}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Avg Response Time</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{analytics.avgResponseTimeMs}ms</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Active Cards</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{analytics.activeCards}</p>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm">Active Workers</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-2xl font-bold">{analytics.activeWorkers}</p>
+                    </CardContent>
+                  </Card>
                 </div>
+              ) : (
+                <div className="p-4 text-center text-gray-500">No analytics data available</div>
               )}
-            </div>
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

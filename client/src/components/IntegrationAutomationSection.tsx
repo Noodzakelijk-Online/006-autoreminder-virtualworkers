@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { TrelloChatbotSettings } from './TrelloChatbotSettings';
+import TrelloChatbotSettings from './TrelloChatbotSettings';
 import { NotificationSettings } from './NotificationSettings';
 import { AISettings } from './AISettings';
 
