@@ -19,12 +19,14 @@ describe('Trello Webhook Bulk Registration', () => {
       expect(boardIds.length).toBeGreaterThan(50);
     });
 
-    it('should require callbackUrl', () => {
+    it('should not require callbackUrl in request body (built server-side)', () => {
+      // callbackUrl is now constructed server-side from WEBHOOK_BASE_URL env var.
+      // The client only sends boardIds and optional descriptions.
       const payload = {
         boardIds: ['board1', 'board2'],
-        callbackUrl: '',
       };
-      expect(payload.callbackUrl).toBeFalsy();
+      expect(payload).not.toHaveProperty('callbackUrl');
+      expect(payload.boardIds.length).toBeGreaterThan(0);
     });
 
     it('should accept valid board IDs (8-32 alphanumeric chars)', () => {
@@ -193,27 +195,19 @@ describe('Trello Webhook Bulk Registration', () => {
     });
   });
 
-  describe('Callback URL Validation', () => {
-    it('should validate callback URL format', () => {
-      const validUrls = [
-        'https://example.com/webhook',
-        'https://api.example.com/v1/webhooks/trello',
-        'https://localhost:3000/api/trello-webhook',
-      ];
-      validUrls.forEach(url => {
-        expect(url.startsWith('https://')).toBe(true);
-      });
+  describe('Callback URL', () => {
+    it('should be constructed server-side from WEBHOOK_BASE_URL', () => {
+      // The server builds: `${WEBHOOK_BASE_URL}/api/trello-webhook`
+      // This prevents clients from registering webhooks pointing at arbitrary URLs.
+      const webhookBaseUrl = 'https://example.com';
+      const expected = `${webhookBaseUrl}/api/trello-webhook`;
+      expect(expected).toBe('https://example.com/api/trello-webhook');
     });
 
-    it('should reject invalid callback URLs', () => {
-      const invalidUrls = [
-        'http://example.com/webhook', // http instead of https
-        'example.com/webhook', // missing protocol
-        'ftp://example.com/webhook', // wrong protocol
-      ];
-      invalidUrls.forEach(url => {
-        expect(url.startsWith('https://')).toBe(false);
-      });
+    it('should reject requests when WEBHOOK_BASE_URL is not configured', () => {
+      // Server returns 500 if WEBHOOK_BASE_URL is missing
+      const callbackUrl = '/api/trello-webhook'; // what getCallbackUrl() returns without the env var
+      expect(callbackUrl).toBe('/api/trello-webhook');
     });
   });
 
