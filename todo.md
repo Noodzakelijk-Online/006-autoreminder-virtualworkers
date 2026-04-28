@@ -2115,3 +2115,12 @@ Each card now has:
 - [ ] Integrate Board Selector into TrelloChatbotSettings
 - [ ] Add loading and error states
 - [ ] Write tests for board fetching
+
+
+## Bulk Board Registration (Apr 28, 2026)
+- [x] Design bulk registration UI with checkboxes
+- [x] Create backend endpoint for bulk webhook registration
+- [x] Build BulkBoardSelector component with search and select-all
+- [x] Integrate into TrelloChatbotSettings Setup tab
+- [x] Add progress tracking with BulkRegistrationProgress component
+- [x] Write tests for bulk registration (28 tests passing)

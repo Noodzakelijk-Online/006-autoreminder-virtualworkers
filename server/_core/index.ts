@@ -21,6 +21,7 @@ import notificationPreferencesRoutes from "../routes/notification-preferences.js
 import notificationHistoryRoutes from "../routes/notification-history.js";
 import timeTrackingRoutes from "../routes/time-tracking.js";
 import trelloWebhookRoutes from "../routes/trello-webhook.js";
+import trelloWebhookBulkRoutes from "../routes/trello-webhook-bulk.js";
 import trelloConfigRoutes from "../routes/trello-config.js";
 import trelloBoardsRoutes from "../routes/trello-boards.js";
 import interviewEnhancedRoutes from "../routes/interview-enhanced.js";
@@ -115,6 +116,8 @@ async function startServer() {
   app.use("/api", timeTrackingRoutes);
   // Trello Webhook API (for chatbot)
   app.use("/api/trello-webhook", trelloWebhookRoutes);
+  // Trello Bulk Webhook API
+  app.use("/api/trello-webhook/bulk", trelloWebhookBulkRoutes);
   // Chatbot API (alias for trello-webhook)
   app.use("/api/chatbot", trelloWebhookRoutes);
   // Trello Configuration API

@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle, AlertCircle, Trash2, BarChart3 } from 'lucide-react';
 import { TrelloBoardSelector } from '@/components/TrelloBoardSelector';
+import { BulkBoardSelector } from '@/components/BulkBoardSelector';
 
 interface WebhookStatus {
   callbackUrl: string;
@@ -258,6 +259,33 @@ export default function TrelloChatbotSettings() {
                   >
                     {registering ? 'Registering...' : 'Register Webhook'}
                   </Button>
+                </div>
+
+                <div className="border-t pt-6 mt-6">
+                  <h3 className="font-semibold mb-3">Bulk Registration</h3>
+                  <BulkBoardSelector
+                    onRegister={async (selectedBoardIds) => {
+                      try {
+                        const response = await fetch('/api/trello-webhook/bulk', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            boardIds: selectedBoardIds,
+                            callbackUrl: webhookStatus?.callbackUrl,
+                          }),
+                        });
+                        if (!response.ok) throw new Error('Bulk registration failed');
+                        const result = await response.json();
+                        console.log('Bulk registration result:', result);
+                        await loadWebhooks();
+                        alert(`Successfully registered ${result.summary.successful} board(s)`);
+                      } catch (error) {
+                        console.error('Bulk registration error:', error);
+                        throw error;
+                      }
+                    }}
+                    isRegistering={registering}
+                  />
                 </div>
 
                 {webhooks.length > 0 && (
