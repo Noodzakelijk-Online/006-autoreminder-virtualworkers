@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle, AlertCircle, Trash2, BarChart3 } from 'lucide-react';
+import { TrelloBoardSelector } from '@/components/TrelloBoardSelector';
 
 interface WebhookStatus {
   callbackUrl: string;
@@ -137,34 +138,12 @@ export default function TrelloChatbotSettings() {
 
   const registerWebhook = async () => {
     if (!modelId) {
-      toast.error('Please enter a Model ID (board or workspace ID)');
+      toast.error('Please select a Trello board from the dropdown');
       return;
     }
 
-    // Extract board ID from Trello URL if full URL is provided
-    let boardId = modelId.trim();
-    if (boardId.includes('trello.com')) {
-      // Extract ID from URL like https://trello.com/b/ckEuBpNz/board-name
-      const match = boardId.match(/\/b\/([a-zA-Z0-9]+)/);
-      if (match && match[1]) {
-        boardId = match[1];
-      } else {
-        toast.error('Invalid Trello URL. Please use format: https://trello.com/b/BOARD_ID/board-name');
-        return;
-      }
-    }
-
-    // Validate board ID format (Trello IDs are typically 8-32 characters)
-    if (boardId.length < 8 || boardId.length > 32) {
-      toast.error('Invalid board ID. Trello board IDs are 8-32 characters long.');
-      return;
-    }
-
-    // Check if board ID contains only valid characters
-    if (!/^[a-zA-Z0-9]+$/.test(boardId)) {
-      toast.error('Invalid board ID. Board IDs can only contain letters and numbers.');
-      return;
-    }
+    // Board ID is already validated by the selector, use it directly
+    const boardId = modelId.trim();
 
     setRegistering(true);
     try {
@@ -173,19 +152,19 @@ export default function TrelloChatbotSettings() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           modelId: boardId,
-          description: description || 'VA Dashboard Chatbot',
+          description: description || 'Trello Chatbot',
           callbackUrl,
         }),
       });
 
       if (response.ok) {
-        toast.success('Webhook registered successfully!');
+        console.log('[TrelloChatbotSettings] Webhook registered successfully');
         setModelId('');
         setDescription('');
         loadWebhooks();
       } else {
         const error = await response.json();
-        toast.error(error.error || error.details || 'Failed to register webhook');
+        console.error('[TrelloChatbotSettings] Webhook registration failed:', error);
       }
     } catch (error) {
       console.error('Error registering webhook:', error);
@@ -245,16 +224,19 @@ export default function TrelloChatbotSettings() {
 
                 <div className="space-y-3">
                   <div>
-                    <Label htmlFor="modelId">Trello Board/Workspace ID *</Label>
-                    <Input
-                      id="modelId"
-                      placeholder="e.g., 5f1a2b3c4d5e6f7g8h9i0j"
+                    <Label htmlFor="modelId">Select Trello Board *</Label>
+                    <TrelloBoardSelector
                       value={modelId}
-                      onChange={(e) => setModelId(e.target.value)}
-                      className="mt-1"
+                      onSelect={(boardId, boardName) => {
+                        setModelId(boardId);
+                        if (!description) {
+                          setDescription(`Chatbot for ${boardName}`);
+                        }
+                      }}
+                      placeholder="Search and select a board..."
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Find this in your Trello board URL: trello.com/b/{'{id}'}/board-name
+                      Select a board from your Trello account. The list is automatically fetched.
                     </p>
                   </div>
 

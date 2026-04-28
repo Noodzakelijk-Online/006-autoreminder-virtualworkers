@@ -2107,3 +2107,11 @@ Each card now has:
 
 ## Bug Fixes (Apr 28, 2026)
 - [x] Fix "Webhook Configured" card to only show after successful registration
+
+
+## Trello Board Selector Dropdown (Apr 28, 2026)
+- [ ] Create backend endpoint to fetch user's Trello boards
+- [ ] Build searchable Board Selector component with shadcn/ui
+- [ ] Integrate Board Selector into TrelloChatbotSettings
+- [ ] Add loading and error states
+- [ ] Write tests for board fetching
