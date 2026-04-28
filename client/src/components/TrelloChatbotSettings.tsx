@@ -266,21 +266,28 @@ export default function TrelloChatbotSettings() {
                   <BulkBoardSelector
                     onRegister={async (selectedBoardIds) => {
                       try {
+                        if (!callbackUrl) {
+                          throw new Error('Callback URL not configured. Please refresh the page.');
+                        }
                         const response = await fetch('/api/trello-webhook/bulk', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
                             boardIds: selectedBoardIds,
-                            callbackUrl: webhookStatus?.callbackUrl,
+                            callbackUrl: callbackUrl,
                           }),
                         });
-                        if (!response.ok) throw new Error('Bulk registration failed');
+                        if (!response.ok) {
+                          const errorData = await response.json();
+                          throw new Error(errorData.error || 'Bulk registration failed');
+                        }
                         const result = await response.json();
                         console.log('Bulk registration result:', result);
                         await loadWebhooks();
                         alert(`Successfully registered ${result.summary.successful} board(s)`);
                       } catch (error) {
                         console.error('Bulk registration error:', error);
+                        alert(`Error: ${error instanceof Error ? error.message : 'Bulk registration failed'}`);
                         throw error;
                       }
                     }}
