@@ -154,9 +154,9 @@ export default function TrelloChatbotSettings() {
       }
     }
 
-    // Validate board ID format (Trello IDs are typically 24 characters or similar)
+    // Validate board ID format (Trello IDs are typically 8-32 characters)
     if (boardId.length < 8 || boardId.length > 32) {
-      toast.error('Invalid board ID. Trello board IDs are typically 24-32 characters long.');
+      toast.error('Invalid board ID. Trello board IDs are 8-32 characters long.');
       return;
     }
 

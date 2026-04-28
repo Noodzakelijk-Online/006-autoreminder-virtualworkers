@@ -68,9 +68,12 @@ router.post('/register', async (req: any, res: Response) => {
       let userMessage = 'Failed to register webhook with Trello';
       
       if (error.includes('invalid value for idModel')) {
-        userMessage = `Invalid board ID "${cleanModelId}" or you do not have permission to register webhooks on this board. Ensure the board ID is correct and you have admin/owner access.`;
+        userMessage = `Board ID "${cleanModelId}" is invalid or not found. Please verify:
+1. The board ID is correct (find it in your Trello board URL: trello.com/b/BOARD_ID/name)
+2. You have admin/owner access to the board
+3. Your Trello API credentials are valid and up-to-date`;
       } else if (error.includes('invalid token') || error.includes('unauthorized')) {
-        userMessage = 'Trello authentication failed. Please verify your TRELLO_API_KEY and TRELLO_TOKEN environment variables.';
+        userMessage = 'Trello authentication failed. Your API credentials may be invalid or expired. Please check your TRELLO_API_KEY and TRELLO_TOKEN.';
       } else if (error.includes('already exists')) {
         userMessage = 'A webhook for this board already exists. Delete the existing webhook first.';
       } else if (error.includes('model not found')) {
