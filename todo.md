@@ -2104,3 +2104,6 @@ Each card now has:
 - [x] Debug Trello API integration - improved error messages and logging
 - [x] Add input validation for board IDs (8-32 chars, alphanumeric only)
 - [x] Improve error handling with detailed user-friendly messages
+
+## Bug Fixes (Apr 28, 2026)
+- [x] Fix "Webhook Configured" card to only show after successful registration
