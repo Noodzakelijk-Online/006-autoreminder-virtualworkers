@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle, AlertCircle, Trash2, BarChart3 } from 'lucide-react';
+import { CheckCircle, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { TrelloBoardSelector } from '@/components/TrelloBoardSelector';
 import { BulkBoardSelector } from '@/components/BulkBoardSelector';
 
@@ -20,6 +21,7 @@ interface Webhook {
   id: string;
   trelloWebhookId: string;
   modelId: string;
+  description?: string;
   isActive: number;
   createdAt?: string;
 }
@@ -51,11 +53,26 @@ const retryFetch = async (url: string, retries: number = 2, delay: number = 500)
   throw new Error('Max retries exceeded');
 };
 
+/** Extract a human-readable board name from a webhook record.
+ *  The description field is stored as "VA Dashboard Webhook for <boardId>" or
+ *  "Chatbot for <boardName>" — we prefer the description when it looks like a
+ *  real name, otherwise fall back to the raw modelId. */
+function getBoardDisplayName(webhook: Webhook): string {
+  if (webhook.description) {
+    // Strip common prefixes added by the auto-register service
+    const cleaned = webhook.description
+      .replace(/^VA Dashboard (Chatbot|Webhook) (for |-\s*)/i, '')
+      .replace(/^Chatbot for /i, '')
+      .trim();
+    // Only use it if it doesn't look like a raw board ID (all hex, 24 chars)
+    if (cleaned && !/^[a-f0-9]{24}$/i.test(cleaned)) {
+      return cleaned;
+    }
+  }
+  return webhook.modelId;
+}
+
 export default function TrelloChatbotSettings() {
-  const toast = {
-    error: (msg: string) => console.error(msg),
-    success: (msg: string) => console.log(msg),
-  };
   const [modelId, setModelId] = useState('');
   const [description, setDescription] = useState('');
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
@@ -65,7 +82,11 @@ export default function TrelloChatbotSettings() {
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
 
-  const callbackUrl = `${window.location.origin}/api/trello-webhook`;
+  // Set of already-registered board IDs — passed to BulkBoardSelector for badges
+  const registeredBoardIds = useMemo(
+    () => new Set(webhooks.map(w => w.modelId)),
+    [webhooks]
+  );
 
   useEffect(() => {
     loadWebhookStatus();
@@ -143,9 +164,7 @@ export default function TrelloChatbotSettings() {
       return;
     }
 
-    // Board ID is already validated by the selector, use it directly
     const boardId = modelId.trim();
-
     setRegistering(true);
     try {
       const response = await fetch('/api/trello-webhook/register', {
@@ -154,15 +173,14 @@ export default function TrelloChatbotSettings() {
         body: JSON.stringify({
           modelId: boardId,
           description: description || 'Trello Chatbot',
-          callbackUrl,
+          // callbackUrl is now built server-side from WEBHOOK_BASE_URL
         }),
       });
 
       if (response.ok) {
-        console.log('[TrelloChatbotSettings] Webhook registered successfully');
         setModelId('');
         setDescription('');
-        loadWebhooks();
+        await loadWebhooks();
         toast.success('Webhook registered successfully');
       } else {
         const errorData = await response.json();
@@ -187,13 +205,62 @@ export default function TrelloChatbotSettings() {
 
       if (response.ok) {
         toast.success('Webhook deleted successfully');
-        loadWebhooks();
+        await loadWebhooks();
       } else {
         toast.error('Failed to delete webhook');
       }
     } catch (error) {
       console.error('Error deleting webhook:', error);
       toast.error('Failed to delete webhook');
+    }
+  };
+
+  /** Handler passed to BulkBoardSelector — returns results so the selector can
+   *  display them in BulkRegistrationProgress without needing a separate state here. */
+  const handleBulkRegister = async (
+    selectedBoardIds: string[],
+    boardNames: Record<string, string>
+  ) => {
+    setRegistering(true);
+    try {
+      const response = await fetch('/api/trello-webhook/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          boardIds: selectedBoardIds,
+          // callbackUrl is now built server-side from WEBHOOK_BASE_URL
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        const msg = errorData.error || 'Bulk registration failed';
+        toast.error(msg);
+        return selectedBoardIds.map(id => ({ boardId: id, success: false, error: msg }));
+      }
+
+      const result = await response.json();
+      console.log('[TrelloChatbotSettings] Bulk registration result:', result);
+
+      await loadWebhooks();
+
+      const { successful, failed } = result.summary;
+      if (failed === 0) {
+        toast.success(`All ${successful} board${successful !== 1 ? 's' : ''} registered successfully`);
+      } else if (successful === 0) {
+        toast.error(`Registration failed for all ${failed} board${failed !== 1 ? 's' : ''}`);
+      } else {
+        toast.warning(`${successful} registered, ${failed} failed — see results below`);
+      }
+
+      return result.results ?? [];
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Bulk registration failed';
+      console.error('[TrelloChatbotSettings] Bulk registration error:', error);
+      toast.error(msg);
+      return selectedBoardIds.map(id => ({ boardId: id, success: false, error: msg }));
+    } finally {
+      setRegistering(false);
     }
   };
 
@@ -220,13 +287,16 @@ export default function TrelloChatbotSettings() {
             {/* Setup Tab */}
             <TabsContent value="setup" className="space-y-4 mt-4">
               <div className="space-y-4">
-                {webhooks && webhooks.length > 0 && (
+                {webhooks.length > 0 && (
                   <div className="flex items-center gap-2 p-2 rounded-lg text-sm bg-green-50 border border-green-200 text-green-800">
                     <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
-                    <span className="font-medium">Webhook Configured ({webhooks.length})</span>
+                    <span className="font-medium">
+                      {webhooks.length} Webhook{webhooks.length !== 1 ? 's' : ''} Configured
+                    </span>
                   </div>
                 )}
 
+                {/* Single board registration */}
                 <div className="space-y-3">
                   <div>
                     <Label htmlFor="modelId">Select Trello Board *</Label>
@@ -265,40 +335,17 @@ export default function TrelloChatbotSettings() {
                   </Button>
                 </div>
 
+                {/* Bulk registration */}
                 <div className="border-t pt-6 mt-6">
                   <h3 className="font-semibold mb-3">Bulk Registration</h3>
                   <BulkBoardSelector
-                    onRegister={async (selectedBoardIds) => {
-                      try {
-                        if (!callbackUrl) {
-                          throw new Error('Callback URL not configured. Please refresh the page.');
-                        }
-                        const response = await fetch('/api/trello-webhook/bulk', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            boardIds: selectedBoardIds,
-                            callbackUrl: callbackUrl,
-                          }),
-                        });
-                        if (!response.ok) {
-                          const errorData = await response.json();
-                          throw new Error(errorData.error || 'Bulk registration failed');
-                        }
-                        const result = await response.json();
-                        console.log('Bulk registration result:', result);
-                        await loadWebhooks();
-                        alert(`Successfully registered ${result.summary.successful} board(s)`);
-                      } catch (error) {
-                        console.error('Bulk registration error:', error);
-                        alert(`Error: ${error instanceof Error ? error.message : 'Bulk registration failed'}`);
-                        throw error;
-                      }
-                    }}
+                    onRegister={handleBulkRegister}
                     isRegistering={registering}
+                    registeredBoardIds={registeredBoardIds}
                   />
                 </div>
 
+                {/* Registered webhooks list — shows board names, not raw IDs */}
                 {webhooks.length > 0 && (
                   <div className="mt-6">
                     <h3 className="font-semibold mb-3 flex items-center gap-2">
@@ -306,26 +353,38 @@ export default function TrelloChatbotSettings() {
                       Registered Webhooks
                     </h3>
                     <div className="space-y-2">
-                      {webhooks.map((webhook) => (
-                        <div
-                          key={webhook.id}
-                          className="flex items-center justify-between p-3 border rounded-lg bg-gray-50"
-                        >
-                          <div>
-                            <p className="font-medium text-sm">{webhook.modelId}</p>
-                            <p className="text-xs text-gray-500">
-                              {webhook.isActive ? 'Active' : 'Inactive'}
-                            </p>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => deleteWebhook(webhook.trelloWebhookId)}
+                      {webhooks.map((webhook) => {
+                        const displayName = getBoardDisplayName(webhook);
+                        const isNameDifferentFromId = displayName !== webhook.modelId;
+                        return (
+                          <div
+                            key={webhook.id}
+                            className="flex items-center justify-between p-3 border rounded-lg bg-gray-50"
                           >
-                            <Trash2 className="h-4 w-4 text-red-600" />
-                          </Button>
-                        </div>
-                      ))}
+                            <div className="min-w-0 flex-1">
+                              {/* Board name as primary label */}
+                              <p className="font-medium text-sm truncate">{displayName}</p>
+                              {/* Show raw board ID as secondary info when we have a real name */}
+                              {isNameDifferentFromId && (
+                                <p className="text-xs text-gray-400 font-mono truncate">
+                                  {webhook.modelId}
+                                </p>
+                              )}
+                              <p className="text-xs text-gray-500">
+                                {webhook.isActive ? 'Active' : 'Inactive'}
+                              </p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => deleteWebhook(webhook.trelloWebhookId)}
+                              className="ml-2 flex-shrink-0"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            </Button>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

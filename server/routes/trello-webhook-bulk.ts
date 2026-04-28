@@ -1,12 +1,20 @@
-import express, { Request, Response } from 'express';
-import axios from 'axios';
+import express, { Response } from 'express';
+import { getDb } from '../db';
+import { chatbotWebhooks } from '../../drizzle/schema';
+import { eq } from 'drizzle-orm';
 
 const router = express.Router();
+
+// Callback URL is always constructed server-side — never trusted from the client.
+// Fix #4: client-controlled callbackUrl removed from request body.
+const getCallbackUrl = () =>
+  `${process.env.WEBHOOK_BASE_URL || ''}/api/trello-webhook`;
+
+const TRELLO_API_BASE = 'https://api.trello.com/1';
 
 interface BulkRegistrationRequest {
   boardIds: string[];
   descriptions?: Record<string, string>;
-  callbackUrl: string;
 }
 
 interface BulkRegistrationResult {
@@ -28,66 +36,114 @@ interface BulkRegistrationResponse {
 
 /**
  * POST /api/trello-webhook/bulk
- * Register webhooks for multiple Trello boards in a single request
+ * Register webhooks for multiple Trello boards in a single request.
+ *
+ * Fix #1: Auth check added — matches every other route in the app.
+ * Fix #2: Results are persisted to chatbot_webhooks DB table.
+ * Fix #4: callbackUrl is constructed server-side, not accepted from client.
+ * Fix #5: Concurrency-limited to 10 parallel requests to avoid Trello rate limits.
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', async (req: any, res: Response) => {
+  // Fix #1 — auth guard
+  const user = req.user;
+  if (!user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
-    const { boardIds, descriptions, callbackUrl } = req.body as BulkRegistrationRequest;
+    const { boardIds, descriptions } = req.body as BulkRegistrationRequest;
 
     // Validate input
     if (!Array.isArray(boardIds) || boardIds.length === 0) {
-      return res.status(400).json({
-        error: 'boardIds must be a non-empty array',
-      });
+      return res.status(400).json({ error: 'boardIds must be a non-empty array' });
     }
 
     if (boardIds.length > 50) {
-      return res.status(400).json({
-        error: 'Maximum 50 boards can be registered at once',
+      return res.status(400).json({ error: 'Maximum 50 boards can be registered at once' });
+    }
+
+    // Fix #4 — build callbackUrl on the server
+    const callbackUrl = getCallbackUrl();
+    if (!callbackUrl || callbackUrl === '/api/trello-webhook') {
+      return res.status(500).json({
+        error: 'WEBHOOK_BASE_URL is not configured. Set it in your environment variables.',
       });
     }
 
-    if (!callbackUrl) {
-      return res.status(400).json({
-        error: 'callbackUrl is required',
-      });
-    }
-
-    // Get Trello credentials
     const apiKey = process.env.TRELLO_API_KEY;
     const token = process.env.TRELLO_TOKEN;
 
     if (!apiKey || !token) {
-      return res.status(500).json({
-        error: 'Trello API credentials not configured',
+      return res.status(500).json({ error: 'Trello API credentials not configured' });
+    }
+
+    // Fix #3 — check for already-registered boards before hitting Trello
+    const db = await getDb();
+    const existingModelIds = new Set<string>();
+    if (db) {
+      const existing = await db.query.chatbotWebhooks.findMany();
+      existing.forEach(w => existingModelIds.add(w.modelId));
+    }
+
+    // Fix #5 — concurrency-limited registration (10 at a time)
+    const registrationResults: BulkRegistrationResult[] = [];
+
+    const CONCURRENCY = 10;
+    for (let i = 0; i < boardIds.length; i += CONCURRENCY) {
+      const batch = boardIds.slice(i, i + CONCURRENCY);
+      const batchPromises = batch.map(boardId => {
+        // Fix #3 — skip boards that are already registered
+        if (existingModelIds.has(boardId)) {
+          return Promise.resolve<BulkRegistrationResult>({
+            boardId,
+            success: true,
+            webhookId: 'already-registered',
+            error: undefined,
+          });
+        }
+        return registerWebhookForBoard(
+          boardId,
+          descriptions?.[boardId] || 'VA Dashboard Chatbot',
+          callbackUrl,
+          apiKey,
+          token
+        );
+      });
+
+      const batchResults = await Promise.allSettled(batchPromises);
+      batchResults.forEach((result, idx) => {
+        if (result.status === 'fulfilled') {
+          registrationResults.push(result.value);
+        } else {
+          registrationResults.push({
+            boardId: batch[idx],
+            success: false,
+            error: result.reason?.message || 'Unknown error',
+          });
+        }
       });
     }
 
-    // Register webhooks for each board in parallel
-    const registrationPromises = boardIds.map(boardId =>
-      registerWebhookForBoard(
-        boardId,
-        descriptions?.[boardId] || 'VA Dashboard Chatbot',
-        callbackUrl,
-        apiKey,
-        token
-      )
-    );
-
-    const results = await Promise.allSettled(registrationPromises);
-
-    // Process results
-    const registrationResults: BulkRegistrationResult[] = results.map((result, index) => {
-      if (result.status === 'fulfilled') {
-        return result.value;
-      } else {
-        return {
-          boardId: boardIds[index],
-          success: false,
-          error: result.reason?.message || 'Unknown error',
-        };
+    // Fix #2 — persist successful registrations to the database
+    if (db) {
+      const toInsert = registrationResults.filter(
+        r => r.success && r.webhookId && r.webhookId !== 'already-registered'
+      );
+      for (const result of toInsert) {
+        await db
+          .insert(chatbotWebhooks)
+          .values({
+            trelloWebhookId: result.webhookId!,
+            modelId: result.boardId,
+            description: descriptions?.[result.boardId] || 'VA Dashboard Chatbot',
+            callbackUrl,
+            isActive: 1,
+          })
+          .catch((err: any) =>
+            console.error(`[TrelloWebhookBulk] DB insert error for ${result.boardId}:`, err)
+          );
       }
-    });
+    }
 
     const successful = registrationResults.filter(r => r.success).length;
     const failed = registrationResults.filter(r => !r.success).length;
@@ -113,7 +169,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 /**
- * Register a webhook for a single board
+ * Register a webhook for a single board with Trello.
  */
 async function registerWebhookForBoard(
   boardId: string,
@@ -127,82 +183,53 @@ async function registerWebhookForBoard(
     if (!boardId || boardId.length < 8 || boardId.length > 32) {
       throw new Error('Invalid board ID format');
     }
-
     if (!/^[a-zA-Z0-9]+$/.test(boardId)) {
       throw new Error('Board ID contains invalid characters');
     }
 
-    // Register webhook with Trello
-    const response = await axios.post(
-      `https://api.trello.com/1/webhooks`,
-      {
+    const response = await fetch(`${TRELLO_API_BASE}/webhooks?key=${apiKey}&token=${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         callbackURL: callbackUrl,
         idModel: boardId,
-        description: description,
-      },
-      {
-        params: {
-          key: apiKey,
-          token: token,
-        },
-      }
-    );
+        description,
+      }),
+    });
 
-    if (!response.data || !response.data.id) {
-      throw new Error('Invalid response from Trello API');
-    }
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage = `HTTP ${response.status}`;
 
-    return {
-      boardId,
-      success: true,
-      webhookId: response.data.id,
-    };
-  } catch (error) {
-    let errorMessage = 'Unknown error';
-
-    if (error instanceof Error) {
-      errorMessage = error.message;
-    } else if (axios.isAxiosError(error)) {
-      if (error.response?.status === 401) {
-        errorMessage = 'Authentication failed - check your Trello credentials';
-      } else if (error.response?.status === 404) {
+      if (response.status === 401 || errorText.includes('invalid token')) {
+        errorMessage = 'Authentication failed — check your Trello credentials';
+      } else if (response.status === 404 || errorText.includes('model not found')) {
         errorMessage = 'Board not found or you do not have permission';
-      } else if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
+      } else if (errorText.includes('already exists')) {
+        // Treat "already exists" as a success — webhook is in place
+        return { boardId, success: true, webhookId: 'pre-existing' };
+      } else if (errorText.includes('invalid value for idModel')) {
+        errorMessage = `Board ID "${boardId}" is invalid`;
       } else {
-        errorMessage = `HTTP ${error.response?.status}: ${error.message}`;
+        errorMessage = errorText || errorMessage;
       }
+
+      return { boardId, success: false, error: errorMessage };
     }
 
+    const data = await response.json();
+    if (!data?.id) {
+      throw new Error('Invalid response from Trello API — missing webhook ID');
+    }
+
+    return { boardId, success: true, webhookId: data.id };
+  } catch (error) {
     return {
       boardId,
       success: false,
-      error: errorMessage,
+      error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
 }
-
-/**
- * GET /api/trello-webhook/bulk/status
- * Get the status of bulk registration operations (for future use)
- */
-router.get('/status/:operationId', async (req: Request, res: Response) => {
-  try {
-    const { operationId } = req.params;
-
-    // TODO: Implement operation tracking in database
-    // For now, return a placeholder response
-
-    res.json({
-      operationId,
-      status: 'completed',
-      progress: 100,
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: 'Failed to get operation status',
-    });
-  }
-});
 
 export default router;
