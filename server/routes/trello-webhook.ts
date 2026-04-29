@@ -79,12 +79,9 @@ router.post('/register', async (req: any, res: Response) => {
     }
 
     // Fix #4 — build callbackUrl server-side, never from client body
-    const base =
-      process.env.WEBHOOK_BASE_URL ||
-      process.env.APP_URL ||
-      process.env.PUBLIC_URL ||
-      '';
-    const callbackUrl = `${base}/api/trello-webhook`;
+    // Use PUBLIC_URL (same as auto-register service) or WEBHOOK_BASE_URL for backwards compatibility
+    const baseUrl = process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL || '';
+    const callbackUrl = `${baseUrl}/api/trello-webhook`;
 
     // Fix #3 — duplicate detection: check DB before calling Trello
     const db = await getDb();
@@ -181,8 +178,9 @@ router.get('/list', async (req: any, res: Response) => {
           const raw = await response.json();
           // Filter to only webhooks pointing at our callback URL so we don't
           // show unrelated webhooks registered under the same token.
-          const ourBase = process.env.WEBHOOK_BASE_URL
-            ? `${process.env.WEBHOOK_BASE_URL}/api/trello-webhook`
+          const baseUrl = process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL;
+          const ourBase = baseUrl
+            ? `${baseUrl}/api/trello-webhook`
             : null;
           const filtered = ourBase
             ? raw.filter((w: any) => (w.callbackURL ?? '').startsWith(ourBase))
@@ -306,11 +304,7 @@ router.get('/status', async (req: any, res: Response) => {
     const user = req.user;
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const baseUrl =
-      process.env.WEBHOOK_BASE_URL ||
-      process.env.APP_URL ||
-      process.env.PUBLIC_URL ||
-      '';
+    const baseUrl = process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL || '';
     const callbackUrl = `${baseUrl}/api/trello-webhook`;
     const isConfigured = !!process.env.TRELLO_API_KEY && !!process.env.TRELLO_TOKEN;
 
@@ -319,7 +313,7 @@ router.get('/status', async (req: any, res: Response) => {
     let recommendation = '';
 
     if (!baseUrl) {
-      recommendation = 'Set WEBHOOK_BASE_URL in your environment to a publicly reachable URL.';
+      recommendation = 'Set PUBLIC_URL or WEBHOOK_BASE_URL in your environment to a publicly reachable URL.';
     } else {
       try {
         const probe = await fetch(callbackUrl, { method: 'HEAD', signal: AbortSignal.timeout(5000) });
@@ -328,7 +322,7 @@ router.get('/status', async (req: any, res: Response) => {
           ? 'Webhook endpoint is reachable and properly configured.'
           : `Endpoint returned ${probe.status}. Ensure the server is publicly accessible.`;
       } catch {
-        recommendation = 'Webhook endpoint is not reachable. Ensure WEBHOOK_BASE_URL points to a public URL.';
+        recommendation = 'Webhook endpoint is not reachable. Ensure PUBLIC_URL or WEBHOOK_BASE_URL points to a public URL.';
       }
     }
 
