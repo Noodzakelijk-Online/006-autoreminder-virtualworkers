@@ -241,7 +241,7 @@ export function PerformanceMetrics({ showSection }: PerformanceMetricsProps = {}
   };
 
   const showAllSections = !showSection;
-  const showHealth = !showSection || showSection === 'health';
+  // const showHealth = !showSection || showSection === 'health';
   const showCache = !showSection || showSection === 'cache';
   const showQueue = !showSection || showSection === 'queue';
   const showWebsocket = !showSection || showSection === 'websocket';
@@ -270,7 +270,7 @@ export function PerformanceMetrics({ showSection }: PerformanceMetricsProps = {}
       )}
 
       {/* Overall Health */}
-      {showHealth && (
+      {/* {showHealth && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -293,7 +293,7 @@ export function PerformanceMetrics({ showSection }: PerformanceMetricsProps = {}
             </div>
           </CardContent>
         </Card>
-      )}
+      )} */}
 
       {/* Cache Performance */}
       {showCache && (
