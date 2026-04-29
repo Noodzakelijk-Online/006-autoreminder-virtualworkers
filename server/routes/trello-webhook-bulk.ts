@@ -82,7 +82,7 @@ router.post('/', async (req: any, res: Response) => {
     const existingModelIds = new Set<string>();
     if (db) {
       const existing = await db.query.chatbotWebhooks.findMany();
-      existing.forEach(w => existingModelIds.add(w.modelId));
+      existing.forEach((w: any) => existingModelIds.add(w.modelId));
     }
 
     // Fix #5 — concurrency-limited registration (10 at a time)

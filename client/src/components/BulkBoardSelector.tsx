@@ -39,29 +39,36 @@ export function BulkBoardSelector({
   const [error, setError] = useState<string | null>(null);
   const [selectedBoardIds, setSelectedBoardIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
-<<<<<<< Updated upstream
 
   // Registration results state
   const [registrationResults, setRegistrationResults] = useState<RegistrationResult[]>([]);
   const [showResults, setShowResults] = useState(false);
-=======
-  const [selectAll, setSelectAll] = useState(false);
-  const [registeredBoardIds, setRegisteredBoardIds] = useState<Set<string>>(new Set());
->>>>>>> Stashed changes
 
-  // Fetch boards on component mount
+  // Fetch boards and registered webhooks on component mount
   useEffect(() => {
-    const fetchBoards = async () => {
+    const fetchBoardsAndWebhooks = async () => {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch('/api/trello-boards');
-        if (!response.ok) {
-          const data = await response.json();
+        // Fetch available boards
+        const boardsResponse = await fetch('/api/trello-boards');
+        if (!boardsResponse.ok) {
+          const data = await boardsResponse.json();
           throw new Error(data.error || 'Failed to fetch boards');
         }
-        const data = await response.json();
-        setBoards(data.boards || []);
+        const boardsData = await boardsResponse.json();
+        
+        // Fetch registered webhooks
+        const webhooksResponse = await fetch('/api/trello-webhook/list');
+        const webhooksData = webhooksResponse.ok ? await webhooksResponse.json() : { webhooks: [] };
+        const registeredIds = new Set((webhooksData.webhooks || []).map((w: any) => w.trelloBoardId));
+        
+        // Mark boards that already have webhooks
+        const boardsWithStatus = (boardsData.boards || []).map((board: Board) => ({
+          ...board,
+          isRegistered: registeredIds.has(board.id)
+        }));
+        setBoards(boardsWithStatus);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to fetch Trello boards';
         setError(message);
@@ -71,7 +78,7 @@ export function BulkBoardSelector({
       }
     };
 
-    fetchBoards();
+    fetchBoardsAndWebhooks();
   }, []);
 
   // Filter boards based on search term
@@ -121,7 +128,7 @@ export function BulkBoardSelector({
       setError(null);
     } else {
       const toAdd = filteredBoards.map(b => b.id);
-      const combined = new Set([...selectedBoardIds, ...toAdd]);
+      const combined = new Set([...Array.from(selectedBoardIds), ...toAdd]);
       if (combined.size > 50) {
         setError(
           `Only 50 boards can be selected at once. You have ${filteredBoards.length} boards visible. Please select up to 50 and register in batches.`

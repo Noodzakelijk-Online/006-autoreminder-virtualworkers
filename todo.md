@@ -2127,7 +2127,7 @@ Each card now has:
 
 
 ## Duplicate Webhook Prevention (Apr 28, 2026)
-- [ ] Fetch registered webhooks when loading board selector
-- [ ] Mark already-registered boards with visual indicator
-- [ ] Disable selection for already-registered boards
-- [ ] Show helpful message about duplicate webhook error
+- [x] Fetch registered webhooks when loading board selector
+- [x] Mark already-registered boards with visual indicator
+- [x] Disable selection for already-registered boards
+- [x] Show helpful message about duplicate webhook error
