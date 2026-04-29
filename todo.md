@@ -2131,3 +2131,9 @@ Each card now has:
 - [x] Mark already-registered boards with visual indicator
 - [x] Disable selection for already-registered boards
 - [x] Show helpful message about duplicate webhook error
+
+## UI Cleanup (Apr 29, 2026)
+- [x] Remove system health tab from Performance & Monitoring section
+- [x] Update PerformanceMetrics component to remove health section
+- [x] Update PerformanceMonitoringSection tabs (4 tabs → 3 tabs)
+- [x] Set default active tab to 'cache' instead of 'system-health'

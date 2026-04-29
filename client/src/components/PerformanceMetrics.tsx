@@ -44,7 +44,7 @@ interface PerformanceMetrics {
 }
 
 interface PerformanceMetricsProps {
-  showSection?: 'health' | 'cache' | 'queue' | 'websocket';
+  showSection?: 'cache' | 'queue' | 'websocket';
 }
 
 const MOCK_METRICS: PerformanceMetrics = {
@@ -241,7 +241,6 @@ export function PerformanceMetrics({ showSection }: PerformanceMetricsProps = {}
   };
 
   const showAllSections = !showSection;
-  // const showHealth = !showSection || showSection === 'health';
   const showCache = !showSection || showSection === 'cache';
   const showQueue = !showSection || showSection === 'queue';
   const showWebsocket = !showSection || showSection === 'websocket';
@@ -269,31 +268,7 @@ export function PerformanceMetrics({ showSection }: PerformanceMetricsProps = {}
         </div>
       )}
 
-      {/* Overall Health */}
-      {/* {showHealth && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
-              Overall System Health
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                {getHealthBadge(metrics.summary.overallHealth)}
-                <div className="mt-4 space-y-2">
-                  {metrics.summary.recommendations.map((rec, index) => (
-                    <p key={index} className="text-sm text-muted-foreground">
-                      • {rec}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )} */}
+
 
       {/* Cache Performance */}
       {showCache && (
