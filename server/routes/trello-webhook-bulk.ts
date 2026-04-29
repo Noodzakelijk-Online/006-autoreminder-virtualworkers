@@ -6,9 +6,15 @@ import { eq } from 'drizzle-orm';
 const router = express.Router();
 
 // Callback URL is always constructed server-side — never trusted from the client.
-// Fix #4: client-controlled callbackUrl removed from request body.
-const getCallbackUrl = () =>
-  `${process.env.WEBHOOK_BASE_URL || ''}/api/trello-webhook`;
+// Falls back through WEBHOOK_BASE_URL → APP_URL → PUBLIC_URL in that order.
+const getCallbackUrl = () => {
+  const base =
+    process.env.WEBHOOK_BASE_URL ||
+    process.env.APP_URL ||
+    process.env.PUBLIC_URL ||
+    '';
+  return `${base}/api/trello-webhook`;
+};
 
 const TRELLO_API_BASE = 'https://api.trello.com/1';
 
@@ -66,7 +72,7 @@ router.post('/', async (req: any, res: Response) => {
     const callbackUrl = getCallbackUrl();
     if (!callbackUrl || callbackUrl === '/api/trello-webhook') {
       return res.status(500).json({
-        error: 'WEBHOOK_BASE_URL is not configured. Set it in your environment variables.',
+        error: 'No base URL configured. Set WEBHOOK_BASE_URL, APP_URL, or PUBLIC_URL in your environment variables.',
       });
     }
 

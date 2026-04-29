@@ -79,7 +79,12 @@ router.post('/register', async (req: any, res: Response) => {
     }
 
     // Fix #4 — build callbackUrl server-side, never from client body
-    const callbackUrl = `${process.env.WEBHOOK_BASE_URL || ''}/api/trello-webhook`;
+    const base =
+      process.env.WEBHOOK_BASE_URL ||
+      process.env.APP_URL ||
+      process.env.PUBLIC_URL ||
+      '';
+    const callbackUrl = `${base}/api/trello-webhook`;
 
     // Fix #3 — duplicate detection: check DB before calling Trello
     const db = await getDb();
@@ -301,7 +306,11 @@ router.get('/status', async (req: any, res: Response) => {
     const user = req.user;
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const baseUrl = process.env.WEBHOOK_BASE_URL || '';
+    const baseUrl =
+      process.env.WEBHOOK_BASE_URL ||
+      process.env.APP_URL ||
+      process.env.PUBLIC_URL ||
+      '';
     const callbackUrl = `${baseUrl}/api/trello-webhook`;
     const isConfigured = !!process.env.TRELLO_API_KEY && !!process.env.TRELLO_TOKEN;
 
