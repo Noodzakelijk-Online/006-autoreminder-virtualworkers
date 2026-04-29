@@ -2124,3 +2124,10 @@ Each card now has:
 - [x] Integrate into TrelloChatbotSettings Setup tab
 - [x] Add progress tracking with BulkRegistrationProgress component
 - [x] Write tests for bulk registration (28 tests passing)
+
+
+## Duplicate Webhook Prevention (Apr 28, 2026)
+- [ ] Fetch registered webhooks when loading board selector
+- [ ] Mark already-registered boards with visual indicator
+- [ ] Disable selection for already-registered boards
+- [ ] Show helpful message about duplicate webhook error

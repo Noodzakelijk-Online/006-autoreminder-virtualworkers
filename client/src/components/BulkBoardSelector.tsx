@@ -11,6 +11,7 @@ interface Board {
   id: string;
   name: string;
   url: string;
+  isRegistered?: boolean;
 }
 
 interface RegistrationResult {
@@ -38,10 +39,15 @@ export function BulkBoardSelector({
   const [error, setError] = useState<string | null>(null);
   const [selectedBoardIds, setSelectedBoardIds] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState('');
+<<<<<<< Updated upstream
 
   // Registration results state
   const [registrationResults, setRegistrationResults] = useState<RegistrationResult[]>([]);
   const [showResults, setShowResults] = useState(false);
+=======
+  const [selectAll, setSelectAll] = useState(false);
+  const [registeredBoardIds, setRegisteredBoardIds] = useState<Set<string>>(new Set());
+>>>>>>> Stashed changes
 
   // Fetch boards on component mount
   useEffect(() => {
