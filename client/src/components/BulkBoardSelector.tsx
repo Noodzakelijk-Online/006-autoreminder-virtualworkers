@@ -61,7 +61,7 @@ export function BulkBoardSelector({
         // Fetch registered webhooks
         const webhooksResponse = await fetch('/api/trello-webhook/list');
         const webhooksData = webhooksResponse.ok ? await webhooksResponse.json() : { webhooks: [] };
-        const registeredIds = new Set((webhooksData.webhooks || []).map((w: any) => w.trelloBoardId));
+        const registeredIds = new Set((webhooksData.webhooks || []).map((w: any) => w.modelId));
         
         // Mark boards that already have webhooks
         const boardsWithStatus = (boardsData.boards || []).map((board: Board) => ({
