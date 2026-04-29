@@ -7,8 +7,9 @@ const router = express.Router();
 
 // Callback URL is always constructed server-side — never trusted from the client.
 // Fix #4: client-controlled callbackUrl removed from request body.
+// Use PUBLIC_URL (same as auto-register service) or WEBHOOK_BASE_URL for backwards compatibility
 const getCallbackUrl = () =>
-  `${process.env.WEBHOOK_BASE_URL || ''}/api/trello-webhook`;
+  `${process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL || ''}/api/trello-webhook`;
 
 const TRELLO_API_BASE = 'https://api.trello.com/1';
 
@@ -66,7 +67,7 @@ router.post('/', async (req: any, res: Response) => {
     const callbackUrl = getCallbackUrl();
     if (!callbackUrl || callbackUrl === '/api/trello-webhook') {
       return res.status(500).json({
-        error: 'WEBHOOK_BASE_URL is not configured. Set it in your environment variables.',
+        error: 'PUBLIC_URL or WEBHOOK_BASE_URL is not configured. Set it in your environment variables.',
       });
     }
 
