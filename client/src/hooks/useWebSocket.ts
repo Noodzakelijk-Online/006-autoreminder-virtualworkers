@@ -20,14 +20,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   });
 
   useEffect(() => {
-    // Get user from localStorage (set by OAuth)
-    const userStr = localStorage.getItem('user');
-    if (!userStr) {
+    // Get user from the key written by useAuth hook
+    const userStr = localStorage.getItem('manus-runtime-user-info');
+    if (!userStr || userStr === 'null' || userStr === 'undefined') {
       console.warn('[WebSocket] No user found, skipping connection');
       return;
     }
 
-    const user = JSON.parse(userStr);
+    let user: any;
+    try {
+      user = JSON.parse(userStr);
+    } catch {
+      console.warn('[WebSocket] Failed to parse user info, skipping connection');
+      return;
+    }
+
+    if (!user?.id || !user?.openId) {
+      console.warn('[WebSocket] User missing id/openId, skipping connection');
+      return;
+    }
 
     // Connect to WebSocket server
     const socket = io({

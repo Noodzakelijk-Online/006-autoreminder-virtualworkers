@@ -2,7 +2,6 @@ import { Router, Response } from 'express';
 import { getDb } from '../db';
 import { chatbotWebhooks, chatbotConversations } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
-import { getWebhookCallbackUrl } from '../services/webhook-auto-register.js';
 
 const router = Router();
 
@@ -80,21 +79,21 @@ router.post('/register', async (req: any, res: Response) => {
     }
 
     // Fix #4 — build callbackUrl server-side, never from client body
-    // Priority: URL stored by webhook-auto-register at startup → env vars
-    const autoUrl = getWebhookCallbackUrl();
+    // Priority: WEBHOOK_BASE_URL → PUBLIC_URL → APP_URL
     const base =
       process.env.WEBHOOK_BASE_URL ||
       process.env.PUBLIC_URL ||
       process.env.APP_URL ||
       '';
-    const callbackUrl = autoUrl || (base ? `${base}/api/trello-webhook` : '');
 
-    if (!callbackUrl) {
+    if (!base || base.startsWith('/')) {
       return res.status(500).json({
         error:
           'Server is not configured with a public URL. Set WEBHOOK_BASE_URL (e.g. https://your-domain.com) in your environment variables so Trello can reach the webhook callback.',
       });
     }
+
+    const callbackUrl = `${base}/api/trello-webhook`;
 
     // Fix #3 — duplicate detection: check DB before calling Trello
     const db = await getDb();
@@ -354,6 +353,53 @@ router.get('/status', async (req: any, res: Response) => {
     });
   } catch (error: any) {
     console.error('[TrelloWebhook] Error getting webhook status:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/trello-webhook/conversation-counts
+ * Get conversation counts for a batch of card IDs.
+ * Returns { counts: { [cardId]: number } }
+ */
+router.post('/conversation-counts', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { cardIds } = req.body;
+    if (!Array.isArray(cardIds) || cardIds.length === 0) {
+      return res.json({ counts: {} });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      // Return zeros gracefully — no DB means no conversations yet
+      const counts: Record<string, number> = {};
+      cardIds.forEach((id: string) => { counts[id] = 0; });
+      return res.json({ counts });
+    }
+
+    // Count conversations per card from chatbot_conversations table
+    const { chatbotConversations } = await import('../../drizzle/schema');
+    const { inArray, sql: drizzleSql } = await import('drizzle-orm');
+
+    const rows = await db
+      .select({
+        cardTrelloId: chatbotConversations.cardTrelloId,
+        count: drizzleSql<number>`count(*)`,
+      })
+      .from(chatbotConversations)
+      .where(inArray(chatbotConversations.cardTrelloId, cardIds))
+      .groupBy(chatbotConversations.cardTrelloId);
+
+    const counts: Record<string, number> = {};
+    cardIds.forEach((id: string) => { counts[id] = 0; });
+    rows.forEach((row: any) => { counts[row.cardTrelloId] = Number(row.count); });
+
+    res.json({ counts });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting conversation counts:', error);
     res.status(500).json({ error: error.message });
   }
 });

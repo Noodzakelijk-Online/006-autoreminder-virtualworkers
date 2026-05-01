@@ -1153,6 +1153,11 @@ router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No checklist items to sync' });
     }
 
+    // Guard: Trello credentials must be present before attempting sync
+    if (!process.env.TRELLO_API_KEY || !process.env.TRELLO_TOKEN) {
+      return res.status(500).json({ error: 'Trello credentials (TRELLO_API_KEY / TRELLO_TOKEN) are not configured on the server.' });
+    }
+
     // Sync to Trello
     const syncService = createChecklistSyncService();
     const syncResult = await syncService.syncChecklistToCard(
