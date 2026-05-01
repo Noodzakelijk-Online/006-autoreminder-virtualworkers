@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { getDb } from '../db';
 import { chatbotWebhooks, chatbotConversations } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
+import { getWebhookCallbackUrl } from '../services/webhook-auto-register.js';
 
 const router = Router();
 
@@ -79,21 +80,21 @@ router.post('/register', async (req: any, res: Response) => {
     }
 
     // Fix #4 — build callbackUrl server-side, never from client body
-    // Priority: WEBHOOK_BASE_URL → PUBLIC_URL → APP_URL
+    // Priority: URL stored by webhook-auto-register at startup → env vars
+    const autoUrl = getWebhookCallbackUrl();
     const base =
       process.env.WEBHOOK_BASE_URL ||
       process.env.PUBLIC_URL ||
       process.env.APP_URL ||
       '';
+    const callbackUrl = autoUrl || (base ? `${base}/api/trello-webhook` : '');
 
-    if (!base || base.startsWith('/')) {
+    if (!callbackUrl) {
       return res.status(500).json({
         error:
           'Server is not configured with a public URL. Set WEBHOOK_BASE_URL (e.g. https://your-domain.com) in your environment variables so Trello can reach the webhook callback.',
       });
     }
-
-    const callbackUrl = `${base}/api/trello-webhook`;
 
     // Fix #3 — duplicate detection: check DB before calling Trello
     const db = await getDb();

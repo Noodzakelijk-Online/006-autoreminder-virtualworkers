@@ -2,14 +2,26 @@ import express, { Response } from 'express';
 import { getDb } from '../db';
 import { chatbotWebhooks } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
+import { getWebhookCallbackUrl } from '../services/webhook-auto-register.js';
 
 const router = express.Router();
 
 // Callback URL is always constructed server-side — never trusted from the client.
-// Fix #4: client-controlled callbackUrl removed from request body.
-// Use PUBLIC_URL (same as auto-register service) or WEBHOOK_BASE_URL for backwards compatibility
-const getCallbackUrl = () =>
-  `${process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL || ''}/api/trello-webhook`;
+// Priority: URL stored by webhook-auto-register at startup (most reliable, reflects
+// the actual live public URL) → WEBHOOK_BASE_URL → PUBLIC_URL → APP_URL env vars.
+const getCallbackUrl = (): string => {
+  // The auto-register service stores the correct public URL set at server startup
+  const autoUrl = getWebhookCallbackUrl();
+  if (autoUrl) return autoUrl;
+
+  // Fallback to env vars
+  const base =
+    process.env.WEBHOOK_BASE_URL ||
+    process.env.PUBLIC_URL ||
+    process.env.APP_URL ||
+    '';
+  return base ? `${base}/api/trello-webhook` : '';
+};
 
 const TRELLO_API_BASE = 'https://api.trello.com/1';
 
