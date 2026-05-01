@@ -1156,7 +1156,7 @@ router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
     }
 
     if (checklist.length === 0) {
-      return res.status(400).json({ error: 'No checklist items to sync' });
+      return res.status(400).json({ error: 'No checklist items to sync. Run AI analysis on this card first.' });
     }
 
     // Guard: Trello credentials must be present before attempting sync
