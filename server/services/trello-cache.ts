@@ -1,9 +1,17 @@
 /**
  * Trello Data Cache Service
- * Provides caching layer for Trello API data with TTL management
+ *
+ * Three-tier caching strategy:
+ *   L1 — Redis (distributed, survives restarts, shared across instances)
+ *   L2 — MySQL via Drizzle ORM (persistent, single-instance fallback)
+ *   L3 — In-process Map (test environment only)
+ *
+ * If REDIS_URL is not set, L1 is skipped transparently.
+ * If DATABASE_URL is not set, L2 is skipped and L3 is used (tests).
  */
 
 import { getDb } from '../db';
+import { getRedis, isRedisAvailable } from './redis';
 import { 
   trelloCacheMetadata, 
   trelloCachedTasks, 
@@ -11,6 +19,49 @@ import {
   trelloCachedCards 
 } from '../../drizzle/schema';
 import { eq, and, lt } from 'drizzle-orm';
+
+// ---------------------------------------------------------------------------
+// Redis helpers
+// ---------------------------------------------------------------------------
+
+function redisTaskKey(userId: number, userOpenId: string): string {
+  return `trello:tasks:${userId}:${userOpenId}`;
+}
+
+function redisMetaKey(userId: number, userOpenId: string, cacheKey: string): string {
+  return `trello:meta:${userId}:${userOpenId}:${cacheKey}`;
+}
+
+async function getFromRedis(key: string): Promise<any | null> {
+  const redis = getRedis();
+  if (!redis || !isRedisAvailable()) return null;
+  try {
+    const raw = await redis.get(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function setInRedis(key: string, value: any, ttlSeconds: number): Promise<void> {
+  const redis = getRedis();
+  if (!redis || !isRedisAvailable()) return;
+  try {
+    await redis.set(key, JSON.stringify(value), 'EX', ttlSeconds);
+  } catch {
+    // non-fatal
+  }
+}
+
+async function deleteFromRedis(...keys: string[]): Promise<void> {
+  const redis = getRedis();
+  if (!redis || !isRedisAvailable()) return;
+  try {
+    await redis.del(...keys);
+  } catch {
+    // non-fatal
+  }
+}
 
 export interface CacheOptions {
   ttlSeconds?: number;
@@ -120,6 +171,7 @@ function resetMemoryCacheForNewTest(): void {
 
 /**
  * Get cached tasks for a user
+ * Read order: Redis (L1) → MySQL (L2) → in-process Map (L3/test)
  */
 export async function getCachedTasks(
   userId: number,
@@ -131,6 +183,14 @@ export async function getCachedTasks(
   if (forceRefresh) {
     await invalidateCache(userId, userOpenId, 'tasks');
     return null;
+  }
+
+  // --- L1: Redis ---
+  const rKey = redisTaskKey(userId, userOpenId);
+  const redisData = await getFromRedis(rKey);
+  if (redisData !== null) {
+    await recordCacheHit(userId, userOpenId, 'tasks');
+    return redisData;
   }
 
   const db = await getDb();
@@ -159,6 +219,8 @@ export async function getCachedTasks(
     await recordCacheHit(userId, userOpenId, 'tasks');
     return cachedTasks.data;
   }
+
+  // --- L2: MySQL ---
   const now = new Date();
 
   // Check if cache exists and is valid
@@ -211,7 +273,14 @@ export async function getCachedTasks(
   await recordCacheHit(userId, userOpenId, 'tasks');
 
   try {
-    return JSON.parse(cachedTasks[0].taskData);
+    const parsed = JSON.parse(cachedTasks[0].taskData);
+    // Backfill Redis so subsequent reads are faster
+    const remainingTtl = Math.max(
+      1,
+      Math.floor((new Date(metadata.expiresAt).getTime() - now.getTime()) / 1000)
+    );
+    await setInRedis(rKey, parsed, remainingTtl);
+    return parsed;
   } catch (error) {
     console.error('Error parsing cached task data:', error);
     await invalidateCache(userId, userOpenId, 'tasks');
@@ -221,6 +290,7 @@ export async function getCachedTasks(
 
 /**
  * Set cached tasks for a user
+ * Write order: Redis (L1) + MySQL (L2) in parallel, or in-process Map (L3/test)
  */
 export async function setCachedTasks(
   userId: number,
@@ -228,6 +298,9 @@ export async function setCachedTasks(
   tasks: any,
   ttlSeconds: number = 300
 ): Promise<void> {
+  // Always write to Redis if available (fire-and-forget, non-blocking)
+  void setInRedis(redisTaskKey(userId, userOpenId), tasks, ttlSeconds);
+
   const db = await getDb();
   if (!db) {
     resetMemoryCacheForNewTest();
@@ -319,6 +392,12 @@ export async function invalidateCache(
   userOpenId: string,
   cacheKey: string
 ): Promise<void> {
+  // Always clear Redis first (fast, non-blocking)
+  if (cacheKey === 'tasks') {
+    void deleteFromRedis(redisTaskKey(userId, userOpenId));
+  }
+  void deleteFromRedis(redisMetaKey(userId, userOpenId, cacheKey));
+
   const db = await getDb();
   if (!db) {
     resetMemoryCacheForNewTest();
@@ -377,6 +456,13 @@ export async function invalidateAllCache(
   userId: number,
   userOpenId: string
 ): Promise<void> {
+  // Clear all known Redis keys for this user
+  void deleteFromRedis(
+    redisTaskKey(userId, userOpenId),
+    redisMetaKey(userId, userOpenId, 'tasks'),
+    redisMetaKey(userId, userOpenId, 'boards'),
+  );
+
   const db = await getDb();
   if (!db) {
     resetMemoryCacheForNewTest();
