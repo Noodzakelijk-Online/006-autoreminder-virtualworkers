@@ -20,7 +20,7 @@ let _initialized = false;
 function createClient(url: string): Redis {
   const client = new Redis(url, {
     // Retry with exponential backoff, max 3 attempts
-    retryStrategy: (times) => {
+    retryStrategy: (times: number) => {
       if (times > 3) return null; // stop retrying, let it fail gracefully
       return Math.min(times * 200, 2000);
     },
@@ -32,7 +32,7 @@ function createClient(url: string): Redis {
 
   client.on('connect', () => console.log('[Redis] Connected'));
   client.on('ready', () => console.log('[Redis] Ready'));
-  client.on('error', (err) => console.warn('[Redis] Error (non-fatal):', err.message));
+  client.on('error', (err: any) => console.warn('[Redis] Error (non-fatal):', err?.message || err));
   client.on('close', () => console.warn('[Redis] Connection closed'));
   client.on('reconnecting', () => console.log('[Redis] Reconnecting...'));
 
@@ -59,11 +59,11 @@ export async function initializeRedis(): Promise<void> {
 
     // Attempt connection — if it fails, clients stay null-ish but won't crash
     await Promise.all([
-      _pubClient.connect().catch((err) => {
+      _pubClient.connect().catch((err: any) => {
         console.warn('[Redis] Pub client failed to connect:', err.message);
         _pubClient = null;
       }),
-      _subClient.connect().catch((err) => {
+      _subClient.connect().catch((err: any) => {
         console.warn('[Redis] Sub client failed to connect:', err.message);
         _subClient = null;
       }),
