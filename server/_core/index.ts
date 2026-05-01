@@ -149,7 +149,7 @@ async function startServer() {
   // APTLSS Management API
   app.use("/api", aptlssRoutes);
   // Working Hours Settings API
-  app.use("/api", workingHoursRoutes);
+  app.use("/api/working-hours", workingHoursRoutes);
   // VA Management API
   app.use("/api/va", vaManagementRoutes);
   // Holidays API
