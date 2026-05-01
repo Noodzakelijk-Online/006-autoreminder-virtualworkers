@@ -1,5 +1,7 @@
 import { Server as HTTPServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { getRedisPubClient, getRedisSubClient, isRedisAvailable } from './redis';
 
 interface ConnectedClient {
   socket: Socket;
@@ -30,6 +32,17 @@ class WebSocketService {
       },
       path: '/ws',
     });
+
+    // Attach Redis adapter when available so events are shared across
+    // all server instances (horizontal scaling / multi-process).
+    if (isRedisAvailable()) {
+      const pubClient = getRedisPubClient()!;
+      const subClient = getRedisSubClient()!;
+      this.io.adapter(createAdapter(pubClient, subClient));
+      console.log('[WebSocket] Redis adapter attached — multi-instance mode enabled');
+    } else {
+      console.log('[WebSocket] Redis not available — running in single-instance mode');
+    }
 
     this.io.on('connection', (socket: Socket) => {
       console.log(`[WebSocket] Client connected: ${socket.id}`);

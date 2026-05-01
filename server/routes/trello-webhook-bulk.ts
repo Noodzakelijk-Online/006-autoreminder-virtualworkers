@@ -67,7 +67,8 @@ router.post('/', async (req: any, res: Response) => {
     const callbackUrl = getCallbackUrl();
     if (!callbackUrl || callbackUrl === '/api/trello-webhook') {
       return res.status(500).json({
-        error: 'PUBLIC_URL or WEBHOOK_BASE_URL is not configured. Set it in your environment variables.',
+        error:
+          'Server is not configured with a public URL. Set WEBHOOK_BASE_URL (e.g. https://your-domain.com) in your environment variables so Trello can reach the webhook callback.',
       });
     }
 

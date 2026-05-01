@@ -79,9 +79,21 @@ router.post('/register', async (req: any, res: Response) => {
     }
 
     // Fix #4 — build callbackUrl server-side, never from client body
-    // Use PUBLIC_URL (same as auto-register service) or WEBHOOK_BASE_URL for backwards compatibility
-    const baseUrl = process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL || '';
-    const callbackUrl = `${baseUrl}/api/trello-webhook`;
+    // Priority: WEBHOOK_BASE_URL → PUBLIC_URL → APP_URL
+    const base =
+      process.env.WEBHOOK_BASE_URL ||
+      process.env.PUBLIC_URL ||
+      process.env.APP_URL ||
+      '';
+
+    if (!base || base.startsWith('/')) {
+      return res.status(500).json({
+        error:
+          'Server is not configured with a public URL. Set WEBHOOK_BASE_URL (e.g. https://your-domain.com) in your environment variables so Trello can reach the webhook callback.',
+      });
+    }
+
+    const callbackUrl = `${base}/api/trello-webhook`;
 
     // Fix #3 — duplicate detection: check DB before calling Trello
     const db = await getDb();

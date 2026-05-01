@@ -32,6 +32,7 @@ import { websocketService } from "../services/websocket.js";
 import { startDigestScheduler } from "../services/digest-scheduler.js";
 import { initializeWebhookAutoRegister } from "../services/webhook-auto-register.js";
 import { warmUpCache, scheduleCacheRefresh } from "../services/cache-warming.js";
+import { initializeRedis, closeRedis } from "../services/redis.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -52,26 +53,81 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-let activeConnections = 0;
-const MAX_CONNECTIONS = 100;
+// ---------------------------------------------------------------------------
+// Concurrency limiter — replaces the old hard-503 approach.
+//
+// Instead of immediately rejecting requests over MAX_CONNECTIONS, we queue
+// them and process them as slots free up.  Requests that wait longer than
+// QUEUE_TIMEOUT_MS are rejected with 503 so the queue never grows unbounded.
+// ---------------------------------------------------------------------------
+const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_REQUESTS ?? '100', 10);
+const QUEUE_TIMEOUT_MS = parseInt(process.env.REQUEST_QUEUE_TIMEOUT_MS ?? '30000', 10);
+
+let activeRequests = 0;
+const waitQueue: Array<() => void> = [];
+
+function acquireSlot(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (activeRequests < MAX_CONCURRENT) {
+      activeRequests++;
+      resolve();
+      return;
+    }
+
+    // Queue the request with a timeout guard
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const idx = waitQueue.indexOf(tryAcquire);
+      if (idx !== -1) waitQueue.splice(idx, 1);
+      reject(new Error('Request queue timeout'));
+    }, QUEUE_TIMEOUT_MS);
+
+    const tryAcquire = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      activeRequests++;
+      resolve();
+    };
+
+    waitQueue.push(tryAcquire);
+  });
+}
+
+function releaseSlot(): void {
+  activeRequests--;
+  const next = waitQueue.shift();
+  if (next) next();
+}
+
+function concurrencyLimiter(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+): void {
+  acquireSlot()
+    .then(() => {
+      res.on('finish', releaseSlot);
+      res.on('close', releaseSlot);   // handles aborted connections
+      next();
+    })
+    .catch(() => {
+      console.warn(`[Server] Request queue full (${waitQueue.length} waiting, ${activeRequests} active)`);
+      res.status(503).json({
+        error: 'Server busy — please retry in a moment',
+        retryAfter: Math.ceil(QUEUE_TIMEOUT_MS / 1000),
+      });
+    });
+}
 
 async function startServer() {
   const app = express();
   const server = createServer(app);
   
-  // Connection tracking middleware
-  app.use((req, res, next) => {
-    activeConnections++;
-    if (activeConnections > MAX_CONNECTIONS) {
-      console.warn(`[Server] Too many connections: ${activeConnections}`);
-      res.status(503).json({ error: 'Server overloaded' });
-      return;
-    }
-    res.on('finish', () => {
-      activeConnections--;
-    });
-    next();
-  });
+  // Concurrency limiter — queues excess requests instead of hard-rejecting them
+  app.use(concurrencyLimiter);
   
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
@@ -114,10 +170,12 @@ async function startServer() {
   app.use("/api/notifications", notificationHistoryRoutes);
   // Time Tracking API
   app.use("/api", timeTrackingRoutes);
+  // Trello Bulk Webhook API — MUST be mounted before the base trello-webhook
+  // router, otherwise Express matches /api/trello-webhook/bulk against the
+  // base router first and the bulk route is never reached.
+  app.use("/api/trello-webhook/bulk", trelloWebhookBulkRoutes);
   // Trello Webhook API (for chatbot)
   app.use("/api/trello-webhook", trelloWebhookRoutes);
-  // Trello Bulk Webhook API
-  app.use("/api/trello-webhook/bulk", trelloWebhookBulkRoutes);
   // Chatbot API (alias for trello-webhook)
   app.use("/api/chatbot", trelloWebhookRoutes);
   // Trello Configuration API
@@ -160,6 +218,9 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
+  // Initialize Redis (must happen before WebSocket so the adapter can be attached)
+  await initializeRedis();
+
   // Initialize WebSocket server
   websocketService.initialize(server);
 
@@ -201,6 +262,9 @@ async function startServer() {
       io.close();
       console.log('[Server] WebSocket server closed');
     }
+
+    // Close Redis connections
+    await closeRedis();
     
     // Close HTTP server
     server.close(() => {
