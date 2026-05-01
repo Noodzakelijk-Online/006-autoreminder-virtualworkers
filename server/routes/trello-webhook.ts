@@ -384,6 +384,53 @@ router.get('/status', async (req: any, res: Response) => {
 });
 
 /**
+ * POST /api/trello-webhook/conversation-counts
+ * Get conversation counts for a batch of card IDs.
+ * Returns { counts: { [cardId]: number } }
+ */
+router.post('/conversation-counts', async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { cardIds } = req.body;
+    if (!Array.isArray(cardIds) || cardIds.length === 0) {
+      return res.json({ counts: {} });
+    }
+
+    const db = await getDb();
+    if (!db) {
+      // Return zeros gracefully — no DB means no conversations yet
+      const counts: Record<string, number> = {};
+      cardIds.forEach((id: string) => { counts[id] = 0; });
+      return res.json({ counts });
+    }
+
+    // Count conversations per card from chatbot_conversations table
+    const { chatbotConversations } = await import('../../drizzle/schema');
+    const { inArray, sql: drizzleSql } = await import('drizzle-orm');
+
+    const rows = await db
+      .select({
+        cardTrelloId: chatbotConversations.cardTrelloId,
+        count: drizzleSql<number>`count(*)`,
+      })
+      .from(chatbotConversations)
+      .where(inArray(chatbotConversations.cardTrelloId, cardIds))
+      .groupBy(chatbotConversations.cardTrelloId);
+
+    const counts: Record<string, number> = {};
+    cardIds.forEach((id: string) => { counts[id] = 0; });
+    rows.forEach((row: any) => { counts[row.cardTrelloId] = Number(row.count); });
+
+    res.json({ counts });
+  } catch (error: any) {
+    console.error('[TrelloWebhook] Error getting conversation counts:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/chatbot/analytics
  * Get chatbot analytics.
  */

@@ -1,12 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CheckCircle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { TrelloBoardSelector } from '@/components/TrelloBoardSelector';
 import { BulkBoardSelector } from '@/components/BulkBoardSelector';
 import { TrelloIntegrationSettings } from '@/components/TrelloIntegrationSettings';
 
@@ -74,8 +71,6 @@ function getBoardDisplayName(webhook: Webhook): string {
 }
 
 export default function TrelloChatbotSettings() {
-  const [modelId, setModelId] = useState('');
-  const [description, setDescription] = useState('');
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [webhookStatus, setWebhookStatus] = useState<WebhookStatus | null>(null);
   const [loading, setLoading] = useState(false);
@@ -156,45 +151,6 @@ export default function TrelloChatbotSettings() {
       console.error('Error loading analytics:', error);
     } finally {
       setLoadingAnalytics(false);
-    }
-  };
-
-  const registerWebhook = async () => {
-    if (!modelId) {
-      toast.error('Please select a Trello board from the dropdown');
-      return;
-    }
-
-    const boardId = modelId.trim();
-    setRegistering(true);
-    try {
-      const response = await fetch('/api/trello-webhook/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          modelId: boardId,
-          description: description || 'Trello Chatbot',
-          // callbackUrl is now built server-side from WEBHOOK_BASE_URL
-        }),
-      });
-
-      if (response.ok) {
-        setModelId('');
-        setDescription('');
-        await loadWebhooks();
-        toast.success('Webhook registered successfully');
-      } else {
-        const errorData = await response.json();
-        const errorMessage = errorData?.error || errorData?.message || 'Failed to register webhook';
-        console.error('[TrelloChatbotSettings] Webhook registration failed:', errorMessage);
-        toast.error(errorMessage);
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to register webhook';
-      console.error('Error registering webhook:', errorMessage);
-      toast.error(errorMessage);
-    } finally {
-      setRegistering(false);
     }
   };
 
@@ -297,54 +253,12 @@ export default function TrelloChatbotSettings() {
                   </div>
                 )}
 
-                {/* Single board registration */}
-                <div className="space-y-3">
-                  <div>
-                    <Label htmlFor="modelId">Select Trello Board *</Label>
-                    <TrelloBoardSelector
-                      value={modelId}
-                      onSelect={(boardId, boardName) => {
-                        setModelId(boardId);
-                        if (!description) {
-                          setDescription(`Chatbot for ${boardName}`);
-                        }
-                      }}
-                      placeholder="Search and select a board..."
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Select a board from your Trello account. The list is automatically fetched.
-                    </p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="description">Description (optional)</Label>
-                    <Input
-                      id="description"
-                      placeholder="e.g., Main workspace chatbot"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      className="mt-1"
-                    />
-                  </div>
-
-                  <Button
-                    onClick={registerWebhook}
-                    disabled={registering}
-                    className="w-full"
-                  >
-                    {registering ? 'Registering...' : 'Register Webhook'}
-                  </Button>
-                </div>
-
-                {/* Bulk registration */}
-                <div className="border-t pt-6 mt-6">
-                  <h3 className="font-semibold mb-3">Bulk Registration</h3>
-                  <BulkBoardSelector
-                    onRegister={handleBulkRegister}
-                    isRegistering={registering}
-                    registeredBoardIds={registeredBoardIds}
-                  />
-                </div>
+                {/* Board registration */}
+                <BulkBoardSelector
+                  onRegister={handleBulkRegister}
+                  isRegistering={registering}
+                  registeredBoardIds={registeredBoardIds}
+                />
 
                 {/* Registered webhooks list — shows board names, not raw IDs */}
                 {webhooks.length > 0 && (
