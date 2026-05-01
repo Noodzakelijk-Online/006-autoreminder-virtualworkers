@@ -1124,21 +1124,23 @@ router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Database not available' });
     }
 
-    // Get card understanding with checklist
-    const result = await db.execute(sql`
-      SELECT c.trello_id, u.aptlssChecklist
-      FROM atis_cards c
-      LEFT JOIN atis_card_understanding u ON c.id = u.cardId
-      WHERE c.id = ${cardId}
-    `);
+    // Use Drizzle query builder so column names are mapped correctly (trelloId, not trello_id)
+    const rows = await db
+      .select({
+        trelloId: atisCards.trelloId,
+        aptlssChecklist: atisCardUnderstanding.aptlssChecklist,
+      })
+      .from(atisCards)
+      .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
+      .where(eq(atisCards.id, cardId))
+      .limit(1);
 
-    const rows = (result as any)[0] || [];
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Card not found' });
     }
 
     const card = rows[0];
-    if (!card.trello_id) {
+    if (!card.trelloId) {
       return res.status(400).json({ error: 'Card has no Trello ID' });
     }
 
@@ -1150,7 +1152,7 @@ router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
     }
 
     if (checklist.length === 0) {
-      return res.status(400).json({ error: 'No checklist items to sync' });
+      return res.status(400).json({ error: 'No checklist items to sync. Run AI analysis on this card first.' });
     }
 
     // Guard: Trello credentials must be present before attempting sync
@@ -1161,7 +1163,7 @@ router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
     // Sync to Trello
     const syncService = createChecklistSyncService();
     const syncResult = await syncService.syncChecklistToCard(
-      card.trello_id,
+      card.trelloId,
       checklist,
       { replaceExisting, preserveCompleted }
     );
