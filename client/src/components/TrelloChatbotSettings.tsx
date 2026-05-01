@@ -8,6 +8,7 @@ import { CheckCircle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { TrelloBoardSelector } from '@/components/TrelloBoardSelector';
 import { BulkBoardSelector } from '@/components/BulkBoardSelector';
+import { TrelloIntegrationSettings } from '@/components/TrelloIntegrationSettings';
 
 interface WebhookStatus {
   callbackUrl: string;
@@ -393,9 +394,7 @@ export default function TrelloChatbotSettings() {
 
             {/* Labels Tab */}
             <TabsContent value="labels" className="space-y-4 mt-4">
-              <div className="p-4 border rounded-lg bg-gray-50">
-                <p className="text-sm text-gray-600">Label management coming soon</p>
-              </div>
+              <TrelloIntegrationSettings />
             </TabsContent>
 
             {/* Analytics Tab */}
