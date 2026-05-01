@@ -79,12 +79,21 @@ router.post('/register', async (req: any, res: Response) => {
     }
 
     // Fix #4 — build callbackUrl server-side, never from client body
-    // Priority: WEBHOOK_BASE_URL → PUBLIC_URL → APP_URL
-    const base =
+    // Priority: WEBHOOK_BASE_URL → PUBLIC_URL → APP_URL → detect from request headers
+    let base =
       process.env.WEBHOOK_BASE_URL ||
       process.env.PUBLIC_URL ||
       process.env.APP_URL ||
       '';
+
+    // Fallback: detect from request headers (for deployed servers)
+    if (!base || base.startsWith('/')) {
+      const host = req.get('host');
+      const protocol = req.get('x-forwarded-proto') || req.protocol || 'https';
+      if (host) {
+        base = `${protocol}://${host}`;
+      }
+    }
 
     if (!base || base.startsWith('/')) {
       return res.status(500).json({
@@ -190,8 +199,16 @@ router.get('/list', async (req: any, res: Response) => {
           const raw = await response.json();
           // Filter to only webhooks pointing at our callback URL so we don't
           // show unrelated webhooks registered under the same token.
-          const baseUrl = process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL;
-          const ourBase = baseUrl
+          let baseUrl = process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL;
+          // Fallback: detect from request headers
+          if (!baseUrl || baseUrl.startsWith('/')) {
+            const host = req.get('host');
+            const protocol = req.get('x-forwarded-proto') || req.protocol || 'https';
+            if (host) {
+              baseUrl = `${protocol}://${host}`;
+            }
+          }
+          const ourBase = baseUrl && !baseUrl.startsWith('/')
             ? `${baseUrl}/api/trello-webhook`
             : null;
           const filtered = ourBase
@@ -316,7 +333,15 @@ router.get('/status', async (req: any, res: Response) => {
     const user = req.user;
     if (!user) return res.status(401).json({ error: 'Unauthorized' });
 
-    const baseUrl = process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL || '';
+    let baseUrl = process.env.PUBLIC_URL || process.env.WEBHOOK_BASE_URL || '';
+    // Fallback: detect from request headers
+    if (!baseUrl || baseUrl.startsWith('/')) {
+      const host = req.get('host');
+      const protocol = req.get('x-forwarded-proto') || req.protocol || 'https';
+      if (host) {
+        baseUrl = `${protocol}://${host}`;
+      }
+    }
     const callbackUrl = `${baseUrl}/api/trello-webhook`;
     const isConfigured = !!process.env.TRELLO_API_KEY && !!process.env.TRELLO_TOKEN;
 
@@ -324,7 +349,7 @@ router.get('/status', async (req: any, res: Response) => {
     let isReachable = false;
     let recommendation = '';
 
-    if (!baseUrl) {
+    if (!baseUrl || baseUrl.startsWith('/')) {
       recommendation = 'Set PUBLIC_URL or WEBHOOK_BASE_URL in your environment to a publicly reachable URL.';
     } else {
       try {
@@ -333,8 +358,9 @@ router.get('/status', async (req: any, res: Response) => {
         recommendation = isReachable
           ? 'Webhook endpoint is reachable and properly configured.'
           : `Endpoint returned ${probe.status}. Ensure the server is publicly accessible.`;
-      } catch {
-        recommendation = 'Webhook endpoint is not reachable. Ensure PUBLIC_URL or WEBHOOK_BASE_URL points to a public URL.';
+      } catch (err) {
+        console.error('[TrelloWebhook] Probe error:', err);
+        recommendation = 'Webhook endpoint is not reachable. Ensure the server is publicly accessible.';
       }
     }
 

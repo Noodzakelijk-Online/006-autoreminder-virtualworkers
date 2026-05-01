@@ -1124,8 +1124,8 @@ router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Database not available' });
     }
 
-    // Use Drizzle query builder so column names are mapped correctly (trelloId, not trello_id)
-    const rows = await db
+    // Get card understanding with checklist using Drizzle ORM
+    const cards = await db
       .select({
         trelloId: atisCards.trelloId,
         aptlssChecklist: atisCardUnderstanding.aptlssChecklist,
@@ -1135,19 +1135,23 @@ router.post('/sync-checklist/:cardId', async (req: Request, res: Response) => {
       .where(eq(atisCards.id, cardId))
       .limit(1);
 
-    if (rows.length === 0) {
+    if (cards.length === 0) {
       return res.status(404).json({ error: 'Card not found' });
     }
 
-    const card = rows[0];
+    const card = cards[0];
     if (!card.trelloId) {
       return res.status(400).json({ error: 'Card has no Trello ID' });
     }
 
+    // Ensure aptlssChecklist is a string or null
+    const checklistStr = card.aptlssChecklist as string | null;
+
     let checklist: any[] = [];
     try {
-      checklist = card.aptlssChecklist ? JSON.parse(card.aptlssChecklist) : [];
+      checklist = checklistStr ? JSON.parse(checklistStr) : [];
     } catch (e) {
+      console.error('[ATIS] Failed to parse checklist:', e);
       return res.status(400).json({ error: 'Invalid checklist data' });
     }
 
