@@ -101,20 +101,18 @@ export function BulkBoardSelector({
     [boards]
   );
 
-  // Handle individual board selection
+  // Batch size matches the server-side limit
+  const BATCH_SIZE = 50;
+
+  // Handle individual board selection — no upper limit, auto-batching handles large sets
   const handleBoardToggle = (boardId: string) => {
     const newSelected = new Set(selectedBoardIds);
     if (newSelected.has(boardId)) {
       newSelected.delete(boardId);
-      setError(null);
     } else {
-      if (newSelected.size >= 50) {
-        setError('Maximum 50 boards can be selected at once. Please register in batches.');
-        return;
-      }
       newSelected.add(boardId);
-      setError(null);
     }
+    setError(null);
     setSelectedBoardIds(newSelected);
   };
 
@@ -125,22 +123,23 @@ export function BulkBoardSelector({
       const newSelected = new Set(selectedBoardIds);
       filteredBoards.forEach(b => newSelected.delete(b.id));
       setSelectedBoardIds(newSelected);
-      setError(null);
     } else {
-      const toAdd = filteredBoards.map(b => b.id);
-      const combined = new Set([...Array.from(selectedBoardIds), ...toAdd]);
-      if (combined.size > 50) {
-        setError(
-          `Only 50 boards can be selected at once. You have ${filteredBoards.length} boards visible. Please select up to 50 and register in batches.`
-        );
-        return;
-      }
+      const combined = new Set([...Array.from(selectedBoardIds), ...filteredBoards.map(b => b.id)]);
       setSelectedBoardIds(combined);
-      setError(null);
     }
+    setError(null);
   };
 
-  // Handle registration
+  // Split an array into chunks of at most `size`
+  const chunkArray = <T,>(arr: T[], size: number): T[][] => {
+    const chunks: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+      chunks.push(arr.slice(i, i + size));
+    }
+    return chunks;
+  };
+
+  // Handle registration — automatically batches >50 boards into sequential requests
   const handleRegister = async (boardIds?: string[]) => {
     const ids = boardIds ?? Array.from(selectedBoardIds);
     if (ids.length === 0) {
@@ -152,8 +151,16 @@ export function BulkBoardSelector({
     setRegistrationResults([]);
 
     try {
-      const results = await onRegister(ids, boardNameMap);
-      setRegistrationResults(results);
+      const batches = chunkArray(ids, BATCH_SIZE);
+      const allResults: RegistrationResult[] = [];
+
+      for (const batch of batches) {
+        const batchResults = await onRegister(batch, boardNameMap);
+        allResults.push(...batchResults);
+        // Show incremental progress as each batch completes
+        setRegistrationResults([...allResults]);
+      }
+
       // Clear selection after a successful (even partial) run
       if (!boardIds) {
         setSelectedBoardIds(new Set());
@@ -284,8 +291,10 @@ export function BulkBoardSelector({
               <span className="text-sm font-medium text-blue-900">
                 {selectedBoardIds.size} board{selectedBoardIds.size !== 1 ? 's' : ''} selected
               </span>
-              {selectedBoardIds.size >= 45 && (
-                <span className="text-xs text-blue-700">Approaching limit (50 max)</span>
+              {selectedBoardIds.size > 50 && (
+                <span className="text-xs text-blue-700">
+                  Will register in {Math.ceil(selectedBoardIds.size / 50)} batches of 50
+                </span>
               )}
             </div>
           )}

@@ -74,7 +74,8 @@ async function fetchUserWorkspaceBoardIds(apiKey: string, token: string) {
     }
 
     for (const board of boards) {
-      if (board?.id) {
+      // Skip template boards — they contain no real work cards
+      if (board?.id && board.prefs?.isTemplate !== true) {
         boardIds.add(board.id);
       }
     }
