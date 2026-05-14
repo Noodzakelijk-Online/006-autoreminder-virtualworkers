@@ -27,6 +27,7 @@ import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { toast } from "sonner";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Dashboard", path: "/" },
@@ -275,13 +276,48 @@ function LocalLoginForm({ onSuccess }: { onSuccess: () => void }) {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || 'Something went wrong');
+        const errorMessage = data.error || 'Something went wrong';
+        setError(errorMessage);
+        
+        // Show error toast
+        if (mode === 'register') {
+          toast.error('Registration Failed', {
+            description: errorMessage,
+            duration: 5000,
+          });
+        } else {
+          toast.error('Login Failed', {
+            description: errorMessage,
+            duration: 5000,
+          });
+        }
         return;
       }
 
-      onSuccess();
-    } catch {
-      setError('Network error — is the server running?');
+      // Show success toast
+      if (mode === 'register') {
+        toast.success('Account Created Successfully!', {
+          description: `Welcome, ${name || username}! Redirecting to dashboard...`,
+          duration: 3000,
+        });
+      } else {
+        toast.success('Login Successful!', {
+          description: `Welcome back, ${username}!`,
+          duration: 3000,
+        });
+      }
+
+      // Small delay to show the success message before redirecting
+      setTimeout(() => {
+        onSuccess();
+      }, 500);
+    } catch (error) {
+      const errorMessage = 'Network error — is the server running?';
+      setError(errorMessage);
+      toast.error('Connection Error', {
+        description: errorMessage,
+        duration: 5000,
+      });
     } finally {
       setLoading(false);
     }

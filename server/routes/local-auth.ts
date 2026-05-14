@@ -18,6 +18,13 @@ const router = express.Router();
  */
 router.post('/register', async (req: Request, res: Response) => {
   try {
+    console.log('[LocalAuth] Register request received:', {
+      body: req.body,
+      hasUsername: !!req.body?.username,
+      hasPassword: !!req.body?.password,
+      hasName: !!req.body?.name,
+    });
+
     const { username, password, name } = req.body as {
       username?: string;
       password?: string;
@@ -25,18 +32,23 @@ router.post('/register', async (req: Request, res: Response) => {
     };
 
     if (!username || !password) {
+      console.log('[LocalAuth] Validation failed: missing username or password');
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
     if (password.length < 6) {
+      console.log('[LocalAuth] Validation failed: password too short');
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
     // Check if user already exists
     const existing = await db.getUserByOpenId(username);
     if (existing) {
+      console.log('[LocalAuth] User already exists:', username);
       return res.status(409).json({ error: 'Username already taken' });
     }
+
+    console.log('[LocalAuth] Creating new user:', username);
 
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
@@ -61,6 +73,8 @@ router.post('/register', async (req: Request, res: Response) => {
         .where(eq(users.openId, username));
     }
 
+    console.log('[LocalAuth] User created successfully, creating session');
+
     // Create session
     const sessionToken = await sdk.createSessionToken(username, {
       name: name || username,
@@ -70,6 +84,7 @@ router.post('/register', async (req: Request, res: Response) => {
     const cookieOptions = getSessionCookieOptions(req);
     res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
+    console.log('[LocalAuth] Registration complete');
     return res.json({ success: true, message: 'Account created successfully' });
   } catch (error) {
     console.error('[LocalAuth] Register error:', error);
