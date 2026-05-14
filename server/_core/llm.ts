@@ -209,14 +209,35 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
+const resolveApiUrl = () => {
+  // Priority: Groq (free) → custom Forge URL → default Forge
+  if (process.env.GROQ_API_KEY) {
+    return 'https://api.groq.com/openai/v1/chat/completions';
+  }
+  if (process.env.OPENAI_API_KEY) {
+    return 'https://api.openai.com/v1/chat/completions';
+  }
+  return ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
     ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
     : "https://forge.manus.im/v1/chat/completions";
+};
+
+const resolveApiKey = () => {
+  if (process.env.GROQ_API_KEY) return process.env.GROQ_API_KEY;
+  if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
+  return ENV.forgeApiKey;
+};
+
+const resolveModel = () => {
+  if (process.env.GROQ_API_KEY) return 'llama-3.3-70b-versatile';
+  if (process.env.OPENAI_API_KEY) return 'gpt-4o-mini';
+  return 'gemini-2.5-flash';
+};
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  const key = resolveApiKey();
+  if (!key) {
+    throw new Error("No LLM API key configured. Set GROQ_API_KEY (free) or OPENAI_API_KEY in your .env file.");
   }
 };
 
@@ -280,7 +301,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: resolveModel(),
     messages: messages.map(normalizeMessage),
   };
 
@@ -296,9 +317,10 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
+  payload.max_tokens = 32768;
+  // Note: thinking/budget_tokens is only supported by Gemini via Forge API
+  if (!process.env.GROQ_API_KEY && !process.env.OPENAI_API_KEY) {
+    (payload as any).thinking = { budget_tokens: 128 };
   }
 
   const normalizedResponseFormat = normalizeResponseFormat({
@@ -316,7 +338,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${resolveApiKey()}`,
     },
     body: JSON.stringify(payload),
   });

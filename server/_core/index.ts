@@ -4,6 +4,7 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+import localAuthRoutes from "../routes/local-auth.js";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { sdk } from "./sdk";
@@ -144,8 +145,10 @@ async function startServer() {
     next();
   });
   
-  // OAuth callback under /api/oauth/callback
+  // OAuth callback under /api/oauth/callback (Manus OAuth - kept for compatibility)
   registerOAuthRoutes(app);
+  // Local auth routes (username/password login - works without Manus)
+  app.use('/api/auth', localAuthRoutes);
   // APTLSS Management API
   app.use("/api", aptlssRoutes);
   // Working Hours Settings API
