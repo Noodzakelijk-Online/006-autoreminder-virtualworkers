@@ -317,10 +317,18 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.tool_choice = normalizedToolChoice;
   }
 
-  payload.max_tokens = 32768;
-  // Note: thinking/budget_tokens is only supported by Gemini via Forge API
-  if (!process.env.GROQ_API_KEY && !process.env.OPENAI_API_KEY) {
-    (payload as any).thinking = { budget_tokens: 128 };
+  // Groq free tier: 12k TPM (input + output combined).
+  // Cap output tokens to leave room for the input prompt.
+  // Other providers can use larger values.
+  const maxOut = params.maxTokens ?? params.max_tokens;
+  if (process.env.GROQ_API_KEY) {
+    payload.max_tokens = Math.min(maxOut ?? 2048, 2048);
+  } else {
+    payload.max_tokens = maxOut ?? 32768;
+    // thinking/budget_tokens is only supported by Gemini via Forge API
+    if (!process.env.OPENAI_API_KEY) {
+      (payload as any).thinking = { budget_tokens: 128 };
+    }
   }
 
   const normalizedResponseFormat = normalizeResponseFormat({

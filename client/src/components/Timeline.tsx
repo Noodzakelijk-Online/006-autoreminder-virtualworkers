@@ -14,13 +14,15 @@ interface TimelineProps {
   onToggleTask: (id: string) => void;
   isLoading?: boolean;
   onRefresh?: () => void;
+  onSync?: () => void;
+  isSyncing?: boolean;
   allExpanded?: boolean;
   onExpandChange?: (expanded: boolean) => void;
   onStartInterview?: (task: Task) => void;
   viewMode?: 'day' | 'week' | 'all';
 }
 
-export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpanded, onExpandChange, onStartInterview, viewMode = 'all' }: TimelineProps) {
+export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, onSync, isSyncing, allExpanded, onExpandChange, onStartInterview, viewMode = 'all' }: TimelineProps) {
   // Track individual card expansion states
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   
@@ -190,14 +192,26 @@ export function Timeline({ tasks, onToggleTask, isLoading, onRefresh, allExpande
       <EmptyState
         icon={CalendarX}
         title="No tasks scheduled"
-        description="Your timeline is empty. Tasks from your Trello APTLSS checklists will appear here once loaded."
+        description="Your timeline is empty. Sync your Trello boards to load tasks, or refresh if you've already synced."
         action={
-          onRefresh && (
-            <Button onClick={onRefresh} variant="outline">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh Tasks
-            </Button>
-          )
+          <div className="flex gap-2 flex-wrap justify-center">
+            {onSync && (
+              <Button onClick={onSync} disabled={isSyncing}>
+                {isSyncing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                {isSyncing ? 'Syncing from Trello…' : 'Sync from Trello'}
+              </Button>
+            )}
+            {onRefresh && (
+              <Button onClick={onRefresh} variant="outline">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh Tasks
+              </Button>
+            )}
+          </div>
         }
       />
     );

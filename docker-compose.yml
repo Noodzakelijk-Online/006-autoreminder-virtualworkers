@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: va-dashboard-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-va_dashboard}
+      MYSQL_USER: ${MYSQL_USER:-va_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-va_password}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - va-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache (optional but recommended)
+  redis:
+    image: redis:7-alpine
+    container_name: va-dashboard-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - va-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    command: redis-server --appendonly yes
+
+  # VA Dashboard Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: va-dashboard-app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: mysql://${MYSQL_USER:-va_user}:${MYSQL_PASSWORD:-va_password}@mysql:3306/${MYSQL_DATABASE:-va_dashboard}
+      REDIS_URL: redis://redis:6379
+      TRELLO_API_KEY: ${TRELLO_API_KEY}
+      TRELLO_TOKEN: ${TRELLO_TOKEN}
+      JWT_SECRET: ${JWT_SECRET}
+      OWNER_NAME: ${OWNER_NAME}
+      OWNER_OPEN_ID: ${OWNER_OPEN_ID}
+      VITE_APP_TITLE: ${VITE_APP_TITLE:-VA Task Dashboard}
+      VITE_APP_LOGO: ${VITE_APP_LOGO:-/logo.png}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      SENDGRID_FROM_EMAIL: ${SENDGRID_FROM_EMAIL}
+      NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-false}
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - va-network
+    volumes:
+      # Mount .env file for additional configuration
+      - ./.env:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  va-network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local

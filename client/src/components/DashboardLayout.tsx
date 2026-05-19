@@ -60,7 +60,7 @@ export default function DashboardLayout({
   }
 
   if (!user) {
-    return <LocalLoginForm onSuccess={() => window.location.reload()} />;
+    return <LocalLoginForm onSuccess={() => window.location.href = '/'} />;
   }
 
   return (
