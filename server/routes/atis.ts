@@ -23,12 +23,12 @@ import { createChatbotExtractor } from '../services/chatbot-extractor';
 import { fetchWithRetry } from '../utils/retry';
 
 const router = Router();
-const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived'];
+const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived', 'info'];
 
 function isInactiveListName(listName?: string | null) {
   if (!listName) return false;
-  const normalized = listName.toLowerCase();
-  return INACTIVE_LIST_KEYWORDS.some((keyword) => normalized.includes(keyword));
+  const normalized = listName.toLowerCase().trim();
+  return INACTIVE_LIST_KEYWORDS.some((keyword) => normalized === keyword || normalized.includes(keyword));
 }
 
 async function fetchUserWorkspaceBoardIds(apiKey: string, token: string) {
@@ -774,6 +774,9 @@ router.post('/sync', async (req: Request, res: Response) => {
         if (card.closed) continue;
         const listName = listMap.get(card.idList) || null;
 
+        // Skip cards in inactive lists (Done, Completed, Archive, Info) at ingestion time
+        if (isInactiveListName(listName)) continue;
+
         const existing = await db.select({ id: atisCards.id })
           .from(atisCards).where(eq(atisCards.trelloId, card.id)).limit(1);
 
@@ -948,6 +951,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       listName: atisCards.listName,
       dueDate: atisCards.dueDate,
       boardId: atisCards.boardId,
+      memberIds: atisCards.memberIds,
       // Understanding fields
       understandingId: atisCardUnderstanding.id,
       goal: atisCardUnderstanding.goal,
@@ -1036,6 +1040,10 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
         listName: card.listName,
         boardName: boardMap.get(card.boardId) || 'Unknown',
         dueDate: card.dueDate,
+        memberIds: (() => {
+          try { return card.memberIds ? JSON.parse(card.memberIds) : []; }
+          catch { return []; }
+        })(),
         status,
         // AI Understanding
         hasUnderstanding: !!card.understandingId,

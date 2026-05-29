@@ -19,7 +19,7 @@ const __dirname = path.dirname(__filename);
 
 const router = Router();
 
-const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived'];
+const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived', 'info'];
 
 // In-memory cache for board cards with TTL
 interface CacheEntry {
@@ -72,8 +72,8 @@ setInterval(clearExpiredCache, 5 * 60 * 1000);
 
 function isInactiveListName(listName?: string | null) {
   if (!listName) return false;
-  const normalized = listName.toLowerCase();
-  return INACTIVE_LIST_KEYWORDS.some((keyword) => normalized.includes(keyword));
+  const normalized = listName.toLowerCase().trim();
+  return INACTIVE_LIST_KEYWORDS.some((keyword) => normalized === keyword || normalized.includes(keyword));
 }
 
 async function fetchUserWorkspaceBoards(apiKey: string, token: string) {
@@ -811,27 +811,26 @@ router.post('/aptlss/generate', async (req: Request, res: Response) => {
       card = await fetchCardForAptlss(cardId);
     }
 
-    console.log(`Generating APTLSS for card ${card.id} with settings:`, settings);
-
-    try {
-      const result = await generateAptlssChecklist(card, settings);
-      res.json(result);
-    } catch (pythonError: any) {
-      console.error('Python execution error:', pythonError);
-      
-      // Fallback to mock generation if Python fails
-      console.warn('Python APTLSS generator failed, using mock generation');
-      res.json({
-        success: true,
+    // Content sufficiency check — per docs: do NOT generate for cards with just a title
+    const hasDescription = card.desc && card.desc.trim().length > 0;
+    const hasChecklists = Array.isArray(card.checklists) && card.checklists.length > 0;
+    const hasAttachments = (card.badges?.attachments || 0) > 0;
+    if (!hasDescription && !hasChecklists && !hasAttachments) {
+      return res.status(422).json({
+        error: 'insufficient_content',
+        message: 'This card only has a title. Please add a description, attachments, or comments before generating an APTLSS checklist.',
         cardId: card.id,
-        message: 'APTLSS generated (mock mode)',
-        checklistId: 'checklist_' + Date.now(),
-        mock: true
+        cardName: card.name,
       });
     }
-  } catch (error) {
+
+    console.log(`Generating APTLSS for card ${card.id} with settings:`, settings);
+
+    const result = await generateAptlssChecklist(card, settings);
+    res.json(result);
+  } catch (error: any) {
     console.error('Error generating APTLSS:', error);
-    res.status(500).json({ error: 'Failed to generate APTLSS' });
+    res.status(500).json({ error: error.message || 'Failed to generate APTLSS' });
   }
 });
 
