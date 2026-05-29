@@ -4,6 +4,7 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+import localAuthRoutes from "../routes/local-auth.js";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { sdk } from "./sdk";
@@ -28,11 +29,13 @@ import interviewEnhancedRoutes from "../routes/interview-enhanced.js";
 import performanceOptimizationRoutes from "../routes/performance-optimization.js";
 import advancedSchedulingRoutes from "../routes/advanced-scheduling.js";
 import atisPhasesRoutes from "../routes/atis-phases.js";
+import batchOperationsRoutes from "../routes/batch-operations.js";
+import healthRoutes from "../routes/health.js";
 import { websocketService } from "../services/websocket.js";
-import { startDigestScheduler } from "../services/digest-scheduler.js";
-import { initializeWebhookAutoRegister } from "../services/webhook-auto-register.js";
 import { warmUpCache, scheduleCacheRefresh } from "../services/cache-warming.js";
 import { initializeRedis, closeRedis } from "../services/redis.js";
+import { apiRateLimiter, authRateLimiter, aptlssRateLimiter, atisRateLimiter } from "../middleware/rate-limiter.js";
+import { log } from "../utils/logger.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -133,6 +136,9 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   
+  // Global rate limiting for all API routes
+  app.use('/api', apiRateLimiter);
+  
   // Authentication middleware for all /api routes
   app.use('/api', async (req: any, res, next) => {
     try {
@@ -144,10 +150,12 @@ async function startServer() {
     next();
   });
   
-  // OAuth callback under /api/oauth/callback
+  // OAuth callback under /api/oauth/callback (Manus OAuth - kept for compatibility)
   registerOAuthRoutes(app);
-  // APTLSS Management API
-  app.use("/api", aptlssRoutes);
+  // Local auth routes (username/password login - works without Manus) with strict rate limiting
+  app.use('/api/auth', authRateLimiter, localAuthRoutes);
+  // APTLSS Management API with strict rate limiting
+  app.use("/api", aptlssRateLimiter, aptlssRoutes);
   // Working Hours Settings API
   app.use("/api/working-hours", workingHoursRoutes);
   // VA Management API
@@ -162,8 +170,8 @@ async function startServer() {
   app.use("/api", queueRoutes);
   // Performance Metrics API
   app.use("/api", metricsRoutes);
-  // ATIS (Adaptive Task Intelligence System) API
-  app.use("/api/atis", atisRoutes);
+  // ATIS (Adaptive Task Intelligence System) API with strict rate limiting
+  app.use("/api/atis", atisRateLimiter, atisRoutes);
   // Notification Preferences API
   app.use("/api/notification-preferences", notificationPreferencesRoutes);
   // Notification History API
@@ -190,6 +198,10 @@ async function startServer() {
   app.use("/api/scheduling", advancedSchedulingRoutes);
   // ATIS Phases 3-10 API
   app.use("/api/atis/phases", atisPhasesRoutes);
+  // Batch Operations API
+  app.use("/api/batch-operations", batchOperationsRoutes);
+  // Health Check API (no rate limiting for health checks)
+  app.use("/api/health", healthRoutes);
   // tRPC API
   app.use(
     "/api/trpc",
@@ -224,43 +236,33 @@ async function startServer() {
   // Initialize WebSocket server
   websocketService.initialize(server);
 
-  // Enable digest scheduler for daily email summaries
-  startDigestScheduler();
-  console.log('[Server] Digest scheduler ENABLED');
-
   // Warm up cache on startup
   try {
     await warmUpCache();
-    console.log('[Server] Cache warming completed');
+    log.info('Cache warming completed');
     // Schedule periodic cache refresh every 60 minutes
     scheduleCacheRefresh(60);
-    console.log('[Server] Periodic cache refresh scheduled');
+    log.info('Periodic cache refresh scheduled');
   } catch (error) {
-    console.error('[Server] Cache warming failed:', error);
+    log.error('Cache warming failed', error as Error);
   }
 
   server.listen(port, async () => {
-    console.log(`Server running on http://localhost:${port}/`);
-    
-    // Enable webhook auto-registration for chatbot
-    const publicUrl = process.env.PUBLIC_URL || `http://localhost:${port}`;
-    try {
-      await initializeWebhookAutoRegister(publicUrl);
-      console.log('[Server] Webhook auto-register initialized');
-    } catch (error) {
-      console.error('[Server] Failed to initialize webhook auto-register:', error);
-    }
+    log.info(`Server running on http://localhost:${port}/`, {
+      port,
+      environment: process.env.NODE_ENV,
+    });
   });
 
   // Graceful shutdown handling
   const gracefulShutdown = async () => {
-    console.log('[Server] Shutting down gracefully...');
+    log.info('Shutting down gracefully...');
     
     // Close WebSocket connections
     const io = websocketService.getIO();
     if (io) {
       io.close();
-      console.log('[Server] WebSocket server closed');
+      log.info('WebSocket server closed');
     }
 
     // Close Redis connections
@@ -268,13 +270,13 @@ async function startServer() {
     
     // Close HTTP server
     server.close(() => {
-      console.log('[Server] HTTP server closed');
+      log.info('HTTP server closed');
       process.exit(0);
     });
     
     // Force exit after 10 seconds
     setTimeout(() => {
-      console.error('[Server] Forced shutdown after timeout');
+      log.fatal('Forced shutdown after timeout');
       process.exit(1);
     }, 10000);
   };
@@ -284,17 +286,17 @@ async function startServer() {
   
   // Handle uncaught exceptions
   process.on('uncaughtException', (error) => {
-    console.error('[Server] Uncaught exception:', error);
+    log.fatal('Uncaught exception', error);
     gracefulShutdown();
   });
   
   // Handle unhandled promise rejections
   process.on('unhandledRejection', (reason, promise) => {
-    console.error('[Server] Unhandled rejection at:', promise, 'reason:', reason);
+    log.error('Unhandled rejection', reason as Error, { promise: String(promise) });
   });
 }
 
 startServer().catch((error) => {
-  console.error('[Server] Failed to start:', error);
+  log.fatal('Failed to start server', error);
   process.exit(1);
 });

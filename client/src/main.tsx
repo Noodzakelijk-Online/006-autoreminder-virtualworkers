@@ -5,20 +5,17 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
-import { getLoginUrl } from "./const";
 import "./index.css";
 
 const queryClient = new QueryClient();
 
+// On 401, just reload the page — DashboardLayout will show the local login form
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
-
-  const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
-
-  if (!isUnauthorized) return;
-
-  window.location.href = getLoginUrl();
+  if (error.message !== UNAUTHED_ERR_MSG) return;
+  // Don't redirect to Manus OAuth — the login form is rendered by DashboardLayout
+  queryClient.clear();
 };
 
 queryClient.getQueryCache().subscribe(event => {

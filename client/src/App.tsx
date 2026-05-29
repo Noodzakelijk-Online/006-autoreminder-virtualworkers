@@ -5,6 +5,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { LoadingQueueProvider } from "./contexts/LoadingQueueContext";
+import DashboardLayout from "./components/DashboardLayout";
 import Home from "./pages/Home";
 import APTLSSManagement from "./pages/APTLSSManagement";
 import Settings from "./pages/Settings";
@@ -16,22 +17,25 @@ import ATISPhasesAnalysisDashboard from "./pages/ATISPhasesAnalysisDashboard";
 
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
+  // All routes are wrapped in DashboardLayout which handles authentication
+  // and shows the login form when user is not authenticated
   return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/aptlss"} component={APTLSSManagement} />
-      <Route path={"/settings"} component={Settings} />
-      <Route path={"/calendar"} component={Calendar} />
-      <Route path={"/advanced-scheduling"} component={AdvancedScheduling} />
-      <Route path={"/atis-phases"} component={ATISPhasesAnalysisDashboard} />
+    <DashboardLayout>
+      <Switch>
+        <Route path={"/"} component={Home} />
+        <Route path={"/aptlss"} component={APTLSSManagement} />
+        <Route path={"/settings"} component={Settings} />
+        <Route path={"/calendar"} component={Calendar} />
+        <Route path={"/advanced-scheduling"} component={AdvancedScheduling} />
+        <Route path={"/atis-phases"} component={ATISPhasesAnalysisDashboard} />
 
-      <Route path={"/founder"} component={FounderDashboard} />
-      <Route path={"/worker"} component={WorkerDashboard} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
+        <Route path={"/founder"} component={FounderDashboard} />
+        <Route path={"/worker"} component={WorkerDashboard} />
+        <Route path={"/404"} component={NotFound} />
+        {/* Final fallback route */}
+        <Route component={NotFound} />
+      </Switch>
+    </DashboardLayout>
   );
 }
 

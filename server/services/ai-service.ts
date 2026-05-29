@@ -53,10 +53,10 @@ interface AIConfig {
   ollamaUrl: string;
 }
 
-// Default configuration - using DeepSeek V3.2 as default (best free option Dec 2025)
+// Default configuration - use Groq if key is available, otherwise Together.ai
 let aiConfig: AIConfig = {
-  provider: 'together',
-  model: 'deepseek-ai/DeepSeek-V3',
+  provider: process.env.GROQ_API_KEY ? 'groq' : 'together',
+  model: process.env.GROQ_API_KEY ? 'llama-3.3-70b-versatile' : 'deepseek-ai/DeepSeek-V3',
   groqApiKey: process.env.GROQ_API_KEY || '',
   togetherApiKey: process.env.TOGETHER_API_KEY || '',
   openrouterApiKey: process.env.OPENROUTER_API_KEY || '',

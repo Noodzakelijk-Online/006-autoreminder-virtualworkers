@@ -7,7 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { getDb } from '../db';
 import { 
-  atisWorkspaces, 
+  atisWorkspaces,
   atisBoards, 
   atisCards, 
   atisAttachments,
@@ -74,7 +74,8 @@ async function fetchUserWorkspaceBoardIds(apiKey: string, token: string) {
     }
 
     for (const board of boards) {
-      if (board?.id) {
+      // Skip template boards — they contain no real work cards
+      if (board?.id && board.prefs?.isTemplate !== true) {
         boardIds.add(board.id);
       }
     }
@@ -638,6 +639,189 @@ router.get('/cards/by-trello/:trelloId', async (req: Request, res: Response) => 
     res.json(card);
   } catch (error: any) {
     console.error(`[ATIS] Failed to get card by Trello ID:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/atis/sync
+ * Full sync: fetch all boards + cards from Trello and upsert into atis_boards / atis_cards.
+ * This must be called at least once before the timeline will show any data.
+ */
+router.post('/sync', async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  if (!user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const apiKey = process.env.TRELLO_API_KEY?.trim();
+  const token  = process.env.TRELLO_TOKEN?.trim();
+  if (!apiKey || !token) {
+    return res.status(500).json({ error: 'Trello credentials not configured' });
+  }
+
+  const db = await getDb();
+  if (!db) return res.status(500).json({ error: 'Database not available' });
+
+  try {
+    console.log('[ATIS Sync] Starting full Trello sync...');
+
+    // ── 1. Fetch workspaces ──────────────────────────────────────────────────
+    const wsRes = await fetchWithRetry(
+      `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`,
+      undefined, { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 10000 }
+    );
+    if (!wsRes.ok) throw new Error(`Trello workspaces error: ${await wsRes.text()}`);
+    const workspaces: any[] = await wsRes.json();
+
+    // Also include personal boards (not in any workspace)
+    const personalBoardsRes = await fetchWithRetry(
+      `https://api.trello.com/1/members/me/boards?filter=open&key=${apiKey}&token=${token}`,
+      undefined, { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 10000 }
+    );
+    const personalBoards: any[] = personalBoardsRes.ok ? await personalBoardsRes.json() : [];
+
+    let totalBoards = 0;
+    let totalCards  = 0;
+
+    // ── 2. Upsert workspace boards ───────────────────────────────────────────
+    const processedBoardIds = new Set<string>();
+
+    const upsertBoard = async (board: any, workspaceId: number | null) => {
+      if (processedBoardIds.has(board.id)) return null;
+      processedBoardIds.add(board.id);
+
+      const existing = await db.select({ id: atisBoards.id })
+        .from(atisBoards).where(eq(atisBoards.trelloId, board.id)).limit(1);
+
+      if (existing.length > 0) {
+        await db.update(atisBoards)
+          .set({ name: board.name, updatedAt: new Date() })
+          .where(eq(atisBoards.trelloId, board.id));
+        return existing[0].id;
+      } else {
+        const [inserted] = await db.insert(atisBoards).values({
+          trelloId: board.id,
+          workspaceId,
+          name: board.name,
+          description: board.desc || null,
+          url: board.url || null,
+          isActive: 1,
+        }).$returningId();
+        totalBoards++;
+        return inserted.id;
+      }
+    };
+
+    // Workspace boards
+    for (const ws of workspaces) {
+      // Upsert workspace record
+      const existingWs = await db.select({ id: atisWorkspaces.id })
+        .from(atisWorkspaces).where(eq(atisWorkspaces.trelloId, ws.id)).limit(1);
+
+      let wsDbId: number;
+      if (existingWs.length > 0) {
+        wsDbId = existingWs[0].id;
+      } else {
+        const [insertedWs] = await db.insert(atisWorkspaces).values({
+          trelloId: ws.id,
+          name: ws.displayName || ws.name,
+          description: ws.desc || null,
+        }).$returningId();
+        wsDbId = insertedWs.id;
+      }
+
+      const boardsRes = await fetchWithRetry(
+        `https://api.trello.com/1/organizations/${ws.id}/boards?filter=open&key=${apiKey}&token=${token}`,
+        undefined, { maxRetries: 2, initialDelayMs: 1000, maxDelayMs: 10000 }
+      );
+      if (!boardsRes.ok) continue;
+      const boards: any[] = await boardsRes.json();
+
+      for (const board of boards) {
+        if (board.prefs?.isTemplate) continue;
+        await upsertBoard(board, wsDbId);
+      }
+    }
+
+    // Personal boards (no workspace)
+    for (const board of personalBoards) {
+      if (board.prefs?.isTemplate) continue;
+      await upsertBoard(board, null);
+    }
+
+    // ── 3. Fetch and upsert cards for every board ────────────────────────────
+    const allBoards = await db.select().from(atisBoards);
+
+    for (const board of allBoards) {
+      const cardsRes = await fetchWithRetry(
+        `https://api.trello.com/1/boards/${board.trelloId}/cards?filter=open&fields=id,name,desc,url,due,dueComplete,closed,idList,labels,idMembers,badges&key=${apiKey}&token=${token}`,
+        undefined, { maxRetries: 2, initialDelayMs: 1000, maxDelayMs: 10000 }
+      );
+      if (!cardsRes.ok) continue;
+      const cards: any[] = await cardsRes.json();
+
+      // Fetch list names for this board
+      const listsRes = await fetchWithRetry(
+        `https://api.trello.com/1/boards/${board.trelloId}/lists?filter=open&key=${apiKey}&token=${token}`,
+        undefined, { maxRetries: 2, initialDelayMs: 1000, maxDelayMs: 10000 }
+      );
+      const listMap = new Map<string, string>();
+      if (listsRes.ok) {
+        const lists: any[] = await listsRes.json();
+        for (const l of lists) listMap.set(l.id, l.name);
+      }
+
+      for (const card of cards) {
+        if (card.closed) continue;
+        const listName = listMap.get(card.idList) || null;
+
+        const existing = await db.select({ id: atisCards.id })
+          .from(atisCards).where(eq(atisCards.trelloId, card.id)).limit(1);
+
+        const cardData = {
+          boardId: board.id,
+          boardTrelloId: board.trelloId,
+          listId: card.idList || null,
+          listName,
+          name: card.name,
+          description: card.desc || null,
+          url: card.url || null,
+          dueDate: card.due ? new Date(card.due) : null,
+          dueComplete: card.dueComplete ? 1 : 0,
+          isArchived: 0,
+          isClosed: 0,
+          labels: card.labels?.length ? JSON.stringify(card.labels) : null,
+          memberIds: card.idMembers?.length ? JSON.stringify(card.idMembers) : null,
+          checklistCount: card.badges?.checkItems || 0,
+          attachmentCount: card.badges?.attachments || 0,
+          commentCount: card.badges?.comments || 0,
+          rawData: JSON.stringify(card),
+          lastSyncedAt: new Date(),
+        };
+
+        if (existing.length > 0) {
+          await db.update(atisCards).set({ ...cardData, updatedAt: new Date() })
+            .where(eq(atisCards.trelloId, card.id));
+        } else {
+          await db.insert(atisCards).values({ trelloId: card.id, ...cardData });
+          totalCards++;
+        }
+      }
+    }
+
+    console.log(`[ATIS Sync] Done — ${totalBoards} new boards, ${totalCards} new cards`);
+
+    const stats = await db.select({ count: sql<number>`count(*)` }).from(atisCards);
+    const boardStats = await db.select({ count: sql<number>`count(*)` }).from(atisBoards);
+
+    res.json({
+      success: true,
+      newBoards: totalBoards,
+      newCards: totalCards,
+      totalBoards: Number(boardStats[0]?.count) || 0,
+      totalCards: Number(stats[0]?.count) || 0,
+    });
+  } catch (error: any) {
+    console.error('[ATIS Sync] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });

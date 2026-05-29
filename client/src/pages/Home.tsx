@@ -47,7 +47,8 @@ export default function Home() {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isLoadingTasks, setIsLoadingTasks] = useState(true);
-   const [searchQuery, setSearchQuery] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [taskTypes, setTaskTypes] = useState<{ taskType: string; count: number }[]>([]);
@@ -394,6 +395,32 @@ export default function Home() {
       void fetchTasks();
     }
   }, [fetchTasks, isAuthenticated, user]);
+
+  const syncFromTrello = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/atis/sync', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(`Sync failed: ${data.error || res.statusText}`);
+        return;
+      }
+      toast.success(
+        `Synced ${data.totalBoards} boards and ${data.totalCards} cards from Trello`,
+        { description: `${data.newBoards} new boards, ${data.newCards} new cards added.` }
+      );
+      // Clear client-side cache so fetchTasks re-fetches fresh data
+      taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+      await fetchTasks();
+    } catch (err) {
+      toast.error('Sync failed — is the server running?');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [fetchTasks]);
 
   const handleOpenInterview = (task: Task) => {
     setInterviewTask(task);
@@ -787,6 +814,8 @@ export default function Home() {
                   onToggleTask={handleToggleTask} 
                   isLoading={isLoadingTasks}
                   onRefresh={() => void fetchTasks()}
+                  onSync={() => void syncFromTrello()}
+                  isSyncing={isSyncing}
                   allExpanded={allExpanded}
                   onExpandChange={(expanded: boolean) => setAllExpanded(expanded)}
                   onStartInterview={handleOpenInterview}

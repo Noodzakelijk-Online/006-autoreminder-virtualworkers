@@ -169,6 +169,13 @@
       "when": 1776632299148,
       "tag": "0023_ambitious_nightcrawler",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1778708873480,
+      "tag": "0024_previous_gauntlet",
+      "breakpoints": true
     }
   ]
 }
