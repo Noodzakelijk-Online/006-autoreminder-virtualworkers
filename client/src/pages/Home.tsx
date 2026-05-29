@@ -84,8 +84,13 @@ export default function Home() {
   const filteredTasks = useMemo(() => {
     let result = [...tasks];
     
-    // Exclude tasks from 'Info' list
-    result = result.filter(task => !task.listName || task.listName.toLowerCase() !== 'info');
+    // Exclude tasks from inactive lists (Done, Completed, Archive, Info)
+    const inactiveKeywords = ['done', 'completed', 'complete', 'archive', 'archived', 'info'];
+    result = result.filter(task => {
+      if (!task.listName) return true;
+      const normalized = task.listName.toLowerCase().trim();
+      return !inactiveKeywords.some(kw => normalized === kw || normalized.includes(kw));
+    });
     
     // Apply search filter
     if (searchQuery.trim()) {
@@ -135,9 +140,9 @@ export default function Home() {
       result = result.filter(t => t.client === filters.client);
     }
     
-    // Apply worker filter
+    // Apply worker filter — match against Trello memberIds array
     if (workerFilter) {
-      result = result.filter(t => t.assignedTo === workerFilter);
+      result = result.filter(t => Array.isArray((t as any).memberIds) && (t as any).memberIds.includes(workerFilter));
     }
     
     // Apply sorting
@@ -276,6 +281,7 @@ export default function Home() {
             hasUnderstanding: t.hasUnderstanding,
             confidenceScore: t.confidenceScore,
             atisCardId: t.atisCardId || t.id,
+            memberIds: t.memberIds || [],
             synced: false,
           }));
           setTasks(atisTasks);

@@ -645,7 +645,7 @@ export default function APTLSSManagement() {
   const progressPercent =
     progress.total > 0 ? (progress.completed / progress.total) * 100 : 0;
   const activeJob =
-    history.find((job: any) => job.id === progress.jobId) ?? null;
+    Array.isArray(history) ? (history.find((job: any) => job.id === progress.jobId) ?? null) : null;
 
   // Unique boards for the filter dropdown
   const boardOptions = useMemo(() => {
@@ -888,7 +888,7 @@ export default function APTLSSManagement() {
     try {
       const res = await fetch("/api/aptlss/history");
       const data = await res.json();
-      setHistory(data);
+      setHistory(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Error loading history:", err);
     }
