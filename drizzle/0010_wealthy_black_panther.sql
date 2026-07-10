@@ -1,0 +1,41 @@
+CREATE TABLE `card_snoozes` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`cardId` varchar(64) NOT NULL,
+	`cardName` varchar(512) NOT NULL,
+	`cardUrl` varchar(1024) NOT NULL,
+	`boardName` varchar(256) NOT NULL DEFAULT '',
+	`listName` varchar(256) NOT NULL DEFAULT '',
+	`snoozedUntil` timestamp NOT NULL,
+	`snoozedAt` timestamp NOT NULL DEFAULT (now()),
+	`note` text,
+	`isActive` boolean NOT NULL DEFAULT true,
+	`resurfacedAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `card_snoozes_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `email_tasks` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`gmailMessageId` varchar(128) NOT NULL,
+	`gmailThreadId` varchar(128) NOT NULL,
+	`subject` varchar(1024) NOT NULL DEFAULT '(no subject)',
+	`fromAddress` varchar(320) NOT NULL DEFAULT '',
+	`fromName` varchar(256) NOT NULL DEFAULT '',
+	`snippet` text,
+	`receivedAt` timestamp NOT NULL,
+	`category` enum('financial','non_financial') NOT NULL DEFAULT 'non_financial',
+	`status` enum('pending','processed','archived') NOT NULL DEFAULT 'pending',
+	`deadlineAt` timestamp,
+	`trelloCardId` varchar(64),
+	`trelloCardName` varchar(512),
+	`trelloCardUrl` varchar(1024),
+	`suggestedNextAction` text,
+	`llmSummary` text,
+	`processedAt` timestamp,
+	`archivedAt` timestamp,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `email_tasks_id` PRIMARY KEY(`id`),
+	CONSTRAINT `email_tasks_gmailMessageId_unique` UNIQUE(`gmailMessageId`)
+);

@@ -1,0 +1,125 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1770641014033,
+      "tag": "0000_young_scrambler",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1778008139137,
+      "tag": "0001_large_sphinx",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1778008168262,
+      "tag": "0002_marvelous_overlord",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1778015135030,
+      "tag": "0003_charming_trauma",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1778016229171,
+      "tag": "0004_pale_sinister_six",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1778017853852,
+      "tag": "0005_harsh_norman_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1778099801661,
+      "tag": "0006_lowly_joshua_kane",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1778105132041,
+      "tag": "0007_nosy_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1778708452410,
+      "tag": "0008_giant_vulture",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1779218946973,
+      "tag": "0009_broken_celestials",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1779753748606,
+      "tag": "0010_wealthy_black_panther",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1779832170355,
+      "tag": "0011_fat_excalibur",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "5",
+      "when": 1779837623282,
+      "tag": "0012_wealthy_liz_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1779837636934,
+      "tag": "0013_rapid_puppet_master",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1779884480119,
+      "tag": "0014_flawless_scream",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "5",
+      "when": 1783670649752,
+      "tag": "0015_colorful_may_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1783690000000,
+      "tag": "0016_reply_monitor_reliability",
+      "breakpoints": true
+    }
+  ]
+}

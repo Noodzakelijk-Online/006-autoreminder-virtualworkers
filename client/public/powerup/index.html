@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Joyce Time Tracker – Trello Power-Up</title>
+  <script src="https://p.trellocdn.com/power-up.min.js"></script>
+  <script src="/api/powerup/config.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      min-height: 100vh;
+    }
+    /* ── popup frame ── */
+    .popup {
+      padding: 16px;
+      min-width: 260px;
+      max-width: 320px;
+    }
+    .popup h2 {
+      font-size: 13px;
+      font-weight: 700;
+      color: #cba6f7;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .timer-display {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 28px;
+      font-weight: 700;
+      color: #a6e3a1;
+      text-align: center;
+      letter-spacing: 2px;
+      padding: 12px 0;
+    }
+    .timer-display.idle { color: #6c7086; font-size: 20px; }
+    .card-name {
+      font-size: 12px;
+      color: #bac2de;
+      text-align: center;
+      margin-bottom: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-start { background: #a6e3a1; color: #1e1e2e; }
+    .btn-stop  { background: #f38ba8; color: #1e1e2e; }
+    .status-msg {
+      font-size: 11px;
+      color: #6c7086;
+      text-align: center;
+      margin-top: 10px;
+    }
+    .error-msg {
+      font-size: 11px;
+      color: #f38ba8;
+      text-align: center;
+      margin-top: 8px;
+    }
+    .divider {
+      border: none;
+      border-top: 1px solid #313244;
+      margin: 12px 0;
+    }
+    .today-total {
+      font-size: 11px;
+      color: #89b4fa;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+<script>
+(function() {
+  // ── helpers ──────────────────────────────────────────────────────────────────
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function formatHHMMSS(secs) {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
+  }
+  function formatDuration(secs) {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    if (h > 0) return `${h}h ${pad(m)}m`;
+    return `${m}m ${pad(secs % 60)}s`;
+  }
+
+  // ── Trello Power-Up initialisation ───────────────────────────────────────────
+  var BASE_URL = window.location.origin; // same origin as the dashboard
+
+  var POWERUP_API_KEY = (window.JOYCE_POWERUP_CONFIG && window.JOYCE_POWERUP_CONFIG.appKey) || '';
+  if (!POWERUP_API_KEY) {
+    console.error('TRELLO_POWERUP_API_KEY is not configured.');
+    return;
+  }
+
+  var trello = window.TrelloPowerUp.initialize({
+    'card-buttons': function(t, options) {
+      return t.card('id', 'name', 'url', 'idList', 'idBoard').then(function(card) {
+        return t.get('card', 'shared', 'timerRunning').then(function(isRunning) {
+          return [
+            {
+              // ── Timer button ──
+              icon: isRunning
+                ? BASE_URL + '/powerup/stop-icon.svg'
+                : BASE_URL + '/powerup/start-icon.svg',
+              text: isRunning ? '⏹ Stop Timer' : '⏱ Start Timer',
+              callback: function(t) {
+                return t.popup({
+                  title: 'Time Tracker',
+                  url: BASE_URL + '/powerup/popup.html',
+                  height: 200,
+                });
+              },
+            },
+            {
+              // ── APTLSS Plan button ──
+              icon: BASE_URL + '/powerup/aptlss-icon.svg',
+              text: '🎯 APTLSS Plan',
+              callback: function(t) {
+                return t.popup({
+                  title: '🎯 APTLSS Plan',
+                  url: BASE_URL + '/powerup/aptlss-popup.html',
+                  height: 500,
+                });
+              },
+            },
+          ];
+        });
+      });
+    },
+
+    'card-detail-badges': function(t, options) {
+      return t.card('id').then(function(card) {
+        return t.get('card', 'shared', 'todaySeconds').then(function(todaySeconds) {
+          if (!todaySeconds) return [];
+          return [{
+            title: 'Time Today',
+            text: formatDuration(parseInt(todaySeconds, 10) || 0),
+            color: 'green',
+          }];
+        });
+      });
+    },
+  }, { appKey: POWERUP_API_KEY, appName: 'Joyce Time Tracker' });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+CREATE TABLE `sunday_checklist` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`sundayDate` date NOT NULL,
+	`trelloArchived` boolean NOT NULL DEFAULT false,
+	`trelloLabels` boolean NOT NULL DEFAULT false,
+	`trelloDeadlines` boolean NOT NULL DEFAULT false,
+	`trelloTimers` boolean NOT NULL DEFAULT false,
+	`emailInbox` boolean NOT NULL DEFAULT false,
+	`whatsappCleared` boolean NOT NULL DEFAULT false,
+	`upworkArchived` boolean NOT NULL DEFAULT false,
+	`downloadsCleared` boolean NOT NULL DEFAULT false,
+	`desktopCleared` boolean NOT NULL DEFAULT false,
+	`browserTabsClosed` boolean NOT NULL DEFAULT false,
+	`weekReviewed` boolean NOT NULL DEFAULT false,
+	`nextWeekPlanned` boolean NOT NULL DEFAULT false,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `sunday_checklist_id` PRIMARY KEY(`id`),
+	CONSTRAINT `sunday_checklist_sundayDate_unique` UNIQUE(`sundayDate`)
+);

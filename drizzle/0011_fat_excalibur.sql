@@ -1,0 +1,137 @@
+CREATE TABLE `aptlss_operational_policies` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`ruleKey` varchar(128) NOT NULL,
+	`label` varchar(256) NOT NULL DEFAULT '',
+	`description` text,
+	`value` text NOT NULL,
+	`category` varchar(64) NOT NULL DEFAULT 'general',
+	`enabled` int NOT NULL DEFAULT 1,
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `aptlss_operational_policies_id` PRIMARY KEY(`id`),
+	CONSTRAINT `aptlss_operational_policies_ruleKey_unique` UNIQUE(`ruleKey`)
+);
+--> statement-breakpoint
+CREATE TABLE `aptlss_plans` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`cardId` varchar(64) NOT NULL,
+	`cardName` varchar(512) NOT NULL,
+	`cardUrl` varchar(1024) NOT NULL,
+	`boardName` varchar(256) NOT NULL DEFAULT '',
+	`listName` varchar(256) NOT NULL DEFAULT '',
+	`planJson` text NOT NULL,
+	`contextSnapshot` text,
+	`generatedAt` timestamp NOT NULL DEFAULT (now()),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `aptlss_plans_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `aptlss_steps` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`cardId` varchar(64) NOT NULL,
+	`trelloChecklistId` varchar(64),
+	`trelloCheckItemId` varchar(64),
+	`stepNumber` int NOT NULL,
+	`title` varchar(1024) NOT NULL,
+	`estimatedMinutes` int NOT NULL DEFAULT 15,
+	`status` varchar(32) NOT NULL DEFAULT 'open',
+	`category` varchar(64) NOT NULL DEFAULT 'internal_work',
+	`requiresRobert` boolean NOT NULL DEFAULT false,
+	`blockedBy` varchar(64),
+	`dependsOnCards` text,
+	`completionCriteria` text,
+	`riskIfSkipped` text,
+	`recommendedDecision` text,
+	`isManual` boolean NOT NULL DEFAULT false,
+	`completedAt` timestamp,
+	`lastSyncedAt` timestamp NOT NULL DEFAULT (now()),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `aptlss_steps_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `auto_follow_up_drafts` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`cardId` varchar(64) NOT NULL,
+	`cardName` varchar(512) NOT NULL DEFAULT '',
+	`draftMessage` text NOT NULL,
+	`reason` varchar(512) NOT NULL DEFAULT '',
+	`hoursSinceLastReply` int NOT NULL DEFAULT 0,
+	`urgencyType` varchar(32) NOT NULL DEFAULT 'routine',
+	`status` varchar(16) NOT NULL DEFAULT 'pending',
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `auto_follow_up_drafts_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `card_states` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`cardId` varchar(64) NOT NULL,
+	`cardName` varchar(512) NOT NULL DEFAULT '',
+	`boardName` varchar(256) NOT NULL DEFAULT '',
+	`listName` varchar(256) NOT NULL DEFAULT '',
+	`state` varchar(64) NOT NULL DEFAULT 'NEW_UNTRIAGED',
+	`stateReason` text,
+	`daysSinceProgress` int NOT NULL DEFAULT 0,
+	`hasUnansweredQuestion` boolean NOT NULL DEFAULT false,
+	`isOverdue` boolean NOT NULL DEFAULT false,
+	`checklistComplete` boolean NOT NULL DEFAULT false,
+	`hasFinalSummary` boolean NOT NULL DEFAULT false,
+	`calculatedAt` timestamp NOT NULL DEFAULT (now()),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `card_states_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `priority_scores` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`cardId` varchar(64) NOT NULL,
+	`cardName` varchar(512) NOT NULL DEFAULT '',
+	`score` int NOT NULL DEFAULT 0,
+	`breakdown` text,
+	`tier` varchar(16) NOT NULL DEFAULT 'MEDIUM',
+	`estimatedRemainingMinutes` int NOT NULL DEFAULT 0,
+	`openSteps` int NOT NULL DEFAULT 0,
+	`completedSteps` int NOT NULL DEFAULT 0,
+	`calculatedAt` timestamp NOT NULL DEFAULT (now()),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `priority_scores_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `weekly_analysis_snapshots` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`weekKey` varchar(16) NOT NULL,
+	`noProgressCards` text,
+	`recurringBlockers` text,
+	`estimateDrift` text,
+	`underperformingWorkers` text,
+	`listHoppers` text,
+	`unclearScopeProjects` text,
+	`processImprovements` text,
+	`summary` text,
+	`generatedAt` timestamp NOT NULL DEFAULT (now()),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `weekly_analysis_snapshots_id` PRIMARY KEY(`id`),
+	CONSTRAINT `weekly_analysis_snapshots_weekKey_unique` UNIQUE(`weekKey`)
+);
+--> statement-breakpoint
+CREATE TABLE `worker_performance_signals` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`workerId` varchar(128) NOT NULL,
+	`workerName` varchar(256) NOT NULL DEFAULT '',
+	`weekKey` varchar(16) NOT NULL,
+	`avgResponseTimeMinutes` int NOT NULL DEFAULT 0,
+	`checklistItemsCompleted` int NOT NULL DEFAULT 0,
+	`stalledCardsCount` int NOT NULL DEFAULT 0,
+	`missedDeadlines` int NOT NULL DEFAULT 0,
+	`robertEscalationsCount` int NOT NULL DEFAULT 0,
+	`reworkCount` int NOT NULL DEFAULT 0,
+	`unclearHandovers` int NOT NULL DEFAULT 0,
+	`notes` text,
+	`calculatedAt` timestamp NOT NULL DEFAULT (now()),
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `worker_performance_signals_id` PRIMARY KEY(`id`)
+);
