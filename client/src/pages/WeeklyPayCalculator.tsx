@@ -425,11 +425,11 @@ export default function WeeklyPayCalculator() {
   const rawProjectedPay = 90 - totalDemerits + totalMerits;
   const projectedPay = rawProjectedPay; // show real value including negative
 
-  // The D1 value loaded from DB (auto-set by EOD cron) — guard against lowering below this
+  // Preserve an audit trail when lowering the currently saved D1 value.
   const savedD1 = existing ? (Number(existing.demeritD1) || 0) : 0;
 
   const adjust = (key: MeritKey | DemeritKey, delta: number) => {
-    // Guard: if decrementing D1 below the DB-saved (auto-set) value, show confirmation
+    // Guard: if decrementing D1 below the saved value, show confirmation.
     if (key === "demeritD1" && delta < 0) {
       const newVal = Math.max(0, counts.demeritD1 + delta);
       if (newVal < savedD1) {
@@ -450,7 +450,7 @@ export default function WeeklyPayCalculator() {
         year: "numeric", month: "2-digit", day: "2-digit",
         hour: "2-digit", minute: "2-digit",
       });
-      const auditLine = `[${stamp}] D1 manually reduced ${prevD1}→${newD1} (override of auto-set value ${savedD1})`;
+      const auditLine = `[${stamp}] D1 manually reduced ${prevD1}→${newD1} (previous saved value ${savedD1})`;
       const updatedNotes = notes ? `${notes}\n${auditLine}` : auditLine;
       setCounts(prev => ({ ...prev, demeritD1: newD1 }));
       setNotes(updatedNotes);
@@ -790,10 +790,10 @@ export default function WeeklyPayCalculator() {
       <AlertDialog open={d1GuardPending !== null} onOpenChange={open => { if (!open) setD1GuardPending(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Lower D1 below auto-set value?</AlertDialogTitle>
+            <AlertDialogTitle>Lower D1 below the saved value?</AlertDialogTitle>
             <AlertDialogDescription>
-              The EOD cron automatically set D1 to <strong>{savedD1}</strong> for this week based on missed Trello updates.
-              Lowering it below that value will override the auto-recorded demerit.
+              The currently saved D1 count is <strong>{savedD1}</strong> for this week.
+              Lowering it will be recorded in the weekly notes so the adjustment remains reviewable.
               Are you sure you want to reduce D1?
             </AlertDialogDescription>
           </AlertDialogHeader>

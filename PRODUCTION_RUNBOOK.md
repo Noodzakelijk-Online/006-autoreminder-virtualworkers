@@ -2,9 +2,12 @@
 
 This app is an internal operations dashboard for Joyce. Keep external side effects approval-gated: manual Trello comments, timer changes, card moves, step completion, and maintenance runs should happen only from explicit UI actions.
 
+Reply-monitor and compliance scans collect review evidence only. They must never change weekly pay or issue demerits automatically; any pay adjustment requires an explicit owner action in Time & Pay.
+
 ## Required Setup
 
 1. Copy `.env.example` to `.env` on the deployment host.
+   For local development, run `pnpm setup:local-secrets` once to provision missing session, owner-login, and scheduled-job secrets without printing their values.
 2. Set these required values:
    - `DATABASE_URL`
    - `JWT_SECRET`

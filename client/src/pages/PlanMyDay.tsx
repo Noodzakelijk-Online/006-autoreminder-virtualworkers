@@ -12,6 +12,30 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/_core/hooks/useAuth";
 import {
+  accentFor,
+  buildEmptyPlan,
+  compactAction,
+  doneLabel,
+  durationMinutes,
+  formatDate,
+  formatDuration,
+  formatGeneratedAt,
+  isPlannerAuthError,
+  planAppliedAt,
+  plannerErrorMessage,
+  planViews,
+  priorityTone,
+  statusTone,
+  timeRows,
+  todayInEat,
+  toMinutes,
+  type BlockStatus,
+  type DailyPlanBlock,
+  type DailyPlanPayload,
+  type HandoffDraft,
+  type PlanView,
+} from "@/lib/planMyDayModel";
+import {
   Activity,
   AlertCircle,
   Bell,
@@ -34,199 +58,6 @@ import {
   Target,
 } from "lucide-react";
 
-type BlockStatus = "planned" | "active" | "done" | "skipped";
-type PlanView = "Day Plan" | "Board View" | "Timeline (Compact)" | "Workload" | "Plan History";
-
-type DailyPlanBlock = {
-  id: string;
-  startTime: string;
-  endTime: string;
-  cardId: string | null;
-  cardName: string;
-  cardUrl: string | null;
-  boardName: string;
-  listName: string;
-  action: string;
-  stepIds: number[];
-  priority: string;
-  score: number;
-  state: string;
-  status: BlockStatus;
-  notes: string;
-  flags: string[];
-};
-
-type DailyPlanPayload = {
-  version: 1;
-  dateKey: string;
-  generatedAt: string;
-  generatedBy: "manual" | "auto" | "replan" | "edited";
-  blocks: DailyPlanBlock[];
-  totalScheduledMinutes: number;
-  dailySummary: string;
-  topPriority: string;
-  robertItems: Array<{ stepId?: number; cardId: string; cardName: string; decision: string; due?: string }>;
-  unscheduledCards: Array<{ cardId: string; cardName: string; reason: string; priority?: string }>;
-  planHealth: {
-    workloadMinutes: number;
-    focusMinutes: number;
-    bufferMinutes: number;
-    overlaps: number;
-    gaps: number;
-    confidence: number;
-    status: "good" | "warning" | "blocked";
-    source?: "aptlss" | "trello_fallback" | "off_day" | "legacy";
-    warnings?: string[];
-  };
-  constraints: {
-    timezone: "EAT";
-    workStart: string;
-    workEnd: string;
-    isWorkday?: boolean;
-    dayType?: "workday" | "off_day";
-    offDayReason?: string;
-    breaks: Array<{ startTime: string; endTime: string; label: string }>;
-  };
-  audit: Array<{ at: string; action: string; detail: string }>;
-};
-
-type HandoffDraft = {
-  dateKey: string;
-  draft: string;
-  checklist: Array<{ id: string; label: string; done: boolean }>;
-};
-
-const timeRows = ["08:00", "09:00", "10:30", "12:00", "13:00", "14:30", "16:30", "17:30", "19:00", "20:00", "21:00", "22:00", "23:00"];
-const planViews: PlanView[] = ["Day Plan", "Board View", "Timeline (Compact)", "Workload", "Plan History"];
-
-function todayInEat() {
-  return new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-function buildEmptyPlan(dateKey: string): DailyPlanPayload {
-  return {
-    version: 1,
-    dateKey,
-    generatedAt: new Date().toISOString(),
-    generatedBy: "manual",
-    blocks: [],
-    totalScheduledMinutes: 0,
-    dailySummary: "No saved plan has been generated for this date.",
-    topPriority: "Generate today's plan",
-    robertItems: [],
-    unscheduledCards: [],
-    planHealth: {
-      workloadMinutes: 0,
-      focusMinutes: 0,
-      bufferMinutes: 0,
-      overlaps: 0,
-      gaps: 0,
-      confidence: 0,
-      status: "warning",
-    },
-    constraints: {
-      timezone: "EAT",
-      workStart: "08:00",
-      workEnd: "23:00",
-      isWorkday: true,
-      dayType: "workday",
-      breaks: [],
-    },
-    audit: [],
-  };
-}
-
-function durationMinutes(block: DailyPlanBlock) {
-  return Math.max(0, toMinutes(block.endTime) - toMinutes(block.startTime));
-}
-
-function toMinutes(time: string) {
-  const [hours, minutes] = time.split(":").map(Number);
-  return hours * 60 + minutes;
-}
-
-function formatDuration(minutes: number) {
-  if (!Number.isFinite(minutes) || minutes < 0) return "-";
-  if (minutes === 0) return "0m";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours}h ${rest}m` : `${hours}h`;
-}
-
-function formatGeneratedAt(value: string) {
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function formatDate(dateKey: string) {
-  return new Date(`${dateKey}T12:00:00`).toLocaleDateString("en-US", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function priorityTone(priority: string) {
-  const p = priority.toLowerCase();
-  if (p.includes("high") || p.includes("critical")) return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300";
-  if (p.includes("robert")) return "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300";
-  if (p.includes("low")) return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (p.includes("blocked")) return "bg-muted text-muted-foreground border-border";
-  return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-}
-
-function accentFor(block: DailyPlanBlock) {
-  const p = block.priority.toLowerCase();
-  if (p.includes("high") || p.includes("critical")) return "bg-red-500";
-  if (p.includes("robert")) return "bg-violet-500";
-  if (p.includes("low")) return "bg-emerald-500";
-  return "bg-amber-500";
-}
-
-function statusTone(status: BlockStatus) {
-  if (status === "done") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (status === "active") return "bg-primary/10 text-primary border-primary/30";
-  if (status === "skipped") return "bg-muted text-muted-foreground border-border";
-  return "bg-card text-muted-foreground border-border";
-}
-
-function compactAction(action: string) {
-  return action.length > 72 ? `${action.slice(0, 69)}...` : action;
-}
-
-function doneLabel(block: DailyPlanBlock) {
-  return block.stepIds.length > 0 ? "Mark Step Done" : "Mark Block Done";
-}
-
-function planAppliedAt(plan: DailyPlanPayload) {
-  return [...(plan.audit ?? [])].reverse().find((entry) => entry.action === "applied")?.at ?? null;
-}
-
-function plannerErrorMessage(message?: string) {
-  if (!message) return "Generate a plan from the current Trello and APTLSS state. No sample tasks are shown as live work.";
-  if (message.includes("Please login") || message.includes("UNAUTHORIZED")) {
-    return "Login required: sign in to load, generate, or persist daily plans.";
-  }
-  if (message.includes("Database not available") || message.includes("Failed query") || message.includes("daily_plans")) {
-    return "Database unavailable: daily plan persistence is disabled until DATABASE_URL is configured.";
-  }
-  if (message.includes("Trello API credentials")) {
-    return "Trello credentials missing: configure TrelloAPIKey and TrelloAPIToken before generating a trusted plan.";
-  }
-  if (message.includes("BUILT_IN_FORGE_API_KEY")) {
-    return "AI planner unavailable: configure BUILT_IN_FORGE_API_KEY before generating APTLSS card plans or full daily plans.";
-  }
-  if (message.includes("No APTLSS plans")) {
-    return "No APTLSS plans found: generate card plans first, then return here to build the daily schedule.";
-  }
-  return message;
-}
-
-function isPlannerAuthError(message?: string) {
-  return Boolean(message && (message.includes("Please login") || message.includes("UNAUTHORIZED")));
-}
-
 export default function PlanMyDay() {
   const [dateKey] = useState(todayInEat);
   const [activeView, setActiveView] = useState<PlanView>("Day Plan");
@@ -235,6 +66,7 @@ export default function PlanMyDay() {
   const [localChecks, setLocalChecks] = useState<Record<string, boolean>>({});
   const [startingBlockId, setStartingBlockId] = useState<string | null>(null);
   const [stoppingBlockId, setStoppingBlockId] = useState<string | null>(null);
+  const [preparingPlans, setPreparingPlans] = useState(false);
   const utils = trpc.useUtils();
   const auth = useAuth();
 
@@ -252,6 +84,8 @@ export default function PlanMyDay() {
     },
     onError: (err) => toast.error("Planner unavailable", { description: err.message }),
   });
+
+  const prepareCardPlan = trpc.aptlss.generate.useMutation();
 
   const updatePlan = trpc.aptlss.updateDailyPlan.useMutation({
     onSuccess: () => void utils.aptlss.getDailyPlan.invalidate({ dateKey }),
@@ -285,6 +119,13 @@ export default function PlanMyDay() {
   const plannedCardBlocks = displayPlan.blocks
     .filter((block) => block.cardId && block.status === "planned")
     .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
+  const planPreparationCandidates = Array.from(
+    new Map(
+      displayPlan.blocks
+        .filter((block) => block.cardId)
+        .map((block) => [block.cardId!, block]),
+    ).values(),
+  ).slice(0, 12);
   const nowBlock = displayPlan.blocks.find((block) => block.status === "active")
     ?? plannedCardBlocks.find((block) => toMinutes(block.startTime) <= eatNowMinutes && toMinutes(block.endTime) > eatNowMinutes)
     ?? plannedCardBlocks.find((block) => toMinutes(block.startTime) >= eatNowMinutes)
@@ -293,6 +134,37 @@ export default function PlanMyDay() {
   const nextBlock = plannedCardBlocks.find((block) => block.id !== nowBlock?.id && toMinutes(block.startTime) >= toMinutes(nowBlock?.endTime ?? "00:00"));
   const completedIds = displayPlan.blocks.filter((block) => block.status === "done").map((block) => block.id);
   const runningCardId = activeTimer.data?.cardId ?? null;
+
+  async function handlePrepareCardPlans() {
+    if (!auth.isAuthenticated) {
+      toast.error("Sign in required", { description: "Preparing card plans is locked to the signed-in owner." });
+      return;
+    }
+    if (!planPreparationCandidates.length || preparingPlans) return;
+    setPreparingPlans(true);
+    try {
+      for (const block of planPreparationCandidates) {
+        await prepareCardPlan.mutateAsync({
+          cardId: block.cardId!,
+          cardName: block.cardName,
+          cardUrl: block.cardUrl ?? `https://trello.com/c/${block.cardId}`,
+          boardName: block.boardName,
+          listName: block.listName,
+          forceRefresh: false,
+          syncChecklist: false,
+        });
+      }
+      await generatePlan.mutateAsync({ dateKey, force: true });
+      await utils.aptlss.getDailyPlan.invalidate({ dateKey });
+      toast.success("Card intelligence prepared", {
+        description: `${planPreparationCandidates.length} card plans saved without changing Trello.`,
+      });
+    } catch (error) {
+      toast.error("Card preparation failed", { description: error instanceof Error ? error.message : "Unknown planner error" });
+    } finally {
+      setPreparingPlans(false);
+    }
+  }
 
   async function persistStatus(block: DailyPlanBlock, status: BlockStatus) {
     if (isPreview) {
@@ -509,6 +381,20 @@ export default function PlanMyDay() {
                   {displayPlan.planHealth.warnings?.map((warning) => <li key={warning}>{warning}</li>)}
                 </ul>
                 {displayPlan.planHealth.source === "trello_fallback" && <p className="mt-2 font-medium">Open Inbox - Work Intake and generate APTLSS card plans before relying on this schedule.</p>}
+                {(displayPlan.planHealth.source === "trello_fallback" || displayPlan.planHealth.source === "legacy") && planPreparationCandidates.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    data-testid="prepare-aptlss-plans"
+                    className="mt-3"
+                    disabled={preparingPlans}
+                    onClick={() => void handlePrepareCardPlans()}
+                  >
+                    {preparingPlans ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                    {preparingPlans ? "Preparing card plans..." : `Prepare ${planPreparationCandidates.length} card plans`}
+                  </Button>
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -621,6 +507,7 @@ function PlannerHeader({
   onOpenControls: () => void;
 }) {
   const isOffDay = plan.constraints.dayType === "off_day" || plan.constraints.isWorkday === false;
+  const confidenceVerified = plan.planHealth.source !== "legacy";
   const timelineMinutes = plan.blocks.reduce((sum, block) => sum + durationMinutes(block), 0);
   return (
     <header className="flex min-h-[72px] flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-4 py-3 md:px-6">
@@ -629,14 +516,16 @@ function PlannerHeader({
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold tracking-normal text-foreground">Plan My Day</h1>
             {isPreview && <Badge variant="outline">Not generated</Badge>}
+            {!isPreview && !confidenceVerified && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">Unverified plan</Badge>}
             {isOffDay && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">Off day</Badge>}
             {appliedAt && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">Applied {formatGeneratedAt(appliedAt)} EAT</Badge>}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5" />{formatDate(dateKey)}</span>
             <span>{isPreview ? "Waiting for a trusted plan" : `Generated: ${isLoading ? "loading" : formatGeneratedAt(plan.generatedAt)} EAT`}</span>
-            {!isPreview && <span className="inline-flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${plan.planHealth.confidence >= 80 ? "bg-emerald-500" : plan.planHealth.confidence >= 60 ? "bg-amber-500" : "bg-red-500"}`} />{isOffDay ? "Off-day" : plan.planHealth.confidence >= 80 ? "High" : plan.planHealth.confidence >= 60 ? "Medium" : "Low"} confidence</span>}
-            {!isPreview && <Badge className={`border-0 ${plan.planHealth.confidence >= 80 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : plan.planHealth.confidence >= 60 ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-red-500/10 text-red-700 dark:text-red-300"}`}>{plan.planHealth.confidence}%</Badge>}
+            {!isPreview && confidenceVerified && <span className="inline-flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${plan.planHealth.confidence >= 80 ? "bg-emerald-500" : plan.planHealth.confidence >= 60 ? "bg-amber-500" : "bg-red-500"}`} />{isOffDay ? "Off-day" : plan.planHealth.confidence >= 80 ? "High" : plan.planHealth.confidence >= 60 ? "Medium" : "Low"} confidence</span>}
+            {!isPreview && confidenceVerified && <Badge className={`border-0 ${plan.planHealth.confidence >= 80 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : plan.planHealth.confidence >= 60 ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-red-500/10 text-red-700 dark:text-red-300"}`}>{plan.planHealth.confidence}%</Badge>}
+            {!isPreview && !confidenceVerified && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />Unverified confidence</span>}
             <span>Focus work: {formatDuration(plan.planHealth.workloadMinutes)}</span>
             <span>Full timeline: {formatDuration(timelineMinutes)}</span>
             {isOffDay && plan.constraints.offDayReason && <span>{plan.constraints.offDayReason}</span>}

@@ -88,10 +88,26 @@ try {
   await waitForText("Work from one trusted queue");
   await page.click('[data-testid="today-day-plan"]');
   await waitForText("Plan My Day");
+  if (process.env.E2E_PREPARE_PLANS === "1") {
+    const preparePlans = await page.$('[data-testid="prepare-aptlss-plans"]');
+    if (preparePlans) {
+      await preparePlans.click();
+      await page.waitForFunction(() => !document.querySelector('[data-testid="prepare-aptlss-plans"]'), { timeout: 180_000 });
+    }
+  }
   await page.screenshot({ path: path.join(outputDir, "desktop-day-plan-dark.png"), fullPage: true });
 
   await clickButton("Inbox");
   await waitForText("Process one intake source at a time");
+  if (process.env.E2E_RUN_REPLY_SCAN === "1") {
+    await page.click('[data-testid="reply-monitor-tab"]');
+    await waitForText("Reply Monitor");
+    await page.click('[data-testid="reply-monitor-scan"]');
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="reply-monitor-status"]')?.textContent?.includes("Last successful scan"),
+      { timeout: 180_000 },
+    );
+  }
   await clickButton("Time & Pay");
   await waitForText("Keep daily time, payment administration");
   await clickButton("Standards");

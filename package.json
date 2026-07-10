@@ -11,6 +11,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:e2e": "node scripts/e2e-smoke.mjs",
+    "setup:local-secrets": "node scripts/ensure-local-secrets.mjs",
     "db:local:up": "node scripts/setup-local-mysql.mjs",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"

@@ -9,8 +9,8 @@
  *  1. Threads where the last message is from a freelancer (not the account owner)
  *     and Joyce has not replied within 12 hours → "pending" → "overdue"
  *  2. Replies sent from the owner account that are vague/deferral messages
- *     (e.g. "I'll get back to you tonight") → flagged, 1h to correct or D1 demerit
- *  3. Owner messages missing ~ Angel or ~ Joyce signature → unsigned flag, 1h to correct
+ *     (e.g. "I'll get back to you tonight") → flagged for review
+ *  3. Owner messages missing ~ Angel or ~ Joyce signature → unsigned review flag
  *
  * The Upwork account owner is Noodzakelijk Online (Angel Huang).
  * Joyce replies ON BEHALF of the owner, so messages sent as the owner are Joyce's replies.
@@ -22,8 +22,6 @@ import {
   upsertUpworkThread,
   upsertUpworkVagueFlag,
   insertUnsignedFlag,
-  autoDemeriteExpiredUpworkFlags,
-  autoDemeriteExpiredUnsignedFlags,
 } from "./replyMonitorDb";
 import {
   fetchUpworkRooms as scraperFetchRooms,
@@ -241,9 +239,6 @@ export async function runUpworkReplyMonitorScan(): Promise<{
       console.error(`[upworkMonitor] Error processing room ${room.roomId}:`, err?.message);
     }
   }
-
-  // Auto-demerit expired vague flags
-  await autoDemeriteExpiredUpworkFlags();
 
   console.log(
     `[upworkMonitor] Scan complete: ${rooms.length} rooms, ${pending} pending, ${overdue} overdue, ${vagueFlags} vague flags`

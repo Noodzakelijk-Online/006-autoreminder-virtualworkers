@@ -1,15 +1,11 @@
-import { and, asc, desc, eq, inArray, isNull, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   replyMonitorStatus,
   replyThreads,
   unsignedMessageFlags,
   vagueReplyFlags,
 } from "../drizzle/schema";
-import { getDb, incrementPayLogD1 } from "./db";
-
-function todayEAT(): string {
-  return new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 10);
-}
+import { getDb } from "./db";
 
 async function requireDb() {
   const db = await getDb();
@@ -170,18 +166,6 @@ export async function resolveVagueReplyFlag(id: number): Promise<void> {
     .where(eq(vagueReplyFlags.id, id));
 }
 
-export async function autoDemeritVagueReplyFlag(id: number): Promise<void> {
-  const db = await requireDb();
-  const now = new Date();
-  await db.update(vagueReplyFlags).set({
-    resolvedAt: now,
-    resolvedBy: "auto_demerit",
-    demeritIssued: true,
-    demeritIssuedAt: now,
-    updatedAt: now,
-  }).where(eq(vagueReplyFlags.id, id));
-}
-
 export async function getAllVagueReplyFlags(limit = 50): Promise<VagueFlagRow[]> {
   const db = await requireDb();
   return db.select().from(vagueReplyFlags)
@@ -189,21 +173,6 @@ export async function getAllVagueReplyFlags(limit = 50): Promise<VagueFlagRow[]>
     .limit(Math.max(1, Math.min(limit, 500)));
 }
 
-export async function autoDemeriteExpiredVagueFlags(): Promise<number> {
-  const db = await requireDb();
-  const expired = await db.select({ id: vagueReplyFlags.id }).from(vagueReplyFlags).where(and(
-    isNull(vagueReplyFlags.resolvedAt),
-    eq(vagueReplyFlags.demeritIssued, false),
-    lte(vagueReplyFlags.flaggedAt, new Date(Date.now() - 60 * 60 * 1000)),
-  ));
-  for (const row of expired) {
-    await autoDemeritVagueReplyFlag(row.id);
-    await incrementPayLogD1(todayEAT(), 1);
-  }
-  return expired.length;
-}
-
-export const autoDemeriteExpiredUpworkFlags = autoDemeriteExpiredVagueFlags;
 export const getUpworkPendingThreads = getPendingReplyThreads;
 export const getUpworkActiveVagueFlags = getActiveVagueReplyFlags;
 
@@ -264,37 +233,11 @@ export async function resolveUnsignedFlag(id: number, note?: string): Promise<vo
   }).where(eq(unsignedMessageFlags.id, id));
 }
 
-export async function autoDemeritUnsignedFlag(id: number): Promise<void> {
-  const db = await requireDb();
-  const now = new Date();
-  await db.update(unsignedMessageFlags).set({
-    resolvedAt: now,
-    resolvedBy: "auto_demerit",
-    demeritIssued: true,
-    demeritIssuedAt: now,
-    updatedAt: now,
-  }).where(eq(unsignedMessageFlags.id, id));
-}
-
 export async function getAllUnsignedFlags(limit = 50): Promise<UnsignedFlagRow[]> {
   const db = await requireDb();
   return db.select().from(unsignedMessageFlags)
     .orderBy(desc(unsignedMessageFlags.flaggedAt))
     .limit(Math.max(1, Math.min(limit, 500)));
-}
-
-export async function autoDemeriteExpiredUnsignedFlags(): Promise<number> {
-  const db = await requireDb();
-  const expired = await db.select({ id: unsignedMessageFlags.id }).from(unsignedMessageFlags).where(and(
-    isNull(unsignedMessageFlags.resolvedAt),
-    eq(unsignedMessageFlags.demeritIssued, false),
-    lte(unsignedMessageFlags.flaggedAt, new Date(Date.now() - 60 * 60 * 1000)),
-  ));
-  for (const row of expired) {
-    await autoDemeritUnsignedFlag(row.id);
-    await incrementPayLogD1(todayEAT(), 1);
-  }
-  return expired.length;
 }
 
 export async function markReplyMonitorScanStarted(): Promise<void> {

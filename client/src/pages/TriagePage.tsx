@@ -66,6 +66,7 @@ export default function TriagePage() {
         </TabsTrigger>
         <TabsTrigger
           value="reply-monitor"
+          data-testid="reply-monitor-tab"
           className="h-11 min-w-0 gap-1.5 rounded-none border-b-2 border-transparent px-2 text-xs font-medium data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none sm:text-sm"
         >
           <MessageSquare className="w-3.5 h-3.5" />

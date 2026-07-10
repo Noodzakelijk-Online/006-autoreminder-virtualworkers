@@ -74,7 +74,7 @@ export default function ComplianceTracker() {
       utils.compliance.getHistory.invalidate();
       utils.compliance.getRollingAvg.invalidate();
       toast.success("Snapshot recorded", {
-        description: `Today: ${data.compliancePct}% compliance — ${data.doingTotal} DOING, ${data.onHoldTotal} ON-HOLD${data.d1Instances > 0 ? `, ${data.d1Instances} D1 demerit${data.d1Instances > 1 ? 's' : ''}` : ''}`,
+        description: `Today: ${data.compliancePct}% compliance — ${data.doingTotal} DOING, ${data.onHoldTotal} ON-HOLD${data.d1Instances > 0 ? `, ${data.d1Instances} potential D1 exception${data.d1Instances > 1 ? 's' : ''}` : ''}`,
       });
     },
     onError: (err) => toast.error("Snapshot failed", { description: err.message }),
@@ -217,9 +217,9 @@ export default function ComplianceTracker() {
                         {row.d1Instances > 0 && (
                           <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium">
                             <DollarSign className="w-3 h-3" />
-                            {row.d1Instances} D1 demerit{row.d1Instances > 1 ? "s" : ""}
+                            {row.d1Instances} potential D1 exception{row.d1Instances > 1 ? "s" : ""}
                             {" · "}
-                            <span>−${(row.estimatedPenalty).toFixed(2)}</span>
+                            <span>${(row.estimatedPenalty).toFixed(2)} review impact</span>
                             {/* → Pay log link */}
                             <a
                               href={`#performance-pay-log-${weekStart}`}

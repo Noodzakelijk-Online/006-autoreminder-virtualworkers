@@ -9,8 +9,6 @@ vi.mock("./replyMonitorDb", () => ({
   upsertUpworkThread: vi.fn(),
   upsertUpworkVagueFlag: vi.fn(),
   insertUnsignedFlag: vi.fn(),
-  autoDemeriteExpiredUpworkFlags: vi.fn(),
-  autoDemeriteExpiredUnsignedFlags: vi.fn(),
 }));
 
 vi.mock("./_core/notification", () => ({

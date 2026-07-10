@@ -9,18 +9,9 @@ import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { runAptlssMaintenance } from "./scheduledAptlssMaintenance";
-import {
-  getPendingReplyThreads,
-  getAllReplyThreads,
-  resolveVagueReplyFlag,
-  getActiveVagueReplyFlags,
-  getAllVagueReplyFlags,
-  getActiveUnsignedFlags,
-  getAllUnsignedFlags,
-  resolveUnsignedFlag,
-  getReplyMonitorStatus,
-} from "./replyMonitorDb";
-import { runReplyMonitorScan } from "./cronJobs";
+import { shouldSyncAptlssChecklist } from "./aptlssPlanPolicy";
+import { buildComplianceEvidence } from "./complianceEvidence";
+import { replyMonitorRouter } from "./replyMonitorRouter";
 import {
   getAllEmailTasks,
   getPendingEmailTasks,
@@ -707,21 +698,16 @@ export const appRouter = router({
         ]);
         const doingCards = allCards.filter(c => c.list && isDoingList(c.list.name));
         const onHoldCards = allCards.filter(c => c.list && isOnHoldList(c.list.name));
-        const doingUpdated = doingCards.filter(c => commentedCardIds.has(c.id));
-        const doingMissed = doingCards.filter(c => !commentedCardIds.has(c.id));
         // ON-HOLD: check DB for today's per-card review checkboxes
         const eatOffsetMs = 3 * 60 * 60 * 1000;
         const todayEAT = new Date(Date.now() + eatOffsetMs).toISOString().slice(0, 10);
         const onHoldChecks = await getOnHoldChecksByDate(todayEAT);
         const reviewedOnHoldIds = new Set(onHoldChecks.filter((check) => check.checked).map((check) => check.cardId));
-        const reviewedOnHoldCards = onHoldCards.filter((card) => reviewedOnHoldIds.has(card.id));
-        const missedOnHoldCards = onHoldCards.filter((card) => !reviewedOnHoldIds.has(card.id));
-        const onHoldReviewedCount = reviewedOnHoldCards.length;
-        const d1Instances = doingMissed.length;
-        const estimatedPenalty = d1Instances * 5;
-        const compliancePct = (doingCards.length + onHoldCards.length) === 0
-          ? 100
-          : Math.round(((doingUpdated.length + onHoldReviewedCount) / (doingCards.length + onHoldCards.length)) * 100);
+        const evidence = buildComplianceEvidence({ doingCards, onHoldCards, commentedCardIds, reviewedOnHoldIds });
+        const { doingUpdated, doingMissed, onHoldMissed: missedOnHoldCards, compliancePct } = evidence;
+        const onHoldReviewedCount = evidence.onHoldReviewed.length;
+        const d1Instances = evidence.potentialD1Instances;
+        const estimatedPenalty = evidence.estimatedReviewImpact;
         await upsertComplianceSnapshot({
           snapshotDate: todayEAT,
           onHoldTotal: onHoldCards.length,
@@ -809,69 +795,7 @@ export const appRouter = router({
         return { success: true, enabled: input.enabled };
       }),
   }),
-  replyMonitor: router({
-    getStatus: protectedProcedure.query(async () => {
-      return await getReplyMonitorStatus();
-    }),
-
-    /** Get all pending/overdue reply threads (unanswered by Joyce). */
-    getPendingThreads: protectedProcedure.query(async () => {
-      return await getPendingReplyThreads();
-    }),
-
-    /** Get all reply threads (full history). */
-    getAllThreads: protectedProcedure
-      .input(z.object({ limit: z.number().int().min(1).max(200).optional() }))
-      .query(async ({ input }) => {
-        return await getAllReplyThreads(input.limit ?? 100);
-      }),
-
-    /** Get all active (unresolved) vague reply flags. */
-    getActiveVagueFlags: protectedProcedure.query(async () => {
-      return await getActiveVagueReplyFlags();
-    }),
-
-    /** Get all vague reply flags (history). */
-    getAllVagueFlags: protectedProcedure
-      .input(z.object({ limit: z.number().int().min(1).max(200).optional() }))
-      .query(async ({ input }) => {
-        return await getAllVagueReplyFlags(input.limit ?? 50);
-      }),
-
-    /** Manually resolve a vague reply flag (Joyce corrected the reply). */
-    resolveVagueFlag: protectedProcedure
-      .input(z.object({ id: z.number().int() }))
-      .mutation(async ({ input }) => {
-        await resolveVagueReplyFlag(input.id);
-        return { success: true };
-      }),
-
-    /** Trigger an immediate Trello reply-monitor scan (for manual refresh). */
-    triggerScan: protectedProcedure.mutation(async () => {
-      runReplyMonitorScan().catch(e => console.error("[ReplyMonitor] Manual scan error:", e));
-      return { success: true, message: "Scan started" };
-    }),
-
-    /** Get all active (unresolved) unsigned message flags. */
-    getActiveUnsignedFlags: protectedProcedure.query(async () => {
-      return await getActiveUnsignedFlags();
-    }),
-
-    /** Get all unsigned message flags (history). */
-    getAllUnsignedFlags: protectedProcedure
-      .input(z.object({ limit: z.number().int().min(1).max(200).optional() }))
-      .query(async ({ input }) => {
-        return await getAllUnsignedFlags(input.limit ?? 50);
-      }),
-
-    /** Manually resolve an unsigned message flag (Joyce added the signature). */
-    resolveUnsignedFlag: protectedProcedure
-      .input(z.object({ id: z.number().int(), note: z.string().min(1).max(500) }))
-      .mutation(async ({ input }) => {
-        await resolveUnsignedFlag(input.id, input.note);
-        return { success: true };
-      }),
-  }),
+  replyMonitor: replyMonitorRouter,
   // ─── Email Inbox ──────────────────────────────────────────────────────────────
   emailInbox: router({
     /** Get all email tasks (includes archived). */
@@ -996,6 +920,7 @@ export const appRouter = router({
         boardName: z.string().default(""),
         listName: z.string().default(""),
         forceRefresh: z.boolean().default(false),
+        syncChecklist: z.boolean().default(false),
       }))
       .mutation(async ({ input }) => {
         const apiKey = process.env.TrelloAPIKey;
@@ -1188,7 +1113,7 @@ Respond ONLY with valid JSON matching the schema exactly.`,
         // ── Autopilot Level Enforcement (Item 17) ──────────────────────────────
         // Level ≥ 1: allowed to write internal Trello checklists
         const autopilotLevel = await getAutopilotLevel();
-        if (autopilotLevel >= 1) {
+        if (shouldSyncAptlssChecklist(input.syncChecklist, autopilotLevel)) {
           try {
             const result = await writeChecklistToTrello(ctx.id, ctx, stepInputs);
             checklistId = result.checklistId;
@@ -1196,7 +1121,7 @@ Respond ONLY with valid JSON matching the schema exactly.`,
           } catch (e) {
             console.error("[APTLSS] Failed to write checklist to Trello:", e);
           }
-        } else {
+        } else if (input.syncChecklist) {
           console.log(`[APTLSS] Autopilot level ${autopilotLevel}: skipping checklist write (level < 1)`);
         }
 

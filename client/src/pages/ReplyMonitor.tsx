@@ -3,7 +3,7 @@
  *
  * Shows:
  * 1. Active unanswered threads (pending / overdue) with 12h countdown
- * 2. Active vague-reply flags with 1h correction countdown
+ * 2. Active vague-reply and unsigned-message flags requiring review
  * 3. History of all threads and resolved flags
  */
 import { useState, useEffect } from "react";
@@ -428,19 +428,19 @@ export default function ReplyMonitor() {
   });
 
   const triggerScan = trpc.replyMonitor.triggerScan.useMutation({
-    onSuccess: () => {
-      toast.success("Scan started — results will refresh in ~30 seconds.");
-      setTimeout(() => {
-        utils.replyMonitor.getPendingThreads.invalidate();
-        utils.replyMonitor.getActiveVagueFlags.invalidate();
-        utils.replyMonitor.getActiveUnsignedFlags.invalidate();
-        utils.replyMonitor.getAllThreads.invalidate();
-        utils.replyMonitor.getAllVagueFlags.invalidate();
-        utils.replyMonitor.getAllUnsignedFlags.invalidate();
-        utils.replyMonitor.getStatus.invalidate();
-      }, 30_000);
+    onSuccess: async (result) => {
+      await Promise.all([
+        utils.replyMonitor.getPendingThreads.invalidate(),
+        utils.replyMonitor.getActiveVagueFlags.invalidate(),
+        utils.replyMonitor.getActiveUnsignedFlags.invalidate(),
+        utils.replyMonitor.getAllThreads.invalidate(),
+        utils.replyMonitor.getAllVagueFlags.invalidate(),
+        utils.replyMonitor.getAllUnsignedFlags.invalidate(),
+        utils.replyMonitor.getStatus.invalidate(),
+      ]);
+      toast.success("Reply scan completed", { description: `${result.threadsScanned} Trello threads checked.` });
     },
-    onError: () => toast.error("Failed to start scan."),
+    onError: (error) => toast.error("Reply scan failed", { description: error.message }),
   });
 
   const overdueCount = pendingThreads.filter(t => t.status === "overdue").length;
@@ -458,15 +458,16 @@ export default function ReplyMonitor() {
             Reply Monitor
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Trello + Upwork · 12h reply rule · vague reply detection · signature enforcement
+            Trello + Upwork · 12h reply rule · vague reply detection · signature review
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          <p className="mt-1 text-[11px] text-muted-foreground" data-testid="reply-monitor-status">
             {statusLoading ? "Checking scan freshness..." : lastSuccessfulAt
               ? `Last successful scan ${lastSuccessfulAt.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
               : "No successful scan has been recorded yet"}
           </p>
         </div>
         <Button
+          data-testid="reply-monitor-scan"
           size="sm"
           variant="outline"
           className="h-8 text-xs"
@@ -474,7 +475,7 @@ export default function ReplyMonitor() {
           disabled={triggerScan.isPending}
         >
           <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${triggerScan.isPending ? "animate-spin" : ""}`} />
-          Scan Now
+          {triggerScan.isPending ? "Scanning..." : "Scan Now"}
         </Button>
       </div>
 
@@ -596,7 +597,7 @@ export default function ReplyMonitor() {
           {activeVagueFlags.length > 0 && (
             <div className="mt-4 space-y-2">
               <p className="text-xs font-semibold text-orange-700 dark:text-orange-400 uppercase tracking-wide">
-                Vague Replies — Correct within 1h or D1 demerit is auto-issued
+                Vague Replies — Correct the reply and record the review outcome
               </p>
               {activeVagueFlags.map(f => (
                 <VagueFlagCard
@@ -612,7 +613,7 @@ export default function ReplyMonitor() {
           {activeUnsignedFlags.length > 0 && (
             <div className="mt-4 space-y-2">
               <p className="text-xs font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wide">
-                Unsigned Messages — Add ~ Angel or ~ Joyce within 1h or D1 demerit is auto-issued
+                Unsigned Messages — Add ~ Angel or ~ Joyce and record the review outcome
               </p>
               {activeUnsignedFlags.map(f => (
                 <UnsignedFlagCard
@@ -661,7 +662,7 @@ export default function ReplyMonitor() {
                 <li>Any reply that defers without addressing the situation</li>
               </ul>
               <p className="text-xs text-muted-foreground mt-2">
-                Joyce has <strong>1 hour</strong> to replace a flagged reply with a proper response before a D1 demerit is auto-issued.
+                Correct the flagged reply, then record the resolution. The monitor never changes pay automatically.
               </p>
             </CardContent>
           </Card>
@@ -701,7 +702,7 @@ export default function ReplyMonitor() {
                 <li>Applies to both Trello card comments and Upwork messages</li>
               </ul>
               <p className="text-xs text-muted-foreground mt-2">
-                Joyce has <strong>1 hour</strong> to add a follow-up signed message before a D1 demerit is auto-issued.
+                Add a signed follow-up, then record the resolution. The monitor never changes pay automatically.
               </p>
             </CardContent>
           </Card>

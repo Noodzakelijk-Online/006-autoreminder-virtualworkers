@@ -5,7 +5,7 @@
  * Registered once at server startup via `startCronJobs()`.
  */
 import cron from "node-cron";
-import { autoStopAllRunningTimers, upsertComplianceSnapshot, incrementPayLogD1, getWeeklyPayLogByWeek } from "./db";
+import { autoStopAllRunningTimers, upsertComplianceSnapshot, getWeeklyPayLogByWeek, getOnHoldChecksByDate } from "./db";
 import { notifyOwner } from "./_core/notification";
 import { getJoyceCards, getJoyceCommentedCardIdsToday, isDoingList, isOnHoldList } from "./trello";
 import { scanTrelloReplyThreads, REPLY_DEADLINE_MS, VAGUE_CORRECTION_WINDOW_MS } from "./replyMonitor";
@@ -14,14 +14,11 @@ import { getAllAptlssPlans } from "./aptlssDb";
 import { getAllCardStates, getAllPriorityScores } from "./aptlssStepsDb";
 import { upsertWeeklyAnalysis } from "./aptlssPoliciesDb";
 import { invokeLLM } from "./_core/llm";
+import { buildComplianceEvidence } from "./complianceEvidence";
 import {
   upsertReplyThread,
   insertVagueReplyFlag,
-  getActiveVagueReplyFlags,
-  autoDemeritVagueReplyFlag,
   insertUnsignedFlag,
-  getActiveUnsignedFlags,
-  autoDemeritUnsignedFlag,
   markReplyMonitorScanFailed,
   markReplyMonitorScanStarted,
   markReplyMonitorScanSucceeded,
@@ -89,25 +86,24 @@ async function runEODComplianceSnapshot() {
       console.warn("[CronJob] EOD compliance snapshot skipped — Trello credentials not configured.");
       return;
     }
-    const [allCards, commentedCardIds] = await Promise.all([
+    const [allCards, commentedCardIds, onHoldChecks] = await Promise.all([
       getJoyceCards(apiKey, apiToken),
       getJoyceCommentedCardIdsToday(apiKey, apiToken),
+      getOnHoldChecksByDate(todayEAT),
     ]);
     const doingCards = allCards.filter(c => c.list && isDoingList(c.list.name));
     const onHoldCards = allCards.filter(c => c.list && isOnHoldList(c.list.name));
-    const doingUpdated = doingCards.filter(c => commentedCardIds.has(c.id));
-    const doingMissed = doingCards.filter(c => !commentedCardIds.has(c.id));
-    const onHoldReviewedCount = onHoldCards.length;
-    const d1Instances = doingMissed.length;
-    const estimatedPenalty = d1Instances * 5;
-    const compliancePct = (doingCards.length + onHoldCards.length) === 0
-      ? 100
-      : Math.round(((doingUpdated.length + onHoldReviewedCount) / (doingCards.length + onHoldCards.length)) * 100);
+    const checkedOnHoldIds = new Set(onHoldChecks.filter((item) => item.checked).map((item) => item.cardId));
+    const evidence = buildComplianceEvidence({ doingCards, onHoldCards, commentedCardIds, reviewedOnHoldIds: checkedOnHoldIds });
+    const { doingUpdated, doingMissed, onHoldReviewed, onHoldMissed, compliancePct } = evidence;
+    const onHoldReviewedCount = onHoldReviewed.length;
+    const d1Instances = evidence.potentialD1Instances;
+    const estimatedPenalty = evidence.estimatedReviewImpact;
     await upsertComplianceSnapshot({
       snapshotDate: todayEAT,
       onHoldTotal: onHoldCards.length,
       onHoldReviewed: onHoldReviewedCount,
-      onHoldMissedCards: [],
+      onHoldMissedCards: onHoldMissed.map(c => ({ id: c.id, name: c.name, url: c.url })),
       doingTotal: doingCards.length,
       doingUpdated: doingUpdated.length,
       doingMissedCards: doingMissed.map(c => ({ id: c.id, name: c.name, url: c.url })),
@@ -116,35 +112,21 @@ async function runEODComplianceSnapshot() {
       source: "auto",
       weeklyPayLogId: null,
     });
-    const summary = `${compliancePct}% compliance — ${doingUpdated.length}/${doingCards.length} DOING updated, ${onHoldCards.length} ON-HOLD reviewed${d1Instances > 0 ? `, ${d1Instances} D1 demerit${d1Instances > 1 ? 's' : ''} (−$${estimatedPenalty})` : ''}`;
+    const summary = `${compliancePct}% compliance — ${doingUpdated.length}/${doingCards.length} DOING updated, ${onHoldReviewedCount}/${onHoldCards.length} ON-HOLD reviewed${d1Instances > 0 ? `, ${d1Instances} potential D1 exception${d1Instances > 1 ? 's' : ''} (review impact: $${estimatedPenalty})` : ''}`;
     console.log(`[CronJob] EOD compliance snapshot saved: ${summary}`);
 
-    // Auto-increment D1 demerits in the weekly pay log
-    let updatedProjectedPay: number | null = null;
     if (d1Instances > 0) {
-      try {
-        const { id: payLogId, projectedPay } = await incrementPayLogD1(todayEAT, d1Instances);
-        updatedProjectedPay = projectedPay;
-        console.log(`[CronJob] Auto-incremented D1 ×${d1Instances} in pay log (id=${payLogId}) for week containing ${todayEAT}. Projected pay now $${projectedPay.toFixed(2)}.`);
-      } catch (e) {
-        console.error("[CronJob] Failed to auto-increment D1 in pay log:", e);
-      }
-    }
-
-    if (d1Instances > 0) {
-      const payImpactLine = updatedProjectedPay !== null
-        ? `• Projected pay this week: $${updatedProjectedPay.toFixed(2)} (after D1 demerits)`
-        : "";
       await notifyOwner({
-        title: `⚠️ ${d1Instances} D1 demerit${d1Instances > 1 ? 's' : ''} recorded — ${todayEAT}`,
+        title: `⚠️ ${d1Instances} potential D1 exception${d1Instances > 1 ? 's' : ''} need review — ${todayEAT}`,
         content: [
           `Daily compliance snapshot for ${todayEAT}:`,
           `• ${summary}`,
-          payImpactLine,
           "",
           "Missed DOING cards:",
           ...doingMissed.map(c => `• ${c.name} — ${c.url}`),
-        ].filter(l => l !== "").join("\n"),
+          "",
+          "No pay adjustment was made automatically. Review the evidence in Time & Pay.",
+        ].join("\n"),
       });
     }
   } catch (err) {
@@ -224,10 +206,20 @@ async function runFridayWeeklyPaySummary() {
  * Reply Monitor scan: every 15 minutes.
  * 1. Scans all active Trello cards for unanswered comment threads (12h rule).
  * 2. Detects vague replies from Joyce and flags them.
- * 3. Auto-issues D1 demerit for vague replies not corrected within 1 hour.
- * 4. Sends owner notification for new overdue threads and new vague flags.
+ * 3. Persists vague and unsigned exceptions for manual review.
+ * 4. Sends owner notification for new overdue threads and new flags.
  */
-export async function runReplyMonitorScan(): Promise<void> {
+let replyMonitorScanInFlight: Promise<void> | null = null;
+
+export function runReplyMonitorScan(options: { sendNotifications?: boolean } = {}): Promise<void> {
+  if (replyMonitorScanInFlight) return replyMonitorScanInFlight;
+  replyMonitorScanInFlight = executeReplyMonitorScan(options).finally(() => {
+    replyMonitorScanInFlight = null;
+  });
+  return replyMonitorScanInFlight;
+}
+
+async function executeReplyMonitorScan({ sendNotifications = false }: { sendNotifications?: boolean }): Promise<void> {
   const apiKey = process.env.TrelloAPIKey;
   const apiToken = process.env.TrelloAPIToken;
   await markReplyMonitorScanStarted();
@@ -300,27 +292,7 @@ export async function runReplyMonitorScan(): Promise<void> {
       }
     }
 
-    // Auto-demerit vague flags that have exceeded the 1-hour correction window
-    const activeFlags = await getActiveVagueReplyFlags();
-    const eatOffsetMs = 3 * 60 * 60 * 1000;
-    const todayEAT = new Date(now + eatOffsetMs).toISOString().slice(0, 10);
-    const autoDemeritedFlags: Array<{ cardName: string; text: string }> = [];
-
-    for (const flag of activeFlags) {
-      const elapsed = now - flag.flaggedAt.getTime();
-      if (elapsed >= VAGUE_CORRECTION_WINDOW_MS && !flag.demeritIssued) {
-        try {
-          await incrementPayLogD1(todayEAT, 1);
-          await autoDemeritVagueReplyFlag(flag.id);
-          autoDemeritedFlags.push({ cardName: flag.cardName, text: flag.messageText });
-          console.log(`[ReplyMonitor] Auto-demerited vague reply on card "${flag.cardName}" (flag id=${flag.id}).`);
-        } catch (e) {
-          console.error("[ReplyMonitor] Failed to auto-demerit vague flag:", e);
-        }
-      }
-    }
-
-    if (newOverdueCards.length > 0) {
+    if (sendNotifications && newOverdueCards.length > 0) {
       await notifyOwner({
         title: `⏰ ${newOverdueCards.length} overdue Trello repl${newOverdueCards.length > 1 ? 'ies' : 'y'} — 12h deadline exceeded`,
         content: [
@@ -331,37 +303,27 @@ export async function runReplyMonitorScan(): Promise<void> {
       }).catch(() => {});
     }
 
-    if (newVagueFlags.length > 0) {
+    if (sendNotifications && newVagueFlags.length > 0) {
       await notifyOwner({
-        title: `⚠️ ${newVagueFlags.length} vague repl${newVagueFlags.length > 1 ? 'ies' : 'y'} flagged — 1h to correct`,
+        title: `⚠️ ${newVagueFlags.length} vague repl${newVagueFlags.length > 1 ? 'ies' : 'y'} flagged for review`,
         content: [
           "Joyce posted vague/deferral replies that do not address the situation:",
           "",
           ...newVagueFlags.map((f) => `• "${f.text.slice(0, 100)}" — ${f.cardUrl}`),
           "",
-          "She has 1 hour to correct each reply before a D1 demerit is auto-issued.",
+          "Review and correct each reply. No pay adjustment is made automatically.",
         ].join("\n"),
       }).catch(() => {});
     }
 
-    if (autoDemeritedFlags.length > 0) {
-      await notifyOwner({
-        title: `❌ D1 demerit auto-issued — vague repl${autoDemeritedFlags.length > 1 ? 'ies' : 'y'} not corrected`,
-        content: [
-          `${autoDemeritedFlags.length} vague repl${autoDemeritedFlags.length > 1 ? 'ies were' : 'y was'} not corrected within 1 hour. D1 demerit${autoDemeritedFlags.length > 1 ? 's have' : ' has'} been auto-issued:`,
-          "",
-          ...autoDemeritedFlags.map((f) => `• Card: "${f.cardName}" — Message: "${f.text.slice(0, 80)}…"`),
-        ].join("\n"),
-      }).catch(() => {});
-    }
 
-    // ─── Upwork scan (self-contained — handles its own DB writes + auto-demerit) ─────────
+    // ─── Upwork scan (self-contained — persists threads and review flags) ─────────
     const upworkToken = process.env.UPWORK_API_TOKEN;
     if (upworkToken) {
       try {
         console.log("[ReplyMonitor] Starting Upwork reply-thread scan…");
         const upworkResult = await runUpworkReplyMonitorScan();
-        if (upworkResult.tokenExpired) {
+        if (sendNotifications && upworkResult.tokenExpired) {
           await notifyOwner({
             title: "⚠️ Upwork token expired — please re-login",
             content: "The Upwork API token has expired. Please log into Upwork in the browser and update the UPWORK_API_TOKEN secret to resume monitoring.",
@@ -377,51 +339,21 @@ export async function runReplyMonitorScan(): Promise<void> {
       console.log("[ReplyMonitor] UPWORK_API_TOKEN not set — skipping Upwork scan.");
     }
 
-    // ─── Auto-demerit unsigned messages ───────────────────────────────────────
-    const UNSIGNED_CORRECTION_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-    const activeUnsignedFlagsList = await getActiveUnsignedFlags();
-    const autoDemeritedUnsigned: Array<{ cardName: string; text: string }> = [];
-
-    for (const flag of activeUnsignedFlagsList) {
-      const elapsed = now - flag.flaggedAt.getTime();
-      if (elapsed >= UNSIGNED_CORRECTION_WINDOW_MS && !flag.demeritIssued) {
-        try {
-          await incrementPayLogD1(todayEAT, 1);
-          await autoDemeritUnsignedFlag(flag.id);
-          autoDemeritedUnsigned.push({ cardName: flag.cardName, text: flag.messageText });
-          console.log(`[ReplyMonitor] Auto-demerited unsigned message on "${flag.cardName}" (flag id=${flag.id}).`);
-        } catch (e) {
-          console.error("[ReplyMonitor] Failed to auto-demerit unsigned flag:", e);
-        }
-      }
-    }
-
-    if (newUnsignedMessages.length > 0) {
+    if (sendNotifications && newUnsignedMessages.length > 0) {
       await notifyOwner({
-        title: `✍️ ${newUnsignedMessages.length} unsigned message${newUnsignedMessages.length > 1 ? 's' : ''} detected — add ~ Angel or ~ Joyce within 1h`,
+        title: `✍️ ${newUnsignedMessages.length} unsigned message${newUnsignedMessages.length > 1 ? 's' : ''} detected for review`,
         content: [
           "The following messages were sent without a signature (~ Angel or ~ Joyce):",
           "",
           ...newUnsignedMessages.map((f) => `• "${f.text.slice(0, 100)}" — ${f.cardUrl}`),
           "",
-          "Joyce has 1 hour to add a follow-up signed message before a D1 demerit is auto-issued.",
-        ].join("\n"),
-      }).catch(() => {});
-    }
-
-    if (autoDemeritedUnsigned.length > 0) {
-      await notifyOwner({
-        title: `❌ D1 demerit auto-issued — unsigned message${autoDemeritedUnsigned.length > 1 ? 's' : ''} not corrected`,
-        content: [
-          `${autoDemeritedUnsigned.length} unsigned message${autoDemeritedUnsigned.length > 1 ? 's were' : ' was'} not corrected within 1 hour. D1 demerit${autoDemeritedUnsigned.length > 1 ? 's have' : ' has'} been auto-issued:`,
-          "",
-          ...autoDemeritedUnsigned.map((f) => `• "${f.cardName}" — "${f.text.slice(0, 80)}…"`),
+          "Add a signed follow-up and review the exception. No pay adjustment is made automatically.",
         ].join("\n"),
       }).catch(() => {});
     }
 
     await markReplyMonitorScanSucceeded(threads.length);
-    console.log(`[ReplyMonitor] Scan complete. ${threads.length} Trello threads scanned, ${newOverdueCards.length} newly overdue, ${newVagueFlags.length} new vague flags, ${autoDemeritedFlags.length} vague auto-demerited, ${autoDemeritedUnsigned.length} unsigned auto-demerited.`);
+    console.log(`[ReplyMonitor] Scan complete. ${threads.length} Trello threads scanned, ${newOverdueCards.length} newly overdue, ${newVagueFlags.length} new vague flags, ${newUnsignedMessages.length} new unsigned flags.`);
   } catch (err) {
     console.error("[ReplyMonitor] Scan failed:", err);
     await markReplyMonitorScanFailed(err).catch((statusError) => {
@@ -507,7 +439,7 @@ export function startCronJobs() {
   console.log("[CronJob] Friday weekly pay summary scheduled (18:00 UTC = 21:00 EAT every Friday).");
 
   // Every 12 hours — Trello reply-thread monitor (08:00 UTC + 20:00 UTC)
-  cron.schedule("0 8,20 * * *", runReplyMonitorScan, {
+  cron.schedule("0 8,20 * * *", () => runReplyMonitorScan({ sendNotifications: true }), {
     timezone: "UTC",
   });
   console.log("[CronJob] Reply monitor scheduled (every 12 hours: 08:00 UTC + 20:00 UTC).");
