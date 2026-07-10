@@ -12,6 +12,10 @@ import { runAptlssMaintenance } from "./scheduledAptlssMaintenance";
 import { shouldSyncAptlssChecklist } from "./aptlssPlanPolicy";
 import { buildComplianceEvidence } from "./complianceEvidence";
 import { replyMonitorRouter } from "./replyMonitorRouter";
+import { assessAptlssCard, APTLSS_ASSESSMENT_VERSION, buildAssessmentContextHash } from "./aptlssAssessment";
+import { getAssessmentHistory, getLatestAssessment, getLatestAssessments } from "./aptlssAssessmentDb";
+import { normalizeGeneratedAptlssPlan } from "./aptlssPlanNormalizer";
+import { canReuseAptlssPlan } from "./aptlssPlanFreshness";
 import {
   getAllEmailTasks,
   getPendingEmailTasks,
@@ -51,8 +55,7 @@ import {
   getSyncStats24h,
 } from "./aptlssAuditDb";
 import {
-  computeAndSaveCardState,
-  computeAndSavePriorityScore,
+  assessAndSaveCardIntelligence,
   writeChecklistToTrello,
   type AptlssStepInput,
 } from "./aptlssEngine";
@@ -927,34 +930,46 @@ export const appRouter = router({
         const apiToken = process.env.TrelloAPIToken;
         if (!apiKey || !apiToken) throw new Error("Trello API credentials not configured");
 
-        // Return cached plan if fresh (< 4 hours) and not forcing refresh
+        const ctx = await fetchCardContext(input.cardId, apiKey, apiToken);
+        const existingSteps = await getOpenStepsForCard(input.cardId);
+        const currentContextHash = buildAssessmentContextHash(ctx, existingSteps);
+
+        // A plan is reusable only while both time and material context remain fresh.
         if (!input.forceRefresh) {
-          const cached = await getAptlssPlan(input.cardId);
-          if (cached) {
-            const ageMs = Date.now() - new Date(cached.generatedAt).getTime();
-            if (ageMs < 4 * 60 * 60 * 1000) {
+          const [cached, latestAssessment] = await Promise.all([
+            getAptlssPlan(input.cardId),
+            getLatestAssessment(input.cardId),
+          ]);
+          if (cached && latestAssessment) {
+            if (canReuseAptlssPlan({
+              generatedAt: cached.generatedAt,
+              currentContextHash,
+              assessedContextHash: latestAssessment.contextHash,
+              assessedEngineVersion: latestAssessment.engineVersion,
+              currentEngineVersion: APTLSS_ASSESSMENT_VERSION,
+              nextAssessmentAt: latestAssessment.nextAssessmentAt,
+            })) {
+              const assessment = await assessAndSaveCardIntelligence(ctx, "generation");
               const steps = await getOpenStepsForCard(input.cardId);
               const progress = await getCardStepProgress(input.cardId);
-              const state = await getCardState(input.cardId);
-              const priority = await getPriorityScore(input.cardId);
               return {
                 plan: JSON.parse(cached.planJson),
                 cached: true,
                 generatedAt: cached.generatedAt,
                 steps,
                 progress,
-                cardState: state?.state ?? null,
-                cardStateReason: state?.stateReason ?? null,
-                priorityScore: priority?.score ?? null,
-                priorityTier: priority?.tier ?? null,
+                cardState: assessment.primaryState,
+                cardStateReason: assessment.stateReason,
+                priorityScore: assessment.priorityScore,
+                priorityTier: assessment.priorityTier,
+                assessment,
               };
             }
           }
         }
 
-        // Fetch full card context from Trello
-        const ctx = await fetchCardContext(input.cardId, apiKey, apiToken);
         const contextText = formatContextForLLM(ctx);
+        const preAssessment = assessAptlssCard({ ctx, steps: existingSteps, trigger: "generation" });
 
         // Fetch worker performance signals to calibrate time estimates and risk scores (Item 14)
         const workerSignals = await getAllWorkerPerformance();
@@ -971,7 +986,7 @@ export const appRouter = router({
         // unavailable, fall back to a deterministic guarded plan so Joyce can
         // still persist steps, states, priority scores, and daily-plan inputs.
         let plan: Record<string, unknown>;
-        let planJson: string;
+        let planSource: "ai" | "deterministic" = "ai";
         try {
           const llmResponse = await invokeLLM({
           messages: [
@@ -1018,7 +1033,16 @@ Respond ONLY with valid JSON matching the schema exactly.`,
             },
             {
               role: "user",
-              content: `Generate an APTLSS plan for this Trello card:\n\n${contextText}${workerPerfContext}`,
+              content: `Generate an APTLSS plan for this Trello card:\n\n${contextText}${workerPerfContext}\n\nEVIDENCE ASSESSMENT (observed evidence is authoritative; do not inflate confidence):\n${JSON.stringify({
+                engineVersion: preAssessment.engineVersion,
+                state: preAssessment.primaryState,
+                secondarySignals: preAssessment.secondarySignals,
+                actionability: preAssessment.actionability,
+                priorityScore: preAssessment.priorityScore,
+                evidenceConfidence: preAssessment.confidenceScore,
+                uncertainties: preAssessment.uncertainties,
+                recommendations: preAssessment.recommendations,
+              })}`,
             },
           ],
           response_format: {
@@ -1073,14 +1097,16 @@ Respond ONLY with valid JSON matching the schema exactly.`,
           });
 
           const rawContent = llmResponse.choices?.[0]?.message?.content;
-          planJson = typeof rawContent === "string" ? rawContent : "{}";
-          plan = JSON.parse(planJson) as Record<string, unknown>;
+          const rawPlanJson = typeof rawContent === "string" ? rawContent : "{}";
+          plan = JSON.parse(rawPlanJson) as Record<string, unknown>;
         } catch (error) {
           const reason = error instanceof Error ? error.message : "AI planner unavailable";
           console.info("[APTLSS] AI plan unavailable; using deterministic fallback:", reason);
           plan = buildDeterministicAptlssPlan(ctx, reason);
-          planJson = JSON.stringify(plan);
+          planSource = "deterministic";
         }
+        plan = normalizeGeneratedAptlssPlan(plan, preAssessment, planSource);
+        const planJson = JSON.stringify(plan);
 
         // Persist plan to DB
         await upsertAptlssPlan({
@@ -1147,8 +1173,10 @@ Respond ONLY with valid JSON matching the schema exactly.`,
         await upsertAptlssSteps(ctx.id, dbSteps);
 
         // Run state machine and priority scoring
-        const cardState = await computeAndSaveCardState(ctx);
-        const { score: priorityScore, tier: priorityTier } = await computeAndSavePriorityScore(ctx, cardState);
+        const assessment = await assessAndSaveCardIntelligence(ctx, "generation");
+        const cardState = assessment.primaryState;
+        const priorityScore = assessment.priorityScore;
+        const priorityTier = assessment.priorityTier;
 
         // Auto-generate follow-up draft if card is WAITING_FOR_EXTERNAL_PARTY and policy is enabled
         // Autopilot Level Enforcement (Item 17): drafting external comms requires level >= 3
@@ -1195,6 +1223,7 @@ Respond ONLY with valid JSON matching the schema exactly.`,
           cardStateReason: (plan as any).stateReason ?? null,
           priorityScore,
           priorityTier,
+          assessment,
         };
       }),
 
@@ -1204,10 +1233,13 @@ Respond ONLY with valid JSON matching the schema exactly.`,
       .query(async ({ input }) => {
         const cached = await getAptlssPlan(input.cardId);
         if (!cached) return null;
-        const steps = await getOpenStepsForCard(input.cardId);
-        const progress = await getCardStepProgress(input.cardId);
-        const state = await getCardState(input.cardId);
-        const priority = await getPriorityScore(input.cardId);
+        const [steps, progress, state, priority, assessment] = await Promise.all([
+          getOpenStepsForCard(input.cardId),
+          getCardStepProgress(input.cardId),
+          getCardState(input.cardId),
+          getPriorityScore(input.cardId),
+          getLatestAssessment(input.cardId),
+        ]);
         return {
           plan: JSON.parse(cached.planJson),
           generatedAt: cached.generatedAt,
@@ -1220,8 +1252,22 @@ Respond ONLY with valid JSON matching the schema exactly.`,
           cardStateReason: state?.stateReason ?? null,
           priorityScore: priority?.score ?? null,
           priorityTier: priority?.tier ?? null,
+          assessment,
         };
       }),
+
+    /** Latest evidence-calibrated assessment for a card. */
+    getAssessment: protectedProcedure
+      .input(z.object({ cardId: z.string().min(1) }))
+      .query(({ input }) => getLatestAssessment(input.cardId)),
+
+    /** Material assessment changes for audit and calibration review. */
+    getAssessmentHistory: protectedProcedure
+      .input(z.object({ cardId: z.string().min(1), limit: z.number().int().min(1).max(100).optional() }))
+      .query(({ input }) => getAssessmentHistory(input.cardId, input.limit ?? 20)),
+
+    /** Current cross-card intelligence ordered by intervention urgency. */
+    getAssessmentOverview: protectedProcedure.query(() => getLatestAssessments()),
 
     /** Get all stored APTLSS plans (admin/debug). */
     getAll: protectedProcedure.query(async () => {
@@ -1291,18 +1337,24 @@ Respond ONLY with valid JSON matching the schema exactly.`,
         return await getCardState(input.cardId);
       }),
 
-    /** Get all card states, enriched with confidenceScore from planJson. */
+    /** Get all card states enriched with evidence-calibrated assessment confidence. */
     getAllCardStates: protectedProcedure.query(async () => {
-      const [states, plans] = await Promise.all([getAllCardStates(), getAllAptlssPlans()]);
-      const planMap = new Map(plans.map(p => {
-        let confidenceScore: number | null = null;
-        try {
-          const parsed = JSON.parse(p.planJson) as Record<string, unknown>;
-          confidenceScore = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : null;
-        } catch { /* ignore */ }
-        return [p.cardId, confidenceScore] as [string, number | null];
-      }));
-      return states.map(s => ({ ...s, confidenceScore: planMap.get(s.cardId) ?? null }));
+      const [states, assessments] = await Promise.all([getAllCardStates(), getLatestAssessments()]);
+      const assessmentMap = new Map(assessments.map((assessment) => [assessment.cardId, assessment]));
+      return states.map((state) => {
+        const assessment = assessmentMap.get(state.cardId);
+        return {
+          ...state,
+          confidenceScore: assessment?.confidenceScore ?? null,
+          confidenceReason: assessment?.confidenceReason ?? null,
+          confidenceBand: assessment?.confidenceBand ?? null,
+          actionability: assessment?.actionability ?? null,
+          secondarySignals: assessment?.secondarySignalsValue ?? [],
+          lastEvaluatedAt: assessment?.lastEvaluatedAt ?? null,
+          nextAssessmentAt: assessment?.nextAssessmentAt ?? null,
+          engineVersion: assessment?.engineVersion ?? null,
+        };
+      });
     }),
 
     /** Get priority score for a card. */
@@ -1506,14 +1558,16 @@ Respond ONLY with valid JSON matching the schema exactly.`,
      *   - escalations: cards whose planJson has a non-null escalationCategory
      */
     getRisksAndExceptions: protectedProcedure.query(async () => {
-      const [allPlans, allSteps, allScores, allStates] = await Promise.all([
+      const [allPlans, allSteps, allScores, allStates, allAssessments] = await Promise.all([
         getAllAptlssPlans(),
         getAllRobertDecisionSteps(),
         getAllPriorityScores(),
         getAllCardStates(),
+        getLatestAssessments(),
       ]);
       const scoreMap = new Map(allScores.map(s => [s.cardId, s]));
       const planMap = new Map(allPlans.map(p => [p.cardId, p]));
+      const assessmentMap = new Map(allAssessments.map(assessment => [assessment.cardId, assessment]));
 
       // Pending Robert decisions (open steps)
       const pendingDecisions = allSteps
@@ -1620,8 +1674,8 @@ Respond ONLY with valid JSON matching the schema exactly.`,
             const plan = JSON.parse(p.planJson) as Record<string, unknown>;
             escalationCategory = (plan.escalationCategory as string) ?? null;
             robertDecision = (plan.robertDecision as string) ?? null;
-            confidenceScore = (plan.confidenceScore as number) ?? null;
-            confidenceReason = (plan.confidenceReason as string) ?? null;
+            confidenceScore = assessmentMap.get(p.cardId)?.confidenceScore ?? null;
+            confidenceReason = assessmentMap.get(p.cardId)?.confidenceReason ?? null;
           } catch { /* ignore */ }
           return {
             cardId: p.cardId,
@@ -1814,16 +1868,18 @@ Respond ONLY with valid JSON matching the schema exactly.`,
      *   - tier: CRITICAL | HIGH | MEDIUM | LOW | BLOCKED
      */
     getCommandCenter: protectedProcedure.query(async () => {
-      const [allPlans, allScores, allStates, allSteps] = await Promise.all([
+      const [allPlans, allScores, allStates, allSteps, allAssessments] = await Promise.all([
         getAllAptlssPlans(),
         getAllPriorityScores(),
         getAllCardStates(),
         getAllRobertDecisionSteps(),
+        getLatestAssessments(),
       ]);
 
       const scoreMap = new Map(allScores.map(s => [s.cardId, s]));
       const planMap = new Map(allPlans.map(p => [p.cardId, p]));
       const stateMap = new Map(allStates.map(s => [s.cardId, s]));
+      const assessmentMap = new Map(allAssessments.map(assessment => [assessment.cardId, assessment]));
 
       // Helper: parse planJson safely
       function parsePlan(cardId: string): Record<string, unknown> {
@@ -1862,8 +1918,8 @@ Respond ONLY with valid JSON matching the schema exactly.`,
         const hasEscalation = !!plan.escalationCategory;
         const needsRobert = !!plan.robertDecision;
         if (needsRobert || hasEscalation) return 'needs_robert';
-        if (isOverdue || daysSince > 14) return 'needs_escalation';
         if (daysSince > 30) return 'possibly_obsolete';
+        if (isOverdue || daysSince > 14) return 'needs_escalation';
         // Heuristic: if state was recently updated (< 3 days), assume new activity
         const updatedMs = state.calculatedAt ? new Date(state.calculatedAt).getTime() : 0;
         const daysSinceUpdate = (Date.now() - updatedMs) / (1000 * 60 * 60 * 24);
@@ -1876,12 +1932,13 @@ Respond ONLY with valid JSON matching the schema exactly.`,
         const score = scoreMap.get(s.cardId);
         const plan = planMap.get(s.cardId);
         const planData = parsePlan(s.cardId);
+        const assessment = assessmentMap.get(s.cardId);
         const openSteps = allSteps.filter(st => st.cardId === s.cardId && st.status !== 'complete');
         const totalSteps = (score?.openSteps ?? 0) + (score?.completedSteps ?? 0);
         const completedSteps = score?.completedSteps ?? 0;
         const pct = totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0;
-        const confidenceScore = (planData.confidenceScore as number | null) ?? null;
-        const confidenceReason = (planData.confidenceReason as string | null) ?? null;
+        const confidenceScore = assessment?.confidenceScore ?? null;
+        const confidenceReason = assessment?.confidenceReason ?? null;
         const nextBestAction = (planData.nextBestAction as string | null) ?? null;
         const escalationCategory = (planData.escalationCategory as string | null) ?? null;
         const robertDecision = (planData.robertDecision as string | null) ?? null;
@@ -1921,6 +1978,13 @@ Respond ONLY with valid JSON matching the schema exactly.`,
           escalationCategory,
           robertDecision,
           urgencyLabel,
+          actionability: assessment?.actionability ?? null,
+          secondarySignals: assessment?.secondarySignalsValue ?? [],
+          uncertainties: assessment?.uncertaintiesValue ?? [],
+          recommendations: assessment?.recommendationsValue ?? [],
+          assessmentVersion: assessment?.engineVersion ?? null,
+          lastEvaluatedAt: assessment?.lastEvaluatedAt ?? null,
+          nextAssessmentAt: assessment?.nextAssessmentAt ?? null,
           openRobertSteps: openSteps.filter(st => st.requiresRobert).length,
           whyShown: buildWhyShown(s, score, planData),
           onHoldClassification: s.listName && s.listName.toLowerCase().includes('hold')
@@ -2049,21 +2113,25 @@ Respond ONLY with valid JSON matching the schema exactly.`,
       }),
     /**
      * Draft daily updates for all DOING cards and return them for approval.
-     * High-confidence drafts (>= 80) can be auto-posted if autopilot >= 3.
+     * High-confidence drafts (>= 80) can be posted only after an explicit
+     * autoPost request and when autopilot level >= 4 permits approved sends.
      */
     batchDraftDailyUpdates: protectedProcedure
       .input(z.object({ cardIds: z.array(z.string()), autoPost: z.boolean().default(false) }))
       .mutation(async ({ input }) => {
         const apiKey = process.env.TrelloAPIKey;
         const apiToken = process.env.TrelloAPIToken;
-        const [allPlans, allScores, allStates] = await Promise.all([
+        const autopilotLevel = await getAutopilotLevel();
+        const [allPlans, allScores, allStates, allAssessments] = await Promise.all([
           getAllAptlssPlans(),
           getAllPriorityScores(),
           getAllCardStates(),
+          getLatestAssessments(),
         ]);
         const planMap2 = new Map(allPlans.map(p => [p.cardId, p]));
         const scoreMap2 = new Map(allScores.map(s => [s.cardId, s]));
         const stateMap2 = new Map(allStates.map(s => [s.cardId, s]));
+        const assessmentMap2 = new Map(allAssessments.map(assessment => [assessment.cardId, assessment]));
 
         const drafts: Array<{
           cardId: string; cardName: string; cardUrl: string;
@@ -2084,7 +2152,7 @@ Respond ONLY with valid JSON matching the schema exactly.`,
           const nextCheckpoint = (planData.nextCheckpoint as string) ?? 'Tomorrow';
           const isBlocked = (planData.isBlocked as boolean) ?? false;
           const blockedReason = (planData.blockedReason as string) ?? '';
-          const confidenceScore = (planData.confidenceScore as number) ?? 70;
+          const confidenceScore = assessmentMap2.get(cardId)?.confidenceScore ?? 0;
           const steps = (planData.steps as Array<{ description?: string; status?: string }> | undefined) ?? [];
           const completedSteps = steps.filter(s => s.status === 'complete').map(s => s.description ?? '').filter(Boolean);
           const openStepsArr = steps.filter(s => s.status !== 'complete').map(s => s.description ?? '').filter(Boolean);
@@ -2129,13 +2197,13 @@ Respond ONLY with valid JSON matching the schema exactly.`,
           }
 
           let autoPosted = false;
-          if (input.autoPost && confidenceScore >= 80 && apiKey && apiToken) {
-            await postCardComment(cardId, apiKey, apiToken, draft);
+          if (input.autoPost && autopilotLevel >= 4 && confidenceScore >= 80 && apiKey && apiToken) {
+            await postCardComment(cardId, draft, apiKey, apiToken);
             await logAuditAction({
               cardId,
               cardName: plan.cardName,
               action: 'daily_update_drafted',
-              description: 'Auto-posted daily update (confidence >= 80, autoPost=true)',
+              description: 'Posted approved daily update (evidence confidence >= 80, autoPost=true, autopilot >= 4)',
               confidenceScore,
               source: 'manual',
             });
@@ -2267,12 +2335,27 @@ Respond ONLY with valid JSON matching the schema exactly.`,
       const apiToken = process.env.TrelloAPIToken;
 
       // Sync stats
-      const [syncStats, lastSync, recentSyncs, recentAudit] = await Promise.all([
+      const [syncStats, lastSync, recentSyncs, recentAudit, assessments, states] = await Promise.all([
         getSyncStats24h(),
         getLastSuccessfulSync(),
         getRecentSyncLog(20),
         getRecentAuditLog(50),
+        getLatestAssessments(),
+        getAllCardStates(),
       ]);
+      const now = Date.now();
+      const assessmentHealth = {
+        engineVersion: APTLSS_ASSESSMENT_VERSION,
+        assessedCards: assessments.length,
+        unassessedCards: Math.max(0, states.length - assessments.length),
+        freshCards: assessments.filter((assessment) => assessment.nextAssessmentAt.getTime() > now).length,
+        dueForAssessment: assessments.filter((assessment) => assessment.nextAssessmentAt.getTime() <= now).length,
+        lowConfidenceCards: assessments.filter((assessment) => assessment.confidenceScore < 60).length,
+        averageConfidence: assessments.length
+          ? Math.round(assessments.reduce((sum, assessment) => sum + assessment.confidenceScore, 0) / assessments.length)
+          : 0,
+        outdatedEngineCards: assessments.filter((assessment) => assessment.engineVersion !== APTLSS_ASSESSMENT_VERSION).length,
+      };
 
       // Webhook status
       let webhookStatus: { active: boolean; count: number; webhooks: unknown[] } = { active: false, count: 0, webhooks: [] };
@@ -2302,6 +2385,7 @@ Respond ONLY with valid JSON matching the schema exactly.`,
         pendingApprovals,
         cardsSkipped,
         failedRecs,
+        assessmentHealth,
         recentAuditLog: recentAudit,
         ownerName: process.env.OWNER_NAME ?? 'Owner',
       };

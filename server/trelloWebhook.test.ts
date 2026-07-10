@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { describe, expect, it } from "vitest";
-import { authorizeTrelloWebhook, verifyTrelloSignature } from "./trelloWebhook";
+import { authorizeTrelloWebhook, shouldRefreshAptlssForAction, verifyTrelloSignature } from "./trelloWebhook";
 
 const body = JSON.stringify({ action: { type: "updateCard" } });
 const callbackUrl = "https://example.test/api/trello/webhook";
@@ -24,5 +24,22 @@ describe("Trello webhook authorization", () => {
 
   it("allows unsigned local-development events with an explicit degraded marker", () => {
     expect(authorizeTrelloWebhook({ body, callbackUrl, production: false })).toEqual({ ok: true, unsignedDevelopmentRequest: true });
+  });
+});
+
+describe("APTLSS webhook intelligence triggers", () => {
+  it.each([
+    "updateCard",
+    "commentCard",
+    "addMemberToCard",
+    "addLabelToCard",
+    "addAttachmentToCard",
+    "updateCheckItemStateOnCard",
+  ])("reassesses material event %s", (actionType) => {
+    expect(shouldRefreshAptlssForAction(actionType)).toBe(true);
+  });
+
+  it("ignores unrelated board administration events", () => {
+    expect(shouldRefreshAptlssForAction("updateBoard")).toBe(false);
   });
 });

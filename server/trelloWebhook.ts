@@ -20,12 +20,23 @@ import {
   completeStepByCheckItemId,
   uncompleteStepByCheckItemId,
 } from "./aptlssStepsDb";
-import { getAptlssPlan } from "./aptlssDb";
 import { fetchCardContext } from "./trelloCardContext";
 import {
-  computeAndSaveCardState,
-  computeAndSavePriorityScore,
+  assessAndSaveCardIntelligence,
 } from "./aptlssEngine";
+
+const APTLSS_INTELLIGENCE_TRIGGERS = new Set([
+  "createCard", "updateCard", "commentCard",
+  "addMemberToCard", "removeMemberFromCard",
+  "addLabelToCard", "removeLabelFromCard",
+  "addAttachmentToCard", "deleteAttachmentFromCard",
+  "addChecklistToCard", "removeChecklistFromCard",
+  "createCheckItem", "deleteCheckItem", "updateCheckItem", "updateCheckItemStateOnCard",
+]);
+
+export function shouldRefreshAptlssForAction(actionType: string) {
+  return APTLSS_INTELLIGENCE_TRIGGERS.has(actionType);
+}
 
 export function verifyTrelloSignature(
   body: string,
@@ -112,8 +123,9 @@ export function registerTrelloWebhookRoute(app: Application): void {
       action.data?.card?.id ?? action.data?.cardId;
 
     try {
+      let shouldRefresh = false;
       // ── updateCheckItem: sync APTLSS step completion ──────────────────────
-      if (actionType === "updateCheckItem" && action.data?.checkItem) {
+      if ((actionType === "updateCheckItem" || actionType === "updateCheckItemStateOnCard") && action.data?.checkItem) {
         const checkItemId: string = action.data.checkItem.id;
         const state: string = action.data.checkItem.state; // "complete" | "incomplete"
 
@@ -123,31 +135,11 @@ export function registerTrelloWebhookRoute(app: Application): void {
           await uncompleteStepByCheckItemId(checkItemId);
         }
 
-        // Re-run state machine and priority scoring for the card
-        if (cardId) {
-          await refreshCardIntelligence(cardId);
-        }
+        shouldRefresh = true;
       }
 
-      // ── updateCard (list change): invalidate cached state ─────────────────
-      if (
-        (actionType === "updateCard" && action.data?.listAfter) ||
-        actionType === "createCard"
-      ) {
-        if (cardId) {
-          await refreshCardIntelligence(cardId);
-        }
-      }
-
-      // ── addChecklistToCard / removeChecklistFromCard ───────────────────────
-      if (
-        actionType === "addChecklistToCard" ||
-        actionType === "removeChecklistFromCard"
-      ) {
-        if (cardId) {
-          await refreshCardIntelligence(cardId);
-        }
-      }
+      shouldRefresh ||= shouldRefreshAptlssForAction(actionType);
+      if (cardId && shouldRefresh) await refreshCardIntelligence(cardId);
     } catch (e) {
       // Never let webhook processing errors crash the server
       console.error("[Trello Webhook] Error processing event:", actionType, e);
@@ -160,21 +152,16 @@ export function registerTrelloWebhookRoute(app: Application): void {
 
 /**
  * Re-run the card state machine and priority scoring for a card.
- * Only runs if the card has an existing APTLSS plan (i.e., has been triaged).
+ * Runs for every changed card so untriaged work also receives an assessment.
  */
 async function refreshCardIntelligence(cardId: string): Promise<void> {
   const apiKey = process.env.TrelloAPIKey;
   const apiToken = process.env.TrelloAPIToken;
   if (!apiKey || !apiToken) return;
 
-  // Only refresh cards that have an existing APTLSS plan
-  const existing = await getAptlssPlan(cardId);
-  if (!existing) return;
-
   try {
     const ctx = await fetchCardContext(cardId, apiKey, apiToken);
-    const state = await computeAndSaveCardState(ctx);
-    await computeAndSavePriorityScore(ctx, state);
+    await assessAndSaveCardIntelligence(ctx, "webhook");
   } catch (e) {
     console.error("[Trello Webhook] refreshCardIntelligence failed for", cardId, e);
   }

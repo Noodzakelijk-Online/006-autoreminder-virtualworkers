@@ -114,6 +114,11 @@ try {
   await waitForText("Priority Playbook");
   await clickButton("Settings");
   await waitForText("Choose one configuration area at a time");
+  await page.goto(new URL("/admin", baseUrl).toString(), { waitUntil: "networkidle2", timeout: 30_000 });
+  await waitForText("APTLSS Intelligence Health");
+  await waitForText("Evidence coverage");
+  await page.screenshot({ path: path.join(outputDir, "desktop-aptlss-health-dark.png"), fullPage: true });
+  await page.goto(baseUrl, { waitUntil: "networkidle2", timeout: 30_000 });
   await clickButton("Decisions");
   await waitForText("Prepared decisions and exceptions");
   await page.waitForFunction(() => document.querySelector('[data-testid="decision-context"]')?.getAttribute("data-state") !== "loading", { timeout: 30_000 });
@@ -137,8 +142,8 @@ try {
   console.log(JSON.stringify({
     ok: true,
     url: page.url(),
-    screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "mobile.png"].map((name) => path.join(outputDir, name)),
-    checks: ["secured login", "Today", "card inspector", "Day plan", "Inbox", "Decisions classifier 7/7", "Time & Pay", "Standards", "Settings", "dark mode", "desktop overflow", "mobile overflow", "console"],
+    screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "desktop-aptlss-health-dark.png", "mobile.png"].map((name) => path.join(outputDir, name)),
+    checks: ["secured login", "Today", "card inspector", "Day plan", "Inbox", "Decisions classifier 7/7", "Time & Pay", "Standards", "Settings", "APTLSS intelligence health", "dark mode", "desktop overflow", "mobile overflow", "console"],
   }, null, 2));
 } catch (error) {
   const failurePath = path.join(outputDir, "failure.png");

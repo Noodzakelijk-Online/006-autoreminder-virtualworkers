@@ -21,6 +21,8 @@ import {
   countDependentCards,
 } from "./aptlssStepsDb";
 import { InsertCardState, InsertPriorityScore } from "../drizzle/schema";
+import { assessAptlssCard, type AssessmentTrigger } from "./aptlssAssessment";
+import { saveAssessmentSnapshot } from "./aptlssAssessmentDb";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,10 +48,13 @@ export interface TrelloCardContext {
   id: string;
   name: string;
   desc: string;
+  start?: string | null;
   url: string;
   shortUrl: string;
   due: string | null;
   dueComplete: boolean;
+  closed?: boolean;
+  position?: number | null;
   labels: { name: string; color: string }[];
   listName: string;
   boardName: string;
@@ -64,6 +69,9 @@ export interface TrelloCardContext {
   members?: { username: string; fullName: string }[];
   /** Unix ms of last activity (card move, comment, checklist change) */
   lastActivityMs: number;
+  /** Recent card activity used to distinguish meaningful progress from chatter. */
+  activity?: { type: string; date: string; memberName: string; detail: string }[];
+  customFields?: { id: string; name: string; value: string }[];
 }
 
 export interface AptlssStepInput {
@@ -136,13 +144,73 @@ function hasBlockedStep(steps: Awaited<ReturnType<typeof getOpenStepsForCard>>):
   return steps.some((s) => !!s.blockedBy && s.status === "open");
 }
 
+/**
+ * Run the complete evidence assessment once and persist its compatible state,
+ * priority, and versioned evidence snapshot as one coherent intelligence pass.
+ */
+export async function assessAndSaveCardIntelligence(
+  ctx: TrelloCardContext,
+  trigger: AssessmentTrigger = "manual",
+  signals: { duplicateCardNames?: string[]; planMissingNextAction?: boolean } = {},
+) {
+  const steps = await getOpenStepsForCard(ctx.id);
+  const dependentCardCount = await countDependentCards(ctx.id);
+  const assessment = assessAptlssCard({ ctx, steps, dependentCardCount, trigger, ...signals });
+  const progress = getChecklistProgress(ctx);
+  const hasFinalSummary = ctx.comments.some((comment) =>
+    /final summary|completed|done\s*[-â€”]/i.test(comment.text),
+  );
+
+  const stateRow: InsertCardState = {
+    cardId: ctx.id,
+    cardName: ctx.name,
+    boardName: ctx.boardName,
+    listName: ctx.listName,
+    state: assessment.primaryState,
+    stateReason: assessment.stateReason,
+    daysSinceProgress: assessment.daysSinceMeaningfulProgress,
+    hasUnansweredQuestion: assessment.secondarySignals.includes("inbound_question_unanswered"),
+    isOverdue: assessment.secondarySignals.includes("overdue"),
+    checklistComplete: progress.total > 0 && progress.completed === progress.total,
+    hasFinalSummary,
+    calculatedAt: new Date(assessment.assessedAt),
+  };
+
+  const openSteps = steps.filter((step) => step.status === "open");
+  const completedSteps = steps.filter((step) => step.status === "complete");
+  const priorityRow: InsertPriorityScore = {
+    cardId: ctx.id,
+    cardName: ctx.name,
+    score: assessment.priorityScore,
+    breakdown: JSON.stringify({
+      ...assessment.priorityBreakdown,
+      confidenceScore: assessment.confidenceScore,
+      actionability: assessment.actionability,
+      secondarySignals: assessment.secondarySignals,
+      engineVersion: assessment.engineVersion,
+    }),
+    tier: assessment.priorityTier,
+    estimatedRemainingMinutes: openSteps.reduce((sum, step) => sum + (step.estimatedMinutes ?? 15), 0),
+    openSteps: openSteps.length,
+    completedSteps: completedSteps.length,
+    calculatedAt: new Date(assessment.assessedAt),
+  };
+
+  await Promise.all([
+    upsertCardState(stateRow),
+    upsertPriorityScore(priorityRow),
+    saveAssessmentSnapshot(ctx.name, assessment),
+  ]);
+  return assessment;
+}
+
 // ─── 1. Card State Machine ────────────────────────────────────────────────────
 
 /**
  * Deterministically classify a card into one of 14 states.
  * Rules are evaluated in priority order — first match wins.
  */
-export async function computeCardState(
+async function computeLegacyCardState(
   ctx: TrelloCardContext
 ): Promise<{ state: CardStateValue; reason: string }> {
   const steps = await getOpenStepsForCard(ctx.id);
@@ -277,39 +345,19 @@ export async function computeCardState(
   };
 }
 
+/** Compute the current evidence-calibrated state without persisting it. */
+export async function computeCardState(ctx: TrelloCardContext): Promise<{ state: CardStateValue; reason: string }> {
+  const steps = await getOpenStepsForCard(ctx.id);
+  const dependentCardCount = await countDependentCards(ctx.id);
+  const assessment = assessAptlssCard({ ctx, steps, dependentCardCount, trigger: "manual" });
+  return { state: assessment.primaryState, reason: assessment.stateReason };
+}
+
 /** Compute and persist card state to DB. */
 export async function computeAndSaveCardState(
   ctx: TrelloCardContext
 ): Promise<CardStateValue> {
-  const { state, reason } = await computeCardState(ctx);
-  const { total, completed } = getChecklistProgress(ctx);
-  const staleDays = daysSince(ctx.lastActivityMs);
-
-  const row: InsertCardState = {
-    cardId: ctx.id,
-    cardName: ctx.name,
-    boardName: ctx.boardName,
-    listName: ctx.listName,
-    state,
-    stateReason: reason,
-    daysSinceProgress: staleDays,
-    hasUnansweredQuestion: hasUnansweredQuestion(ctx.comments),
-    isOverdue: isOverdue(ctx.due),
-    checklistComplete: total > 0 && completed === total,
-    hasFinalSummary:
-      ctx.comments.length > 0 &&
-      ctx.comments.some(
-        (c) =>
-          c.text.toLowerCase().includes("final summary") ||
-          c.text.toLowerCase().includes("completed") ||
-          c.text.toLowerCase().includes("done —") ||
-          c.text.toLowerCase().includes("done -")
-      ),
-    calculatedAt: new Date(),
-  };
-
-  await upsertCardState(row);
-  return state;
+  return (await assessAndSaveCardIntelligence(ctx)).primaryState;
 }
 
 // ─── 2. Priority Scoring Engine ───────────────────────────────────────────────
@@ -425,48 +473,10 @@ function riskTextToScore(text: string | null | undefined): number {
 /** Compute and persist priority score to DB. */
 export async function computeAndSavePriorityScore(
   ctx: TrelloCardContext,
-  state: CardStateValue
+  _state: CardStateValue
 ): Promise<{ score: number; tier: PriorityTier }> {
-  const steps = await getOpenStepsForCard(ctx.id);
-  const openSteps = steps.filter((s) => s.status === "open");
-  const completedSteps = steps.filter((s) => s.status === "complete");
-  const estimatedRemainingMinutes = openSteps.reduce(
-    (sum, s) => sum + (s.estimatedMinutes ?? 15),
-    0
-  );
-
-  // dependencyImpact: count how many other cards depend on this one
-  const dependentCardCount = await countDependentCards(ctx.id);
-
-  // riskIfIgnored: take the highest riskIfSkipped score across all open steps
-  const riskScore = openSteps.reduce((max, s) => {
-    const score = riskTextToScore(s.riskIfSkipped);
-    return score > max ? score : max;
-  }, 0);
-
-  const { score, tier, breakdown } = await computePriorityScore(
-    ctx,
-    state,
-    openSteps.length,
-    estimatedRemainingMinutes,
-    dependentCardCount,
-    riskScore
-  );
-
-  const row: InsertPriorityScore = {
-    cardId: ctx.id,
-    cardName: ctx.name,
-    score,
-    breakdown: JSON.stringify(breakdown),
-    tier,
-    estimatedRemainingMinutes,
-    openSteps: openSteps.length,
-    completedSteps: completedSteps.length,
-    calculatedAt: new Date(),
-  };
-
-  await upsertPriorityScore(row);
-  return { score, tier };
+  const assessment = await assessAndSaveCardIntelligence(ctx);
+  return { score: assessment.priorityScore, tier: assessment.priorityTier };
 }
 
 // ─── 3. Trello Checklist Writer ───────────────────────────────────────────────

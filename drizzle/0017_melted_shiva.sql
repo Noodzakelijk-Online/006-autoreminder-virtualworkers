@@ -1,0 +1,35 @@
+CREATE TABLE `aptlss_assessments` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`cardId` varchar(64) NOT NULL,
+	`cardName` varchar(512) NOT NULL DEFAULT '',
+	`engineVersion` varchar(32) NOT NULL,
+	`contextHash` varchar(64) NOT NULL,
+	`trigger` varchar(32) NOT NULL DEFAULT 'manual',
+	`primaryState` varchar(64) NOT NULL,
+	`stateReason` text NOT NULL,
+	`secondarySignals` text NOT NULL,
+	`actionability` varchar(32) NOT NULL,
+	`priorityScore` int NOT NULL,
+	`priorityTier` varchar(16) NOT NULL,
+	`priorityBreakdown` text NOT NULL,
+	`confidenceScore` int NOT NULL,
+	`confidenceBand` varchar(16) NOT NULL,
+	`confidenceReason` text NOT NULL,
+	`evidenceCoverage` text NOT NULL,
+	`evidenceJson` text NOT NULL,
+	`uncertaintiesJson` text NOT NULL,
+	`recommendationsJson` text NOT NULL,
+	`lastMeaningfulProgressAt` timestamp,
+	`daysSinceMeaningfulProgress` int NOT NULL DEFAULT 0,
+	`nextAssessmentAt` timestamp NOT NULL,
+	`changeJson` text NOT NULL,
+	`evaluationCount` int NOT NULL DEFAULT 1,
+	`assessedAt` timestamp NOT NULL,
+	`lastEvaluatedAt` timestamp NOT NULL,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `aptlss_assessments_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE INDEX `aptlss_assessments_card_assessed_idx` ON `aptlss_assessments` (`cardId`,`assessedAt`);--> statement-breakpoint
+CREATE INDEX `aptlss_assessments_next_idx` ON `aptlss_assessments` (`nextAssessmentAt`);

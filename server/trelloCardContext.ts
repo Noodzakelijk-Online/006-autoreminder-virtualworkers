@@ -17,6 +17,24 @@
 import axios from "axios";
 
 const TRELLO_API_BASE = "https://api.trello.com/1";
+const customFieldCache = new Map<string, { expiresAt: number; fields: Array<{ id: string; name: string; type: string }> }>();
+const CUSTOM_FIELD_CACHE_MS = 10 * 60_000;
+
+async function getBoardCustomFields(boardId: string, apiKey: string, apiToken: string) {
+  const cached = customFieldCache.get(boardId);
+  if (cached && cached.expiresAt > Date.now()) return cached.fields;
+  try {
+    const response = await axios.get(`${TRELLO_API_BASE}/boards/${boardId}/customFields`, {
+      params: { key: apiKey, token: apiToken },
+    });
+    const fields = response.data ?? [];
+    customFieldCache.set(boardId, { expiresAt: Date.now() + CUSTOM_FIELD_CACHE_MS, fields });
+    return fields;
+  } catch {
+    customFieldCache.set(boardId, { expiresAt: Date.now() + CUSTOM_FIELD_CACHE_MS, fields: [] });
+    return [];
+  }
+}
 
 // ─── Sub-types (kept for backward compat with formatContextForLLM) ───────────
 export interface TrelloChecklist {
@@ -56,8 +74,11 @@ export interface TrelloCardContext {
   id: string;
   name: string;
   desc: string;
+  start?: string | null;
   due: string | null;
   dueComplete: boolean;
+  closed?: boolean;
+  position?: number | null;
   url: string;
   shortUrl: string;       // * required by aptlssEngine
   boardName: string;
@@ -73,6 +94,8 @@ export interface TrelloCardContext {
   dateLastActivity: string;
   /** Unix ms of last activity — required by aptlssEngine */
   lastActivityMs: number;
+  activity?: Array<{ type: string; date: string; memberName: string; detail: string }>;
+  customFields?: Array<{ id: string; name: string; value: string }>;
 }
 
 /**
@@ -82,18 +105,20 @@ export interface TrelloCardContext {
 export async function fetchCardContext(
   cardId: string,
   apiKey: string,
-  apiToken: string
+  apiToken: string,
+  knownNames: { boardName?: string; listName?: string } = {},
 ): Promise<TrelloCardContext> {
   const [cardRes, checklistsRes, actionsRes] = await Promise.all([
     axios.get(`${TRELLO_API_BASE}/cards/${cardId}`, {
       params: {
         key: apiKey,
         token: apiToken,
-        fields: "name,desc,due,dueComplete,url,shortUrl,idList,idBoard,dateLastActivity",
+        fields: "name,desc,start,due,dueComplete,closed,pos,url,shortUrl,idList,idBoard,dateLastActivity",
         members: "true",
         labels: "true",
         attachments: "true",
         attachment_fields: "name,url",
+        customFieldItems: "true",
       },
     }),
     axios.get(`${TRELLO_API_BASE}/cards/${cardId}/checklists`, {
@@ -103,8 +128,8 @@ export async function fetchCardContext(
       params: {
         key: apiKey,
         token: apiToken,
-        filter: "commentCard",
-        limit: 10,
+        filter: "all",
+        limit: 50,
       },
     }),
   ]);
@@ -114,19 +139,22 @@ export async function fetchCardContext(
   const actions = actionsRes.data ?? [];
 
   // Fetch board and list names
-  let boardName = "Unknown Board";
-  let listName = "Unknown List";
+  let boardName = knownNames.boardName || "Unknown Board";
+  let listName = knownNames.listName || "Unknown List";
+  let customFieldDefinitions: Array<{ id: string; name: string; type: string }> = [];
   try {
-    const [boardRes, listRes] = await Promise.all([
-      axios.get(`${TRELLO_API_BASE}/boards/${card.idBoard}`, {
+    const [boardRes, listRes, customFieldsRes] = await Promise.all([
+      knownNames.boardName ? Promise.resolve({ data: { name: knownNames.boardName } }) : axios.get(`${TRELLO_API_BASE}/boards/${card.idBoard}`, {
         params: { key: apiKey, token: apiToken, fields: "name" },
       }),
-      axios.get(`${TRELLO_API_BASE}/lists/${card.idList}`, {
+      knownNames.listName ? Promise.resolve({ data: { name: knownNames.listName } }) : axios.get(`${TRELLO_API_BASE}/lists/${card.idList}`, {
         params: { key: apiKey, token: apiToken, fields: "name" },
       }),
+      getBoardCustomFields(card.idBoard, apiKey, apiToken).then((fields) => ({ data: fields })),
     ]);
     boardName = boardRes.data?.name ?? boardName;
     listName = listRes.data?.name ?? listName;
+    customFieldDefinitions = customFieldsRes.data ?? [];
   } catch {
     // Non-fatal — use defaults
   }
@@ -169,13 +197,34 @@ export async function fetchCardContext(
 
   const dateLastActivity: string = card.dateLastActivity ?? "";
   const lastActivityMs = dateLastActivity ? new Date(dateLastActivity).getTime() : Date.now();
+  const activity = actions.map((action: any) => {
+    const memberName = action.memberCreator?.fullName || action.memberCreator?.username || "";
+    let type = action.type ?? "unknown";
+    let detail = "";
+    if (type === "commentCard") detail = action.data?.text ?? "";
+    else if (type === "updateCheckItemStateOnCard") detail = `${action.data?.checkItem?.name ?? "Checklist item"}: ${action.data?.checkItem?.state ?? "updated"}`;
+    else if (type === "updateCard" && action.data?.listAfter) {
+      type = "updateCard:list";
+      detail = `${action.data?.listBefore?.name ?? "Unknown"} -> ${action.data?.listAfter?.name ?? "Unknown"}`;
+    } else if (type === "updateCard" && action.data?.old?.due !== undefined) detail = `Due date changed from ${action.data.old.due ?? "none"} to ${action.data.card?.due ?? "none"}`;
+    else detail = action.data?.checklist?.name || action.data?.attachment?.name || action.data?.card?.name || type;
+    return { type, date: action.date ?? "", memberName, detail };
+  });
+  const customFields = (card.customFieldItems ?? []).map((item: any) => {
+    const definition = customFieldDefinitions.find((field) => field.id === item.idCustomField);
+    const rawValue = item.value?.text ?? item.value?.number ?? item.value?.date ?? item.value?.checked ?? item.idValue ?? "";
+    return { id: item.idCustomField, name: definition?.name ?? item.idCustomField, value: String(rawValue) };
+  });
 
   return {
     id: card.id,
     name: card.name,
     desc: card.desc ?? "",
+    start: card.start ?? null,
     due: card.due ?? null,
     dueComplete: card.dueComplete ?? false,
+    closed: card.closed ?? false,
+    position: typeof card.pos === "number" ? card.pos : null,
     url: card.url ?? card.shortUrl ?? "",
     shortUrl: card.shortUrl ?? card.url ?? "",
     boardName,
@@ -188,6 +237,8 @@ export async function fetchCardContext(
     members,
     dateLastActivity,
     lastActivityMs,
+    activity,
+    customFields,
   };
 }
 
@@ -213,6 +264,7 @@ export function formatContextForLLM(ctx: TrelloCardContext): string {
   } else {
     lines.push("DUE: Not set");
   }
+  if (ctx.start) lines.push(`START: ${new Date(ctx.start).toISOString()}`);
 
   if (ctx.labels.length > 0) {
     lines.push(`LABELS: ${ctx.labels.map((l) => l.name || l.color).join(", ")}`);
@@ -220,6 +272,10 @@ export function formatContextForLLM(ctx: TrelloCardContext): string {
 
   if (ctx.members.length > 0) {
     lines.push(`MEMBERS: ${ctx.members.map((m) => m.fullName || m.username).join(", ")}`);
+  }
+
+  if (ctx.customFields?.length) {
+    lines.push(`CUSTOM FIELDS: ${ctx.customFields.map((field) => `${field.name}=${field.value}`).join("; ")}`);
   }
 
   if (ctx.desc.trim()) {
@@ -259,6 +315,15 @@ export function formatContextForLLM(ctx: TrelloCardContext): string {
     lines.push("ATTACHMENTS:");
     for (const att of ctx.attachments.slice(0, 5)) {
       lines.push(`  - ${att.name}: ${att.url}`);
+    }
+  }
+
+  const nonCommentActivity = (ctx.activity ?? []).filter((event) => event.type !== "commentCard").slice(0, 15);
+  if (nonCommentActivity.length > 0) {
+    lines.push("");
+    lines.push("RECENT WORK EVIDENCE (newest first):");
+    for (const event of nonCommentActivity) {
+      lines.push(`  - ${event.date} | ${event.memberName || "Unknown"} | ${event.type}: ${event.detail.slice(0, 240)}`);
     }
   }
 

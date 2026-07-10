@@ -187,6 +187,7 @@ export default function AdminMonitor() {
   const cardsSkipped = data?.cardsSkipped ?? [];
   const failedRecs = data?.failedRecs ?? [];
   const recentSyncs = data?.recentSyncs ?? [];
+  const assessmentHealth = data?.assessmentHealth;
   const refreshMonitor = () => {
     void refetchReadiness();
     if (adminQueriesEnabled) {
@@ -324,6 +325,28 @@ export default function AdminMonitor() {
             </CardContent>
           </Card>
         )}
+        <Card>
+          <CardContent className="p-4">
+            <SectionTitle icon={<BarChart2 className="h-3.5 w-3.5 text-blue-500" />} title="APTLSS Intelligence Health" />
+            <div className="grid grid-cols-2 divide-x divide-y divide-border border border-border sm:grid-cols-4 sm:divide-y-0">
+              {[
+                ["Assessed", assessmentHealth?.assessedCards ?? 0, `${assessmentHealth?.unassessedCards ?? 0} unassessed`],
+                ["Fresh", assessmentHealth?.freshCards ?? 0, `${assessmentHealth?.dueForAssessment ?? 0} due now`],
+                ["Confidence", `${assessmentHealth?.averageConfidence ?? 0}%`, `${assessmentHealth?.lowConfidenceCards ?? 0} below 60%`],
+                ["Engine", assessmentHealth?.engineVersion ?? "-", `${assessmentHealth?.outdatedEngineCards ?? 0} outdated`],
+              ].map(([label, value, detail]) => (
+                <div key={label} className="min-w-0 px-3 py-3 first:pl-3">
+                  <p className="text-[10px] font-medium uppercase text-muted-foreground">{label}</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{detail}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Confidence is derived from Trello evidence coverage, freshness, contradictions, and persisted APTLSS steps. Model confidence is capped by this score.
+            </p>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="p-4">
             <SectionTitle icon={<Activity className="w-3.5 h-3.5 text-blue-500" />} title="Sync Health (Last 24h)" />

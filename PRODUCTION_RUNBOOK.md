@@ -82,6 +82,10 @@ The response intentionally contains only status, summary, counts, uptime, enviro
 
 ## Scheduled Jobs
 
+APTLSS v3 continuously recalculates evidence-based card state, intervention priority, and confidence. Material Trello webhook events trigger immediate reassessment; an in-process hourly sweep at `:15 UTC` provides polling fallback and covers cards that do not yet have generated plans. The sweep is rate-limited and retries Trello `429` responses.
+
+Assessment confidence is derived from description, ownership, due dates, labels, custom fields, persisted steps, completion criteria, risk evidence, comments, meaningful activity, contradictions, and freshness. LLM confidence is capped by this evidence score. Assessment snapshots and material changes are retained in `aptlss_assessments` and are visible under `/admin`.
+
 Recommended scheduled calls:
 
 ```bash

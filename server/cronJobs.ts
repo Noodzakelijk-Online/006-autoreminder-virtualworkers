@@ -15,6 +15,7 @@ import { getAllCardStates, getAllPriorityScores } from "./aptlssStepsDb";
 import { upsertWeeklyAnalysis } from "./aptlssPoliciesDb";
 import { invokeLLM } from "./_core/llm";
 import { buildComplianceEvidence } from "./complianceEvidence";
+import { runAptlssMaintenance } from "./scheduledAptlssMaintenance";
 import {
   upsertReplyThread,
   insertVagueReplyFlag,
@@ -419,6 +420,15 @@ async function runWeeklyAnalysis() {
 }
 
 export function startCronJobs() {
+  // Hourly evidence sweep. The shared maintenance runner coalesces overlaps
+  // with manual or externally scheduled runs and performs no Trello writes.
+  cron.schedule("15 * * * *", () => {
+    void runAptlssMaintenance("scheduled").catch((error) => {
+      console.error("[CronJob] Continuous APTLSS assessment failed:", error);
+    });
+  }, { timezone: "UTC" });
+  console.log("[CronJob] Continuous APTLSS assessment scheduled (hourly at :15 UTC).");
+
   // 21:00 UTC = 00:00 EAT (UTC+3)
   // cron format: second minute hour day month weekday
   cron.schedule("0 21 * * *", runMidnightAutoStop, {

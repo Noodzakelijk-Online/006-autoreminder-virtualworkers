@@ -13,15 +13,15 @@
  */
 import type { Application, Request, Response } from "express";
 import { getAllAptlssPlans } from "./aptlssDb";
+import { getJoyceCards } from "./trello";
 import { fetchCardContext } from "./trelloCardContext";
 import {
-  computeAndSaveCardState,
-  computeAndSavePriorityScore,
+  assessAndSaveCardIntelligence,
 } from "./aptlssEngine";
 import {
-  upsertCardState,
   getNeedsRepairCards,
   getAllRobertDecisionSteps,
+  getAllPriorityScores,
 } from "./aptlssStepsDb";
 import {
   upsertWorkerPerformance,
@@ -31,10 +31,52 @@ import {
   getPendingFollowUpDrafts,
 } from "./aptlssPoliciesDb";
 import { invokeLLM } from "./_core/llm";
-import { notifyOwner } from "./_core/notification";
 import { recordSyncAttempt } from "./aptlssAuditDb";
 import { generateDailyPlan, getEatDateKey } from "./dailyPlan";
 import { assertScheduledTaskAuthorized } from "./_core/scheduledAuth";
+import { getAllReplyThreads } from "./replyMonitorDb";
+
+const CARD_FETCH_INTERVAL_MS = 450;
+let nextCardFetchAt = 0;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function reserveCardFetchSlot() {
+  const now = Date.now();
+  const slot = Math.max(now, nextCardFetchAt);
+  nextCardFetchAt = slot + CARD_FETCH_INTERVAL_MS;
+  if (slot > now) await sleep(slot - now);
+}
+
+function retryDelayMs(error: unknown, attempt: number) {
+  const response = (error as { response?: { status?: number; headers?: Record<string, string | number> } })?.response;
+  if (response?.status !== 429) return null;
+  const retryAfter = Number(response.headers?.["retry-after"] ?? 0);
+  return retryAfter > 0 ? retryAfter * 1_000 : 2_500 * (attempt + 1);
+}
+
+async function fetchContextWithRateLimit(
+  candidate: { cardId: string; boardName?: string; listName?: string },
+  apiKey: string,
+  apiToken: string,
+) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await reserveCardFetchSlot();
+    try {
+      return await fetchCardContext(candidate.cardId, apiKey, apiToken, {
+        boardName: candidate.boardName,
+        listName: candidate.listName,
+      });
+    } catch (error) {
+      const delay = retryDelayMs(error, attempt);
+      if (delay == null || attempt === 3) throw error;
+      await sleep(delay);
+    }
+  }
+  throw new Error(`Unable to fetch Trello context for ${candidate.cardId}`);
+}
 
 /** Simple fuzzy name similarity: returns 0–1 (1 = identical) */
 function nameSimilarity(a: string, b: string): number {
@@ -68,6 +110,7 @@ export type AptlssMaintenanceResult = {
   total: number;
   refreshed: number;
   failed: number;
+  lowConfidenceCount: number;
   followUpDraftsGenerated: number;
   duplicatesDetected: number;
   noNextActionCount: number;
@@ -76,38 +119,114 @@ export type AptlssMaintenanceResult = {
   timestamp: string;
 };
 
-export async function runAptlssMaintenance(source: "scheduled" | "manual" = "scheduled"): Promise<AptlssMaintenanceResult> {
+let maintenanceInFlight: Promise<AptlssMaintenanceResult> | null = null;
+
+export function runAptlssMaintenance(source: "scheduled" | "manual" = "scheduled"): Promise<AptlssMaintenanceResult> {
+  if (maintenanceInFlight) return maintenanceInFlight;
+  maintenanceInFlight = executeAptlssMaintenance(source).finally(() => {
+    maintenanceInFlight = null;
+  });
+  return maintenanceInFlight;
+}
+
+async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise<AptlssMaintenanceResult> {
     const apiKey = process.env.TrelloAPIKey;
     const apiToken = process.env.TrelloAPIToken;
     if (!apiKey || !apiToken) {
       throw new Error("Trello credentials not configured");
     }
 
-    const plans = await getAllAptlssPlans();
-    let refreshed = 0;
-    let failed = 0;
-    const cardStateResults: { cardId: string; cardName: string; state: string }[] = [];
-
-    // ── 1. Refresh all card states and priority scores ────────────────────────
-    for (const plan of plans) {
-      try {
-        const ctx = await fetchCardContext(plan.cardId, apiKey, apiToken);
-        const state = await computeAndSaveCardState(ctx);
-        await computeAndSavePriorityScore(ctx, state);
-        cardStateResults.push({ cardId: plan.cardId, cardName: plan.cardName, state });
-        refreshed++;
-      } catch {
-        failed++;
+    const [plans, liveCards] = await Promise.all([
+      getAllAptlssPlans(),
+      getJoyceCards(apiKey, apiToken),
+    ]);
+    const candidates = liveCards.length > 0
+      ? liveCards.map((card) => ({ cardId: card.id, cardName: card.name, boardName: card.boardName, listName: card.list?.name }))
+      : plans.map((plan) => ({ cardId: plan.cardId, cardName: plan.cardName, boardName: plan.boardName, listName: plan.listName }));
+    const missingNextActionIds = new Set(
+      plans.filter((plan) => {
+        try {
+          const parsed = JSON.parse(plan.planJson) as Record<string, unknown>;
+          return !String(parsed.nextBestAction ?? parsed.action ?? "").trim();
+        } catch {
+          return true;
+        }
+      }).map((plan) => plan.cardId),
+    );
+    const duplicateMap = new Map<string, string[]>();
+    let duplicatesDetected = 0;
+    for (let left = 0; left < candidates.length; left++) {
+      for (let right = left + 1; right < candidates.length; right++) {
+        if (nameSimilarity(candidates[left].cardName, candidates[right].cardName) < 0.8) continue;
+        duplicatesDetected++;
+        duplicateMap.set(candidates[left].cardId, [...(duplicateMap.get(candidates[left].cardId) ?? []), candidates[right].cardName]);
+        duplicateMap.set(candidates[right].cardId, [...(duplicateMap.get(candidates[right].cardId) ?? []), candidates[left].cardName]);
       }
     }
+    let refreshed = 0;
+    let failed = 0;
+    const cardStateResults: Array<{
+      cardId: string;
+      cardName: string;
+      state: string;
+      confidenceScore: number;
+      secondarySignals: string[];
+      lastMeaningfulProgressAt: string | null;
+    }> = [];
+
+    // ── 1. Refresh all card states and priority scores ────────────────────────
+    const queue = [...candidates];
+    const workerCount = Math.min(2, Math.max(1, queue.length));
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (queue.length > 0) {
+        const candidate = queue.shift();
+        if (!candidate) return;
+        try {
+          const ctx = await fetchContextWithRateLimit(candidate, apiKey, apiToken);
+          const assessment = await assessAndSaveCardIntelligence(
+            ctx,
+            source === "manual" ? "manual" : "scheduled",
+            {
+              duplicateCardNames: duplicateMap.get(candidate.cardId) ?? [],
+              planMissingNextAction: missingNextActionIds.has(candidate.cardId),
+            },
+          );
+          cardStateResults.push({
+            cardId: candidate.cardId,
+            cardName: candidate.cardName,
+            state: assessment.primaryState,
+            confidenceScore: assessment.confidenceScore,
+            secondarySignals: assessment.secondarySignals,
+            lastMeaningfulProgressAt: assessment.lastMeaningfulProgressAt,
+          });
+          refreshed++;
+        } catch (error) {
+          failed++;
+          console.error(`[APTLSS Maintenance] Assessment failed for ${candidate.cardId}:`, error instanceof Error ? error.message : String(error));
+        }
+      }
+    }));
+    const lowConfidenceCount = cardStateResults.filter((result) => result.confidenceScore < 60).length;
 
     // ── 2. [GAP C] Auto-record worker performance signals for Joyce ───────────
     try {
       const weekKey = getCurrentWeekKey();
       const stalledCount = cardStateResults.filter(r => r.state === "STALLED").length;
-      const overdueCount = cardStateResults.filter(r => r.state === "OVERDUE").length;
-      const repairCards = await getNeedsRepairCards();
+      const overdueCount = cardStateResults.filter(r => r.state === "OVERDUE" || r.secondarySignals.includes("overdue")).length;
+      const [repairCards, scores, replyThreads] = await Promise.all([
+        getNeedsRepairCards(),
+        getAllPriorityScores(),
+        getAllReplyThreads(500),
+      ]);
       const reworkCount = repairCards.length;
+      const responseMinutes = replyThreads.flatMap((thread) => {
+        if (!thread.lastJoyceReplyAt || !thread.lastNonJoyceMsgAt || thread.lastJoyceReplyAt < thread.lastNonJoyceMsgAt) return [];
+        return [Math.max(0, Math.round((thread.lastJoyceReplyAt.getTime() - thread.lastNonJoyceMsgAt.getTime()) / 60_000))];
+      });
+      const avgResponseTimeMinutes = responseMinutes.length
+        ? Math.round(responseMinutes.reduce((sum, value) => sum + value, 0) / responseMinutes.length)
+        : 0;
+      const checklistItemsCompleted = scores.reduce((sum, score) => sum + score.completedSteps, 0);
       // Escalations: cards with BLOCKED or WAITING states that have been stuck
       const blockedCount = cardStateResults.filter(r =>
         r.state === "BLOCKED_BY_OTHER_CARD" || r.state === "WAITING_FOR_ROBERT"
@@ -120,10 +239,10 @@ export async function runAptlssMaintenance(source: "scheduled" | "manual" = "sch
         missedDeadlines: overdueCount,
         reworkCount,
         robertEscalationsCount: blockedCount,
-        avgResponseTimeMinutes: 0, // updated when response times are tracked
-        checklistItemsCompleted: 0, // updated from syncCheckItem events
-        unclearHandovers: 0,
-        notes: `Auto-recorded by maintenance job. Refreshed ${refreshed}/${plans.length} cards.`,
+        avgResponseTimeMinutes,
+        checklistItemsCompleted,
+        unclearHandovers: repairCards.length,
+        notes: `Evidence-based maintenance assessment. Refreshed ${refreshed}/${candidates.length} active cards; ${lowConfidenceCount} low-confidence.`,
         calculatedAt: new Date(),
       });
     } catch (e) {
@@ -143,9 +262,12 @@ export async function runAptlssMaintenance(source: "scheduled" | "manual" = "sch
         for (const card of waitingCards) {
           if (pendingCardIds.has(card.cardId)) continue; // already has a pending draft
           try {
-            const ctx = await fetchCardContext(card.cardId, apiKey, apiToken);
+            const ctx = await fetchContextWithRateLimit(card, apiKey, apiToken);
             // GAP 3: enforce the configured idle-hours threshold before generating a draft
-            const hoursSinceLastActivity = (Date.now() - ctx.lastActivityMs) / (1000 * 60 * 60);
+            const lastProgressMs = card.lastMeaningfulProgressAt
+              ? new Date(card.lastMeaningfulProgressAt).getTime()
+              : ctx.lastActivityMs;
+            const hoursSinceLastActivity = (Date.now() - lastProgressMs) / (1000 * 60 * 60);
             if (hoursSinceLastActivity < followUpHoursThreshold) continue;
             const urgencyType = hoursSinceLastActivity >= followUpHoursThreshold * 3
               ? "urgent"
@@ -194,99 +316,10 @@ export async function runAptlssMaintenance(source: "scheduled" | "manual" = "sch
       console.error("[APTLSS Maintenance] Follow-up draft batch failed (non-fatal):", e);
     }
 
-    // ── 4. [GAP J] Detect possible duplicate cards by name similarity ─────────
-    let duplicatesDetected = 0;
-    try {
-      const activeCards = cardStateResults.filter(r =>
-        r.state !== "DONE" && r.state !== "CANCELLED"
-      );
-      const SIMILARITY_THRESHOLD = 0.8;
-      const flaggedPairs: { a: string; b: string; similarity: number }[] = [];
-      for (let i = 0; i < activeCards.length; i++) {
-        for (let j = i + 1; j < activeCards.length; j++) {
-          const sim = nameSimilarity(activeCards[i].cardName, activeCards[j].cardName);
-          if (sim >= SIMILARITY_THRESHOLD) {
-            flaggedPairs.push({ a: activeCards[i].cardId, b: activeCards[j].cardId, similarity: sim });
-          }
-        }
-      }
-      if (flaggedPairs.length > 0) {
-        duplicatesDetected = flaggedPairs.length;
-        // Flag both cards in each pair as NEEDS_RESTRUCTURING with a duplicate reason
-        for (const pair of flaggedPairs) {
-          const cardA = activeCards.find(c => c.cardId === pair.a);
-          const cardB = activeCards.find(c => c.cardId === pair.b);
-          if (cardA && cardB) {
-            // Update card state for both cards to NEEDS_RESTRUCTURING
-            await upsertCardState({
-              cardId: pair.a,
-              cardName: cardA.cardName,
-              state: "NEEDS_RESTRUCTURING",
-              stateReason: `Possible duplicate of "${cardB.cardName}" (${Math.round(pair.similarity * 100)}% name similarity). Verify and merge or rename.`,
-              boardName: "",
-              listName: "",
-              hasUnansweredQuestion: false,
-              hasFinalSummary: false,
-              calculatedAt: new Date(),
-            });
-            await upsertCardState({
-              cardId: pair.b,
-              cardName: cardB.cardName,
-              state: "NEEDS_RESTRUCTURING",
-              stateReason: `Possible duplicate of "${cardA.cardName}" (${Math.round(pair.similarity * 100)}% name similarity). Verify and merge or rename.`,
-              boardName: "",
-              listName: "",
-              hasUnansweredQuestion: false,
-              hasFinalSummary: false,
-              calculatedAt: new Date(),
-            });
-          }
-        }
-        // Notify Robert about duplicates
-        try {
-          const pairSummary = flaggedPairs.slice(0, 5).map(p => {
-            const a = activeCards.find(c => c.cardId === p.a)?.cardName ?? p.a;
-            const b = activeCards.find(c => c.cardId === p.b)?.cardName ?? p.b;
-            return `• "${a}" ↔ "${b}" (${Math.round(p.similarity * 100)}% match)`;
-          }).join("\n");
-          await notifyOwner({
-            title: `⚠️ ${flaggedPairs.length} Possible Duplicate Card(s) Detected`,
-            content: `APTLSS maintenance detected cards with very similar names that may be duplicates:\n\n${pairSummary}\n\nPlease review and merge or rename as needed.`,
-          });
-        } catch { /* non-fatal */ }
-      }
-    } catch (e) {
-      console.error("[APTLSS Maintenance] Duplicate detection failed (non-fatal):", e);
-    }
+    // Duplicate candidates are included as uncertainty evidence in each card assessment.
 
     // ── 5. [GAP 4] Detect cards without a next best action ──────────────────────
-    let noNextActionCount = 0;
-    try {
-      const allPlansForCheck = await getAllAptlssPlans();
-      for (const p of allPlansForCheck) {
-        try {
-          const plan = JSON.parse(p.planJson) as Record<string, unknown>;
-          const nextBestAction = (plan.nextBestAction as string | undefined) ?? (plan.action as string | undefined) ?? "";
-          if (!nextBestAction.trim()) {
-            // Mark as NEEDS_RESTRUCTURING so it surfaces in the repair queue
-            await upsertCardState({
-              cardId: p.cardId,
-              cardName: p.cardName,
-              state: "NEEDS_RESTRUCTURING",
-              stateReason: "Card has no next best action defined. Regenerate the APTLSS plan to fix.",
-              boardName: p.boardName,
-              listName: p.listName,
-              hasUnansweredQuestion: false,
-              hasFinalSummary: false,
-              calculatedAt: new Date(),
-            });
-            noNextActionCount++;
-          }
-        } catch { /* ignore parse errors */ }
-      }
-    } catch (e) {
-      console.error("[APTLSS Maintenance] No-next-action detection failed (non-fatal):", e);
-    }
+    const noNextActionCount = missingNextActionIds.size;
 
     // ── 6. [GAP 5] Auto-generate daily plan (autopilot level >= 2) ────────────
     let dailyPlanGenerated = false;
@@ -314,9 +347,9 @@ export async function runAptlssMaintenance(source: "scheduled" | "manual" = "sch
       await recordSyncAttempt({
         syncType: source === "manual" ? "manual_maintenance" : "maintenance_job",
         success: failed === 0,
-        cardsProcessed: plans.length,
+        cardsProcessed: candidates.length,
         actionsTaken: refreshed,
-        cardsSkippedLowConfidence: 0,
+        cardsSkippedLowConfidence: lowConfidenceCount,
         errorMessage: failed > 0 ? `${failed} card(s) failed to refresh` : null,
       });
     } catch (e) {
@@ -324,9 +357,10 @@ export async function runAptlssMaintenance(source: "scheduled" | "manual" = "sch
     }
     return {
       success: true,
-      total: plans.length,
+      total: candidates.length,
       refreshed,
       failed,
+      lowConfidenceCount,
       followUpDraftsGenerated,
       duplicatesDetected,
       noNextActionCount,

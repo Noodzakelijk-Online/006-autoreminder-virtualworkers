@@ -1,4 +1,4 @@
-import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar, decimal, date } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, index, varchar, decimal, date } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -533,6 +533,48 @@ export const priorityScores = mysqlTable("priority_scores", {
 });
 export type PriorityScore = typeof priorityScores.$inferSelect;
 export type InsertPriorityScore = typeof priorityScores.$inferInsert;
+
+/**
+ * Versioned APTLSS assessment snapshots. A new row is created only when the
+ * material context or derived assessment changes; unchanged evaluations update
+ * lastEvaluatedAt/evaluationCount on the latest snapshot.
+ */
+export const aptlssAssessments = mysqlTable("aptlss_assessments", {
+  id: int("id").autoincrement().primaryKey(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull().default(""),
+  engineVersion: varchar("engineVersion", { length: 32 }).notNull(),
+  contextHash: varchar("contextHash", { length: 64 }).notNull(),
+  trigger: varchar("trigger", { length: 32 }).notNull().default("manual"),
+  primaryState: varchar("primaryState", { length: 64 }).notNull(),
+  stateReason: text("stateReason").notNull(),
+  secondarySignals: text("secondarySignals").notNull(),
+  actionability: varchar("actionability", { length: 32 }).notNull(),
+  priorityScore: int("priorityScore").notNull(),
+  priorityTier: varchar("priorityTier", { length: 16 }).notNull(),
+  priorityBreakdown: text("priorityBreakdown").notNull(),
+  confidenceScore: int("confidenceScore").notNull(),
+  confidenceBand: varchar("confidenceBand", { length: 16 }).notNull(),
+  confidenceReason: text("confidenceReason").notNull(),
+  evidenceCoverage: text("evidenceCoverage").notNull(),
+  evidenceJson: text("evidenceJson").notNull(),
+  uncertaintiesJson: text("uncertaintiesJson").notNull(),
+  recommendationsJson: text("recommendationsJson").notNull(),
+  lastMeaningfulProgressAt: timestamp("lastMeaningfulProgressAt"),
+  daysSinceMeaningfulProgress: int("daysSinceMeaningfulProgress").notNull().default(0),
+  nextAssessmentAt: timestamp("nextAssessmentAt").notNull(),
+  changeJson: text("changeJson").notNull(),
+  evaluationCount: int("evaluationCount").notNull().default(1),
+  assessedAt: timestamp("assessedAt").notNull(),
+  lastEvaluatedAt: timestamp("lastEvaluatedAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("aptlss_assessments_card_assessed_idx").on(table.cardId, table.assessedAt),
+  index("aptlss_assessments_next_idx").on(table.nextAssessmentAt),
+]);
+export type AptlssAssessmentSnapshot = typeof aptlssAssessments.$inferSelect;
+export type InsertAptlssAssessmentSnapshot = typeof aptlssAssessments.$inferInsert;
 
 // ─── APTLSS Operational Policies ─────────────────────────────────────────────
 /**
