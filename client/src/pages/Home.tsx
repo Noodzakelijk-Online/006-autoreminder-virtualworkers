@@ -180,29 +180,33 @@ export default function Home() {
     accuracy: 100
   });
 
+  // Stable WebSocket callbacks — must be useCallback so their references don't change on every render.
+  // If they were inline arrow functions, useWebSocket's useEffect dependency array would see a new function
+  // reference on every render and disconnect/reconnect the socket in an infinite loop.
+  const handleTaskCompleted = useCallback((data: any) => {
+    console.log('Received task completion from WebSocket:', data);
+    taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+    setTasks(prevTasks =>
+      prevTasks.map(task =>
+        task.id === data.taskId
+          ? { ...task, isCompleted: data.isCompleted }
+          : task
+      )
+    );
+    toast.info(`Task ${data.isCompleted ? 'completed' : 'uncompleted'} by another client`);
+  }, []);
+
+  const handleCacheInvalidated = useCallback(() => {
+    console.log('Cache invalidated, reloading tasks');
+    taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+    toast.info('Tasks updated, reloading...');
+    window.location.reload();
+  }, []);
+
   // WebSocket connection for real-time updates
   const { status: wsStatus } = useWebSocket({
-    onTaskCompleted: (data) => {
-      console.log('Received task completion from WebSocket:', data);
-      // Invalidate cache when task is updated
-      taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
-      // Update task in local state
-      setTasks(prevTasks => 
-        prevTasks.map(task => 
-          task.id === data.taskId 
-            ? { ...task, isCompleted: data.isCompleted }
-            : task
-        )
-      );
-      toast.info(`Task ${data.isCompleted ? 'completed' : 'uncompleted'} by another client`);
-    },
-    onCacheInvalidated: () => {
-      console.log('Cache invalidated, reloading tasks');
-      // Invalidate local cache
-      taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
-      toast.info('Tasks updated, reloading...');
-      window.location.reload();
-    },
+    onTaskCompleted: handleTaskCompleted,
+    onCacheInvalidated: handleCacheInvalidated,
   });
 
   const applyReschedule = async () => {
@@ -323,6 +327,31 @@ export default function Home() {
           taskCache.set(CACHE_KEYS.TIMELINE_TASKS, cacheData);
           console.log('[TaskCache] Cached tasks for 5 minutes');
 
+          // Auto-analyze unanalyzed cards in the background (non-blocking)
+          const unanalyzedCount = atisTasks.filter(t => !t.hasUnderstanding).length;
+          if (unanalyzedCount > 0) {
+            console.log(`[AutoAnalysis] ${unanalyzedCount} cards need AI analysis — triggering background batch...`);
+            fetch('/api/atis/understanding/process', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ limit: 30 }),
+            })
+              .then(r => r.json())
+              .then(result => {
+                if (result.processed > 0) {
+                  console.log(`[AutoAnalysis] Analyzed ${result.processed} cards, refreshing...`);
+                  // Clear cache and refresh to show newly analyzed cards
+                  taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+                  // Small delay to avoid race conditions
+                  setTimeout(() => { void fetchTasks(); }, 500);
+                }
+              })
+              .catch(err => {
+                console.warn('[AutoAnalysis] Background analysis failed:', err);
+              });
+          }
+
           try {
             const typesResponse = await fetch('/api/atis/task-types', {
               credentials: 'include',
@@ -421,6 +450,34 @@ export default function Home() {
       // Clear client-side cache so fetchTasks re-fetches fresh data
       taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
       await fetchTasks();
+
+      // Automatically trigger AI analysis for all cards without understanding (background, non-blocking)
+      const analysisToastId = 'auto-analysis';
+      toast.loading('AI is analyzing your cards in the background...', { id: analysisToastId, duration: 60000 });
+      fetch('/api/atis/understanding/process', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 50 }),
+      })
+        .then(r => r.json())
+        .then(result => {
+          if (result.processed > 0) {
+            toast.success(`AI analyzed ${result.processed} cards`, {
+              id: analysisToastId,
+              description: result.failed > 0 ? `${result.failed} failed — will retry on next sync.` : 'All cards analyzed successfully.',
+            });
+            // Refresh tasks to show newly analyzed cards
+            taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+            void fetchTasks();
+          } else {
+            toast.dismiss(analysisToastId);
+          }
+        })
+        .catch(err => {
+          console.warn('[Auto-Analysis] Background analysis failed:', err);
+          toast.dismiss(analysisToastId);
+        });
     } catch (err) {
       toast.error('Sync failed — is the server running?');
     } finally {

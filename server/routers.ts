@@ -7,6 +7,18 @@ import { interviewRouter } from "./routes/interview";
 import { settingsRouter } from "./routes/settings";
 import { atisTaskSelectorRouter } from "./routes/atis-task-selector";
 import { aresRouter } from "./routers/ares";
+import {
+  paymentRouter,
+  payLogRouter,
+  triageRouter,
+  onHoldChecksRouter,
+  streakRouter,
+  sundayRouter,
+  timerRouter,
+  complianceRouter,
+  emailInboxRouter,
+  cardSnoozeRouter
+} from "./routes/manus";
 
 import { aggregateCardContext, formatContextForAI } from "./services/context-aggregator";
 import { websocketService } from "./services/websocket";
@@ -221,6 +233,18 @@ export const appRouter = router({
         };
       }),
   }),
+
+  // Manus merged routers
+  payment: paymentRouter,
+  payLog: payLogRouter,
+  triage: triageRouter,
+  onHoldChecks: onHoldChecksRouter,
+  streak: streakRouter,
+  sunday: sundayRouter,
+  timer: timerRouter,
+  compliance: complianceRouter,
+  emailInbox: emailInboxRouter,
+  cardSnooze: cardSnoozeRouter,
 });
 
 export type AppRouter = typeof appRouter;

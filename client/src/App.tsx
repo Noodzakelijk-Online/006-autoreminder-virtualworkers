@@ -14,6 +14,7 @@ import FounderDashboard from "./pages/FounderDashboard";
 import WorkerDashboard from "./pages/WorkerDashboard";
 import AdvancedScheduling from "./pages/AdvancedScheduling";
 import ATISPhasesAnalysisDashboard from "./pages/ATISPhasesAnalysisDashboard";
+import { ProtectedRoute } from "./components/ProtectedRoute";
 
 
 function Router() {
@@ -22,15 +23,15 @@ function Router() {
   return (
     <DashboardLayout>
       <Switch>
-        <Route path={"/"} component={Home} />
-        <Route path={"/aptlss"} component={APTLSSManagement} />
-        <Route path={"/settings"} component={Settings} />
-        <Route path={"/calendar"} component={Calendar} />
-        <Route path={"/advanced-scheduling"} component={AdvancedScheduling} />
-        <Route path={"/atis-phases"} component={ATISPhasesAnalysisDashboard} />
+        <Route path={"/"} component={() => <ProtectedRoute component={Home} allowedRoles={["admin"]} />} />
+        <Route path={"/aptlss"} component={() => <ProtectedRoute component={APTLSSManagement} allowedRoles={["admin"]} />} />
+        <Route path={"/settings"} component={() => <ProtectedRoute component={Settings} allowedRoles={["admin"]} />} />
+        <Route path={"/calendar"} component={() => <ProtectedRoute component={Calendar} allowedRoles={["admin"]} />} />
+        <Route path={"/advanced-scheduling"} component={() => <ProtectedRoute component={AdvancedScheduling} allowedRoles={["admin"]} />} />
+        <Route path={"/atis-phases"} component={() => <ProtectedRoute component={ATISPhasesAnalysisDashboard} allowedRoles={["admin"]} />} />
 
-        <Route path={"/founder"} component={FounderDashboard} />
-        <Route path={"/worker"} component={WorkerDashboard} />
+        <Route path={"/founder"} component={() => <ProtectedRoute component={FounderDashboard} allowedRoles={["admin"]} />} />
+        <Route path={"/worker"} component={() => <ProtectedRoute component={WorkerDashboard} allowedRoles={["worker"]} />} />
         <Route path={"/404"} component={NotFound} />
         {/* Final fallback route */}
         <Route component={NotFound} />

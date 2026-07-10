@@ -110,7 +110,7 @@ async function buildCardContext(cardId: number): Promise<CardContext | null> {
     .from(atisComments)
     .where(eq(atisComments.cardId, cardId))
     .orderBy(desc(atisComments.commentDate))
-    .limit(10); // Keep to 10 most recent to stay within token limits
+    .limit(15); // Keep to 15 most recent to stay within token limits
 
   return {
     card,
@@ -136,7 +136,7 @@ function formatContextForAI(
 - **Board**: ${boardName}
 - **List**: ${card.listName || 'Unknown'}
 - **Title**: ${card.name}
-- **Description**: ${card.description ? card.description.substring(0, 500) + (card.description.length > 500 ? '...' : '') : 'No description provided'}
+- **Description**: ${card.description || 'No description provided'}
 - **Due Date**: ${card.dueDate ? new Date(card.dueDate).toLocaleDateString() : 'Not set'}
 - **Labels**: ${card.labels || 'None'}
 
@@ -144,13 +144,13 @@ function formatContextForAI(
 `;
 
   if (attachments.length > 0) {
-    for (const att of attachments.slice(0, 5)) { // Max 5 attachments
+    for (const att of attachments.slice(0, 20)) { // Limit to 20 attachments
       prompt += `- ${att.filename || att.url} (${att.fileType || 'unknown type'})`;
       const extracted = extractedContent?.attachments?.find(a => a.attachmentId === att.id);
       if (extracted?.content) {
-        prompt += `\n  Content: ${extracted.content.substring(0, 300)}${extracted.content.length > 300 ? '...' : ''}`;
+        prompt += `\n  Content preview: ${extracted.content.substring(0, 1000)}${extracted.content.length > 1000 ? '...' : ''}`;
       } else if (att.extractedContent) {
-        prompt += `\n  Content: ${att.extractedContent.substring(0, 200)}...`;
+        prompt += `\n  Content preview: ${att.extractedContent.substring(0, 500)}...`;
       }
       prompt += '\n';
     }
@@ -161,9 +161,9 @@ function formatContextForAI(
   prompt += `\n## Comments (${comments.length} total, showing most recent)\n`;
 
   if (comments.length > 0) {
-    for (const comment of comments.slice(0, 5)) { // Max 5 comments
+    for (const comment of comments.slice(0, 15)) { // Limit to 15 comments
       const date = comment.commentDate ? new Date(comment.commentDate).toLocaleDateString() : 'Unknown date';
-      prompt += `- [${date}] ${comment.authorName || 'Unknown'}: ${comment.text?.substring(0, 150) || ''}${(comment.text?.length || 0) > 150 ? '...' : ''}\n`;
+      prompt += `- [${date}] ${comment.authorName || 'Unknown'}: ${comment.text?.substring(0, 300) || ''}${(comment.text?.length || 0) > 300 ? '...' : ''}\n`;
     }
   } else {
     prompt += 'No comments\n';
@@ -172,9 +172,10 @@ function formatContextForAI(
   // Add chatbot conversations if available
   if (extractedContent?.chatbotConversations && extractedContent.chatbotConversations.length > 0) {
     prompt += `\n## Chatbot Conversations (${extractedContent.chatbotConversations.length} found)\n`;
-    for (const conv of extractedContent.chatbotConversations.slice(0, 1)) { // Max 1 conversation
+    prompt += `These are AI assistant conversations that provide context on how to complete this task:\n\n`;
+    for (const conv of extractedContent.chatbotConversations.slice(0, 3)) { // Limit to 3 conversations
       prompt += `### ${conv.platform.toUpperCase()}: ${conv.title}\n`;
-      prompt += `${conv.content.substring(0, 400)}${conv.content.length > 400 ? '...' : ''}\n\n`;
+      prompt += `${conv.content.substring(0, 2000)}${conv.content.length > 2000 ? '...' : ''}\n\n`;
     }
   }
 
@@ -258,6 +259,52 @@ APTLSS Priority Guide:
 - L (Leesvoer/Reading): Documents to review, emails to read
 - S (Someday/Maybe): Low priority items for later
 
+CHECKLIST GENERATION - CRITICAL RULES:
+Generate steps based on WHAT IS ACTUALLY NEEDED to complete the task properly, NOT arbitrary counts.
+
+You MUST include steps for:
+1. COMMUNICATION THREADS: Every person/party mentioned in comments or attachments who needs to be:
+   - Notified of progress or completion
+   - Responded to (if they asked questions)
+   - Updated on status changes
+   - Confirmed with before proceeding
+
+2. COMMITMENTS & PROMISES: Any explicit or implicit promises made in:
+   - Card description
+   - Comments ("I will...", "We'll send...", "Let me check...")
+   - Attachments (email threads, chat logs)
+   - Referenced documents
+
+3. STAKEHOLDER AWARENESS: Ensure ALL parties are informed:
+   - Who initiated this task?
+   - Who is waiting for the outcome?
+   - Who needs to approve or review?
+   - Who might be affected by the result?
+
+4. DEPENDENCIES & PREREQUISITES:
+   - What information needs to be gathered first?
+   - What approvals are needed?
+   - What other tasks must complete before this one?
+
+5. QUALITY GATES:
+   - Review steps before sending/publishing
+   - Verification that requirements are met
+   - Double-check critical details
+
+6. FOLLOW-UP ACTIONS:
+   - What happens after the main task is done?
+   - Who needs to be notified of completion?
+   - What documentation needs to be updated?
+
+Guidelines:
+- Be specific and actionable - each step should be completable in one sitting
+- Estimate time realistically based on actual work required
+- Extract ALL entities mentioned in the card, comments, and attachments
+- If information is unclear, note it in missingInfo
+- Confidence score should reflect how well you understand what needs to be done
+- DO NOT limit steps to a fixed number - include EVERYTHING needed for proper completion
+- Include notification/communication steps even if they seem minor
+
 Return ONLY valid JSON, no markdown formatting or explanation.`;
 
   try {
@@ -266,7 +313,7 @@ Return ONLY valid JSON, no markdown formatting or explanation.`;
         { role: 'system', content: systemPrompt },
         { role: 'user', content: `Analyze this Trello card and generate a structured task understanding:\n\n${contextText}` },
       ],
-      maxTokens: 1500,
+      maxTokens: 4000, // Increased from 1500 — checklist with 5-10 steps needs ~2000-3500 tokens
     });
 
     const content = result.choices?.[0]?.message?.content;
@@ -277,8 +324,31 @@ Return ONLY valid JSON, no markdown formatting or explanation.`;
     if (jsonContent.startsWith('```json')) jsonContent = jsonContent.slice(7);
     else if (jsonContent.startsWith('```')) jsonContent = jsonContent.slice(3);
     if (jsonContent.endsWith('```')) jsonContent = jsonContent.slice(0, -3);
+    jsonContent = jsonContent.trim();
 
-    return JSON.parse(jsonContent.trim()) as TaskUnderstanding;
+    // Try to parse the JSON — if truncated (common with low token limits), attempt recovery
+    let parsed: TaskUnderstanding;
+    try {
+      parsed = JSON.parse(jsonContent) as TaskUnderstanding;
+    } catch (parseError) {
+      // If JSON is truncated, try to repair by finding the last complete aptlssChecklist item
+      // This handles the case where the AI response is cut off mid-array
+      const truncatedMatch = jsonContent.match(/("aptlssChecklist"\s*:\s*\[[\s\S]*?\])\s*[,}]/);
+      if (truncatedMatch) {
+        // Re-attempt with a repaired JSON ending
+        try {
+          const repaired = jsonContent.substring(0, jsonContent.lastIndexOf('}')) + '}';
+          parsed = JSON.parse(repaired) as TaskUnderstanding;
+          console.warn('[ATIS Understanding] Repaired truncated JSON response');
+        } catch {
+          throw parseError; // Fall through to error handler
+        }
+      } else {
+        throw parseError;
+      }
+    }
+
+    return parsed;
   } catch (error: any) {
     console.error('[ATIS Understanding] AI analysis error:', error);
 
@@ -436,7 +506,7 @@ export async function processAllCardsUnderstanding(
   const db = await getDb();
   if (!db) throw new Error('Database not available');
 
-  // Get cards without understanding (non-archived only)
+  // Get cards WITHOUT understanding (non-archived only)
   const cardsWithoutUnderstanding = await db.select({
     id: atisCards.id,
     trelloId: atisCards.trelloId,
@@ -450,18 +520,44 @@ export async function processAllCardsUnderstanding(
     ))
     .limit(limit || 1000);
 
-  console.log(`[ATIS Understanding] Found ${cardsWithoutUnderstanding.length} cards to process`);
+  // Also get cards with fallback/error understandings (confidence < 30 = AI analysis failed previously)
+  // These were saved with the error fallback (1 step) due to the old 1500 token limit
+  const cardsWithFallbackUnderstanding = await db.select({
+    id: atisCards.id,
+    trelloId: atisCards.trelloId,
+    name: atisCards.name,
+  })
+    .from(atisCards)
+    .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
+    .where(and(
+      eq(atisCards.isArchived, 0),
+      sql`${atisCardUnderstanding.confidenceScore} < 30`
+    ))
+    .limit(Math.floor((limit || 1000) / 2)); // Allow up to half the limit for re-processing
+
+  // Merge and deduplicate by card ID
+  const allCardIds = new Set<number>();
+  const allCards: { id: number; trelloId: string; name: string }[] = [];
+  for (const card of [...cardsWithoutUnderstanding, ...cardsWithFallbackUnderstanding]) {
+    if (!allCardIds.has(card.id)) {
+      allCardIds.add(card.id);
+      allCards.push(card);
+    }
+  }
+
+  console.log(`[ATIS Understanding] Found ${cardsWithoutUnderstanding.length} unanalyzed + ${cardsWithFallbackUnderstanding.length} low-confidence cards to process (${allCards.length} total)`);
+
 
   let processed = 0;
   let failed = 0;
 
-  for (let i = 0; i < cardsWithoutUnderstanding.length; i++) {
-    const card = cardsWithoutUnderstanding[i];
+  for (let i = 0; i < allCards.length; i++) {
+    const card = allCards[i];
 
     if (onProgress) {
       onProgress({
         current: i + 1,
-        total: cardsWithoutUnderstanding.length,
+        total: allCards.length,
         cardName: card.name,
         status: 'processing',
       });
@@ -474,13 +570,13 @@ export async function processAllCardsUnderstanding(
       if (onProgress) {
         onProgress({
           current: i + 1,
-          total: cardsWithoutUnderstanding.length,
+          total: allCards.length,
           cardName: card.name,
           status: 'success',
         });
       }
 
-      console.log(`[ATIS Understanding] [${i + 1}/${cardsWithoutUnderstanding.length}] Processed: ${card.name.substring(0, 50)}...`);
+      console.log(`[ATIS Understanding] [${i + 1}/${allCards.length}] Processed: ${card.name.substring(0, 50)}...`);
     } catch (error: any) {
       failed++;
       console.error(`[ATIS Understanding] Failed to process card ${card.id}:`, error.message);
@@ -488,14 +584,14 @@ export async function processAllCardsUnderstanding(
       if (onProgress) {
         onProgress({
           current: i + 1,
-          total: cardsWithoutUnderstanding.length,
+          total: allCards.length,
           cardName: card.name,
           status: 'failed',
         });
       }
     }
 
-    // Rate limiting: wait 500ms between AI calls
+    // Rate limiting: wait 500ms between AI calls to avoid hitting API rate limits
     await new Promise(resolve => setTimeout(resolve, 500));
   }
 

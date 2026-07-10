@@ -279,4 +279,115 @@ router.put('/cards/:cardId/status', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * GET /api/trello/boards/list
+ * Fetch all available boards for the connected Trello user
+ */
+router.get('/boards/list', async (req: Request, res: Response) => {
+  try {
+    const apiKey = process.env.TRELLO_API_KEY;
+    const apiToken = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !apiToken) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    const boardsUrl = `https://api.trello.com/1/members/me/boards?key=${apiKey}&token=${apiToken}`;
+    const boardsResponse = await fetchWithRetry(boardsUrl, undefined, { maxRetries: 0 });
+    const boards = await boardsResponse.json();
+
+    if (!boards || boards.length === 0) {
+      return res.json({ boards: [] });
+    }
+
+    const transformedBoards = boards.map((board: any) => ({
+      id: board.id,
+      name: board.name,
+      url: board.url,
+      closed: board.closed,
+    }));
+
+    res.json({ boards: transformedBoards });
+  } catch (error) {
+    console.error('[Trello] Error fetching boards:', error);
+    res.status(500).json({ error: 'Failed to fetch Trello boards' });
+  }
+});
+
+/**
+ * PUT /api/trello/cards/:cardId/update
+ * Update card details (name, desc, labels) in Trello
+ */
+router.put('/cards/:cardId/update', async (req: Request, res: Response) => {
+  try {
+    const { cardId } = req.params;
+    const { name, desc, idLabels } = req.body;
+    
+    const apiKey = process.env.TRELLO_API_KEY;
+    const apiToken = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !apiToken) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    const updateUrl = new URL(`https://api.trello.com/1/cards/${cardId}`);
+    updateUrl.searchParams.append('key', apiKey);
+    updateUrl.searchParams.append('token', apiToken);
+
+    if (name) updateUrl.searchParams.append('name', name);
+    if (desc !== undefined) updateUrl.searchParams.append('desc', desc);
+    if (idLabels) updateUrl.searchParams.append('idLabels', idLabels.join(','));
+
+    const response = await fetchWithRetry(updateUrl.toString(), {
+      method: 'PUT',
+    }, { maxRetries: 1 });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({ error: `Failed to update card: ${errorText}` });
+    }
+
+    const updatedCard = await response.json();
+    res.json({ success: true, card: updatedCard });
+  } catch (error) {
+    console.error('[Trello] Error updating card:', error);
+    res.status(500).json({ error: 'Failed to update Trello card' });
+  }
+});
+
+/**
+ * PUT /api/trello/cards/:cardId/members
+ * Update card members in Trello
+ */
+router.put('/cards/:cardId/members', async (req: Request, res: Response) => {
+  try {
+    const { cardId } = req.params;
+    const { idMembers } = req.body;
+    
+    const apiKey = process.env.TRELLO_API_KEY;
+    const apiToken = process.env.TRELLO_TOKEN;
+
+    if (!apiKey || !apiToken) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
+    }
+
+    const updateUrl = `https://api.trello.com/1/cards/${cardId}?key=${apiKey}&token=${apiToken}&idMembers=${(idMembers || []).join(',')}`;
+
+    const response = await fetchWithRetry(updateUrl, {
+      method: 'PUT',
+    }, { maxRetries: 1 });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(response.status).json({ error: `Failed to update card members: ${errorText}` });
+    }
+
+    const updatedCard = await response.json();
+    res.json({ success: true, card: updatedCard });
+  } catch (error) {
+    console.error('[Trello] Error updating card members:', error);
+    res.status(500).json({ error: 'Failed to update Trello card members' });
+  }
+});
+
 export default router;

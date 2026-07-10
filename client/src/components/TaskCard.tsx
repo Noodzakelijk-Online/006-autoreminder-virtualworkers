@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronRight, RefreshCw, Check, CloudUpload, Play, ListChecks, Loader2, MessageSquare } from "lucide-react";
+import { Clock, AlertTriangle, Lock, Globe, FileText, Brain, Target, Sparkles, ExternalLink, ChevronDown, ChevronRight, RefreshCw, Check, CloudUpload, Play, ListChecks, Loader2, MessageSquare, MessageCircle } from "lucide-react";
 import { Timer } from "@/components/Timer";
 import { toast } from "sonner";
 import { Task } from "@/types";
@@ -10,6 +10,8 @@ import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 
 interface TaskCardProps {
   task: Task;
@@ -17,6 +19,9 @@ interface TaskCardProps {
   isExpanded?: boolean;
   onExpandChange?: (expanded: boolean) => void;
   onStartInterview?: (task: Task) => void;
+  role?: 'worker' | 'admin';
+  onSaveHandoff?: (taskId: string, notes: string) => Promise<void>;
+  onAskFounder?: (taskId: string, question: string) => Promise<void>;
 }
 
 // APTLSS type colors and labels
@@ -28,8 +33,11 @@ const aptlssTypeInfo: Record<string, { color: string; label: string; bgColor: st
   S: { color: "text-orange-700", label: "Support", bgColor: "bg-orange-100" },
 };
 
-export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartInterview }: TaskCardProps) {
+export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartInterview, role = 'admin', onSaveHandoff, onAskFounder }: TaskCardProps) {
   const [cardExpanded, setCardExpanded] = useState(isExpanded ?? false);
+  const [notes, setNotes] = useState(task.handoffNotes || '');
+  const [question, setQuestion] = useState('');
+  const [isAskOpen, setIsAskOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [synced, setSynced] = useState(task.synced || false);
   const [syncingStep, setSyncingStep] = useState<string | null>(null);
@@ -42,6 +50,11 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
     });
     return initial;
   });
+  
+  // Inline editing state
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(task.cardName);
+  const [isSyncingTitle, setIsSyncingTitle] = useState(false);
 
   // Load conversation count when card mounts
   useEffect(() => {
@@ -89,10 +102,10 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
       const response = await fetch(`/api/atis/checklist/status/${task.atisCardId}`);
       if (response.ok) {
         const data = await response.json();
-        if (data.completions && Array.isArray(data.completions)) {
+        if (data.completedSteps && Array.isArray(data.completedSteps)) {
           const newCompletions: Record<string, boolean> = {};
           task.checklist?.forEach((item, index) => {
-            const isCompleted = data.completions.some((c: any) => c.step_index === index);
+            const isCompleted = data.completedSteps.some((c: any) => c.stepIndex === index);
             newCompletions[item.id] = isCompleted;
           });
           setStepCompletions(newCompletions);
@@ -110,6 +123,9 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
 
   const handleSyncToTrello = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    
+    // Determine if we want to sync ATIS checklist or local edits
+    // For now, let's keep the existing checklist sync and add a toast for it
     if (!task.atisCardId) {
       toast.error('No ATIS card ID available');
       return;
@@ -135,6 +151,34 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
       toast.error(error.message || 'Failed to sync checklist');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const saveTitleToTrello = async () => {
+    if (!task.cardId || editedTitle.trim() === task.cardName) {
+      setIsEditingTitle(false);
+      return;
+    }
+
+    setIsSyncingTitle(true);
+    try {
+      const response = await fetch(`/api/trello/cards/${task.cardId}/update`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editedTitle.trim() }),
+      });
+
+      if (!response.ok) throw new Error('Failed to update title');
+      
+      toast.success('Card title synced to Trello');
+      // In a real app we'd update the cache here or rely on the webhook
+      setIsEditingTitle(false);
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to sync title to Trello');
+      setEditedTitle(task.cardName);
+    } finally {
+      setIsSyncingTitle(false);
     }
   };
 
@@ -385,16 +429,61 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <CardTitle className={cn(
-                    "text-base font-semibold leading-tight",
+                    "text-base font-semibold leading-tight flex items-center",
                     task.isCompleted && "line-through text-muted-foreground"
                   )}>
-                    {task.cardName}
+                    {isEditingTitle ? (
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          autoFocus
+                          type="text"
+                          className="border rounded px-2 py-1 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
+                          value={editedTitle}
+                          onChange={(e) => setEditedTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveTitleToTrello();
+                            if (e.key === 'Escape') {
+                              setEditedTitle(task.cardName);
+                              setIsEditingTitle(false);
+                            }
+                          }}
+                          disabled={isSyncingTitle}
+                        />
+                        {isSyncingTitle && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                      </div>
+                    ) : (
+                      <span 
+                        className="cursor-pointer hover:underline decoration-dashed underline-offset-4 decoration-muted-foreground/50"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsEditingTitle(true);
+                        }}
+                      >
+                        {task.cardName}
+                      </span>
+                    )}
                   </CardTitle>
                   
                   {/* Priority Badge */}
                   <Badge className={cn("text-xs", priorityColors[task.priorityLevel])}>
                     {task.priorityLevel}
                   </Badge>
+                  
+                  {/* AI Analysis status badge */}
+                  {!task.hasUnderstanding && (
+                    <Badge variant="outline" className="text-xs gap-1 text-amber-600 border-amber-300 bg-amber-50">
+                      <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                      AI Analyzing...
+                    </Badge>
+                  )}
+                  
+                  {/* Blocked Badge */}
+                  {task.rejectionReason?.includes('Blocked') && (
+                    <Badge variant="destructive" className="text-xs gap-1">
+                      <Lock className="h-3 w-3" />
+                      Blocked
+                    </Badge>
+                  )}
                   
                   {/* Worker Assignment Badge */}
                   {task.assignedToName && (
@@ -415,6 +504,14 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
                     </>
                   )}
                 </div>
+                
+                {/* Rejection Reason (if any) */}
+                {task.rejectionReason && (
+                  <div className="mt-1 text-xs text-red-600 flex items-center gap-1">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {task.rejectionReason}
+                  </div>
+                )}
                 
                 {/* Quick stats row */}
                 <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
@@ -575,9 +672,35 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
               </div>
             )}
 
-            {/* No checklist - show description */}
-            {(!task.checklist || task.checklist.length === 0) && task.description && (
-              <p className="text-sm ml-10 text-muted-foreground">{task.description}</p>
+            {/* No checklist - show description or analyzing state */}
+            {(!task.checklist || task.checklist.length === 0) && (
+              <div className="ml-10">
+                {!task.hasUnderstanding ? (
+                  <div className="flex items-center gap-2 py-4 text-amber-600">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <div>
+                      <p className="text-sm font-medium">AI is analyzing this card...</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">The full checklist will appear shortly. You can also click Re-analyze to trigger it immediately.</p>
+                    </div>
+                  </div>
+                ) : task.description ? (
+                  <p className="text-sm text-muted-foreground">{task.description}</p>
+                ) : null}
+              </div>
+            )}
+
+            {/* Worker Handoff Notes Section */}
+            {role === 'worker' && !task.isCompleted && (
+              <div className="ml-10 mt-4 space-y-2 border-t pt-4">
+                <label className="text-xs font-semibold text-muted-foreground block">Where did you leave off? (Handoff notes)</label>
+                <Textarea 
+                  placeholder="Type notes on what was completed or what is pending..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  onBlur={() => onSaveHandoff?.(task.id, notes)}
+                  className="h-20 text-sm resize-none"
+                />
+              </div>
             )}
 
             {/* Actions row */}
@@ -595,7 +718,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
               )}
 
               {/* Re-analyze button */}
-              {(task.atisCardId || task.cardId) && (
+              {role === 'admin' && (task.atisCardId || task.cardId) && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -618,7 +741,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
               )}
 
               {/* Goal interview button */}
-              {task.cardId && onStartInterview && (
+              {role === 'admin' && task.cardId && onStartInterview && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -631,6 +754,40 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
                   <MessageSquare className="h-3 w-3" />
                   Clarify Goal
                 </Button>
+              )}
+
+              {/* Ask Founder button (Worker mode) */}
+              {role === 'worker' && !task.isCompleted && (
+                <Dialog open={isAskOpen} onOpenChange={setIsAskOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="text-xs gap-1" onClick={(e) => e.stopPropagation()}>
+                      <MessageCircle className="h-4 w-4" />
+                      Ask Founder
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent onClick={(e) => e.stopPropagation()}>
+                    <DialogHeader>
+                      <DialogTitle>Ask Founder</DialogTitle>
+                      <DialogDescription>
+                        Send a question about {task.cardName}. The system will automatically include the task context.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Textarea
+                      placeholder="Type your question here..."
+                      value={question}
+                      onChange={(e) => setQuestion(e.target.value)}
+                      className="min-h-[100px]"
+                    />
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => setIsAskOpen(false)}>Cancel</Button>
+                      <Button onClick={() => {
+                        onAskFounder?.(task.id, question);
+                        setIsAskOpen(false);
+                        setQuestion('');
+                      }}>Send to Founder</Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               )}
 
               {/* Sync to Trello button */}

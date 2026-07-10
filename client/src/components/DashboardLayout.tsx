@@ -29,12 +29,6 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { toast } from "sonner";
 
-const menuItems = [
-  { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-  { icon: Brain, label: "ATIS Analysis", path: "/atis-phases" },
-  { icon: Users, label: "Team", path: "/worker" },
-];
-
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
@@ -93,6 +87,17 @@ function DashboardLayoutContent({
   const isCollapsed = state === "collapsed";
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
+
+  const menuItems = user?.role === 'worker'
+    ? [
+        { icon: LayoutDashboard, label: "My Tasks", path: "/worker" },
+      ]
+    : [
+        { icon: LayoutDashboard, label: "Dashboard", path: "/" },
+        { icon: Brain, label: "ATIS Analysis", path: "/atis-phases" },
+        { icon: Users, label: "VA Management", path: "/founder" },
+      ];
+
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
 

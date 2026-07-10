@@ -27,7 +27,7 @@ const memoryStore = new Map<string, RateLimitInfo>();
  */
 function cleanupMemoryStore(): void {
   const now = Date.now();
-  for (const [key, info] of memoryStore.entries()) {
+  for (const [key, info] of Array.from(memoryStore.entries())) {
     if (info.resetTime < now) {
       memoryStore.delete(key);
     }

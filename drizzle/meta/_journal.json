@@ -176,6 +176,20 @@
       "when": 1778708873480,
       "tag": "0024_previous_gauntlet",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1782591775651,
+      "tag": "0025_pale_harpoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1783455474739,
+      "tag": "0026_tearful_rocket_racer",
+      "breakpoints": true
     }
   ]
 }

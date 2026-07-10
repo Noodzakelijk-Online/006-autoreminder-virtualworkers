@@ -21,6 +21,7 @@ import { createChecklistSyncService } from '../services/trello-checklist-sync';
 import { createAttachmentExtractor } from '../services/attachment-extractor';
 import { createChatbotExtractor } from '../services/chatbot-extractor';
 import { fetchWithRetry } from '../utils/retry';
+import { atisRateLimiter } from '../middleware/rate-limiter';
 
 const router = Router();
 const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived', 'info'];
@@ -356,7 +357,7 @@ router.get('/understanding/stats', async (req: Request, res: Response) => {
  * POST /api/atis/understanding/process
  * Process cards with AI understanding
  */
-router.post('/understanding/process', async (req: Request, res: Response) => {
+router.post('/understanding/process', atisRateLimiter, async (req: Request, res: Response) => {
   try {
     const { cardId, limit } = req.body;
 
@@ -433,7 +434,7 @@ router.get('/card/:id/understanding', async (req: Request, res: Response) => {
  * POST /api/atis/understanding/reprocess-failed
  * Reprocess cards with low confidence (fallback results)
  */
-router.post('/understanding/reprocess-failed', async (req: Request, res: Response) => {
+router.post('/understanding/reprocess-failed', atisRateLimiter, async (req: Request, res: Response) => {
   try {
     const db = await getDb();
     if (!db) {
@@ -484,7 +485,7 @@ router.post('/understanding/reprocess-failed', async (req: Request, res: Respons
  * POST /api/atis/understanding/reprocess/:cardId
  * Re-analyze a single card with AI (regenerate checklist & timeline)
  */
-router.post('/understanding/reprocess/:cardId', async (req: Request, res: Response) => {
+router.post('/understanding/reprocess/:cardId', atisRateLimiter, async (req: Request, res: Response) => {
   try {
     const { cardId } = req.params;
     const cardIdNum = parseInt(cardId);
@@ -750,6 +751,7 @@ router.post('/sync', async (req: Request, res: Response) => {
 
     // ── 3. Fetch and upsert cards for every board ────────────────────────────
     const allBoards = await db.select().from(atisBoards);
+    let autoAnalyzeCount = 0;
 
     for (const board of allBoards) {
       const cardsRes = await fetchWithRetry(
@@ -801,12 +803,37 @@ router.post('/sync', async (req: Request, res: Response) => {
           lastSyncedAt: new Date(),
         };
 
+        let cardDbId: number;
         if (existing.length > 0) {
           await db.update(atisCards).set({ ...cardData, updatedAt: new Date() })
             .where(eq(atisCards.trelloId, card.id));
+          cardDbId = existing[0].id;
         } else {
-          await db.insert(atisCards).values({ trelloId: card.id, ...cardData });
+          const [inserted] = await db.insert(atisCards).values({ trelloId: card.id, ...cardData }).$returningId();
+          cardDbId = inserted.id;
           totalCards++;
+        }
+
+        // Trigger AI analysis automatically in the background if understanding doesn't exist
+        try {
+          const [existingUnderstanding] = await db.select({ id: atisCardUnderstanding.id })
+            .from(atisCardUnderstanding)
+            .where(eq(atisCardUnderstanding.cardId, cardDbId))
+            .limit(1);
+
+          if (!existingUnderstanding) {
+            const delay = autoAnalyzeCount * 3000;
+            autoAnalyzeCount++;
+            console.log(`[ATIS Sync] Auto-analyzing card: ${card.name} in ${delay}ms`);
+            
+            setTimeout(() => {
+              processCardUnderstanding(cardDbId).catch(err => {
+                console.error(`[ATIS Sync] Auto-analysis failed for card ${cardDbId}:`, err);
+              });
+            }, delay);
+          }
+        } catch (e) {
+          console.error(`[ATIS Sync] Auto-analysis trigger check failed:`, e);
         }
       }
     }
@@ -985,6 +1012,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       // Parse checklist JSON from stored aptlssChecklist or generate fallback
       let checklist: any[] = [];
       
+      // First try to parse stored aptlssChecklist from AI understanding
       // First try to parse stored aptlssChecklist from AI understanding
       if (card.aptlssChecklist) {
         try {
@@ -1685,7 +1713,7 @@ router.post('/chatbot/extract-url', async (req: Request, res: Response) => {
  * Re-analyze cards with the updated AI prompt (comprehensive checklists)
  * Supports filtering by board, specific cards, or all cards
  */
-router.post('/understanding/reanalyze-all', async (req: Request, res: Response) => {
+router.post('/understanding/reanalyze-all', atisRateLimiter, async (req: Request, res: Response) => {
   try {
     const db = await getDb();
     if (!db) {
@@ -1706,34 +1734,44 @@ router.post('/understanding/reanalyze-all', async (req: Request, res: Response) 
     if (cardIds && Array.isArray(cardIds) && cardIds.length > 0) {
       // Specific cards requested
       cardsToProcess = await db.select({
-        id: atisCardUnderstanding.cardId,
+        id: atisCards.id,
       })
-        .from(atisCardUnderstanding)
-        .where(sql`${atisCardUnderstanding.cardId} IN (${sql.join(cardIds.map(id => sql`${id}`), sql`, `)})`)
+        .from(atisCards)
+        .where(and(
+          eq(atisCards.isArchived, 0),
+          sql`${atisCards.id} IN (${sql.join(cardIds.map(id => sql`${id}`), sql`, `)})`
+        ))
         .limit(limit);
     } else if (boardId) {
-      // Filter by board - join with cards table to get board info
+      // Filter by board
       cardsToProcess = await db.select({
-        id: atisCardUnderstanding.cardId,
+        id: atisCards.id,
       })
-        .from(atisCardUnderstanding)
-        .innerJoin(atisCards, eq(atisCardUnderstanding.cardId, atisCards.id))
-        .where(eq(atisCards.boardId, parseInt(boardId)))
+        .from(atisCards)
+        .where(and(
+          eq(atisCards.isArchived, 0),
+          eq(atisCards.boardId, parseInt(boardId))
+        ))
         .limit(limit);
     } else if (forceAll) {
-      // Get all cards with understanding
+      // Get all active cards
       cardsToProcess = await db.select({
-        id: atisCardUnderstanding.cardId,
+        id: atisCards.id,
       })
-        .from(atisCardUnderstanding)
+        .from(atisCards)
+        .where(eq(atisCards.isArchived, 0))
         .limit(limit);
     } else {
-      // Get cards with low confidence or no checklist
+      // Get cards with low confidence, no checklist, or no understanding record at all
       cardsToProcess = await db.select({
-        id: atisCardUnderstanding.cardId,
+        id: atisCards.id,
       })
-        .from(atisCardUnderstanding)
-        .where(sql`${atisCardUnderstanding.confidenceScore} <= ${minConfidence} OR ${atisCardUnderstanding.aptlssChecklist} IS NULL`)
+        .from(atisCards)
+        .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
+        .where(and(
+          eq(atisCards.isArchived, 0),
+          sql`${atisCardUnderstanding.id} IS NULL OR ${atisCardUnderstanding.confidenceScore} <= ${minConfidence} OR ${atisCardUnderstanding.aptlssChecklist} IS NULL`
+        ))
         .limit(limit);
     }
 

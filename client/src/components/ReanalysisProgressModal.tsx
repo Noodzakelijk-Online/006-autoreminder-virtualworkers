@@ -224,7 +224,7 @@ export function ReanalysisProgressModal({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-4 min-w-0 w-full">
           {/* Board Selector */}
           {showBoardSelector && (
             <div className="space-y-2">
@@ -311,7 +311,7 @@ export function ReanalysisProgressModal({
                       <div
                         key={index}
                         className={cn(
-                          "flex items-center gap-2 text-sm p-2 rounded",
+                          "flex items-center gap-2 text-sm p-2 rounded min-w-0 w-full",
                           result.success ? "bg-green-50 dark:bg-green-950/20" : "bg-red-50 dark:bg-red-950/20"
                         )}
                       >

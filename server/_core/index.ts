@@ -25,6 +25,10 @@ import trelloWebhookRoutes from "../routes/trello-webhook.js";
 import trelloWebhookBulkRoutes from "../routes/trello-webhook-bulk.js";
 import trelloConfigRoutes from "../routes/trello-config.js";
 import trelloBoardsRoutes from "../routes/trello-boards.js";
+import handoffRoutes from "../routes/handoff.js";
+import communicationRoutes from "../routes/communication.js";
+import analyticsRoutes from "../routes/analytics.js";
+import reportsRoutes from "../routes/reports.js";
 import interviewEnhancedRoutes from "../routes/interview-enhanced.js";
 import performanceOptimizationRoutes from "../routes/performance-optimization.js";
 import advancedSchedulingRoutes from "../routes/advanced-scheduling.js";
@@ -34,6 +38,8 @@ import healthRoutes from "../routes/health.js";
 import { websocketService } from "../services/websocket.js";
 import { warmUpCache, scheduleCacheRefresh } from "../services/cache-warming.js";
 import { initializeRedis, closeRedis } from "../services/redis.js";
+import { startBriefingScheduler } from "../services/briefing-scheduler.js";
+import { startManusScheduler } from "../services/manus-scheduler.js";
 import { apiRateLimiter, authRateLimiter, aptlssRateLimiter, atisRateLimiter } from "../middleware/rate-limiter.js";
 import { log } from "../utils/logger.js";
 
@@ -171,7 +177,7 @@ async function startServer() {
   // Performance Metrics API
   app.use("/api", metricsRoutes);
   // ATIS (Adaptive Task Intelligence System) API with strict rate limiting
-  app.use("/api/atis", atisRateLimiter, atisRoutes);
+  app.use("/api/atis", apiRateLimiter, atisRoutes);
   // Notification Preferences API
   app.use("/api/notification-preferences", notificationPreferencesRoutes);
   // Notification History API
@@ -190,6 +196,10 @@ async function startServer() {
   app.use("/api/trello", trelloConfigRoutes);
   // Trello Boards API (for board selector)
   app.use("/api/trello-boards", trelloBoardsRoutes);
+  app.use("/api/handoff", handoffRoutes);
+  app.use("/api/communication", communicationRoutes);
+  app.use("/api/analytics", analyticsRoutes);
+  app.use("/api/reports", reportsRoutes);
   // Enhanced Interview System API
   app.use("/api/interview", interviewEnhancedRoutes);
   // Performance Optimization API
@@ -243,6 +253,9 @@ async function startServer() {
     // Schedule periodic cache refresh every 60 minutes
     scheduleCacheRefresh(60);
     log.info('Periodic cache refresh scheduled');
+    // Start automated schedulers
+    startBriefingScheduler();
+    startManusScheduler();
   } catch (error) {
     log.error('Cache warming failed', error as Error);
   }

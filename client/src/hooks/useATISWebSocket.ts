@@ -86,6 +86,27 @@ export function useATISWebSocket(options: UseATISWebSocketOptions = {}): UseATIS
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
+  // Keep a ref to options so event handlers always call the latest callbacks
+  // without the socket connection needing to restart.
+  const callbacksRef = useRef({
+    onProgressUpdate,
+    onPhaseCompletion,
+    onAnalysisComplete,
+    onError,
+    onConfidenceUpdate,
+  });
+
+  // Update callbacksRef on every render
+  useEffect(() => {
+    callbacksRef.current = {
+      onProgressUpdate,
+      onPhaseCompletion,
+      onAnalysisComplete,
+      onError,
+      onConfidenceUpdate,
+    };
+  });
+
   // Initialize socket connection
   useEffect(() => {
     if (!autoConnect || !sessionId) return;
@@ -135,31 +156,31 @@ export function useATISWebSocket(options: UseATISWebSocketOptions = {}): UseATIS
         // Progress update events
         socket.on('progress-update', (update: AnalysisProgressUpdate) => {
           console.log('[ATIS WebSocket] Progress update:', update);
-          onProgressUpdate?.(update);
+          callbacksRef.current.onProgressUpdate?.(update);
         });
 
         // Phase completion events
         socket.on('phase-completed', (event: PhaseCompletionEvent) => {
           console.log('[ATIS WebSocket] Phase completed:', event);
-          onPhaseCompletion?.(event);
+          callbacksRef.current.onPhaseCompletion?.(event);
         });
 
         // Analysis completion events
         socket.on('analysis-complete', (event: AnalysisCompleteEvent) => {
           console.log('[ATIS WebSocket] Analysis complete:', event);
-          onAnalysisComplete?.(event);
+          callbacksRef.current.onAnalysisComplete?.(event);
         });
 
         // Error events
         socket.on('analysis-error', (error: WebSocketError) => {
           console.error('[ATIS WebSocket] Analysis error:', error);
-          onError?.(error);
+          callbacksRef.current.onError?.(error);
         });
 
         // Confidence update events
         socket.on('confidence-update', (data: { phase: number; confidence: number }) => {
           console.log('[ATIS WebSocket] Confidence update:', data);
-          onConfidenceUpdate?.(data);
+          callbacksRef.current.onConfidenceUpdate?.(data);
         });
 
         socketRef.current = socket;
@@ -189,11 +210,6 @@ export function useATISWebSocket(options: UseATISWebSocketOptions = {}): UseATIS
     reconnectionDelay,
     reconnectionDelayMax,
     reconnectionAttempts,
-    onProgressUpdate,
-    onPhaseCompletion,
-    onAnalysisComplete,
-    onError,
-    onConfidenceUpdate,
   ]);
 
   // Connect to session

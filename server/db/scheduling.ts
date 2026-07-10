@@ -430,3 +430,45 @@ export async function seedDefaultKeyboardShortcuts(userId: string): Promise<void
     connection.release();
   }
 }
+
+export async function getUserTasks(userOpenId: string): Promise<any[]> {
+  const pool = await getPool();
+  if (!pool) return [];
+
+  const query = `
+    SELECT ta.id, ta.taskId, ta.startTime, ta.endTime, ta.status
+    FROM task_assignments ta
+    JOIN users u ON ta.founderId = u.id
+    WHERE u.openId = ?
+  `;
+
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(query, [userOpenId]);
+    return rows as any[];
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getTasksByAssignee(assignedTo: string | number): Promise<any[]> {
+  const pool = await getPool();
+  if (!pool) return [];
+
+  const vaId = parseInt(String(assignedTo), 10);
+  if (isNaN(vaId)) return [];
+
+  const query = `
+    SELECT id, taskId, startTime, endTime, status
+    FROM task_assignments
+    WHERE vaId = ?
+  `;
+
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(query, [vaId]);
+    return rows as any[];
+  } finally {
+    connection.release();
+  }
+}

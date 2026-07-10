@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 interface UseWebSocketOptions {
   onTaskCompleted?: (data: any) => void;
   onTaskRescheduled?: (data: any) => void;
+  onTaskPriorityChanged?: (data: any) => void;
   onCacheInvalidated?: () => void;
 }
 
@@ -18,6 +19,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     connected: false,
     connectedClients: 0,
   });
+
+  // Keep a ref to options so event handlers always call the latest callbacks
+  // without the socket connection needing to restart.
+  // This is the key fix: updating optionsRef.current synchronously on every render
+  // means we never need to include callbacks in the useEffect dependency array.
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   useEffect(() => {
     // Get user from the key written by useAuth hook
@@ -40,13 +48,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       return;
     }
 
-    // Connect to WebSocket server
+    // Connect to WebSocket server — runs ONCE on mount (empty deps []).
+    // Previously the deps were [options.onTaskCompleted, ...] which caused new
+    // function references on every render → rapid connect/disconnect loop.
     const socket = io({
       path: '/ws',
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
+      reconnectionDelay: 3000,
+      reconnectionDelayMax: 15000,
       reconnectionAttempts: 5,
     });
 
@@ -74,21 +84,26 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       setStatus(prev => ({ ...prev, connectedClients: data.connectedClients }));
     });
 
-    // Task events
+    // Task events — always read from ref so latest callback is used without reconnecting
     socket.on('task:completed', (data: any) => {
       console.log('[WebSocket] Task completed', data);
-      options.onTaskCompleted?.(data);
+      optionsRef.current.onTaskCompleted?.(data);
     });
 
     socket.on('task:rescheduled', (data: any) => {
       console.log('[WebSocket] Task rescheduled', data);
-      options.onTaskRescheduled?.(data);
+      optionsRef.current.onTaskRescheduled?.(data);
     });
 
     // Cache events
     socket.on('cache:invalidated', () => {
       console.log('[WebSocket] Cache invalidated');
-      options.onCacheInvalidated?.();
+      optionsRef.current.onCacheInvalidated?.();
+    });
+
+    socket.on('task:priority-changed', (data: any) => {
+      console.log('[WebSocket] Task priority changed:', data);
+      optionsRef.current.onTaskPriorityChanged?.(data);
     });
 
     // Reconnection events
@@ -104,12 +119,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       console.error('[WebSocket] Reconnection failed');
     });
 
-    // Cleanup on unmount
+    // Cleanup on unmount only — socket stays alive for the full component lifetime
     return () => {
       console.log('[WebSocket] Disconnecting');
       socket.disconnect();
     };
-  }, [options.onTaskCompleted, options.onTaskRescheduled, options.onCacheInvalidated]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- empty deps intentional; callbacks are read via ref
 
   // Helper functions to emit events
   const emitTaskComplete = (data: { taskId: string; isCompleted: boolean }) => {

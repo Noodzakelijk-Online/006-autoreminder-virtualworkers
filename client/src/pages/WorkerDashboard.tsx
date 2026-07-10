@@ -18,20 +18,19 @@ import {
   Loader2,
   RefreshCw,
   Send,
+  MessageCircle,
+  FileText,
 } from 'lucide-react';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { TaskCard } from '@/components/TaskCard';
+import { Task } from '@/types';
+import TriageTab from './manus/TriageTab';
+import SundayChecklist from './manus/SundayChecklist';
+import WeeklyPayCalculator from './manus/WeeklyPayCalculator';
+import ComplianceTracker from './manus/ComplianceTracker';
+import RulesTab from './manus/RulesTab';
 
-interface Task {
-  id: string;
-  title: string;
-  cardName: string;
-  durationHours: number;
-  startTime?: string;
-  endTime?: string;
-  isCompleted: boolean;
-  priorityLevel: string;
-  date: string;
-  status?: string;
-}
+
 
 interface WorkerProfile {
   id: number;
@@ -50,6 +49,14 @@ export default function WorkerDashboard() {
   const [workerProfile, setWorkerProfile] = useState<WorkerProfile | null>(null);
   const [activeTab, setActiveTab] = useState('today');
   const [syncing, setSyncing] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState('tasks');
+
+  useWebSocket({
+    onTaskPriorityChanged: (data) => {
+      toast.info(`Task priority updated to ${data.priority.toUpperCase()}!`);
+      fetchWorkerData();
+    }
+  });
 
   useEffect(() => {
     fetchWorkerData();
@@ -146,9 +153,9 @@ export default function WorkerDashboard() {
   // Filter tasks by date
   const today = new Date().toISOString().split('T')[0];
   const todayTasks = useMemo(() => 
-    tasks.filter(t => t.date === today), [tasks, today]);
+    tasks.filter(t => t.date <= today && !t.isCompleted), [tasks, today]);
   const upcomingTasks = useMemo(() => 
-    tasks.filter(t => t.date > today), [tasks, today]);
+    tasks.filter(t => t.date > today && !t.isCompleted), [tasks, today]);
   const completedTasks = useMemo(() => 
     tasks.filter(t => t.isCompleted), [tasks]);
 
@@ -161,55 +168,33 @@ export default function WorkerDashboard() {
     }
   };
 
-  const TaskCard = ({ task }: { task: Task }) => (
-    <Card className={`transition-all ${task.isCompleted ? 'opacity-60' : ''}`}>
-      <CardContent className="p-4">
-        <div className="flex items-start gap-3">
-          <div className="pt-1">
-            {syncing === task.id ? (
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            ) : (
-              <Checkbox
-                checked={task.isCompleted}
-                onCheckedChange={(checked) => handleCompleteTask(task.id, !!checked)}
-              />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <Badge className={getPriorityColor(task.priorityLevel)} variant="secondary">
-                {task.priorityLevel}
-              </Badge>
+  const handleSaveHandoff = async (taskId: string, notes: string) => {
+    if (!workerProfile) return;
+    try {
+      await fetch('/api/handoff/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, workerId: workerProfile.id, notes })
+      });
+      toast.success('Handoff notes saved');
+    } catch (e) {
+      toast.error('Failed to save handoff notes');
+    }
+  };
 
-              {task.startTime && task.startTime !== 'TBD' && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  {task.startTime} - {task.endTime}
-                </span>
-              )}
-            </div>
-            <h4 className={`font-medium ${task.isCompleted ? 'line-through text-muted-foreground' : ''}`}>
-              {task.title}
-            </h4>
-            <p className="text-sm text-muted-foreground mt-1">
-              {task.cardName} • {task.durationHours}h
-            </p>
-          </div>
-          {task.isCompleted && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleMarkForReview(task.id)}
-              disabled={syncing === task.id}
-            >
-              <Send className="h-4 w-4 mr-1" />
-              Submit
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
+  const handleAskFounder = async (taskId: string, question: string) => {
+    if (!workerProfile) return;
+    try {
+      await fetch('/api/communication/ask-founder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskId, workerId: workerProfile.id, question })
+      });
+      toast.success('Question sent to Founder');
+    } catch (e) {
+      toast.error('Failed to send question');
+    }
+  };
 
   // Show message for non-workers
   if (!loading && !workerProfile) {
@@ -247,7 +232,14 @@ export default function WorkerDashboard() {
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <div>
-                <h1 className="text-xl font-bold">My Tasks</h1>
+                <h1 className="text-xl font-bold">
+                  {activeView === 'tasks' && "My Tasks"}
+                  {activeView === 'triage' && "Daily Triage"}
+                  {activeView === 'sunday' && "Sunday Maintenance"}
+                  {activeView === 'pay' && "Pay Calculator"}
+                  {activeView === 'compliance' && "Performance & Compliance"}
+                  {activeView === 'rules' && "Rules & Guidelines"}
+                </h1>
                 {workerProfile && (
                   <p className="text-sm text-muted-foreground">
                     {workerProfile.name} • {workerProfile.timezone.split('/')[1]?.replace('_', ' ')}
@@ -255,133 +247,219 @@ export default function WorkerDashboard() {
                 )}
               </div>
             </div>
-            <Button variant="outline" onClick={fetchWorkerData} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
+            {activeView === 'tasks' && (
+              <Button variant="outline" onClick={fetchWorkerData} disabled={loading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            )}
           </div>
         </div>
       </header>
 
+      {/* Navigation Sub-bar */}
+      <div className="border-b bg-card">
+        <div className="container py-2 flex items-center gap-1 overflow-x-auto">
+          <Button
+            variant={activeView === 'tasks' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveView('tasks')}
+          >
+            Tasks
+          </Button>
+          <Button
+            variant={activeView === 'triage' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveView('triage')}
+          >
+            Daily Triage
+          </Button>
+          <Button
+            variant={activeView === 'sunday' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveView('sunday')}
+          >
+            Sunday Maintenance
+          </Button>
+          <Button
+            variant={activeView === 'pay' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveView('pay')}
+          >
+            Pay Calculator
+          </Button>
+          <Button
+            variant={activeView === 'compliance' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveView('compliance')}
+          >
+            Performance
+          </Button>
+          <Button
+            variant={activeView === 'rules' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveView('rules')}
+          >
+            Rules & Decisions
+          </Button>
+        </div>
+      </div>
+
       {/* Main Content */}
       <main className="container py-6">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-blue-500" />
-                <span className="text-sm text-muted-foreground">Today</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">{todayTasks.length}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <ListTodo className="h-4 w-4 text-purple-500" />
-                <span className="text-sm text-muted-foreground">Upcoming</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">{upcomingTasks.length}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                <span className="text-sm text-muted-foreground">Completed</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">{completedTasks.length}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-orange-500" />
-                <span className="text-sm text-muted-foreground">Hours Today</span>
-              </div>
-              <p className="text-2xl font-bold mt-1">
-                {todayTasks.reduce((sum, t) => sum + t.durationHours, 0).toFixed(1)}h
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Tasks Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4">
-            <TabsTrigger value="today">
-              Today ({todayTasks.length})
-            </TabsTrigger>
-            <TabsTrigger value="upcoming">
-              Upcoming ({upcomingTasks.length})
-            </TabsTrigger>
-            <TabsTrigger value="completed">
-              Completed ({completedTasks.length})
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="today" className="space-y-3">
-            {loading ? (
-              Array(3).fill(0).map((_, i) => (
-                <Skeleton key={i} className="h-24 w-full" />
-              ))
-            ) : todayTasks.length === 0 ? (
-              <Card className="py-12">
-                <CardContent className="text-center">
-                  <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">All done for today!</h3>
-                  <p className="text-muted-foreground">No tasks scheduled for today.</p>
+        {activeView === 'tasks' && (
+          <>
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-blue-500" />
+                    <span className="text-sm text-muted-foreground">Today</span>
+                  </div>
+                  <p className="text-2xl font-bold mt-1">{todayTasks.length}</p>
                 </CardContent>
               </Card>
-            ) : (
-              todayTasks
-                .sort((a, b) => {
-                  if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
-                  return (a.startTime || '').localeCompare(b.startTime || '');
-                })
-                .map(task => <TaskCard key={task.id} task={task} />)
-            )}
-          </TabsContent>
-
-          <TabsContent value="upcoming" className="space-y-3">
-            {loading ? (
-              Array(3).fill(0).map((_, i) => (
-                <Skeleton key={i} className="h-24 w-full" />
-              ))
-            ) : upcomingTasks.length === 0 ? (
-              <Card className="py-12">
-                <CardContent className="text-center">
-                  <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No upcoming tasks</h3>
-                  <p className="text-muted-foreground">Check back later for new assignments.</p>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-2">
+                    <ListTodo className="h-4 w-4 text-purple-500" />
+                    <span className="text-sm text-muted-foreground">Upcoming</span>
+                  </div>
+                  <p className="text-2xl font-bold mt-1">{upcomingTasks.length}</p>
                 </CardContent>
               </Card>
-            ) : (
-              upcomingTasks
-                .sort((a, b) => a.date.localeCompare(b.date))
-                .map(task => <TaskCard key={task.id} task={task} />)
-            )}
-          </TabsContent>
-
-          <TabsContent value="completed" className="space-y-3">
-            {loading ? (
-              Array(3).fill(0).map((_, i) => (
-                <Skeleton key={i} className="h-24 w-full" />
-              ))
-            ) : completedTasks.length === 0 ? (
-              <Card className="py-12">
-                <CardContent className="text-center">
-                  <AlertTriangle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No completed tasks yet</h3>
-                  <p className="text-muted-foreground">Complete tasks to see them here.</p>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    <span className="text-sm text-muted-foreground">Completed</span>
+                  </div>
+                  <p className="text-2xl font-bold mt-1">{completedTasks.length}</p>
                 </CardContent>
               </Card>
-            ) : (
-              completedTasks.map(task => <TaskCard key={task.id} task={task} />)
-            )}
-          </TabsContent>
-        </Tabs>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-orange-500" />
+                    <span className="text-sm text-muted-foreground">Hours Today</span>
+                  </div>
+                  <p className="text-2xl font-bold mt-1">
+                    {todayTasks.reduce((sum, t) => sum + t.durationHours, 0).toFixed(1)}h
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Tasks Tabs */}
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="mb-4">
+                <TabsTrigger value="today">
+                  Today ({todayTasks.length})
+                </TabsTrigger>
+                <TabsTrigger value="upcoming">
+                  Upcoming ({upcomingTasks.length})
+                </TabsTrigger>
+                <TabsTrigger value="completed">
+                  Completed ({completedTasks.length})
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="today" className="space-y-3">
+                {loading ? (
+                  Array(3).fill(0).map((_, i) => (
+                    <Skeleton key={i} className="h-24 w-full" />
+                  ))
+                ) : todayTasks.length === 0 ? (
+                  <Card className="py-12">
+                    <CardContent className="text-center">
+                      <CheckCircle2 className="h-12 w-12 mx-auto text-green-500 mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">All done for today!</h3>
+                      <p className="text-muted-foreground">No tasks scheduled for today.</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  todayTasks
+                    .sort((a, b) => {
+                      if (a.isCompleted !== b.isCompleted) return a.isCompleted ? 1 : -1;
+                      return (a.startTime || '').localeCompare(b.startTime || '');
+                    })
+                    .map(task => (
+                      <TaskCard 
+                        key={task.id} 
+                        task={task} 
+                        role="worker"
+                        onToggle={(id) => handleCompleteTask(id, !task.isCompleted)}
+                        onSaveHandoff={handleSaveHandoff}
+                        onAskFounder={handleAskFounder}
+                      />
+                    ))
+                )}
+              </TabsContent>
+
+              <TabsContent value="upcoming" className="space-y-3">
+                {loading ? (
+                  Array(3).fill(0).map((_, i) => (
+                    <Skeleton key={i} className="h-24 w-full" />
+                  ))
+                ) : upcomingTasks.length === 0 ? (
+                  <Card className="py-12">
+                    <CardContent className="text-center">
+                      <Calendar className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No upcoming tasks</h3>
+                      <p className="text-muted-foreground">Check back later for new assignments.</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  upcomingTasks
+                    .sort((a, b) => a.date.localeCompare(b.date))
+                    .map(task => (
+                      <TaskCard 
+                        key={task.id} 
+                        task={task} 
+                        role="worker"
+                        onToggle={(id) => handleCompleteTask(id, !task.isCompleted)}
+                        onSaveHandoff={handleSaveHandoff}
+                        onAskFounder={handleAskFounder}
+                      />
+                    ))
+                )}
+              </TabsContent>
+
+              <TabsContent value="completed" className="space-y-3">
+                {loading ? (
+                  Array(3).fill(0).map((_, i) => (
+                    <Skeleton key={i} className="h-24 w-full" />
+                  ))
+                ) : completedTasks.length === 0 ? (
+                  <Card className="py-12">
+                    <CardContent className="text-center">
+                      <AlertTriangle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                      <h3 className="text-lg font-semibold mb-2">No completed tasks yet</h3>
+                      <p className="text-muted-foreground">Complete tasks to see them here.</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  completedTasks.map(task => (
+                    <TaskCard 
+                      key={task.id} 
+                      task={task} 
+                      role="worker"
+                      onToggle={(id) => handleCompleteTask(id, !task.isCompleted)}
+                      onSaveHandoff={handleSaveHandoff}
+                      onAskFounder={handleAskFounder}
+                    />
+                  ))
+                )}
+              </TabsContent>
+            </Tabs>
+          </>
+        )}
+        {activeView === 'triage' && <TriageTab />}
+        {activeView === 'sunday' && <SundayChecklist />}
+        {activeView === 'pay' && <WeeklyPayCalculator />}
+        {activeView === 'compliance' && <ComplianceTracker />}
+        {activeView === 'rules' && <RulesTab />}
       </main>
     </div>
   );

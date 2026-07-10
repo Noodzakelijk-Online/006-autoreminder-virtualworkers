@@ -5,7 +5,7 @@ import { promisify } from 'util';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { getDb } from '../db';
-import { generationJobs, generationItems, scheduledJobs, userWorkingHours, holidays, vaProfiles, taskAssignments } from '../../drizzle/schema';
+import { generationJobs, generationItems, scheduledJobs, userWorkingHours, holidays, vaProfiles, taskAssignments, taskDependencies, clients } from '../../drizzle/schema';
 import { eq, desc, and, inArray } from 'drizzle-orm';
 import { fetchWithRetry } from '../utils/retry';
 import { getCachedTasks, setCachedTasks, invalidateCache } from '../services/trello-cache';
@@ -337,6 +337,12 @@ function scheduleTasksByTime(
 
     // Sort tasks by priority and type
     const sortedTasks = dayTasks.sort((a: any, b: any) => {
+      // 1. First sort by Client Priority
+      const clientPriorityOrder: Record<string, number> = { vip: 0, priority: 1, standard: 2 };
+      const clientDiff = (clientPriorityOrder[a.clientPriority] ?? 2) - (clientPriorityOrder[b.clientPriority] ?? 2);
+      if (clientDiff !== 0) return clientDiff;
+
+      // 2. Then sort by Task Priority Level
       const priorityOrder: Record<string, number> = { CRITICAL: 0, URGENT: 1, HIGH: 2, NORMAL: 3 };
       const priorityDiff = (priorityOrder[a.priorityLevel] ?? 3) - (priorityOrder[b.priorityLevel] ?? 3);
       if (priorityDiff !== 0) return priorityDiff;
@@ -426,6 +432,24 @@ function scheduleTasksByTime(
           schedulingNote: 'Completed'
         });
         continue;
+      }
+      
+      // Enforce dependencies: Check if blocked by incomplete tasks
+      if (task.blockedBy && task.blockedBy.length > 0) {
+        const incompleteBlockers = task.blockedBy.filter((blockerId: string) => {
+          // Look up the blocker in our tasks list (either in scheduled or uncompleted)
+          const blockerTask = tasks.find(t => t.id === blockerId);
+          // If blocker exists and is NOT completed, this task is blocked
+          return blockerTask && !blockerTask.isCompleted;
+        });
+
+        if (incompleteBlockers.length > 0) {
+          overflowTasks.push({
+            ...task,
+            rejectionReason: `Blocked by incomplete task(s): ${incompleteBlockers.join(', ')}`
+          });
+          continue;
+        }
       }
 
       skipMealBreak();
@@ -1172,6 +1196,20 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
     // Use request queue to deduplicate simultaneous requests
     const queueKey = `trello-tasks-${user.openId}`;
     const responseData = await requestQueue.execute(queueKey, async () => {
+      const db = await getDb();
+      const allClients = db ? await db.select().from(clients).where(eq(clients.founderId, user.id)) : [];
+      const boardToClientMap = new Map<string, typeof allClients[0]>();
+      for (const client of allClients) {
+        if (client.trelloBoardIds) {
+          try {
+            const bIds = JSON.parse(client.trelloBoardIds);
+            for (const bId of bIds) {
+              boardToClientMap.set(bId, client);
+            }
+          } catch(e) {}
+        }
+      }
+
       const boards = await fetchUserWorkspaceBoards(apiKey, apiToken);
 
       const tasks: any[] = [];
@@ -1278,7 +1316,8 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
                   cardId: card.id,
                   cardName: card.name,
                   boardName: board.name,
-                  client: extractClient(board.name, card.name),
+                  client: boardToClientMap.get(board.id)?.name || extractClient(board.name, card.name),
+                  clientPriority: boardToClientMap.get(board.id)?.priority || 'standard',
                   checklistId: aptlssChecklist.id,
                   checkItemId: item.id,
                   stepIndex: index,
@@ -1414,6 +1453,19 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
               .from(vaProfiles)
               .where(inArray(vaProfiles.id, workerIds));
             
+            // Fetch dependencies for these tasks
+            const dependencies = await db.select()
+              .from(taskDependencies)
+              .where(inArray(taskDependencies.taskId, taskIds));
+            
+            const blockedByLookup = new Map<string, string[]>();
+            for (const dep of dependencies) {
+              if (!blockedByLookup.has(dep.taskId)) {
+                blockedByLookup.set(dep.taskId, []);
+              }
+              blockedByLookup.get(dep.taskId)!.push(dep.blockedByTaskId);
+            }
+            
             // Build worker settings map
             for (const worker of workers) {
               const workerWorkingDays = worker.workingDays
@@ -1447,11 +1499,16 @@ router.get('/trello/tasks', async (req: any, res: Response) => {
             // Create assignment lookup
             const assignmentLookup = new Map(assignments.map((a: any) => [a.taskId, a.vaId]));
             
-            // Add worker ID to each task for scheduling
+            // Add worker ID and dependencies to each task for scheduling
             for (const task of tasks) {
               const workerId = assignmentLookup.get(task.id);
               if (workerId) {
                 (task as any).workerId = workerId;
+              }
+              
+              const blockedBy = blockedByLookup.get(task.id);
+              if (blockedBy) {
+                (task as any).blockedBy = blockedBy;
               }
             }
             

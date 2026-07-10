@@ -26,6 +26,9 @@ import { ReanalysisProgressModal } from '@/components/ReanalysisProgressModal';
 import { LabelAutocompleteSearch } from '@/components/LabelAutocompleteSearch';
 import TIMEZONES from '@/data/timezones';
 import CURRENCIES from '@/data/currencies';
+import WeeklyPayCalculator from './manus/WeeklyPayCalculator';
+import RobertDashboard from './manus/RobertDashboard';
+import RulesTab from './manus/RulesTab';
 
 interface VirtualWorker {
   id: number;
@@ -83,6 +86,8 @@ interface TaskAssignment {
   blockedBy: string[];
   blocks: string[];
   clientProject?: string;
+  clientName?: string;
+  clientPriority?: 'standard' | 'priority' | 'vip';
   labels: string[];
 }
 
@@ -119,6 +124,7 @@ export default function FounderDashboard() {
   const [newWorker, setNewWorker] = useState({
     name: '',
     email: '',
+    password: '',
     timezone: 'Asia/Manila',
     hourlyRate: '',
     currency: 'USD',
@@ -134,6 +140,7 @@ export default function FounderDashboard() {
   });
   const [showEditWorker, setShowEditWorker] = useState(false);
   const [editingWorker, setEditingWorker] = useState<VirtualWorker | null>(null);
+  const [editWorkerPassword, setEditWorkerPassword] = useState('');
   const [saving, setSaving] = useState(false);
   
   // Filters
@@ -147,17 +154,26 @@ export default function FounderDashboard() {
   const [eodReportEnabled, setEodReportEnabled] = useState(true);
   const [eodReportTime, setEodReportTime] = useState('18:00');
   
-  // Link user account
-  const [showLinkUser, setShowLinkUser] = useState(false);
-  const [linkingWorker, setLinkingWorker] = useState<VirtualWorker | null>(null);
-  const [availableUsers, setAvailableUsers] = useState<SystemUser[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string>('');
+
   
   // Re-analysis state
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [reanalysisProgress, setReanalysisProgress] = useState<{ total: number; processed: number; failed: number } | null>(null);
   const [showReanalysisModal, setShowReanalysisModal] = useState(false);
   const [selectedBoardForReanalysis, setSelectedBoardForReanalysis] = useState<{ id: string; name: string } | null>(null);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(null);
+
+  // Set default worker once workload is loaded
+  useEffect(() => {
+    if (workload.length > 0 && selectedWorkerId === null) {
+      const firstActiveWorker = workload.find(w => w.worker.userId !== null);
+      if (firstActiveWorker && firstActiveWorker.worker.userId) {
+        setSelectedWorkerId(firstActiveWorker.worker.userId);
+      } else {
+        setSelectedWorkerId(workload[0].worker.id);
+      }
+    }
+  }, [workload, selectedWorkerId]);
 
   useEffect(() => {
     fetchAllData();
@@ -250,6 +266,18 @@ export default function FounderDashboard() {
       toast.error('Please enter a name');
       return;
     }
+    if (!newWorker.email.trim()) {
+      toast.error('Please enter an email');
+      return;
+    }
+    if (!newWorker.password.trim()) {
+      toast.error('Please enter a password');
+      return;
+    }
+    if (newWorker.password.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -260,6 +288,7 @@ export default function FounderDashboard() {
         body: JSON.stringify({
           name: newWorker.name,
           email: newWorker.email,
+          password: newWorker.password,
           timezone: newWorker.timezone,
           hourlyRate: newWorker.hourlyRate ? parseInt(newWorker.hourlyRate) * 100 : null,
           currency: newWorker.currency,
@@ -278,10 +307,11 @@ export default function FounderDashboard() {
       if (res.ok) {
         toast.success('Worker added successfully');
         setShowAddWorker(false);
-        setNewWorker({ name: '', email: '', timezone: 'Asia/Manila', hourlyRate: '', currency: 'USD', workStartHour: '9', workEndHour: '18', workingDays: '1,2,3,4,5', breakfastTime: '7', breakfastDuration: '30', lunchTime: '12', lunchDuration: '60', dinnerTime: '19', dinnerDuration: '45' });
+        setNewWorker({ name: '', email: '', password: '', timezone: 'Asia/Manila', hourlyRate: '', currency: 'USD', workStartHour: '9', workEndHour: '18', workingDays: '1,2,3,4,5', breakfastTime: '7', breakfastDuration: '30', lunchTime: '12', lunchDuration: '60', dinnerTime: '19', dinnerDuration: '45' });
         fetchWorkload();
       } else {
-        toast.error('Failed to add worker');
+        const err = await res.json();
+        toast.error('Failed to add worker', { description: err.error });
       }
     } catch (error) {
       toast.error('Failed to add worker');
@@ -308,20 +338,20 @@ export default function FounderDashboard() {
     }
   };
 
-  const handleAssignTask = async (assignmentId: number, workerId: number) => {
+  const handleAssignTask = async (taskId: string, workerId: number) => {
     try {
-      const res = await fetch(`/api/va/assignments/${assignmentId}/assign`, {
+      const res = await fetch(`/api/va/assignments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ workerId }),
+        body: JSON.stringify({ taskId, vaId: workerId }),
       });
 
       if (res.ok) {
         const worker = workload.find(w => w.worker.id === workerId)?.worker;
         setAssignments(assignments.map(a => 
-          a.id === assignmentId 
-            ? { ...a, workerId, workerName: worker?.name || null }
+          a.taskId === taskId 
+            ? { ...a, workerId, workerName: worker?.name || null, status: 'assigned' }
             : a
         ));
         toast.success(`Task assigned to ${worker?.name}`);
@@ -334,18 +364,18 @@ export default function FounderDashboard() {
     }
   };
 
-  const handlePriorityOverride = async (assignmentId: number, priority: string) => {
+  const handlePriorityOverride = async (taskId: string, priority: string) => {
     try {
-      const res = await fetch(`/api/va/assignments/${assignmentId}/priority`, {
+      const res = await fetch(`/api/va/priority-override`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ priority }),
+        body: JSON.stringify({ taskId, priority }),
       });
 
       if (res.ok) {
         setAssignments(assignments.map(a => 
-          a.id === assignmentId 
+          a.taskId === taskId 
             ? { ...a, priority: priority as any, isPriorityOverride: true }
             : a
         ));
@@ -387,6 +417,11 @@ export default function FounderDashboard() {
   const handleSaveWorkerSettings = async () => {
     if (!editingWorker) return;
     
+    if (editWorkerPassword && editWorkerPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch(`/api/va/vas/${editingWorker.id}`, {
@@ -396,6 +431,7 @@ export default function FounderDashboard() {
         body: JSON.stringify({
           name: editingWorker.name,
           email: editingWorker.email,
+          password: editWorkerPassword || undefined,
           timezone: editingWorker.timezone,
           hourlyRate: editingWorker.hourlyRate,
           currency: editingWorker.currency,
@@ -415,60 +451,14 @@ export default function FounderDashboard() {
         toast.success('Worker settings saved');
         setShowEditWorker(false);
         setEditingWorker(null);
+        setEditWorkerPassword('');
         fetchWorkload();
       } else {
-        toast.error('Failed to save settings');
+        const err = await res.json();
+        toast.error('Failed to save settings', { description: err.error });
       }
     } catch (error) {
       toast.error('Failed to save settings');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const fetchAvailableUsers = async () => {
-    try {
-      const res = await fetch('/api/va/users', {
-        credentials: 'include',
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAvailableUsers(data);
-      }
-    } catch (error) {
-      console.error('Failed to fetch users:', error);
-    }
-  };
-
-  const handleOpenLinkUser = (worker: VirtualWorker) => {
-    setLinkingWorker(worker);
-    setSelectedUserId(worker.userId?.toString() || '');
-    fetchAvailableUsers();
-    setShowLinkUser(true);
-  };
-
-  const handleLinkUser = async () => {
-    if (!linkingWorker) return;
-    
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/va/vas/${linkingWorker.id}/link-user`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ userId: selectedUserId && selectedUserId !== 'none' ? parseInt(selectedUserId) : null }),
-      });
-
-      if (res.ok) {
-        toast.success(selectedUserId && selectedUserId !== 'none' ? 'User linked successfully' : 'User unlinked successfully');
-        setShowLinkUser(false);
-        setLinkingWorker(null);
-        fetchWorkload();
-      } else {
-        toast.error('Failed to link user');
-      }
-    } catch (error) {
-      toast.error('Failed to link user');
     } finally {
       setSaving(false);
     }
@@ -650,12 +640,21 @@ export default function FounderDashboard() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Email</Label>
+                    <Label>Email *</Label>
                     <Input
                       type="email"
                       value={newWorker.email}
                       onChange={(e) => setNewWorker({ ...newWorker, email: e.target.value })}
                       placeholder="va@example.com"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Password *</Label>
+                    <Input
+                      type="password"
+                      value={newWorker.password}
+                      onChange={(e) => setNewWorker({ ...newWorker, password: e.target.value })}
+                      placeholder="Min 6 characters"
                     />
                   </div>
                   <div className="space-y-2">
@@ -883,13 +882,16 @@ export default function FounderDashboard() {
 
       <main className="container py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-7 lg:w-auto lg:inline-grid">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-9 lg:w-auto lg:inline-grid">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="assignments">Assignments</TabsTrigger>
             <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
             <TabsTrigger value="communications">Communications</TabsTrigger>
             <TabsTrigger value="timezones">Timezones</TabsTrigger>
             <TabsTrigger value="briefings">Briefings</TabsTrigger>
+            <TabsTrigger value="robert">Robert's Desk</TabsTrigger>
+            <TabsTrigger value="paylogs">Pay Logs</TabsTrigger>
+            <TabsTrigger value="rules">Rules</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -1004,9 +1006,6 @@ export default function FounderDashboard() {
                               }}>
                                 View Tasks
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleOpenLinkUser(item.worker)}>
-                                {item.worker.userId ? 'Change Linked User' : 'Link User Account'}
-                              </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem onClick={() => handleUpdateStatus(item.worker.id, 'active')}>
                                 Set Active
@@ -1045,7 +1044,7 @@ export default function FounderDashboard() {
                           {item.worker.userId && (
                             <div className="flex items-center gap-1">
                               <Users className="h-3 w-3 text-green-500" />
-                              <span className="text-green-600">Account Linked</span>
+                              <span className="text-green-600 font-medium">Login Active</span>
                             </div>
                           )}
                         </div>
@@ -1206,10 +1205,18 @@ export default function FounderDashboard() {
                           <p className="text-sm text-muted-foreground flex items-center gap-2">
                             <Briefcase className="h-3 w-3" />
                             {task.cardName}
-                            {task.clientProject && (
+                            {(task.clientProject || task.clientName) && (
                               <>
                                 <span>•</span>
-                                {task.clientProject}
+                                {task.clientName || task.clientProject}
+                                {task.clientPriority && task.clientPriority !== 'standard' && (
+                                  <Badge 
+                                    variant="outline" 
+                                    className={`text-xs ml-1 ${task.clientPriority === 'vip' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-blue-100 text-blue-800 border-blue-300'}`}
+                                  >
+                                    {task.clientPriority.toUpperCase()}
+                                  </Badge>
+                                )}
                               </>
                             )}
                           </p>
@@ -1245,7 +1252,7 @@ export default function FounderDashboard() {
                           {/* VA Assignment */}
                           <Select
                             value={task.workerId?.toString() || 'unassigned'}
-                            onValueChange={(v) => v !== 'unassigned' && handleAssignTask(task.id, parseInt(v))}
+                            onValueChange={(v) => v !== 'unassigned' && handleAssignTask(task.taskId, parseInt(v))}
                           >
                             <SelectTrigger className="w-[160px]">
                               <SelectValue placeholder="Assign Worker" />
@@ -1274,19 +1281,19 @@ export default function FounderDashboard() {
                             <DropdownMenuContent align="end">
                               <DropdownMenuLabel>Set Priority</DropdownMenuLabel>
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.id, 'critical')}>
+                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'critical')}>
                                 <span className="h-2 w-2 rounded-full bg-red-500 mr-2" />
                                 Critical - Do This First!
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.id, 'urgent')}>
+                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'urgent')}>
                                 <span className="h-2 w-2 rounded-full bg-orange-500 mr-2" />
                                 Urgent
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.id, 'high')}>
+                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'high')}>
                                 <span className="h-2 w-2 rounded-full bg-yellow-500 mr-2" />
                                 High
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.id, 'normal')}>
+                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'normal')}>
                                 <span className="h-2 w-2 rounded-full bg-gray-400 mr-2" />
                                 Normal
                               </DropdownMenuItem>
@@ -1645,6 +1652,46 @@ export default function FounderDashboard() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="robert" className="space-y-6">
+            <RobertDashboard />
+          </TabsContent>
+
+          <TabsContent value="paylogs" className="space-y-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 flex-wrap gap-4">
+                <div>
+                  <CardTitle className="text-lg font-bold">Worker Selection</CardTitle>
+                  <CardDescription>Select a virtual worker to manage their weekly pay log, merits, and demerits.</CardDescription>
+                </div>
+                <div className="w-64">
+                  <Select
+                    value={selectedWorkerId?.toString() || ''}
+                    onValueChange={(val) => setSelectedWorkerId(val ? parseInt(val) : null)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a worker..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {workload.map((item) => (
+                        <SelectItem key={item.worker.id} value={(item.worker.userId || item.worker.id).toString()}>
+                          {item.worker.name} ({item.worker.email || 'No email'})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+            </Card>
+
+            {selectedWorkerId && (
+              <WeeklyPayCalculator vaId={selectedWorkerId} />
+            )}
+          </TabsContent>
+
+          <TabsContent value="rules" className="space-y-6">
+            <RulesTab />
+          </TabsContent>
         </Tabs>
       </main>
 
@@ -1664,11 +1711,20 @@ export default function FounderDashboard() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Email</Label>
+                <Label>Email *</Label>
                 <Input
                   type="email"
                   value={editingWorker.email || ''}
                   onChange={(e) => setEditingWorker({ ...editingWorker, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Change Password</Label>
+                <Input
+                  type="password"
+                  value={editWorkerPassword}
+                  onChange={(e) => setEditWorkerPassword(e.target.value)}
+                  placeholder="Leave blank to keep current password"
                 />
               </div>
               <div className="space-y-2">
@@ -1904,56 +1960,7 @@ export default function FounderDashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Link User Account Dialog */}
-      <Dialog open={showLinkUser} onOpenChange={setShowLinkUser}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Link User Account</DialogTitle>
-            <CardDescription>
-              Link a system user account to {linkingWorker?.name}'s worker profile. This allows them to access the Worker Dashboard.
-            </CardDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Select User Account</Label>
-              <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a user..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No linked user (unlink)</SelectItem>
-                  {availableUsers.map((user) => (
-                    <SelectItem key={user.id} value={user.id.toString()}>
-                      {user.name} ({user.email})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {linkingWorker?.userId && (
-              <div className="p-3 bg-muted rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  Currently linked to: <strong>{linkingWorker.linkedUserEmail || 'Unknown'}</strong>
-                </p>
-              </div>
-            )}
-            <div className="p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
-              <p className="text-sm text-blue-700 dark:text-blue-300">
-                Once linked, the user can access /worker to see only their assigned tasks.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowLinkUser(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleLinkUser} disabled={saving}>
-              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {selectedUserId && selectedUserId !== 'none' ? 'Link User' : 'Unlink User'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
 
       {/* Re-analysis Progress Modal */}
       <ReanalysisProgressModal

@@ -26,6 +26,7 @@ export interface Task {
   boardName?: string;
   listName?: string;
   client?: string;
+  clientPriority?: 'standard' | 'priority' | 'vip';
   url?: string;
   checklist?: ChecklistItem[];
   hasUnderstanding?: boolean;
@@ -38,6 +39,9 @@ export interface Task {
   assignedTo?: string; // VA ID
   assignedToName?: string; // VA name
   assignedToEmail?: string; // VA email
+  blockedBy?: string[];
+  rejectionReason?: string;
+  handoffNotes?: string;
 }
 
 export interface ChecklistItem {

@@ -10,9 +10,13 @@ import {
   timeEntries,
   handoffNotes,
   dailyBriefings,
-  users
+  users,
+  atisCards,
+  atisBoards,
+  atisCardUnderstanding
 } from '../../drizzle/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray } from 'drizzle-orm';
+import bcrypt from 'bcryptjs';
 import { sendMorningBriefing, sendEODReport, validateSendGridApiKey } from '../services/email';
 import { websocketService } from '../services/websocket';
 import { invalidateCache } from '../services/trello-cache';
@@ -101,20 +105,50 @@ router.post('/vas', async (req: any, res) => {
     }
 
     const { 
-      name, email, timezone, skills, hourlyRate, currency, 
+      name, email, password, timezone, skills, hourlyRate, currency, 
       workStartHour, workEndHour, workingDays,
       breakfastTime, breakfastDuration,
       lunchTime, lunchDuration,
       dinnerTime, dinnerDuration
     } = req.body;
 
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
     const db = await getDb();
     if (!db) {
       return res.status(503).json({ error: 'Database not available' });
     }
+
+    // Check if email already taken
+    const existingUser = await db.select().from(users).where(eq(users.openId, email));
+    if (existingUser.length > 0) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Create system user for worker
+    const userResult = await db.insert(users).values({
+      openId: email,
+      name,
+      email,
+      loginMethod: 'local',
+      role: 'worker',
+      passwordHash,
+      lastSignedIn: new Date(),
+    });
+    const newUserId = userResult[0].insertId;
+
     const result = await db.insert(vaProfiles).values({
       founderId: user.id,
-      userId: user.id, // Initially same as founder, can be updated when worker creates account
+      userId: newUserId,
       name,
       email,
       timezone: timezone || 'Asia/Manila',
@@ -148,7 +182,7 @@ router.put('/vas/:id', async (req: any, res) => {
     }
 
     const vaId = parseInt(req.params.id);
-    const updates = req.body;
+    const { password, ...updates } = req.body;
 
     const db = await getDb();
     if (!db) {
@@ -162,6 +196,34 @@ router.put('/vas/:id', async (req: any, res) => {
     
     if (existing.length === 0) {
       return res.status(404).json({ error: 'VA not found' });
+    }
+
+    const linkedUserId = existing[0].userId;
+
+    // Handle password update if provided
+    if (password) {
+      if (password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      }
+      const passwordHash = await bcrypt.hash(password, 10);
+      await db.update(users)
+        .set({ passwordHash })
+        .where(eq(users.id, linkedUserId));
+    }
+
+    // Handle email update if provided
+    if (updates.email && updates.email !== existing[0].email) {
+      // Check if email already taken by someone else
+      const existingUser = await db.select().from(users).where(
+        and(eq(users.openId, updates.email), sql`${users.id} != ${linkedUserId}`)
+      );
+      if (existingUser.length > 0) {
+        return res.status(409).json({ error: 'Email already registered' });
+      }
+      // Update system user login credentials
+      await db.update(users)
+        .set({ openId: updates.email, email: updates.email })
+        .where(eq(users.id, linkedUserId));
     }
 
     await db.update(vaProfiles)
@@ -302,73 +364,6 @@ router.put('/vas/:id/timezone', async (req: any, res) => {
   } catch (error) {
     console.error('Error updating VA timezone:', error);
     res.status(500).json({ error: 'Failed to update timezone' });
-  }
-});
-
-// ============================================
-// USER LINKING
-// ============================================
-
-// Get all users for linking
-router.get('/users', async (req: any, res) => {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
-    }
-    
-    const allUsers = await db.select({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-    }).from(users);
-
-    res.json(allUsers);
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
-
-// Link user account to VA profile
-router.post('/vas/:id/link-user', async (req: any, res) => {
-  try {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const vaId = parseInt(req.params.id);
-    const { userId } = req.body;
-
-    const db = await getDb();
-    if (!db) {
-      return res.status(503).json({ error: 'Database not available' });
-    }
-    
-    // Verify ownership
-    const existing = await db.select().from(vaProfiles).where(
-      and(eq(vaProfiles.id, vaId), eq(vaProfiles.founderId, user.id))
-    );
-    
-    if (existing.length === 0) {
-      return res.status(404).json({ error: 'VA not found' });
-    }
-
-    // Update the VA profile with the linked user ID
-    await db.update(vaProfiles)
-      .set({ userId: userId || null })
-      .where(eq(vaProfiles.id, vaId));
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error linking user:', error);
-    res.status(500).json({ error: 'Failed to link user' });
   }
 });
 
@@ -568,6 +563,17 @@ router.post('/priority-override', async (req: any, res) => {
         expiresAt: expiresAt ? new Date(expiresAt) : null,
       });
     }
+
+    // Invalidate cache to force reschedule
+    invalidateCache(user.id, user.openId, 'tasks');
+
+    // Notify connected clients about the priority change
+    websocketService.emitToAll('task:priority-changed', {
+      taskId,
+      priority,
+      reason,
+      founderId: user.id
+    });
 
     res.json({ success: true });
   } catch (error) {
@@ -886,9 +892,41 @@ router.get('/assignments', async (req: any, res) => {
       return res.status(503).json({ error: 'Database not available' });
     }
     
-    const assignments = await db.select().from(taskAssignments)
-      .where(eq(taskAssignments.founderId, user.id))
-      .orderBy(desc(taskAssignments.assignedAt));
+    // Get all cached boards to find active board IDs
+    const boards = await db.select({ id: atisBoards.id }).from(atisBoards);
+    const boardIds = boards.map((b: any) => b.id);
+    
+    if (boardIds.length === 0) {
+      return res.json([]);
+    }
+
+    // Get all cards left joined with taskAssignments for this founder
+    const cards = await db.select({
+      id: atisCards.id,
+      trelloId: atisCards.trelloId,
+      name: atisCards.name,
+      dueDate: atisCards.dueDate,
+      labels: atisCards.labels,
+      listName: atisCards.listName,
+      boardId: atisCards.boardId,
+      boardName: atisBoards.name,
+      
+      // Assignment info (if exists)
+      assignmentId: taskAssignments.id,
+      vaId: taskAssignments.vaId,
+      status: taskAssignments.status,
+      notes: taskAssignments.notes,
+    })
+      .from(atisCards)
+      .innerJoin(atisBoards, eq(atisCards.boardId, atisBoards.id))
+      .leftJoin(taskAssignments, and(
+        eq(atisCards.trelloId, taskAssignments.taskId),
+        eq(taskAssignments.founderId, user.id)
+      ))
+      .where(and(
+        eq(atisCards.isArchived, 0),
+        inArray(atisCards.boardId, boardIds)
+      ));
     
     // Get VA names
     const vas = await db.select().from(vaProfiles).where(eq(vaProfiles.founderId, user.id));
@@ -897,34 +935,72 @@ router.get('/assignments', async (req: any, res) => {
     // Get priority overrides
     const overrides = await db.select().from(founderPriorityOverrides)
       .where(eq(founderPriorityOverrides.founderId, user.id));
-    const overrideMap = new Map(overrides.map((o: typeof overrides[0]) => [o.taskId, o.priority]));
+    const overrideMap = new Map<string, string>(overrides.map((o: any) => [o.taskId, o.priority]));
     
-    // Parse taskId to extract card info (format: cardId:checklistId:checkItemId)
-    const result = await Promise.all(assignments.map(async (a: typeof assignments[0]) => {
-      const taskParts = a.taskId.split(':');
-      const cardId = taskParts[0] || '';
-      const summary = await fetchTrelloCardSummary(a.taskId);
+    // Get clients to map boardId to clientPriority
+    const allClients = await db.select().from(clients).where(eq(clients.founderId, user.id));
+    const boardToClientMap = new Map<string, typeof allClients[0]>();
+    for (const client of allClients) {
+      if (client.trelloBoardIds) {
+        try {
+          const bIds = JSON.parse(client.trelloBoardIds);
+          for (const bId of bIds) {
+            boardToClientMap.set(bId, client);
+          }
+        } catch(e) {}
+      }
+    }
+    
+    const result = cards.map((c: any) => {
+      const cardId = c.trelloId;
       
+      // Parse labels
+      let parsedLabels: string[] = [];
+      if (c.labels) {
+        try {
+          const lObj = JSON.parse(c.labels);
+          parsedLabels = Array.isArray(lObj) ? lObj.map((l: any) => l.name || l) : [];
+        } catch {
+          parsedLabels = [];
+        }
+      }
+      
+      // Determine priority
+      let priority = 'normal';
+      if (overrideMap.has(c.trelloId)) {
+        priority = overrideMap.get(c.trelloId) || 'normal';
+      } else if (parsedLabels.some((l: string) => /critical/i.test(l))) {
+        priority = 'critical';
+      } else if (parsedLabels.some((l: string) => /urgent/i.test(l))) {
+        priority = 'urgent';
+      } else if (parsedLabels.some((l: string) => /high/i.test(l))) {
+        priority = 'high';
+      }
+
       return {
-        id: a.id,
-        taskId: a.taskId,
-        taskTitle: summary?.title || a.notes || 'Task from Trello',
-        cardName: summary?.cardName || 'Trello Card',
+        id: c.assignmentId || c.trelloId, // Fallback to trelloId if unassigned so key is unique
+        taskId: c.trelloId,
+        taskTitle: c.name,
+        cardName: c.name,
         cardId: cardId,
-        vaId: a.vaId,
-        vaName: a.vaId ? vaMap.get(a.vaId) : null,
-        priority: overrideMap.get(a.taskId) || 'normal',
-        isPriorityOverride: overrideMap.has(a.taskId),
-        status: a.status,
-        estimatedMinutes: summary ? 60 : 60,
+        vaId: c.vaId || null,
+        vaName: c.vaId ? vaMap.get(c.vaId) : null,
+        workerId: c.vaId || null,
+        workerName: c.vaId ? vaMap.get(c.vaId) : null,
+        priority: priority,
+        isPriorityOverride: overrideMap.has(c.trelloId),
+        status: c.status || 'unassigned',
+        estimatedMinutes: 60,
         scheduledStart: null,
         scheduledEnd: null,
         blockedBy: [],
-        clientProject: null,
-        dueDate: summary?.dueDate || null,
-        labels: summary?.labels || [],
+        clientProject: c.boardName,
+        clientName: boardToClientMap.get(c.boardId)?.name,
+        clientPriority: boardToClientMap.get(c.boardId)?.priority || 'standard',
+        dueDate: c.dueDate ? new Date(c.dueDate).toISOString() : null,
+        labels: parsedLabels,
       };
-    }));
+    });
 
     res.json(result);
   } catch (error) {
@@ -1409,7 +1485,7 @@ router.get('/workload-overview', async (req: any, res) => {
         },
         totalTasks: assignments.length,
         statusCounts,
-      };
+      } as any;
     }));
 
     res.json(workload);
@@ -1477,20 +1553,65 @@ router.get('/worker/tasks', async (req: any, res) => {
     const assignments = await db.select().from(taskAssignments).where(eq(taskAssignments.vaId, vaId));
 
     const tasks = await Promise.all(assignments.map(async (a: typeof assignments[0]) => {
-      const summary = await fetchTrelloCardSummary(a.taskId);
+      const cardTrelloId = a.taskId.split(':')[0] || a.taskId.split('_')[0];
+      
+      // Fetch card and understanding from local DB
+      const card = await db.select().from(atisCards).where(eq(atisCards.trelloId, cardTrelloId)).limit(1);
+      const understanding = await db.select().from(atisCardUnderstanding).where(eq(atisCardUnderstanding.cardTrelloId, cardTrelloId)).limit(1);
+      
+      let boardName = '';
+      if (card.length > 0 && card[0].boardId) {
+        const board = await db.select().from(atisBoards).where(eq(atisBoards.id, card[0].boardId)).limit(1);
+        if (board.length > 0) boardName = board[0].name;
+      }
+
+      // Parse labels and priority
+      const labels = card.length > 0 && card[0].labels ? JSON.parse(card[0].labels) : [];
+      const priorityLevel = labels.some((l: string) => /critical/i.test(l)) ? 'CRITICAL' :
+                            labels.some((l: string) => /urgent/i.test(l)) ? 'URGENT' :
+                            labels.some((l: string) => /high/i.test(l)) ? 'HIGH' : 'NORMAL';
+
+      // Parse checklist
+      let checklist: any[] = [];
+      if (understanding.length > 0 && understanding[0].aptlssChecklist) {
+        try {
+          const parsed = JSON.parse(understanding[0].aptlssChecklist);
+          checklist = parsed.map((item: any, index: number) => ({
+            id: `${card.length > 0 ? card[0].id : cardTrelloId}-step-${index}`,
+            step: item.step || item.name || 'Step',
+            timeMinutes: item.timeMinutes || item.estimatedMinutes || 15,
+            aptlssType: item.aptlssType || item.priority || 'T',
+            completed: false
+          }));
+        } catch (e) {}
+      }
+
       return {
         id: a.taskId,
-        title: summary?.title || `Task ${a.taskId.split(':').pop()}`,
-        cardName: summary?.cardName || 'Trello Card',
-        durationHours: 1,
+        cardId: cardTrelloId,
+        cardName: card.length > 0 ? card[0].name : 'Trello Card',
+        boardName,
+        listName: card.length > 0 ? card[0].listName : '',
+        url: card.length > 0 ? card[0].url : '',
+        durationHours: understanding.length > 0 && understanding[0].estimatedMinutes ? understanding[0].estimatedMinutes / 60 : 1,
         startTime: 'TBD',
         endTime: 'TBD',
         isCompleted: a.status === 'completed',
-        priorityLevel: summary?.priority || 'NORMAL',
-        date: summary?.dueDate ? new Date(summary.dueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        priorityLevel,
+        date: card.length > 0 && card[0].dueDate ? new Date(card[0].dueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         status: a.status,
-        description: summary?.description || a.notes || '',
-        labels: summary?.labels || [],
+        description: card.length > 0 ? card[0].description : '',
+        labels,
+        checklist,
+        goal: understanding.length > 0 ? understanding[0].goal : '',
+        deliverable: understanding.length > 0 ? understanding[0].deliverable : '',
+        taskType: understanding.length > 0 ? understanding[0].taskType : '',
+        complexity: understanding.length > 0 ? understanding[0].complexity : 'medium',
+        confidenceScore: understanding.length > 0 ? understanding[0].confidenceScore : 100,
+        atisCardId: card.length > 0 ? card[0].id : undefined,
+        hasUnderstanding: understanding.length > 0,
+        synced: true,
+        handoffNotes: a.handoffNotes || ''
       };
     }));
 

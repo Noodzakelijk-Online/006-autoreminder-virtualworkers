@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, longtext, timestamp, varchar, decimal, boolean, date, uniqueIndex } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -224,6 +224,22 @@ export const taskAssignments = mysqlTable('task_assignments', {
   assignedBy: int('assignedBy').notNull(), // References users.id (who assigned)
   status: mysqlEnum('status', ['assigned', 'in_progress', 'completed', 'blocked']).default('assigned').notNull(),
   notes: text('notes'),
+  handoffNotes: text('handoffNotes'),
+  lastWorkedAt: timestamp('lastWorkedAt'),
+  decisionLog: text('decisionLog'), // JSON array of decisions
+  externalLinks: text('externalLinks'), // JSON array of external links
+  createdAt: timestamp('createdAt').defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Shift schedules for handoffs
+export const shiftSchedules = mysqlTable('shift_schedules', {
+  id: int('id').primaryKey().autoincrement(),
+  vaId: int('vaId').notNull(),
+  founderId: int('founderId').notNull(),
+  dayOfWeek: int('dayOfWeek').notNull(), // 0 = Sunday, 1 = Monday, etc.
+  shiftStart: varchar('shiftStart', { length: 5 }).notNull(), // "09:00"
+  shiftEnd: varchar('shiftEnd', { length: 5 }).notNull(), // "17:00"
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
 });
@@ -310,12 +326,279 @@ export const timeEntries = mysqlTable('time_entries', {
   taskId: varchar('taskId', { length: 128 }).notNull(),
   vaId: int('vaId').notNull(),
   founderId: int('founderId').notNull(),
+  cardId: varchar('cardId', { length: 64 }),
+  cardName: varchar('cardName', { length: 512 }),
+  cardUrl: varchar('cardUrl', { length: 1024 }),
+  boardName: varchar('boardName', { length: 256 }).default('Unknown Board'),
+  listName: varchar('listName', { length: 256 }).default('Unknown'),
   startTime: timestamp('startTime').notNull(),
   endTime: timestamp('endTime'),
-  durationMinutes: int('durationMinutes'), // Calculated when stopped
+  durationMinutes: int('durationMinutes'),
+  durationSeconds: int('durationSeconds'),
   notes: text('notes'),
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
+});
+
+// Payment cycles — each 2-week pay period per founder
+export const paymentCycles = mysqlTable("payment_cycles", {
+  id: int("id").autoincrement().primaryKey(),
+  founderId: int("founderId").notNull(),
+  cycleStart: date("cycleStart").notNull(),
+  cycleEnd: date("cycleEnd").notNull(),
+  baseAmount: decimal("baseAmount", { precision: 8, scale: 2 }).notNull().default("90.00"),
+  isPaid: boolean("isPaid").notNull().default(false),
+  paidAt: timestamp("paidAt"),
+  paidBy: varchar("paidBy", { length: 64 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// Weekly merit/demerit log per worker
+export const weeklyPayLog = mysqlTable("weekly_pay_log", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  founderId: int("founderId").notNull(),
+  weekStart: date("weekStart").notNull(),
+  weekEnd: date("weekEnd").notNull(),
+  paymentCycleId: int("paymentCycleId"),
+  baseAmount: decimal("baseAmount", { precision: 8, scale: 2 }).notNull().default("90.00"),
+  meritM1: decimal("meritM1", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  meritM2: decimal("meritM2", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  meritM3: decimal("meritM3", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  meritStreak: decimal("meritStreak", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD1: decimal("demeritD1", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD2: decimal("demeritD2", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD3: decimal("demeritD3", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD4: decimal("demeritD4", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD5: decimal("demeritD5", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD6: decimal("demeritD6", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD7: decimal("demeritD7", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD8: decimal("demeritD8", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD9: decimal("demeritD9", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD10: decimal("demeritD10", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  demeritD11: decimal("demeritD11", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  totalMerits: decimal("totalMerits", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  totalDemerits: decimal("totalDemerits", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  projectedPay: decimal("projectedPay", { precision: 8, scale: 2 }).notNull().default("90.00"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Daily triage state per worker
+export const dailyTriageState = mysqlTable("daily_triage_state", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  triageDate: date("triageDate").notNull(),
+  step1Done: boolean("step1Done").notNull().default(false),
+  step2Done: boolean("step2Done").notNull().default(false),
+  step3Done: boolean("step3Done").notNull().default(false),
+  step4Done: boolean("step4Done").notNull().default(false),
+  step5Done: boolean("step5Done").notNull().default(false),
+  focusTasks: text("focusTasks"),
+  eveningStep1Done: boolean("eveningStep1Done").notNull().default(false),
+  eveningStep2Done: boolean("eveningStep2Done").notNull().default(false),
+  eveningStep3Done: boolean("eveningStep3Done").notNull().default(false),
+  eveningStep4Done: boolean("eveningStep4Done").notNull().default(false),
+  eodReport: text("eodReport"),
+  currentView: varchar("currentView", { length: 32 }).notNull().default("overview"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_triage_date_idx').on(table.vaId, table.triageDate)
+]);
+
+// Sunday checklist state per worker
+export const sundayChecklist = mysqlTable("sunday_checklist", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  sundayDate: date("sundayDate").notNull(),
+  trelloArchived: boolean("trelloArchived").notNull().default(false),
+  trelloLabels: boolean("trelloLabels").notNull().default(false),
+  trelloDeadlines: boolean("trelloDeadlines").notNull().default(false),
+  trelloTimers: boolean("trelloTimers").notNull().default(false),
+  emailInbox: boolean("emailInbox").notNull().default(false),
+  whatsappCleared: boolean("whatsappCleared").notNull().default(false),
+  upworkArchived: boolean("upworkArchived").notNull().default(false),
+  downloadsCleared: boolean("downloadsCleared").notNull().default(false),
+  desktopCleared: boolean("desktopCleared").notNull().default(false),
+  browserTabsClosed: boolean("browserTabsClosed").notNull().default(false),
+  weekReviewed: boolean("weekReviewed").notNull().default(false),
+  nextWeekPlanned: boolean("nextWeekPlanned").notNull().default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_sunday_date_idx').on(table.vaId, table.sundayDate)
+]);
+
+// Tracks daily due date assignment per worker
+export const dailyDueDateAssignments = mysqlTable("daily_due_date_assignments", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull(),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
+  date: date("date").notNull(),
+  completed: boolean("completed").notNull().default(false),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_due_date_assign_idx').on(table.vaId, table.cardId, table.date)
+]);
+
+// Tracks daily Trello card update per worker
+export const dailyCardUpdates = mysqlTable("daily_card_updates", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull(),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
+  date: date("date").notNull(),
+  completed: boolean("completed").notNull().default(false),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_card_update_idx').on(table.vaId, table.cardId, table.date)
+]);
+
+// Tracks ON-HOLD checks per worker
+export const onHoldDailyChecks = mysqlTable("on_hold_daily_checks", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull(),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
+  date: date("date").notNull(),
+  checked: boolean("checked").notNull().default(false),
+  checkedAt: timestamp("checkedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_on_hold_check_idx').on(table.vaId, table.cardId, table.date)
+]);
+
+// Tracks update streaks per worker
+export const dailyUpdateStreak = mysqlTable("daily_update_streak", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  streakDate: date("streakDate").notNull(),
+  completedBeforeDeadline: boolean("completedBeforeDeadline").notNull().default(false),
+  completedAt: timestamp("completedAt"),
+  doingCardCount: int("doingCardCount").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_streak_date_idx').on(table.vaId, table.streakDate)
+]);
+
+// App settings per worker (or global if vaId is null)
+export const appSettings = mysqlTable("app_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId"),
+  key: varchar("key", { length: 128 }).notNull().unique(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Daily compliance snapshot per worker
+export const dailyComplianceSnapshots = mysqlTable("daily_compliance_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  founderId: int("founderId").notNull(),
+  snapshotDate: date("snapshotDate").notNull(),
+  onHoldTotal: int("onHoldTotal").notNull().default(0),
+  onHoldReviewed: int("onHoldReviewed").notNull().default(0),
+  onHoldMissedCards: text("onHoldMissedCards"),
+  doingTotal: int("doingTotal").notNull().default(0),
+  doingUpdated: int("doingUpdated").notNull().default(0),
+  doingMissedCards: text("doingMissedCards"),
+  d1Instances: int("d1Instances").notNull().default(0),
+  estimatedPenalty: decimal("estimatedPenalty", { precision: 8, scale: 2 }).notNull().default("0.00"),
+  source: varchar("source", { length: 16 }).notNull().default("auto"),
+  weeklyPayLogId: int("weeklyPayLogId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_compliance_snapshot_idx').on(table.vaId, table.snapshotDate)
+]);
+
+// Tracks Trello comment threads per worker
+export const replyThreads = mysqlTable("reply_threads", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  source: mysqlEnum("source", ["trello", "upwork"]).notNull().default("trello"),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull(),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
+  boardName: varchar("boardName", { length: 256 }).notNull().default(""),
+  listName: varchar("listName", { length: 256 }).notNull().default(""),
+  lastNonJoyceMsgAt: timestamp("lastNonJoyceMsgAt").notNull(),
+  lastNonJoyceAuthor: varchar("lastNonJoyceAuthor", { length: 256 }).notNull().default(""),
+  lastNonJoyceText: text("lastNonJoyceText"),
+  lastJoyceReplyAt: timestamp("lastJoyceReplyAt"),
+  status: mysqlEnum("status", ["pending", "replied", "overdue"]).notNull().default("pending"),
+  demerited: boolean("demerited").notNull().default(false),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_reply_thread_idx').on(table.vaId, table.cardId, table.source)
+]);
+
+// Tracks vague replies per worker
+export const vagueReplyFlags = mysqlTable("vague_reply_flags", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  source: mysqlEnum("source", ["trello", "upwork"]).notNull().default("trello"),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull(),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
+  actionId: varchar("actionId", { length: 64 }).notNull().unique(),
+  messageText: text("messageText").notNull(),
+  flaggedAt: timestamp("flaggedAt").notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  resolvedBy: mysqlEnum("resolvedBy", ["manual", "auto_demerit"]),
+  demeritIssued: boolean("demeritIssued").notNull().default(false),
+  demeritIssuedAt: timestamp("demeritIssuedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Gmail email tasks per worker
+export const emailTasks = mysqlTable("email_tasks", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  gmailMessageId: varchar("gmailMessageId", { length: 128 }).notNull().unique(),
+  gmailThreadId: varchar("gmailThreadId", { length: 128 }).notNull(),
+  subject: varchar("subject", { length: 1024 }).notNull().default("(no subject)"),
+  fromAddress: varchar("fromAddress", { length: 320 }).notNull().default(""),
+  fromName: varchar("fromName", { length: 256 }).notNull().default(""),
+  snippet: text("snippet"),
+  receivedAt: timestamp("receivedAt").notNull(),
+  category: mysqlEnum("category", ["financial", "non_financial"]).notNull().default("non_financial"),
+  status: mysqlEnum("status", ["pending", "processed", "archived"]).notNull().default("pending"),
+  deadlineAt: timestamp("deadlineAt"),
+  trelloCardId: varchar("trelloCardId", { length: 64 }),
+  trelloCardName: varchar("trelloCardName", { length: 512 }),
+  trelloCardUrl: varchar("trelloCardUrl", { length: 1024 }),
+  suggestedNextAction: text("suggestedNextAction"),
+  llmSummary: text("llmSummary"),
+  processedAt: timestamp("processedAt"),
+  archivedAt: timestamp("archivedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Card snoozes per worker
+export const cardSnoozes = mysqlTable("card_snoozes", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull(),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
+  snoozedAt: timestamp("snoozedAt").defaultNow().notNull(),
+  snoozedUntil: date("snoozedUntil").notNull(),
+  isActive: boolean("isActive").notNull().default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 // Handoff notes
@@ -352,6 +635,23 @@ export type TimeEntry = typeof timeEntries.$inferSelect;
 export type InsertTimeEntry = typeof timeEntries.$inferInsert;
 export type HandoffNote = typeof handoffNotes.$inferSelect;
 export type InsertHandoffNote = typeof handoffNotes.$inferInsert;
+export type PaymentCycle = typeof paymentCycles.$inferSelect;
+export type WeeklyPayLog = typeof weeklyPayLog.$inferSelect;
+export type DailyTriageState = typeof dailyTriageState.$inferSelect;
+export type SundayChecklist = typeof sundayChecklist.$inferSelect;
+export type DailyDueDateAssignment = typeof dailyDueDateAssignments.$inferSelect;
+export type DailyCardUpdate = typeof dailyCardUpdates.$inferSelect;
+export type OnHoldDailyCheck = typeof onHoldDailyChecks.$inferSelect;
+export type DailyUpdateStreak = typeof dailyUpdateStreak.$inferSelect;
+export type AppSetting = typeof appSettings.$inferSelect;
+export type DailyComplianceSnapshot = typeof dailyComplianceSnapshots.$inferSelect;
+export type ReplyThread = typeof replyThreads.$inferSelect;
+export type InsertReplyThread = typeof replyThreads.$inferInsert;
+export type VagueReplyFlag = typeof vagueReplyFlags.$inferSelect;
+export type InsertVagueReplyFlag = typeof vagueReplyFlags.$inferInsert;
+export type EmailTask = typeof emailTasks.$inferSelect;
+export type InsertEmailTask = typeof emailTasks.$inferInsert;
+export type CardSnooze = typeof cardSnoozes.$inferSelect;
 
 
 // ============================================
