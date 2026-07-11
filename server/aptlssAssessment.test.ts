@@ -87,4 +87,23 @@ describe("APTLSS evidence assessment", () => {
     expect(first.contextHash).toBe(same.contextHash);
     expect(changed.contextHash).not.toBe(first.contextHash);
   });
+
+  it("recalibrates confidence from a credible human-review sample", () => {
+    const baseline = assessAptlssCard({ ctx: context(), steps, nowMs: NOW });
+    const calibrated = assessAptlssCard({
+      ctx: context(),
+      steps,
+      nowMs: NOW,
+      calibration: { sampleSize: 30, accuracyScore: 35, byState: {} },
+    });
+    expect(calibrated.calibration).toMatchObject({ applied: true, scope: "global", sampleSize: 30, validatedAccuracy: 35 });
+    expect(calibrated.confidenceScore).toBeLessThan(baseline.confidenceScore);
+  });
+
+  it("does not claim near-certainty without completed-work timing evidence", () => {
+    const result = assessAptlssCard({ ctx: context(), steps, nowMs: NOW });
+    expect(result.forecast.calibrationSampleSize).toBe(0);
+    expect(result.confidenceScore).toBeLessThanOrEqual(88);
+    expect(result.confidenceReason).toContain("not yet applied");
+  });
 });

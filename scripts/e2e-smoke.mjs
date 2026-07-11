@@ -116,7 +116,18 @@ try {
   await waitForText("Choose one configuration area at a time");
   await page.goto(new URL("/admin", baseUrl).toString(), { waitUntil: "networkidle2", timeout: 30_000 });
   await waitForText("APTLSS Intelligence Health");
-  await waitForText("Evidence coverage");
+  await waitForText("Validated accuracy");
+  await waitForText("Assessment Review Queue");
+  await waitForText("Incorrect");
+  await clickButton("Incorrect");
+  await waitForText("Correct assessment");
+  const correctionIsGated = await page.evaluate(() => {
+    const button = [...document.querySelectorAll("button")].find((item) => item.textContent?.includes("Record correction"));
+    return button instanceof HTMLButtonElement && button.disabled;
+  });
+  if (!correctionIsGated) throw new Error("Assessment correction can be submitted without selecting a corrected state.");
+  await clickButton("Cancel");
+  await page.waitForSelector('[role="dialog"]', { hidden: true, timeout: 5_000 });
   await page.screenshot({ path: path.join(outputDir, "desktop-aptlss-health-dark.png"), fullPage: true });
   await page.goto(baseUrl, { waitUntil: "networkidle2", timeout: 30_000 });
   await clickButton("Decisions");
@@ -143,7 +154,7 @@ try {
     ok: true,
     url: page.url(),
     screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "desktop-aptlss-health-dark.png", "mobile.png"].map((name) => path.join(outputDir, name)),
-    checks: ["secured login", "Today", "card inspector", "Day plan", "Inbox", "Decisions classifier 7/7", "Time & Pay", "Standards", "Settings", "APTLSS intelligence health", "dark mode", "desktop overflow", "mobile overflow", "console"],
+    checks: ["secured login", "Today", "card inspector", "Day plan", "Inbox", "Decisions classifier 7/7", "Time & Pay", "Standards", "Settings", "APTLSS intelligence health", "assessment review gate", "dark mode", "desktop overflow", "mobile overflow", "console"],
   }, null, 2));
 } catch (error) {
   const failurePath = path.join(outputDir, "failure.png");

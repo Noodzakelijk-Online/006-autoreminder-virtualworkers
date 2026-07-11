@@ -81,6 +81,17 @@ export async function getOpenStepsForCard(cardId: string) {
     .orderBy(aptlssSteps.stepNumber);
 }
 
+/** Load all current steps once for cross-card dependency and effort analysis. */
+export async function getAllAptlssSteps() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(aptlssSteps)
+    .where(inArray(aptlssSteps.status, ["open", "complete"]))
+    .orderBy(aptlssSteps.cardId, aptlssSteps.stepNumber);
+}
+
 /** Get all manual (human-added) steps for a card — used to preserve them during checklist sync. */
 export async function getManualStepsForCard(cardId: string) {
   const db = await getDb();

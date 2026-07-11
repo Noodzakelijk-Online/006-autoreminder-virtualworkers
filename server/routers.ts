@@ -16,6 +16,9 @@ import { assessAptlssCard, APTLSS_ASSESSMENT_VERSION, buildAssessmentContextHash
 import { getAssessmentHistory, getLatestAssessment, getLatestAssessments } from "./aptlssAssessmentDb";
 import { normalizeGeneratedAptlssPlan } from "./aptlssPlanNormalizer";
 import { canReuseAptlssPlan } from "./aptlssPlanFreshness";
+import { loadAptlssIntelligenceForCard } from "./aptlssIntelligenceContext";
+import { queueCardReassessment } from "./aptlssReassessment";
+import { APTLSS_CARD_STATES } from "./aptlssStateValues";
 import {
   getAllEmailTasks,
   getPendingEmailTasks,
@@ -81,6 +84,12 @@ import {
   getDecisionHistory,
   recordDecisionOutcome,
 } from "./decisionOutcomesDb";
+import {
+  AssessmentFeedbackError,
+  getAssessmentCalibration,
+  getAssessmentReviewQueue,
+  recordAssessmentFeedback,
+} from "./aptlssFeedbackDb";
 import { invokeLLM } from "./_core/llm";
 import {
   getAllPolicies,
@@ -587,20 +596,24 @@ export const appRouter = router({
         listName: z.string().default("Unknown"),
       }))
       .mutation(async ({ input }) => {
-        return await startTimer(
+        const entry = await startTimer(
           input.cardId,
           input.cardName,
           input.cardUrl,
           input.boardName,
           input.listName
         );
+        queueCardReassessment(input.cardId);
+        return entry;
       }),
 
     /** Stop the running timer for a card. Returns the completed entry or null if none was running. */
     stop: protectedProcedure
       .input(z.object({ cardId: z.string() }))
       .mutation(async ({ input }) => {
-        return await stopTimer(input.cardId);
+        const entry = await stopTimer(input.cardId);
+        queueCardReassessment(input.cardId);
+        return entry;
       }),
 
     /** Get the currently running timer entry (if any). */
@@ -933,6 +946,7 @@ export const appRouter = router({
         const ctx = await fetchCardContext(input.cardId, apiKey, apiToken);
         const existingSteps = await getOpenStepsForCard(input.cardId);
         const currentContextHash = buildAssessmentContextHash(ctx, existingSteps);
+        const intelligence = await loadAptlssIntelligenceForCard({ cardId: ctx.id, cardName: ctx.name });
 
         // A plan is reusable only while both time and material context remain fresh.
         if (!input.forceRefresh) {
@@ -949,7 +963,13 @@ export const appRouter = router({
               currentEngineVersion: APTLSS_ASSESSMENT_VERSION,
               nextAssessmentAt: latestAssessment.nextAssessmentAt,
             })) {
-              const assessment = await assessAndSaveCardIntelligence(ctx, "generation");
+              const assessment = await assessAndSaveCardIntelligence(ctx, "generation", {
+                steps: intelligence.steps.length ? intelligence.steps : existingSteps,
+                portfolio: intelligence.portfolio,
+                runtime: intelligence.runtime,
+                forecast: intelligence.forecast,
+                calibration: intelligence.calibration,
+              });
               const steps = await getOpenStepsForCard(input.cardId);
               const progress = await getCardStepProgress(input.cardId);
               return {
@@ -969,7 +989,15 @@ export const appRouter = router({
         }
 
         const contextText = formatContextForLLM(ctx);
-        const preAssessment = assessAptlssCard({ ctx, steps: existingSteps, trigger: "generation" });
+        const preAssessment = assessAptlssCard({
+          ctx,
+          steps: intelligence.steps.length ? intelligence.steps : existingSteps,
+          trigger: "generation",
+          portfolio: intelligence.portfolio,
+          runtime: intelligence.runtime,
+          forecast: intelligence.forecast,
+          calibration: intelligence.calibration,
+        });
 
         // Fetch worker performance signals to calibrate time estimates and risk scores (Item 14)
         const workerSignals = await getAllWorkerPerformance();
@@ -1040,6 +1068,10 @@ Respond ONLY with valid JSON matching the schema exactly.`,
                 actionability: preAssessment.actionability,
                 priorityScore: preAssessment.priorityScore,
                 evidenceConfidence: preAssessment.confidenceScore,
+                validatedCalibration: preAssessment.calibration,
+                portfolio: preAssessment.portfolio,
+                runtime: preAssessment.runtime,
+                forecast: preAssessment.forecast,
                 uncertainties: preAssessment.uncertainties,
                 recommendations: preAssessment.recommendations,
               })}`,
@@ -1173,7 +1205,14 @@ Respond ONLY with valid JSON matching the schema exactly.`,
         await upsertAptlssSteps(ctx.id, dbSteps);
 
         // Run state machine and priority scoring
-        const assessment = await assessAndSaveCardIntelligence(ctx, "generation");
+        const refreshedIntelligence = await loadAptlssIntelligenceForCard({ cardId: ctx.id, cardName: ctx.name });
+        const assessment = await assessAndSaveCardIntelligence(ctx, "generation", {
+          steps: refreshedIntelligence.steps,
+          portfolio: refreshedIntelligence.portfolio,
+          runtime: refreshedIntelligence.runtime,
+          forecast: refreshedIntelligence.forecast,
+          calibration: refreshedIntelligence.calibration,
+        });
         const cardState = assessment.primaryState;
         const priorityScore = assessment.priorityScore;
         const priorityTier = assessment.priorityTier;
@@ -1266,6 +1305,37 @@ Respond ONLY with valid JSON matching the schema exactly.`,
       .input(z.object({ cardId: z.string().min(1), limit: z.number().int().min(1).max(100).optional() }))
       .query(({ input }) => getAssessmentHistory(input.cardId, input.limit ?? 20)),
 
+    /** Human validation of an immutable assessment snapshot for calibration. */
+    recordAssessmentFeedback: protectedProcedure
+      .input(z.object({
+        assessmentId: z.number().int().positive(),
+        verdict: z.enum(["accurate", "partial", "inaccurate"]),
+        correctedState: z.enum(APTLSS_CARD_STATES).optional(),
+        note: z.string().trim().max(2_000).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        assertOwnerAccess(ctx.user, "APTLSS assessment feedback");
+        try {
+          return await recordAssessmentFeedback({ ...input, createdBy: ctx.user.openId });
+        } catch (error) {
+          if (error instanceof AssessmentFeedbackError) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          }
+          throw error;
+        }
+      }),
+
+    /** Aggregate measured accuracy and confidence calibration. */
+    getAssessmentCalibration: protectedProcedure.query(({ ctx }) => {
+      assertOwnerAccess(ctx.user, "APTLSS assessment calibration");
+      return getAssessmentCalibration(5_000, APTLSS_ASSESSMENT_VERSION);
+    }),
+
+    getAssessmentReviewQueue: protectedProcedure.query(({ ctx }) => {
+      assertOwnerAccess(ctx.user, "APTLSS assessment review queue");
+      return getAssessmentReviewQueue(8, APTLSS_ASSESSMENT_VERSION);
+    }),
+
     /** Current cross-card intelligence ordered by intervention urgency. */
     getAssessmentOverview: protectedProcedure.query(() => getLatestAssessments()),
 
@@ -1295,11 +1365,13 @@ Respond ONLY with valid JSON matching the schema exactly.`,
       }))
       .mutation(async ({ input, ctx }) => {
         try {
-          return await recordDecisionOutcome({
+          const result = await recordDecisionOutcome({
             stepId: input.stepId,
             outcome: input.outcome,
             resolvedBy: ctx.user.openId,
           });
+          queueCardReassessment(result.cardId);
+          return result;
         } catch (error) {
           if (error instanceof DecisionOutcomeError) {
             throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -2335,13 +2407,15 @@ Respond ONLY with valid JSON matching the schema exactly.`,
       const apiToken = process.env.TrelloAPIToken;
 
       // Sync stats
-      const [syncStats, lastSync, recentSyncs, recentAudit, assessments, states] = await Promise.all([
+      const [syncStats, lastSync, recentSyncs, recentAudit, assessments, states, calibration, assessmentReviewQueue] = await Promise.all([
         getSyncStats24h(),
         getLastSuccessfulSync(),
         getRecentSyncLog(20),
         getRecentAuditLog(50),
         getLatestAssessments(),
         getAllCardStates(),
+        getAssessmentCalibration(5_000, APTLSS_ASSESSMENT_VERSION),
+        getAssessmentReviewQueue(8, APTLSS_ASSESSMENT_VERSION),
       ]);
       const now = Date.now();
       const assessmentHealth = {
@@ -2355,6 +2429,11 @@ Respond ONLY with valid JSON matching the schema exactly.`,
           ? Math.round(assessments.reduce((sum, assessment) => sum + assessment.confidenceScore, 0) / assessments.length)
           : 0,
         outdatedEngineCards: assessments.filter((assessment) => assessment.engineVersion !== APTLSS_ASSESSMENT_VERSION).length,
+        dependencyCycleCards: assessments.filter((assessment) => assessment.intelligenceValue.portfolio?.isInDependencyCycle).length,
+        portfolioBottlenecks: assessments.filter((assessment) => (assessment.intelligenceValue.portfolio?.bottleneckScore ?? 0) >= 40).length,
+        activeTimerCards: assessments.filter((assessment) => assessment.intelligenceValue.runtime?.activeTimer).length,
+        forecastCalibratedCards: assessments.filter((assessment) => (assessment.intelligenceValue.forecast?.calibrationSampleSize ?? 0) > 0).length,
+        forecastCalibrationSamples: Math.max(0, ...assessments.map((assessment) => assessment.intelligenceValue.forecast?.calibrationSampleSize ?? 0)),
       };
 
       // Webhook status
@@ -2386,6 +2465,8 @@ Respond ONLY with valid JSON matching the schema exactly.`,
         cardsSkipped,
         failedRecs,
         assessmentHealth,
+        calibration,
+        assessmentReviewQueue,
         recentAuditLog: recentAudit,
         ownerName: process.env.OWNER_NAME ?? 'Owner',
       };

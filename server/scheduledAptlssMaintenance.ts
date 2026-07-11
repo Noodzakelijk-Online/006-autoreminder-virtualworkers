@@ -22,6 +22,8 @@ import {
   getNeedsRepairCards,
   getAllRobertDecisionSteps,
   getAllPriorityScores,
+  getAllCardStates,
+  getAllAptlssSteps,
 } from "./aptlssStepsDb";
 import {
   upsertWorkerPerformance,
@@ -32,9 +34,14 @@ import {
 } from "./aptlssPoliciesDb";
 import { invokeLLM } from "./_core/llm";
 import { recordSyncAttempt } from "./aptlssAuditDb";
-import { generateDailyPlan, getEatDateKey } from "./dailyPlan";
+import { generateDailyPlan, getEatDateKey, getSavedDailyPlan } from "./dailyPlan";
 import { assertScheduledTaskAuthorized } from "./_core/scheduledAuth";
 import { getAllReplyThreads } from "./replyMonitorDb";
+import { getAllRunningTimers, getTimeEntriesSince } from "./db";
+import { analyzeAptlssPortfolio } from "./aptlssPortfolio";
+import { buildAptlssRuntimeAnalysis } from "./aptlssRuntime";
+import { getAssessmentCalibration } from "./aptlssFeedbackDb";
+import { APTLSS_ASSESSMENT_VERSION } from "./aptlssAssessment";
 
 const CARD_FETCH_INTERVAL_MS = 450;
 let nextCardFetchAt = 0;
@@ -116,6 +123,10 @@ export type AptlssMaintenanceResult = {
   noNextActionCount: number;
   dailyPlanGenerated: boolean;
   robertQueueCount: number;
+  dependencyCyclesDetected: number;
+  orphanDependencyReferences: number;
+  portfolioBottlenecks: number;
+  forecastCalibrationSamples: number;
   timestamp: string;
 };
 
@@ -136,10 +147,23 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
       throw new Error("Trello credentials not configured");
     }
 
-    const [plans, liveCards] = await Promise.all([
+    const intelligenceNow = Date.now();
+    const [plans, liveCards, allSteps, existingStates, timeEntries, runningTimers, savedPlan, assessmentCalibration] = await Promise.all([
       getAllAptlssPlans(),
       getJoyceCards(apiKey, apiToken),
+      getAllAptlssSteps(),
+      getAllCardStates(),
+      getTimeEntriesSince(new Date(intelligenceNow - 90 * 86_400_000)),
+      getAllRunningTimers(),
+      getSavedDailyPlan(getEatDateKey()),
+      getAssessmentCalibration(5_000, APTLSS_ASSESSMENT_VERSION),
     ]);
+    let replyThreads: Awaited<ReturnType<typeof getAllReplyThreads>> = [];
+    try {
+      replyThreads = await getAllReplyThreads(500);
+    } catch (error) {
+      console.warn("[APTLSS Maintenance] Reply context unavailable:", error instanceof Error ? error.message : String(error));
+    }
     const candidates = liveCards.length > 0
       ? liveCards.map((card) => ({ cardId: card.id, cardName: card.name, boardName: card.boardName, listName: card.list?.name }))
       : plans.map((plan) => ({ cardId: plan.cardId, cardName: plan.cardName, boardName: plan.boardName, listName: plan.listName }));
@@ -153,6 +177,26 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
         }
       }).map((plan) => plan.cardId),
     );
+    const stepsByCard = new Map<string, typeof allSteps>();
+    for (const step of allSteps) {
+      stepsByCard.set(step.cardId, [...(stepsByCard.get(step.cardId) ?? []), step]);
+    }
+    const stateByCard = new Map(existingStates.map((state) => [state.cardId, state]));
+    const portfolioAnalysis = analyzeAptlssPortfolio(candidates.map((candidate) => ({
+      id: candidate.cardId,
+      name: candidate.cardName,
+      state: stateByCard.get(candidate.cardId)?.state,
+      steps: stepsByCard.get(candidate.cardId) ?? [],
+    })));
+    const runtimeAnalysis = buildAptlssRuntimeAnalysis({
+      cardIds: candidates.map((candidate) => candidate.cardId),
+      steps: allSteps,
+      timeEntries,
+      activeTimers: runningTimers,
+      replyThreads,
+      scheduleBlocks: savedPlan?.blocks ?? [],
+      nowMs: intelligenceNow,
+    });
     const duplicateMap = new Map<string, string[]>();
     let duplicatesDetected = 0;
     for (let left = 0; left < candidates.length; left++) {
@@ -172,6 +216,8 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
       confidenceScore: number;
       secondarySignals: string[];
       lastMeaningfulProgressAt: string | null;
+      forecastP50Minutes: number;
+      bottleneckScore: number;
     }> = [];
 
     // ── 1. Refresh all card states and priority scores ────────────────────────
@@ -183,12 +229,18 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
         if (!candidate) return;
         try {
           const ctx = await fetchContextWithRateLimit(candidate, apiKey, apiToken);
+          const runtime = runtimeAnalysis.byCard.get(candidate.cardId);
           const assessment = await assessAndSaveCardIntelligence(
             ctx,
             source === "manual" ? "manual" : "scheduled",
             {
               duplicateCardNames: duplicateMap.get(candidate.cardId) ?? [],
               planMissingNextAction: missingNextActionIds.has(candidate.cardId),
+              steps: stepsByCard.get(candidate.cardId) ?? [],
+              portfolio: portfolioAnalysis.byCard.get(candidate.cardId),
+              runtime: runtime?.runtime,
+              forecast: runtime?.forecast,
+              calibration: assessmentCalibration,
             },
           );
           cardStateResults.push({
@@ -198,6 +250,8 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
             confidenceScore: assessment.confidenceScore,
             secondarySignals: assessment.secondarySignals,
             lastMeaningfulProgressAt: assessment.lastMeaningfulProgressAt,
+            forecastP50Minutes: assessment.forecast.calibratedP50Minutes,
+            bottleneckScore: assessment.portfolio.bottleneckScore,
           });
           refreshed++;
         } catch (error) {
@@ -242,7 +296,7 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
         avgResponseTimeMinutes,
         checklistItemsCompleted,
         unclearHandovers: repairCards.length,
-        notes: `Evidence-based maintenance assessment. Refreshed ${refreshed}/${candidates.length} active cards; ${lowConfidenceCount} low-confidence.`,
+        notes: `Evidence-based maintenance assessment. Refreshed ${refreshed}/${candidates.length}; ${lowConfidenceCount} low-confidence; ${portfolioAnalysis.cycles.length} dependency cycles; ${portfolioAnalysis.bottlenecks.length} bottlenecks; effort calibration n=${runtimeAnalysis.calibration.sampleSize}.`,
         calculatedAt: new Date(),
       });
     } catch (e) {
@@ -366,6 +420,10 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
       noNextActionCount,
       dailyPlanGenerated,
       robertQueueCount,
+      dependencyCyclesDetected: portfolioAnalysis.cycles.length,
+      orphanDependencyReferences: portfolioAnalysis.orphanReferenceCount,
+      portfolioBottlenecks: portfolioAnalysis.bottlenecks.length,
+      forecastCalibrationSamples: runtimeAnalysis.calibration.sampleSize,
       timestamp: new Date().toISOString(),
     };
 }

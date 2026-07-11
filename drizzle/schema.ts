@@ -558,6 +558,8 @@ export const aptlssAssessments = mysqlTable("aptlss_assessments", {
   confidenceReason: text("confidenceReason").notNull(),
   evidenceCoverage: text("evidenceCoverage").notNull(),
   evidenceJson: text("evidenceJson").notNull(),
+  /** Portfolio, runtime, communication, schedule, and forecast context. */
+  intelligenceJson: text("intelligenceJson"),
   uncertaintiesJson: text("uncertaintiesJson").notNull(),
   recommendationsJson: text("recommendationsJson").notNull(),
   lastMeaningfulProgressAt: timestamp("lastMeaningfulProgressAt"),
@@ -575,6 +577,27 @@ export const aptlssAssessments = mysqlTable("aptlss_assessments", {
 ]);
 export type AptlssAssessmentSnapshot = typeof aptlssAssessments.$inferSelect;
 export type InsertAptlssAssessmentSnapshot = typeof aptlssAssessments.$inferInsert;
+
+/** Human review of an immutable assessment snapshot, used for calibration. */
+export const aptlssAssessmentFeedback = mysqlTable("aptlss_assessment_feedback", {
+  id: int("id").autoincrement().primaryKey(),
+  assessmentId: int("assessmentId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull().default(""),
+  engineVersion: varchar("engineVersion", { length: 32 }).notNull(),
+  predictedState: varchar("predictedState", { length: 64 }).notNull(),
+  predictedConfidence: int("predictedConfidence").notNull(),
+  verdict: mysqlEnum("verdict", ["accurate", "partial", "inaccurate"]).notNull(),
+  correctedState: varchar("correctedState", { length: 64 }),
+  note: text("note"),
+  createdBy: varchar("createdBy", { length: 128 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("aptlss_assessment_feedback_assessment_idx").on(table.assessmentId),
+  index("aptlss_assessment_feedback_card_created_idx").on(table.cardId, table.createdAt),
+]);
+export type AptlssAssessmentFeedback = typeof aptlssAssessmentFeedback.$inferSelect;
+export type InsertAptlssAssessmentFeedback = typeof aptlssAssessmentFeedback.$inferInsert;
 
 // ─── APTLSS Operational Policies ─────────────────────────────────────────────
 /**

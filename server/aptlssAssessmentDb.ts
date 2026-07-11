@@ -16,6 +16,7 @@ export type HydratedAssessment = AptlssAssessmentSnapshot & {
   priorityBreakdownValue: Record<string, number>;
   evidenceCoverageValue: Record<string, boolean>;
   evidenceValue: AptlssAssessment["evidence"];
+  intelligenceValue: Partial<Pick<AptlssAssessment, "portfolio" | "runtime" | "forecast" | "calibration">>;
   uncertaintiesValue: string[];
   recommendationsValue: string[];
   changeValue: Record<string, { before: unknown; after: unknown }>;
@@ -28,6 +29,7 @@ export function hydrateAssessment(row: AptlssAssessmentSnapshot): HydratedAssess
     priorityBreakdownValue: parseJson(row.priorityBreakdown, {}),
     evidenceCoverageValue: parseJson(row.evidenceCoverage, {}),
     evidenceValue: parseJson(row.evidenceJson, []),
+    intelligenceValue: parseJson(row.intelligenceJson ?? "{}", {}),
     uncertaintiesValue: parseJson(row.uncertaintiesJson, []),
     recommendationsValue: parseJson(row.recommendationsJson, []),
     changeValue: parseJson(row.changeJson, {}),
@@ -91,6 +93,12 @@ function materialChanges(previous: HydratedAssessment | null, current: AptlssAss
     ["priorityScore", previous.priorityScore, current.priorityScore],
     ["priorityTier", previous.priorityTier, current.priorityTier],
     ["confidenceScore", previous.confidenceScore, current.confidenceScore],
+    ["intelligence", previous.intelligenceValue, {
+      portfolio: current.portfolio,
+      runtime: current.runtime,
+      forecast: current.forecast,
+      calibration: current.calibration,
+    }],
     ["recommendations", previous.recommendationsValue, current.recommendations],
   ];
   return Object.fromEntries(
@@ -138,6 +146,12 @@ export async function saveAssessmentSnapshot(cardName: string, assessment: Aptls
     confidenceReason: assessment.confidenceReason,
     evidenceCoverage: JSON.stringify(assessment.evidenceCoverage),
     evidenceJson: JSON.stringify(assessment.evidence),
+    intelligenceJson: JSON.stringify({
+      portfolio: assessment.portfolio,
+      runtime: assessment.runtime,
+      forecast: assessment.forecast,
+      calibration: assessment.calibration,
+    }),
     uncertaintiesJson: JSON.stringify(assessment.uncertainties),
     recommendationsJson: JSON.stringify(assessment.recommendations),
     lastMeaningfulProgressAt: assessment.lastMeaningfulProgressAt ? new Date(assessment.lastMeaningfulProgressAt) : null,

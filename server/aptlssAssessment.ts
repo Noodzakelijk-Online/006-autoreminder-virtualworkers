@@ -1,7 +1,9 @@
 import { createHash } from "crypto";
 import type { CardStateValue, PriorityTier, TrelloCardContext } from "./aptlssEngine";
+import type { AptlssPortfolioSignal } from "./aptlssPortfolio";
+import type { AptlssForecast, AptlssRuntimeSignal } from "./aptlssRuntime";
 
-export const APTLSS_ASSESSMENT_VERSION = "3.0.0";
+export const APTLSS_ASSESSMENT_VERSION = "4.0.0";
 
 export type AssessmentTrigger = "generation" | "webhook" | "scheduled" | "manual";
 
@@ -18,11 +20,26 @@ export type AssessmentStep = {
 
 export type AssessmentEvidence = {
   key: string;
-  source: "trello" | "aptlss" | "derived";
+  source: "trello" | "aptlss" | "derived" | "runtime" | "portfolio" | "schedule";
   value: string | number | boolean | null;
   quality: "strong" | "moderate" | "weak";
   detail: string;
   observedAt?: string;
+};
+
+export type AssessmentCalibrationContext = {
+  sampleSize: number;
+  accuracyScore: number | null;
+  byState: Record<string, { samples: number; accuracyScore: number; commonCorrection?: string | null }>;
+};
+
+export type AppliedAssessmentCalibration = {
+  applied: boolean;
+  scope: "state" | "global" | "none";
+  sampleSize: number;
+  validatedAccuracy: number | null;
+  confidenceBeforeCalibration: number;
+  confidenceAfterCalibration: number;
 };
 
 export type AptlssAssessment = {
@@ -43,11 +60,44 @@ export type AptlssAssessment = {
   evidence: AssessmentEvidence[];
   uncertainties: string[];
   recommendations: string[];
+  portfolio: AptlssPortfolioSignal;
+  runtime: AptlssRuntimeSignal;
+  forecast: AptlssForecast;
+  calibration: AppliedAssessmentCalibration;
   lastMeaningfulProgressAt: string | null;
   daysSinceMeaningfulProgress: number;
   nextAssessmentAt: string;
   assessedAt: string;
   trigger: AssessmentTrigger;
+};
+
+const EMPTY_PORTFOLIO: AptlssPortfolioSignal = {
+  directDependentCount: 0,
+  transitiveDependentCount: 0,
+  unresolvedDependencyIds: [],
+  unresolvedDependencyNames: [],
+  orphanReferences: [],
+  criticalPathDepth: 0,
+  isInDependencyCycle: false,
+  cycleCardIds: [],
+  bottleneckScore: 0,
+};
+
+const EMPTY_RUNTIME: AptlssRuntimeSignal = {
+  trackedMinutes: 0,
+  recentTrackedMinutes: 0,
+  sessionCount: 0,
+  activeTimer: false,
+  activeTimerMinutes: 0,
+  replyStatus: null,
+  replyAgeHours: null,
+  replyOverdue: false,
+  openDecisionAgeHours: null,
+  decisionStale: false,
+  scheduledToday: false,
+  scheduledMinutes: 0,
+  scheduleStatus: null,
+  estimateOverrun: false,
 };
 
 const DAY_MS = 86_400_000;
@@ -194,6 +244,10 @@ export function assessAptlssCard({
   ctx,
   steps,
   dependentCardCount = 0,
+  portfolio,
+  runtime,
+  forecast,
+  calibration,
   duplicateCardNames = [],
   planMissingNextAction = false,
   nowMs = Date.now(),
@@ -202,11 +256,23 @@ export function assessAptlssCard({
   ctx: TrelloCardContext;
   steps: AssessmentStep[];
   dependentCardCount?: number;
+  portfolio?: AptlssPortfolioSignal;
+  runtime?: AptlssRuntimeSignal;
+  forecast?: AptlssForecast;
+  calibration?: AssessmentCalibrationContext;
   duplicateCardNames?: string[];
   planMissingNextAction?: boolean;
   nowMs?: number;
   trigger?: AssessmentTrigger;
 }): AptlssAssessment {
+  const portfolioWasProvided = Boolean(portfolio);
+  const runtimeWasProvided = Boolean(runtime);
+  const portfolioSignal: AptlssPortfolioSignal = portfolio ?? {
+    ...EMPTY_PORTFOLIO,
+    directDependentCount: dependentCardCount,
+    transitiveDependentCount: dependentCardCount,
+  };
+  const runtimeSignal = runtime ?? EMPTY_RUNTIME;
   const openSteps = steps.filter((step) => step.status === "open");
   const completedSteps = steps.filter((step) => step.status === "complete");
   const progress = checklistProgress(ctx);
@@ -226,6 +292,15 @@ export function assessAptlssCard({
   const tooLarge = allItems.length > 15 || openSteps.length > 12;
   const missingOwner = openSteps.length > 0 && (ctx.members?.length ?? 0) === 0;
   const missingDue = openSteps.length > 0 && !ctx.due;
+  const remainingMinutes = openSteps.reduce((sum, step) => sum + Math.max(0, step.estimatedMinutes ?? 15), 0);
+  const forecastSignal: AptlssForecast = forecast ?? {
+    rawEstimatedRemainingMinutes: remainingMinutes,
+    calibratedP50Minutes: remainingMinutes,
+    calibratedP90Minutes: remainingMinutes ? Math.round(remainingMinutes * 1.8) : 0,
+    calibrationFactor: 1,
+    calibrationSampleSize: 0,
+    uncertainty: "high",
+  };
 
   const secondarySignals: string[] = [];
   if (due.overdue) secondarySignals.push("overdue");
@@ -240,6 +315,15 @@ export function assessAptlssCard({
   if (startsInFuture) secondarySignals.push("future_start");
   if (duplicateCardNames.length) secondarySignals.push("possible_duplicate");
   if (planMissingNextAction) secondarySignals.push("plan_missing_next_action");
+  if (portfolioSignal.isInDependencyCycle) secondarySignals.push("dependency_cycle");
+  if (portfolioSignal.unresolvedDependencyIds.length) secondarySignals.push("unresolved_dependency");
+  if (portfolioSignal.orphanReferences.length) secondarySignals.push("orphan_dependency_reference");
+  if (portfolioSignal.bottleneckScore >= 40) secondarySignals.push("portfolio_bottleneck");
+  if (runtimeSignal.replyOverdue) secondarySignals.push("reply_overdue");
+  if (runtimeSignal.decisionStale) secondarySignals.push("decision_stale");
+  if (runtimeSignal.activeTimer) secondarySignals.push("timer_active");
+  if (runtimeSignal.scheduledToday) secondarySignals.push("scheduled_today");
+  if (runtimeSignal.estimateOverrun) secondarySignals.push("estimate_overrun");
 
   let primaryState: CardStateValue;
   let stateReason: string;
@@ -256,6 +340,14 @@ export function assessAptlssCard({
     primaryState = "READY_FOR_DONE";
     stateReason = "All APTLSS checklist items are complete; final verification and handoff remain.";
     actionability = "actionable";
+  } else if (portfolioSignal.isInDependencyCycle) {
+    primaryState = "BLOCKED_BY_OTHER_CARD";
+    stateReason = `A dependency cycle connects ${portfolioSignal.cycleCardIds.length} cards and must be broken before execution can be trusted.`;
+    actionability = "blocked";
+  } else if (portfolioSignal.unresolvedDependencyIds.length > 0) {
+    primaryState = "BLOCKED_BY_OTHER_CARD";
+    stateReason = `Execution depends on ${portfolioSignal.unresolvedDependencyNames.join(", ")}.`;
+    actionability = "blocked";
   } else if (hasBlockedStep) {
     primaryState = "BLOCKED_BY_OTHER_CARD";
     stateReason = "An open step names another card as a blocker.";
@@ -264,6 +356,10 @@ export function assessAptlssCard({
     primaryState = "WAITING_FOR_ROBERT";
     stateReason = "Execution depends on an unresolved Robert decision.";
     actionability = "decision";
+  } else if (runtimeSignal.replyOverdue) {
+    primaryState = "WAITING_FOR_JOYCE";
+    stateReason = `An inbound message has waited ${Math.max(1, Math.round(runtimeSignal.replyAgeHours ?? 0))} hour(s) for Joyce's reply.`;
+    actionability = "actionable";
   } else if (hasExternalStep || question?.direction === "external") {
     primaryState = "WAITING_FOR_EXTERNAL_PARTY";
     stateReason = "Joyce has asked a question or an open step requires an external response.";
@@ -280,12 +376,14 @@ export function assessAptlssCard({
     primaryState = "STALLED";
     stateReason = `No meaningful work evidence has been detected for ${daysSinceProgress} day(s).`;
     actionability = "repair";
-  } else if (lacksStructure || tooLarge || planMissingNextAction || (missingDue && missingOwner)) {
+  } else if (lacksStructure || tooLarge || planMissingNextAction || portfolioSignal.orphanReferences.length > 0 || (missingDue && missingOwner)) {
     primaryState = "NEEDS_RESTRUCTURING";
     stateReason = planMissingNextAction
       ? "The generated plan does not contain an executable next action."
       : lacksStructure
       ? "The card lacks description, steps, and discussion evidence."
+      : portfolioSignal.orphanReferences.length > 0
+        ? "The plan contains dependency references that do not resolve to known cards."
       : tooLarge
         ? "The work unit is too large for a reliable single-card plan."
         : "The card has executable steps but lacks both ownership and a due date.";
@@ -308,7 +406,6 @@ export function assessAptlssCard({
     actionability = "actionable";
   }
 
-  const remainingMinutes = openSteps.reduce((sum, step) => sum + Math.max(0, step.estimatedMinutes ?? 15), 0);
   const effortFit = remainingMinutes === 0 ? 0 : remainingMinutes <= 30 ? 10 : remainingMinutes <= 90 ? 7 : remainingMinutes <= 240 ? 4 : 1;
   const risk = openSteps.reduce((max, step) => Math.max(max, riskSeverity(step.riskIfSkipped)), 0);
   const stateModifier = primaryState === "WAITING_FOR_ROBERT" ? 8
@@ -322,8 +419,16 @@ export function assessAptlssCard({
     duePressure: due.pressure,
     labelUrgency: labelUrgency(ctx.labels),
     customFieldUrgency: customFieldUrgency(ctx.customFields),
-    dependencyImpact: Math.min(15, dependentCardCount * 4),
+    dependencyImpact: Math.min(18,
+      portfolioSignal.directDependentCount * 5
+      + Math.max(0, portfolioSignal.transitiveDependentCount - portfolioSignal.directDependentCount) * 3
+      + (portfolioSignal.isInDependencyCycle ? 8 : 0)),
+    portfolioBottleneck: Math.min(10, Math.round(portfolioSignal.bottleneckScore / 10)),
     riskIfIgnored: risk,
+    communicationRisk: runtimeSignal.replyOverdue ? 10 : 0,
+    decisionDelay: runtimeSignal.decisionStale ? 8 : 0,
+    activeCommitment: runtimeSignal.activeTimer ? 8 : runtimeSignal.scheduledToday ? 4 : 0,
+    estimateRisk: runtimeSignal.estimateOverrun ? 7 : 0,
     staleEscalation: daysSinceProgress >= 10 ? 10 : daysSinceProgress >= 5 ? 6 : 0,
     effortFit,
     stateModifier: stateModifier + (startsInFuture ? -8 : 0),
@@ -346,6 +451,12 @@ export function assessAptlssCard({
     completionCriteria: steps.some((step) => Boolean(step.completionCriteria?.trim())),
     riskEvidence: steps.some((step) => Boolean(step.riskIfSkipped?.trim())),
     customFields: (ctx.customFields?.length ?? 0) > 0,
+    portfolioContext: portfolioWasProvided,
+    timeHistory: runtimeWasProvided && runtimeSignal.sessionCount > 0,
+    communicationContext: runtimeWasProvided && runtimeSignal.replyStatus !== null,
+    scheduleContext: runtimeWasProvided && runtimeSignal.scheduledToday,
+    estimateCalibration: forecastSignal.calibrationSampleSize > 0,
+    humanCalibration: (calibration?.byState?.[primaryState]?.samples ?? 0) >= 5 || (calibration?.sampleSize ?? 0) >= 10,
   };
   const coverageWeights: Record<keyof typeof evidenceCoverage, number> = {
     description: 14,
@@ -359,6 +470,12 @@ export function assessAptlssCard({
     completionCriteria: 10,
     riskEvidence: 8,
     customFields: 5,
+    portfolioContext: 5,
+    timeHistory: 5,
+    communicationContext: 4,
+    scheduleContext: 3,
+    estimateCalibration: 5,
+    humanCalibration: 4,
   };
   let confidence = 10;
   for (const key of Object.keys(evidenceCoverage) as Array<keyof typeof evidenceCoverage>) {
@@ -370,6 +487,17 @@ export function assessAptlssCard({
   if (!evidenceCoverage.dueDate) uncertainties.push("No due date is available for urgency calibration.");
   if (!evidenceCoverage.activityHistory) uncertainties.push("Only a coarse last-activity timestamp is available; progress freshness is less reliable.");
   if (!steps.length) uncertainties.push("No persisted APTLSS steps are available.");
+  if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize === 0) {
+    uncertainties.push("No completed-work sample is available to calibrate the remaining-time estimate.");
+  }
+  if (forecastSignal.uncertainty === "high" && remainingMinutes > 0) {
+    uncertainties.push("The completion forecast has a wide uncertainty range.");
+    confidence -= 4;
+  }
+  if (portfolioSignal.orphanReferences.length) {
+    uncertainties.push(`Unresolved dependency reference${portfolioSignal.orphanReferences.length > 1 ? "s" : ""}: ${portfolioSignal.orphanReferences.join(", ")}.`);
+    confidence -= 10;
+  }
   if (duplicateCardNames.length) {
     uncertainties.push(`Possible duplicate card${duplicateCardNames.length > 1 ? "s" : ""}: ${duplicateCardNames.join(", ")}.`);
     confidence -= 8;
@@ -385,9 +513,39 @@ export function assessAptlssCard({
   if (lastProgressMs != null && nowMs - lastProgressMs > 30 * DAY_MS) confidence -= 8;
   if (lacksStructure) confidence = Math.min(confidence, 35);
   if (!steps.length) confidence = Math.min(confidence, 55);
+  if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize === 0) confidence = Math.min(confidence, 88);
+  else if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize < 2) confidence = Math.min(confidence, 92);
+  if (!evidenceCoverage.humanCalibration) confidence = Math.min(confidence, 95);
   confidence = clamp(confidence);
+  const confidenceBeforeCalibration = confidence;
+  const stateCalibration = calibration?.byState?.[primaryState];
+  const calibrationScope = stateCalibration && stateCalibration.samples >= 5
+    ? "state" as const
+    : calibration && calibration.sampleSize >= 10 && calibration.accuracyScore != null
+      ? "global" as const
+      : "none" as const;
+  const calibrationSamples = calibrationScope === "state" ? stateCalibration!.samples
+    : calibrationScope === "global" ? calibration!.sampleSize
+      : 0;
+  const validatedAccuracy = calibrationScope === "state" ? stateCalibration!.accuracyScore
+    : calibrationScope === "global" ? calibration!.accuracyScore
+      : null;
+  if (validatedAccuracy != null) {
+    const maximumWeight = calibrationScope === "state" ? 0.35 : 0.25;
+    const fullWeightSamples = calibrationScope === "state" ? 30 : 60;
+    const weight = maximumWeight * Math.min(1, calibrationSamples / fullWeightSamples);
+    confidence = clamp(confidence * (1 - weight) + validatedAccuracy * weight);
+  }
+  const appliedCalibration: AppliedAssessmentCalibration = {
+    applied: calibrationScope !== "none",
+    scope: calibrationScope,
+    sampleSize: calibrationSamples,
+    validatedAccuracy,
+    confidenceBeforeCalibration,
+    confidenceAfterCalibration: confidence,
+  };
   const confidenceBand = confidence >= 80 ? "high" : confidence >= 60 ? "medium" : "low";
-  const confidenceReason = `${Object.values(evidenceCoverage).filter(Boolean).length}/${Object.keys(evidenceCoverage).length} evidence categories available; ${uncertainties.length} material uncertaint${uncertainties.length === 1 ? "y" : "ies"}.`;
+  const confidenceReason = `${Object.values(evidenceCoverage).filter(Boolean).length}/${Object.keys(evidenceCoverage).length} evidence categories available; ${uncertainties.length} material uncertaint${uncertainties.length === 1 ? "y" : "ies"}.${appliedCalibration.applied ? ` Human calibration adjusted ${confidenceBeforeCalibration}% to ${confidence}% from ${calibrationSamples} ${calibrationScope} review(s).` : " Human calibration is not yet applied because the review sample is too small."}`;
 
   const recommendations: string[] = [];
   if (primaryState === "WAITING_FOR_JOYCE") recommendations.push("Answer the latest inbound question with a concrete decision or next action.");
@@ -399,10 +557,19 @@ export function assessAptlssCard({
   if (missingDue) recommendations.push("Add a due date or explicitly mark the work as undated maintenance.");
   if (duplicateCardNames.length) recommendations.push("Compare the possible duplicate cards and merge, link, or clearly differentiate them.");
   if (planMissingNextAction) recommendations.push("Regenerate or repair the APTLSS plan before scheduling this card.");
+  if (portfolioSignal.isInDependencyCycle) recommendations.push("Break the dependency cycle by choosing one card that can proceed without the other cycle members.");
+  else if (portfolioSignal.unresolvedDependencyIds.length) recommendations.push(`Unblock ${portfolioSignal.unresolvedDependencyNames[0]} first, then reassess this card.`);
+  if (portfolioSignal.orphanReferences.length) recommendations.push("Repair the unresolved dependency references so portfolio sequencing uses real card IDs.");
+  if (portfolioSignal.bottleneckScore >= 40) recommendations.push(`Treat this as a portfolio bottleneck: ${portfolioSignal.transitiveDependentCount} downstream card(s) may be affected.`);
+  if (runtimeSignal.replyOverdue) recommendations.push("Reply to the waiting inbound message before starting lower-impact work.");
+  if (runtimeSignal.decisionStale) recommendations.push("Escalate the open Robert decision with a recommendation and a clear cost-of-delay statement.");
+  if (runtimeSignal.estimateOverrun) recommendations.push("Re-estimate the remaining steps from observed execution time before committing to a completion date.");
+  if (runtimeSignal.activeTimer) recommendations.push("Continue the active timed block or stop it explicitly before changing focus.");
   if (confidence < 60) recommendations.push("Improve the missing evidence before using this assessment for autonomous planning.");
   if (!recommendations.length) recommendations.push("Execute the highest-priority open step and record completion evidence.");
 
-  const reassessmentMinutes = due.overdue || priorityTier === "CRITICAL" ? 30
+  const reassessmentMinutes = runtimeSignal.activeTimer ? 15
+    : due.overdue || priorityTier === "CRITICAL" || portfolioSignal.isInDependencyCycle || runtimeSignal.replyOverdue ? 30
     : primaryState === "IN_PROGRESS" || primaryState === "WAITING_FOR_JOYCE" ? 60
       : actionability === "waiting" || actionability === "decision" ? 180
         : actionability === "complete" ? 1440
@@ -428,11 +595,23 @@ export function assessAptlssCard({
       { key: "due", source: "trello", value: ctx.due, quality: ctx.due ? "strong" : "weak", detail: due.overdue ? "Due date has passed." : "Current Trello due-date signal." },
       { key: "progress", source: "derived", value: daysSinceProgress, quality: evidenceCoverage.activityHistory ? "strong" : "weak", detail: "Days since the latest meaningful progress evidence.", observedAt: lastProgressMs ? new Date(lastProgressMs).toISOString() : undefined },
       { key: "steps", source: "aptlss", value: openSteps.length, quality: steps.length ? "strong" : "weak", detail: `${openSteps.length} open and ${completedSteps.length} completed persisted steps.` },
-      { key: "dependencies", source: "aptlss", value: dependentCardCount, quality: "moderate", detail: "Number of other cards depending on this card." },
+      { key: "dependencies", source: "aptlss", value: portfolioSignal.directDependentCount, quality: portfolioWasProvided ? "strong" : "moderate", detail: "Number of other cards directly depending on this card." },
       { key: "question_direction", source: "derived", value: question?.direction ?? null, quality: question ? "moderate" : "weak", detail: "Direction of the latest unresolved question." },
+      { key: "portfolio_impact", source: "portfolio", value: portfolioSignal.transitiveDependentCount, quality: portfolioWasProvided ? "strong" : "weak", detail: `${portfolioSignal.transitiveDependentCount} downstream card(s); bottleneck score ${portfolioSignal.bottleneckScore}.` },
+      { key: "dependency_depth", source: "portfolio", value: portfolioSignal.criticalPathDepth, quality: portfolioWasProvided ? "strong" : "weak", detail: "Longest unresolved dependency chain from this card." },
+      { key: "tracked_minutes", source: "runtime", value: runtimeSignal.trackedMinutes, quality: runtimeSignal.sessionCount ? "strong" : "weak", detail: `${runtimeSignal.sessionCount} persisted timer session(s).` },
+      { key: "reply_age_hours", source: "runtime", value: runtimeSignal.replyAgeHours, quality: runtimeSignal.replyStatus ? "strong" : "weak", detail: runtimeSignal.replyStatus ? `Reply monitor status: ${runtimeSignal.replyStatus}.` : "No linked reply-monitor thread." },
+      { key: "decision_age_hours", source: "runtime", value: runtimeSignal.openDecisionAgeHours, quality: runtimeSignal.openDecisionAgeHours == null ? "weak" : "strong", detail: "Age of the oldest open Robert-required step." },
+      { key: "scheduled_today", source: "schedule", value: runtimeSignal.scheduledToday, quality: runtimeWasProvided ? "strong" : "weak", detail: runtimeSignal.scheduledToday ? `${runtimeSignal.scheduledMinutes} minute(s) scheduled today.` : "No block in today's persisted plan." },
+      { key: "forecast_p50", source: "derived", value: forecastSignal.calibratedP50Minutes, quality: forecastSignal.calibrationSampleSize >= 6 ? "strong" : forecastSignal.calibrationSampleSize >= 2 ? "moderate" : "weak", detail: `P50 ${forecastSignal.calibratedP50Minutes}m; P90 ${forecastSignal.calibratedP90Minutes}m from ${forecastSignal.calibrationSampleSize} calibration sample(s).` },
+      { key: "validated_accuracy", source: "derived", value: validatedAccuracy, quality: calibrationScope === "state" ? "strong" : calibrationScope === "global" ? "moderate" : "weak", detail: appliedCalibration.applied ? `Confidence calibrated from ${calibrationSamples} human review(s).` : "Human review sample is below the calibration threshold." },
     ],
     uncertainties,
     recommendations: Array.from(new Set(recommendations)),
+    portfolio: portfolioSignal,
+    runtime: runtimeSignal,
+    forecast: forecastSignal,
+    calibration: appliedCalibration,
     lastMeaningfulProgressAt: lastProgressMs ? new Date(lastProgressMs).toISOString() : null,
     daysSinceMeaningfulProgress: daysSinceProgress,
     nextAssessmentAt: new Date(nowMs + reassessmentMinutes * 60_000).toISOString(),

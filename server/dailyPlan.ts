@@ -5,9 +5,11 @@ import {
   getAllCardStates,
   getAllPriorityScores,
   getAllRobertDecisionSteps,
+  getAllAptlssSteps,
   getOpenStepsForCard,
 } from "./aptlssStepsDb";
 import { getJoyceCards, getListCategory } from "./trello";
+import { getLatestAssessments } from "./aptlssAssessmentDb";
 
 export type PlanBlockStatus = "planned" | "active" | "done" | "skipped";
 
@@ -454,16 +456,23 @@ function deterministicBlocks(summaries: CardSummary[]) {
 }
 
 async function buildSummaries() {
-  const [allPlans, allScores, allStates, robertSteps] = await Promise.all([
+  const [allPlans, allScores, allStates, robertSteps, allSteps, assessments] = await Promise.all([
     getAllAptlssPlans(),
     getAllPriorityScores(),
     getAllCardStates(),
     getAllRobertDecisionSteps(),
+    getAllAptlssSteps(),
+    getLatestAssessments(),
   ]);
 
   const scoreMap = new Map(allScores.map((score) => [score.cardId, score]));
   const stateMap = new Map(allStates.map((state) => [state.cardId, state]));
   const planMap = new Map(allPlans.map((plan) => [plan.cardId, plan]));
+  const assessmentMap = new Map(assessments.map((assessment) => [assessment.cardId, assessment]));
+  const stepsByCard = new Map<string, typeof allSteps>();
+  for (const step of allSteps) {
+    stepsByCard.set(step.cardId, [...(stepsByCard.get(step.cardId) ?? []), step]);
+  }
   const robertByCard = new Map<string, typeof robertSteps>();
   for (const step of robertSteps) {
     robertByCard.set(step.cardId, [...(robertByCard.get(step.cardId) ?? []), step]);
@@ -474,16 +483,18 @@ async function buildSummaries() {
       const plan = parseJsonObject(planRow.planJson);
       const score = scoreMap.get(planRow.cardId);
       const state = stateMap.get(planRow.cardId);
-      const steps = await getOpenStepsForCard(planRow.cardId);
+      const assessment = assessmentMap.get(planRow.cardId);
+      const steps = stepsByCard.get(planRow.cardId) ?? await getOpenStepsForCard(planRow.cardId);
       const openSteps = steps.filter((step) => step.status === "open");
       const planSteps = (plan.steps as Array<{ estimatedMinutes?: number; requiresRobert?: boolean; title?: string }> | undefined) ?? [];
       const estimatedMinutes =
+        assessment?.intelligenceValue.forecast?.calibratedP50Minutes ||
         openSteps.reduce((sum, step) => sum + (step.estimatedMinutes ?? 15), 0) ||
         planSteps.reduce((sum, step) => sum + (step.estimatedMinutes ?? 15), 0) ||
         score?.estimatedRemainingMinutes ||
         45;
-      const requiresRobert = openSteps.some((step) => step.requiresRobert) || (robertByCard.get(planRow.cardId)?.length ?? 0) > 0;
-      const isBlocked = !!plan.isBlocked || state?.state === "BLOCKED_BY_OTHER_CARD";
+      const requiresRobert = assessment?.actionability === "decision" || openSteps.some((step) => step.requiresRobert) || (robertByCard.get(planRow.cardId)?.length ?? 0) > 0;
+      const isBlocked = assessment?.actionability === "blocked" || !!plan.isBlocked || state?.state === "BLOCKED_BY_OTHER_CARD";
       return {
         cardId: planRow.cardId,
         cardName: planRow.cardName,
@@ -495,15 +506,20 @@ async function buildSummaries() {
         estimatedMinutes,
         requiresRobert,
         isBlocked,
-        confidenceScore: (plan.confidenceScore as number | undefined) ?? 70,
-        priorityScore: score?.score ?? 50,
-        priorityTier: score?.tier ?? "MEDIUM",
-        cardState: state?.state ?? "READY_TO_WORK",
+        confidenceScore: assessment?.confidenceScore ?? (plan.confidenceScore as number | undefined) ?? 70,
+        priorityScore: assessment?.priorityScore ?? score?.score ?? 50,
+        priorityTier: assessment?.priorityTier ?? score?.tier ?? "MEDIUM",
+        cardState: assessment?.primaryState ?? state?.state ?? "READY_TO_WORK",
         stepIds: openSteps.map((step) => step.id),
         flags: [
           ...(state?.isOverdue ? ["Overdue"] : []),
           ...(state?.hasUnansweredQuestion ? ["Question"] : []),
           ...(state?.daysSinceProgress && state.daysSinceProgress > 5 ? ["Stale"] : []),
+          ...(assessment?.secondarySignalsValue.includes("portfolio_bottleneck") ? ["Bottleneck"] : []),
+          ...(assessment?.secondarySignalsValue.includes("dependency_cycle") ? ["Dependency cycle"] : []),
+          ...(assessment?.secondarySignalsValue.includes("reply_overdue") ? ["Reply overdue"] : []),
+          ...(assessment?.secondarySignalsValue.includes("decision_stale") ? ["Decision stale"] : []),
+          ...(assessment?.secondarySignalsValue.includes("estimate_overrun") ? ["Estimate overrun"] : []),
         ],
       };
     }),

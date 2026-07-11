@@ -15,6 +15,9 @@ import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Activity,
   AlertCircle,
@@ -36,6 +39,27 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
+
+type AssessmentReviewItem = {
+  id: number;
+  cardId: string;
+  cardName: string;
+  primaryState: string;
+  stateReason: string;
+  confidenceScore: number;
+  priorityTier: string;
+  engineVersion: string;
+  forecastP50Minutes: number | null;
+  bottleneckScore: number;
+  assessedAt: Date | string;
+};
+
+const ASSESSMENT_STATES = [
+  "NEW_UNTRIAGED", "READY_TO_START", "IN_PROGRESS", "WAITING_FOR_JOYCE",
+  "WAITING_FOR_ROBERT", "WAITING_FOR_EXTERNAL_PARTY", "BLOCKED_BY_OTHER_CARD",
+  "STALLED", "OVERDUE", "READY_FOR_REVIEW", "READY_FOR_DONE", "DONE_CONFIRMED",
+  "NEEDS_RESTRUCTURING", "NEEDS_ARCHIVE",
+] as const;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function StatCard({
@@ -142,6 +166,24 @@ export default function AdminMonitor() {
     },
   });
 
+  const [correctionItem, setCorrectionItem] = useState<AssessmentReviewItem | null>(null);
+  const [correctedState, setCorrectedState] = useState("");
+  const [correctionNote, setCorrectionNote] = useState("");
+  const recordFeedback = trpc.aptlss.recordAssessmentFeedback.useMutation({
+    onSuccess: async () => {
+      toast.success("Assessment review recorded");
+      setCorrectionItem(null);
+      setCorrectedState("");
+      setCorrectionNote("");
+      await Promise.all([
+        refetch(),
+        utils.aptlss.getAssessmentCalibration.invalidate(),
+        utils.aptlss.getAssessmentReviewQueue.invalidate(),
+      ]);
+    },
+    onError: (err) => toast.error("Review was not recorded", { description: err.message }),
+  });
+
   const [showFullSyncLog, setShowFullSyncLog] = useState(false);
   const [showFullAuditLog, setShowFullAuditLog] = useState(false);
 
@@ -188,6 +230,8 @@ export default function AdminMonitor() {
   const failedRecs = data?.failedRecs ?? [];
   const recentSyncs = data?.recentSyncs ?? [];
   const assessmentHealth = data?.assessmentHealth;
+  const calibration = data?.calibration;
+  const assessmentReviewQueue = (data?.assessmentReviewQueue ?? []) as AssessmentReviewItem[];
   const refreshMonitor = () => {
     void refetchReadiness();
     if (adminQueriesEnabled) {
@@ -342,11 +386,125 @@ export default function AdminMonitor() {
                 </div>
               ))}
             </div>
+            <div className="mt-3 grid grid-cols-1 divide-y divide-border border border-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              {[
+                ["Validated accuracy", calibration?.accuracyScore == null ? "No sample" : `${calibration.accuracyScore}%`, `${calibration?.sampleSize ?? 0} reviewed snapshots`],
+                ["Forecast learning", assessmentHealth?.forecastCalibrationSamples ?? 0, `${assessmentHealth?.forecastCalibratedCards ?? 0} cards calibrated`],
+                ["Portfolio risks", (assessmentHealth?.dependencyCycleCards ?? 0) + (assessmentHealth?.portfolioBottlenecks ?? 0), `${assessmentHealth?.dependencyCycleCards ?? 0} cycle / ${assessmentHealth?.portfolioBottlenecks ?? 0} bottleneck`],
+              ].map(([label, value, detail]) => (
+                <div key={label} className="min-w-0 px-3 py-3">
+                  <p className="text-[10px] font-medium uppercase text-muted-foreground">{label}</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{detail}</p>
+                </div>
+              ))}
+            </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              Confidence is derived from Trello evidence coverage, freshness, contradictions, and persisted APTLSS steps. Model confidence is capped by this score.
+              Confidence combines Trello evidence, dependencies, tracked work, reply and decision age, schedule state, and forecast uncertainty. Validated accuracy is calculated only from human-reviewed snapshots.
             </p>
           </CardContent>
         </Card>
+        {adminQueriesEnabled && (
+          <Card>
+            <CardContent className="p-4">
+              <SectionTitle icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />} title="Assessment Review Queue" />
+              {assessmentReviewQueue.length === 0 ? (
+                <p className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                  No unreviewed assessment snapshots are available.
+                </p>
+              ) : (
+                <div className="divide-y divide-border border border-border">
+                  {assessmentReviewQueue.slice(0, 5).map((item) => (
+                    <div key={item.id} className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-medium text-foreground">{item.cardName}</p>
+                          <Badge variant="outline" className="text-[10px]">{item.primaryState.replaceAll("_", " ")}</Badge>
+                          <span className="text-[10px] text-muted-foreground">{item.confidenceScore}% confidence</span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{item.stateReason}</p>
+                        <p className="mt-1 text-[10px] text-muted-foreground">
+                          {item.forecastP50Minutes == null ? "No forecast" : `P50 ${item.forecastP50Minutes}m`} · Bottleneck {item.bottleneckScore}/100
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1" aria-label={`Review ${item.cardName}`}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2 text-[11px]"
+                          disabled={recordFeedback.isPending}
+                          onClick={() => recordFeedback.mutate({ assessmentId: item.id, verdict: "accurate" })}
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" /> Accurate
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2 text-[11px]"
+                          disabled={recordFeedback.isPending}
+                          onClick={() => recordFeedback.mutate({ assessmentId: item.id, verdict: "partial" })}
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> Partial
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2 text-[11px]"
+                          disabled={recordFeedback.isPending}
+                          onClick={() => { setCorrectionItem(item); setCorrectedState(""); setCorrectionNote(""); }}
+                        >
+                          <XCircle className="h-3.5 w-3.5 text-red-500" /> Incorrect
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="mt-3 text-xs text-muted-foreground">
+                Reviews calibrate measured accuracy only. They do not modify Trello cards or rewrite historical snapshots.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+        <Dialog open={Boolean(correctionItem)} onOpenChange={(open) => { if (!open) setCorrectionItem(null); }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Correct assessment</DialogTitle>
+              <DialogDescription>
+                Select the state that best matches {correctionItem?.cardName}. The original snapshot remains immutable.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Select value={correctedState} onValueChange={setCorrectedState}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Choose corrected state" /></SelectTrigger>
+                <SelectContent>
+                  {ASSESSMENT_STATES.map((state) => <SelectItem key={state} value={state}>{state.replaceAll("_", " ")}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Textarea
+                value={correctionNote}
+                onChange={(event) => setCorrectionNote(event.target.value)}
+                className="min-h-24"
+                placeholder="Optional evidence or reason for the correction"
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCorrectionItem(null)}>Cancel</Button>
+              <Button
+                disabled={!correctionItem || !correctedState || recordFeedback.isPending}
+                onClick={() => correctionItem && recordFeedback.mutate({
+                  assessmentId: correctionItem.id,
+                  verdict: "inaccurate",
+                  correctedState: correctedState as (typeof ASSESSMENT_STATES)[number],
+                  note: correctionNote.trim() || undefined,
+                })}
+              >
+                {recordFeedback.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Record correction
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <Card>
           <CardContent className="p-4">
             <SectionTitle icon={<Activity className="w-3.5 h-3.5 text-blue-500" />} title="Sync Health (Last 24h)" />

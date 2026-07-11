@@ -67,7 +67,7 @@ export async function recordDecisionOutcome({
       })
       .where(eq(aptlssSteps.id, step.id));
 
-    return { id: created.id, resolvedAt };
+    return { id: created.id, cardId: step.cardId, resolvedAt };
   });
 }
 

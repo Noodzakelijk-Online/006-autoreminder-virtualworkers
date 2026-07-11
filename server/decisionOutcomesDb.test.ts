@@ -51,7 +51,7 @@ describe("decision outcomes persistence", () => {
 
     const result = await recordDecisionOutcome({ stepId: 7, outcome: "Launch Monday morning", resolvedBy: "owner" });
 
-    expect(result).toEqual({ id: 41, resolvedAt: expect.any(Date) });
+    expect(result).toEqual({ id: 41, cardId: "card-1", resolvedAt: expect.any(Date) });
     expect(harness.values).toHaveBeenCalledWith(expect.objectContaining({
       stepId: 7,
       cardName: "Prepare launch update",

@@ -1,4 +1,5 @@
 import type { AptlssAssessment } from "./aptlssAssessment";
+import { evaluateAptlssPlanQuality } from "./aptlssPlanQuality";
 
 const CATEGORIES = new Set(["internal_work", "external_follow_up", "robert_decision", "verification", "communication"]);
 const APPROVAL_PATTERN = /\b(legal|contract|payment|financial|invoice|purchase|budget|scope approval)\b/i;
@@ -93,9 +94,17 @@ export function normalizeGeneratedAptlssPlan(
     ?? "Clarify the next executable action.";
   const action = text(raw.nextBestAction || raw.action, fallbackAction).slice(0, 500);
   const rawConfidence = integer(raw.confidenceScore, assessment.confidenceScore, 0, 100);
-  const confidenceScore = Math.min(rawConfidence, assessment.confidenceScore + 5);
+  const quality = evaluateAptlssPlanQuality({ action, steps });
+  let confidenceScore = Math.min(rawConfidence, assessment.confidenceScore + 5);
   if (confidenceScore < rawConfidence) warnings.push("Model confidence was capped by available evidence.");
   if (assessment.confidenceScore < 60) warnings.push("Underlying card evidence is insufficient for autonomous execution.");
+  if (quality.hardGateFailed) {
+    confidenceScore = Math.min(confidenceScore, 55);
+    warnings.push("Plan confidence was capped because a plan-quality hard gate failed.");
+  }
+  for (const issue of quality.issues.filter((item) => item.severity === "error")) {
+    warnings.push(`Plan quality: ${issue.message}`);
+  }
   const assessedUrgency = assessment.priorityTier === "CRITICAL" ? "CRITICAL"
     : assessment.priorityTier === "HIGH" ? "HIGH"
       : assessment.priorityTier === "MEDIUM" ? "MEDIUM"
@@ -139,7 +148,12 @@ export function normalizeGeneratedAptlssPlan(
       recommendations: assessment.recommendations,
       assessedAt: assessment.assessedAt,
       nextAssessmentAt: assessment.nextAssessmentAt,
+      portfolio: assessment.portfolio,
+      runtime: assessment.runtime,
+      forecast: assessment.forecast,
+      calibration: assessment.calibration,
     },
-    generation: { source, normalizedAt: new Date().toISOString(), warnings },
+    quality,
+    generation: { source, normalizedAt: new Date().toISOString(), warnings: Array.from(new Set(warnings)) },
   };
 }

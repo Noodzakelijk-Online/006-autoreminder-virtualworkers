@@ -767,6 +767,18 @@ export async function getTimeEntriesForCard(cardId: string, limit = 20) {
     .limit(limit);
 }
 
+/** Bulk time history for portfolio-wide estimate calibration. */
+export async function getTimeEntriesSince(since: Date, limit = 20_000) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(timeEntries)
+    .where(gte(timeEntries.startedAt, since))
+    .orderBy(desc(timeEntries.startedAt))
+    .limit(Math.max(1, Math.min(limit, 50_000)));
+}
+
 /**
  * Get all time entries for a specific date (EAT = UTC+3), grouped by card.
  * Returns an array of { cardId, cardName, cardUrl, boardName, listName, totalSeconds, entryCount }.

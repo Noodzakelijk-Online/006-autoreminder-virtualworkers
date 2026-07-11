@@ -21,26 +21,15 @@ import {
   countDependentCards,
 } from "./aptlssStepsDb";
 import { InsertCardState, InsertPriorityScore } from "../drizzle/schema";
-import { assessAptlssCard, type AssessmentTrigger } from "./aptlssAssessment";
+import { assessAptlssCard, type AssessmentCalibrationContext, type AssessmentTrigger } from "./aptlssAssessment";
 import { saveAssessmentSnapshot } from "./aptlssAssessmentDb";
+import type { AptlssPortfolioSignal } from "./aptlssPortfolio";
+import type { AptlssForecast, AptlssRuntimeSignal } from "./aptlssRuntime";
+import type { AptlssCardStateValue } from "./aptlssStateValues";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type CardStateValue =
-  | "NEW_UNTRIAGED"
-  | "READY_TO_START"
-  | "IN_PROGRESS"
-  | "WAITING_FOR_JOYCE"
-  | "WAITING_FOR_ROBERT"
-  | "WAITING_FOR_EXTERNAL_PARTY"
-  | "BLOCKED_BY_OTHER_CARD"
-  | "STALLED"
-  | "OVERDUE"
-  | "READY_FOR_REVIEW"
-  | "READY_FOR_DONE"
-  | "DONE_CONFIRMED"
-  | "NEEDS_RESTRUCTURING"
-  | "NEEDS_ARCHIVE";
+export type CardStateValue = AptlssCardStateValue;
 
 export type PriorityTier = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "BLOCKED";
 
@@ -151,11 +140,30 @@ function hasBlockedStep(steps: Awaited<ReturnType<typeof getOpenStepsForCard>>):
 export async function assessAndSaveCardIntelligence(
   ctx: TrelloCardContext,
   trigger: AssessmentTrigger = "manual",
-  signals: { duplicateCardNames?: string[]; planMissingNextAction?: boolean } = {},
+  signals: {
+    duplicateCardNames?: string[];
+    planMissingNextAction?: boolean;
+    steps?: Awaited<ReturnType<typeof getOpenStepsForCard>>;
+    portfolio?: AptlssPortfolioSignal;
+    runtime?: AptlssRuntimeSignal;
+    forecast?: AptlssForecast;
+    calibration?: AssessmentCalibrationContext;
+  } = {},
 ) {
-  const steps = await getOpenStepsForCard(ctx.id);
-  const dependentCardCount = await countDependentCards(ctx.id);
-  const assessment = assessAptlssCard({ ctx, steps, dependentCardCount, trigger, ...signals });
+  const steps = signals.steps ?? await getOpenStepsForCard(ctx.id);
+  const dependentCardCount = signals.portfolio?.directDependentCount ?? await countDependentCards(ctx.id);
+  const assessment = assessAptlssCard({
+    ctx,
+    steps,
+    dependentCardCount,
+    trigger,
+    duplicateCardNames: signals.duplicateCardNames,
+    planMissingNextAction: signals.planMissingNextAction,
+    portfolio: signals.portfolio,
+    runtime: signals.runtime,
+    forecast: signals.forecast,
+    calibration: signals.calibration,
+  });
   const progress = getChecklistProgress(ctx);
   const hasFinalSummary = ctx.comments.some((comment) =>
     /final summary|completed|done\s*[-â€”]/i.test(comment.text),
@@ -188,9 +196,13 @@ export async function assessAndSaveCardIntelligence(
       actionability: assessment.actionability,
       secondarySignals: assessment.secondarySignals,
       engineVersion: assessment.engineVersion,
+      bottleneckScore: assessment.portfolio.bottleneckScore,
+      forecastP50Minutes: assessment.forecast.calibratedP50Minutes,
+      forecastP90Minutes: assessment.forecast.calibratedP90Minutes,
+      trackedMinutes: assessment.runtime.trackedMinutes,
     }),
     tier: assessment.priorityTier,
-    estimatedRemainingMinutes: openSteps.reduce((sum, step) => sum + (step.estimatedMinutes ?? 15), 0),
+    estimatedRemainingMinutes: assessment.forecast.calibratedP50Minutes,
     openSteps: openSteps.length,
     completedSteps: completedSteps.length,
     calculatedAt: new Date(assessment.assessedAt),
