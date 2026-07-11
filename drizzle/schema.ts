@@ -477,6 +477,42 @@ export const decisionOutcomes = mysqlTable("decision_outcomes", {
 export type DecisionOutcome = typeof decisionOutcomes.$inferSelect;
 export type InsertDecisionOutcome = typeof decisionOutcomes.$inferInsert;
 
+/** Immutable VA-supplied waiting evidence plus its normalized APTLSS interpretation. */
+export const aptlssWaitingReasons = mysqlTable("aptlss_waiting_reasons", {
+  id: int("id").autoincrement().primaryKey(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull().default(""),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull().default(""),
+  boardName: varchar("boardName", { length: 256 }).notNull().default(""),
+  listName: varchar("listName", { length: 256 }).notNull().default(""),
+  rawReason: text("rawReason").notNull(),
+  category: varchar("category", { length: 64 }).notNull(),
+  waitingOn: varchar("waitingOn", { length: 32 }).notNull(),
+  waitingOnName: varchar("waitingOnName", { length: 256 }),
+  requestedItem: text("requestedItem"),
+  nextAction: text("nextAction").notNull(),
+  nextStepType: varchar("nextStepType", { length: 64 }).notNull(),
+  followUpAt: timestamp("followUpAt"),
+  followUpSource: varchar("followUpSource", { length: 32 }).notNull(),
+  urgency: varchar("urgency", { length: 16 }).notNull(),
+  requiresRobert: boolean("requiresRobert").notNull().default(false),
+  confidenceScore: int("confidenceScore").notNull(),
+  confidenceReason: text("confidenceReason").notNull(),
+  interpretationJson: text("interpretationJson").notNull(),
+  interpreterVersion: varchar("interpreterVersion", { length: 32 }).notNull(),
+  source: varchar("source", { length: 32 }).notNull(),
+  /** active | superseded | resolved */
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  recordedBy: varchar("recordedBy", { length: 128 }).notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("aptlss_waiting_reasons_card_status_idx").on(table.cardId, table.status, table.createdAt),
+  index("aptlss_waiting_reasons_follow_up_idx").on(table.status, table.followUpAt),
+]);
+export type AptlssWaitingReason = typeof aptlssWaitingReasons.$inferSelect;
+export type InsertAptlssWaitingReason = typeof aptlssWaitingReasons.$inferInsert;
+
 // ─── Card States (state machine per Trello card) ──────────────────────────────
 export const cardStates = mysqlTable("card_states", {
   id: int("id").autoincrement().primaryKey(),

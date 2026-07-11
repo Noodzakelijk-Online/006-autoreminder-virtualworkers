@@ -10,6 +10,7 @@ import {
 } from "./aptlssStepsDb";
 import { getJoyceCards, getListCategory } from "./trello";
 import { getLatestAssessments } from "./aptlssAssessmentDb";
+import { getActiveWaitingReasons, toAptlssWaitingSignal } from "./aptlssWaitingReasonDb";
 
 export type PlanBlockStatus = "planned" | "active" | "done" | "skipped";
 
@@ -456,19 +457,21 @@ function deterministicBlocks(summaries: CardSummary[]) {
 }
 
 async function buildSummaries() {
-  const [allPlans, allScores, allStates, robertSteps, allSteps, assessments] = await Promise.all([
+  const [allPlans, allScores, allStates, robertSteps, allSteps, assessments, waitingRecords] = await Promise.all([
     getAllAptlssPlans(),
     getAllPriorityScores(),
     getAllCardStates(),
     getAllRobertDecisionSteps(),
     getAllAptlssSteps(),
     getLatestAssessments(),
+    getActiveWaitingReasons(),
   ]);
 
   const scoreMap = new Map(allScores.map((score) => [score.cardId, score]));
   const stateMap = new Map(allStates.map((state) => [state.cardId, state]));
   const planMap = new Map(allPlans.map((plan) => [plan.cardId, plan]));
   const assessmentMap = new Map(assessments.map((assessment) => [assessment.cardId, assessment]));
+  const waitingMap = new Map(waitingRecords.map((record) => [record.cardId, toAptlssWaitingSignal(record)]));
   const stepsByCard = new Map<string, typeof allSteps>();
   for (const step of allSteps) {
     stepsByCard.set(step.cardId, [...(stepsByCard.get(step.cardId) ?? []), step]);
@@ -484,6 +487,7 @@ async function buildSummaries() {
       const score = scoreMap.get(planRow.cardId);
       const state = stateMap.get(planRow.cardId);
       const assessment = assessmentMap.get(planRow.cardId);
+      const waiting = waitingMap.get(planRow.cardId);
       const steps = stepsByCard.get(planRow.cardId) ?? await getOpenStepsForCard(planRow.cardId);
       const openSteps = steps.filter((step) => step.status === "open");
       const planSteps = (plan.steps as Array<{ estimatedMinutes?: number; requiresRobert?: boolean; title?: string }> | undefined) ?? [];
@@ -493,8 +497,17 @@ async function buildSummaries() {
         planSteps.reduce((sum, step) => sum + (step.estimatedMinutes ?? 15), 0) ||
         score?.estimatedRemainingMinutes ||
         45;
-      const requiresRobert = assessment?.actionability === "decision" || openSteps.some((step) => step.requiresRobert) || (robertByCard.get(planRow.cardId)?.length ?? 0) > 0;
-      const isBlocked = assessment?.actionability === "blocked" || !!plan.isBlocked || state?.state === "BLOCKED_BY_OTHER_CARD";
+      const requiresRobert = Boolean(waiting?.requiresRobert) || assessment?.actionability === "decision" || openSteps.some((step) => step.requiresRobert) || (robertByCard.get(planRow.cardId)?.length ?? 0) > 0;
+      const waitingFollowUpDue = waiting?.followUpAt ? new Date(waiting.followUpAt).getTime() <= Date.now() : false;
+      const waitingBlocksExecution = waiting?.waitingOn === "dependency"
+        || waiting?.category === "dependency"
+        || (waiting?.waitingOn === "external_party" && !waitingFollowUpDue);
+      const waitingState = waiting?.waitingOn === "dependency" || waiting?.category === "dependency" ? "BLOCKED_BY_OTHER_CARD"
+        : waiting?.waitingOn === "robert" ? "WAITING_FOR_ROBERT"
+          : waiting?.waitingOn === "external_party" ? "WAITING_FOR_EXTERNAL_PARTY"
+            : waiting ? "WAITING_FOR_JOYCE"
+              : null;
+      const isBlocked = waitingBlocksExecution || assessment?.actionability === "blocked" || !!plan.isBlocked || state?.state === "BLOCKED_BY_OTHER_CARD";
       return {
         cardId: planRow.cardId,
         cardName: planRow.cardName,
@@ -502,14 +515,14 @@ async function buildSummaries() {
         boardName: planRow.boardName,
         listName: planRow.listName,
         urgency: (plan.urgencyLabel as string | undefined) ?? score?.tier ?? "MEDIUM",
-        nextBestAction: (plan.nextBestAction as string | undefined) ?? (plan.action as string | undefined) ?? openSteps[0]?.title ?? "",
+        nextBestAction: waiting?.nextAction ?? (plan.nextBestAction as string | undefined) ?? (plan.action as string | undefined) ?? openSteps[0]?.title ?? "",
         estimatedMinutes,
         requiresRobert,
         isBlocked,
         confidenceScore: assessment?.confidenceScore ?? (plan.confidenceScore as number | undefined) ?? 70,
         priorityScore: assessment?.priorityScore ?? score?.score ?? 50,
         priorityTier: assessment?.priorityTier ?? score?.tier ?? "MEDIUM",
-        cardState: assessment?.primaryState ?? state?.state ?? "READY_TO_WORK",
+        cardState: waitingState ?? assessment?.primaryState ?? state?.state ?? "READY_TO_WORK",
         stepIds: openSteps.map((step) => step.id),
         flags: [
           ...(state?.isOverdue ? ["Overdue"] : []),
@@ -520,20 +533,34 @@ async function buildSummaries() {
           ...(assessment?.secondarySignalsValue.includes("reply_overdue") ? ["Reply overdue"] : []),
           ...(assessment?.secondarySignalsValue.includes("decision_stale") ? ["Decision stale"] : []),
           ...(assessment?.secondarySignalsValue.includes("estimate_overrun") ? ["Estimate overrun"] : []),
+          ...(waiting ? ["Waiting reason"] : []),
+          ...(waitingFollowUpDue ? ["Follow-up due"] : []),
         ],
       };
     }),
   );
 
+  const cardsWithRobertSteps = new Set(robertSteps.map((step) => step.cardId));
+  const waitingRobertItems = waitingRecords
+    .filter((record) => record.requiresRobert && !cardsWithRobertSteps.has(record.cardId))
+    .map((record) => ({
+      cardId: record.cardId,
+      cardName: record.cardName || planMap.get(record.cardId)?.cardName || record.cardId,
+      decision: record.requestedItem ?? record.interpretationValue.summary,
+    }));
+
   return {
     summaries: summaries.sort((a, b) => b.priorityScore - a.priorityScore),
-    robertItems: robertSteps.map((step) => ({
-      stepId: step.id,
-      cardId: step.cardId,
-      cardName: planMap.get(step.cardId)?.cardName ?? step.cardId,
-      decision: step.recommendedDecision ?? step.title,
-      due: "Today",
-    })),
+    robertItems: [
+      ...robertSteps.map((step) => ({
+        stepId: step.id,
+        cardId: step.cardId,
+        cardName: planMap.get(step.cardId)?.cardName ?? step.cardId,
+        decision: step.recommendedDecision ?? step.title,
+        due: "Today",
+      })),
+      ...waitingRobertItems,
+    ],
   };
 }
 

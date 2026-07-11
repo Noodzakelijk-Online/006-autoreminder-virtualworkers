@@ -19,6 +19,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -43,6 +45,8 @@ import {
   Wrench,
   ArrowRight,
   Lightbulb,
+  BrainCircuit,
+  Save,
 } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -567,6 +571,191 @@ function DefaultActionBanner({ state }: { state: string }) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+type WaitingReasonCard = {
+  id: string;
+  name: string;
+  url: string;
+  boardName?: string;
+  listName?: string;
+  due?: string | null;
+};
+
+type WaitingInterpretationView = {
+  rawReason: string;
+  category: string;
+  waitingOn: string;
+  waitingOnName: string | null;
+  requestedItem: string | null;
+  summary: string;
+  nextAction: string;
+  nextStepType: string;
+  followUpAt: string | null;
+  followUpSource: string;
+  followUpReason: string;
+  urgency: string;
+  confidenceScore: number;
+  confidenceReason: string;
+  missingInformation: string[];
+  source: string;
+};
+
+type WaitingReasonRecordView = {
+  id: number;
+  rawReason: string;
+  interpretationValue: WaitingInterpretationView;
+};
+
+function formatFollowUp(value: string | null) {
+  if (!value) return "No follow-up time";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Follow-up time unavailable";
+  return parsed.toLocaleString("en-GB", {
+    timeZone: "Africa/Nairobi",
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }) + " EAT";
+}
+
+function WaitingReasonInspector({
+  card,
+  active,
+  onClose,
+}: {
+  card: WaitingReasonCard;
+  active: WaitingReasonRecordView | null;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState(active?.rawReason ?? "");
+  const [latest, setLatest] = useState<WaitingInterpretationView | null>(active?.interpretationValue ?? null);
+  const utils = trpc.useUtils();
+  const saveReason = trpc.aptlss.recordWaitingReason.useMutation({
+    onSuccess: (result) => {
+      setReason(result.interpretation.rawReason);
+      setLatest(result.interpretation);
+      void Promise.all([
+        utils.aptlss.getActiveWaitingReasons.invalidate(),
+        utils.aptlss.getAllCardStates.invalidate(),
+        utils.aptlss.getAllPriorityScores.invalidate(),
+        utils.aptlss.getAssessmentOverview.invalidate(),
+      ]);
+      toast.success("Waiting reason saved", { description: result.interpretation.nextAction });
+    },
+    onError: (error) => toast.error("Waiting reason was not saved", { description: error.message }),
+  });
+  const resolveReason = trpc.aptlss.resolveWaitingReason.useMutation({
+    onSuccess: () => {
+      void Promise.all([
+        utils.aptlss.getActiveWaitingReasons.invalidate(),
+        utils.aptlss.getAllCardStates.invalidate(),
+        utils.aptlss.getAllPriorityScores.invalidate(),
+        utils.aptlss.getAssessmentOverview.invalidate(),
+      ]);
+      toast.success("Waiting reason resolved");
+      onClose();
+    },
+    onError: (error) => toast.error("Waiting reason was not resolved", { description: error.message }),
+  });
+  const interpretation = latest ?? active?.interpretationValue ?? null;
+  const canSave = reason.trim().length >= 8 && !saveReason.isPending;
+
+  return (
+    <aside className="min-h-full bg-card" data-testid="waiting-reason-inspector">
+      <div className="border-b border-border/60 p-5 pr-12">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Waiting evidence</p>
+        <h2 className="mt-2 text-base font-semibold leading-snug text-foreground">{card.name}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{card.boardName || "Trello"} / {card.listName || "On hold"}</p>
+      </div>
+
+      <div className="space-y-6 p-5">
+        <section>
+          <label htmlFor="waiting-reason" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Exact waiting reason</label>
+          <Textarea
+            id="waiting-reason"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            className="mt-2 min-h-32 resize-y text-sm"
+            placeholder="Waiting for Sarah to send the signed contract by Friday. I followed up yesterday."
+          />
+          <div className="mt-3 flex items-center gap-2">
+            <Button
+              className="flex-1 gap-2 rounded-md"
+              disabled={!canSave}
+              onClick={() => saveReason.mutate({
+                cardId: card.id,
+                cardName: card.name,
+                cardUrl: card.url,
+                boardName: card.boardName ?? "",
+                listName: card.listName ?? "",
+                due: card.due ?? null,
+                reason: reason.trim(),
+              })}
+            >
+              {saveReason.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Interpret and save
+            </Button>
+            {active && (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="rounded-md"
+                onClick={() => resolveReason.mutate({ cardId: card.id })}
+                disabled={resolveReason.isPending}
+                title="Resolve this waiting reason"
+                aria-label="Resolve this waiting reason"
+              >
+                {resolveReason.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+              </Button>
+            )}
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">Internal APTLSS evidence. Trello remains unchanged.</p>
+        </section>
+
+        {interpretation && (
+          <>
+            <section className="border-t border-border pt-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="rounded-md capitalize">{interpretation.waitingOnName ?? interpretation.waitingOn.replace(/_/g, " ")}</Badge>
+                <Badge variant="outline" className="rounded-md capitalize">{interpretation.category.replace(/_/g, " ")}</Badge>
+                <Badge variant="outline" className="rounded-md">{interpretation.confidenceScore}% confidence</Badge>
+              </div>
+              <p className="mt-3 text-sm leading-relaxed text-foreground">{interpretation.summary}</p>
+            </section>
+
+            <section className="border-t border-border pt-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next step</p>
+              <div className="mt-2 border-l-2 border-primary pl-3">
+                <p className="text-sm font-medium leading-relaxed text-foreground">{interpretation.nextAction}</p>
+              </div>
+            </section>
+
+            <section className="border-t border-border pt-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Follow-up checkpoint</p>
+              <p className="mt-2 text-sm font-medium text-foreground">{formatFollowUp(interpretation.followUpAt)}</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{interpretation.followUpReason}</p>
+            </section>
+
+            {interpretation.missingInformation.length > 0 && (
+              <section className="border-t border-border pt-5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">Needs clarification</p>
+                <div className="mt-2 space-y-2">
+                  {interpretation.missingInformation.map((item) => (
+                    <p key={item} className="text-xs leading-relaxed text-muted-foreground">{item}</p>
+                  ))}
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 export default function ActionAlerts({ disabledReason }: { disabledReason?: string } = {}) {
   const [collapsed, setCollapsed] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
@@ -591,6 +780,7 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
   const [snoozePickerCardId, setSnoozePickerCardId] = useState<string | null>(null);
   const [snoozeDate, setSnoozeDate] = useState("");
   const [snoozeNote, setSnoozeNote] = useState("");
+  const [waitingReasonCard, setWaitingReasonCard] = useState<WaitingReasonCard | null>(null);
 
   const { data, isLoading, error, refetch, isFetching } =
     trpc.trello.actionAlerts.useQuery(undefined, {
@@ -636,8 +826,10 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
   // APTLSS priority scores + card states (for urgency chips on card rows)
   const { data: aptlssScores } = trpc.aptlss.getAllPriorityScores.useQuery(undefined, { staleTime: 5 * 60_000 });
   const { data: aptlssStates } = trpc.aptlss.getAllCardStates.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const { data: waitingReasons } = trpc.aptlss.getActiveWaitingReasons.useQuery(undefined, { staleTime: 60_000 });
   const aptlssScoreMap = useMemo(() => new Map((aptlssScores ?? []).map(s => [s.cardId, s])), [aptlssScores]);
   const aptlssStateMap = useMemo(() => new Map((aptlssStates ?? []).map(s => [s.cardId, s])), [aptlssStates]);
+  const waitingReasonMap = useMemo(() => new Map((waitingReasons ?? []).map(reason => [reason.cardId, reason])), [waitingReasons]);
   // Autopilot level (for header indicator)
   const { data: policiesData } = trpc.aptlss.getPolicies.useQuery(undefined, { staleTime: 5 * 60_000 });
   const autopilotLevel = (() => {
@@ -806,6 +998,7 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
   if (allClear) heroPanel = "onhold";
 
   return (
+    <>
     <Card className="border-0 shadow-sm overflow-hidden">
       {/* ── Collapsible Header ── */}
       <div
@@ -936,6 +1129,7 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
                         const age = getCardAgeBadge(card.dateLastActivity);
                         const isChecked = checkedOnHoldIds.has(card.id);
                         const isSnoozeOpen = snoozePickerCardId === card.id;
+                        const activeWaitingReason = waitingReasonMap.get(card.id);
                         return (
                           <div key={card.id}>
                             <div className="flex items-center gap-1.5">
@@ -950,6 +1144,19 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
                                 title="Snooze this card"
                               >
                                 <BellOff className={`w-3.5 h-3.5 ${isSnoozeOpen ? "text-violet-500" : "text-muted-foreground/50 hover:text-violet-500"}`} />
+                              </button>
+                              <button
+                                type="button"
+                                data-testid={`waiting-reason-${card.id}`}
+                                onClick={() => {
+                                  setSnoozePickerCardId(null);
+                                  setWaitingReasonCard(card);
+                                }}
+                                className="flex-shrink-0 rounded p-1.5 transition-colors hover:bg-cyan-500/10"
+                                title={activeWaitingReason ? "Review the exact waiting reason" : "Record the exact waiting reason"}
+                                aria-label={activeWaitingReason ? "Review the exact waiting reason" : "Record the exact waiting reason"}
+                              >
+                                <BrainCircuit className={`h-3.5 w-3.5 ${activeWaitingReason ? "text-cyan-600 dark:text-cyan-400" : "text-muted-foreground/50 hover:text-cyan-500"}`} />
                               </button>
                               <CardRow
                                 href={card.url}
@@ -997,6 +1204,20 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
                                 }
                               />
                             </div>
+                            {activeWaitingReason && (
+                              <button
+                                type="button"
+                                onClick={() => setWaitingReasonCard(card)}
+                                className="ml-[4.25rem] mt-1 flex w-[calc(100%_-_4.25rem)] min-w-0 items-center gap-2 rounded-md border border-cyan-500/20 bg-cyan-500/5 px-2.5 py-1.5 text-left transition-colors hover:bg-cyan-500/10"
+                              >
+                                <span className="shrink-0 text-[10px] font-semibold text-cyan-700 dark:text-cyan-300">
+                                  Waiting on {activeWaitingReason.waitingOnName ?? activeWaitingReason.waitingOn.replace(/_/g, " ")}
+                                </span>
+                                <span className="min-w-0 truncate text-[10px] text-muted-foreground">
+                                  Next: {activeWaitingReason.nextAction}
+                                </span>
+                              </button>
+                            )}
                             {/* Snooze picker */}
                             {isSnoozeOpen && (
                               <div className="ml-6 mt-1 mb-1.5 p-2.5 rounded-lg border border-violet-500/30 bg-violet-500/5 space-y-2">
@@ -1419,6 +1640,21 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
         </CardContent>
       )}
     </Card>
+    {waitingReasonCard && (
+      <Sheet open onOpenChange={(open) => { if (!open) setWaitingReasonCard(null); }}>
+        <SheetContent side="right" className="w-[min(460px,calc(100vw-1rem))] gap-0 overflow-y-auto p-0 sm:max-w-[460px] [&>button.absolute]:top-5">
+          <SheetTitle className="sr-only">Waiting evidence</SheetTitle>
+          <SheetDescription className="sr-only">Record the exact waiting reason and review the APTLSS interpretation.</SheetDescription>
+          <WaitingReasonInspector
+            key={`${waitingReasonCard.id}-${waitingReasonMap.get(waitingReasonCard.id)?.id ?? "new"}`}
+            card={waitingReasonCard}
+            active={waitingReasonMap.get(waitingReasonCard.id) ?? null}
+            onClose={() => setWaitingReasonCard(null)}
+          />
+        </SheetContent>
+      </Sheet>
+    )}
+    </>
   );
 }
 

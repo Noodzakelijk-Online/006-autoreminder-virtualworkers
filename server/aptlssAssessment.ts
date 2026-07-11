@@ -2,8 +2,9 @@ import { createHash } from "crypto";
 import type { CardStateValue, PriorityTier, TrelloCardContext } from "./aptlssEngine";
 import type { AptlssPortfolioSignal } from "./aptlssPortfolio";
 import type { AptlssForecast, AptlssRuntimeSignal } from "./aptlssRuntime";
+import type { AptlssWaitingSignal } from "./aptlssWaitingReason";
 
-export const APTLSS_ASSESSMENT_VERSION = "4.0.0";
+export const APTLSS_ASSESSMENT_VERSION = "4.1.0";
 
 export type AssessmentTrigger = "generation" | "webhook" | "scheduled" | "manual";
 
@@ -60,6 +61,7 @@ export type AptlssAssessment = {
   evidence: AssessmentEvidence[];
   uncertainties: string[];
   recommendations: string[];
+  waiting: AptlssWaitingSignal | null;
   portfolio: AptlssPortfolioSignal;
   runtime: AptlssRuntimeSignal;
   forecast: AptlssForecast;
@@ -130,7 +132,7 @@ function safeJson(value: unknown) {
   return JSON.stringify(stableValue(value));
 }
 
-export function buildAssessmentContextHash(ctx: TrelloCardContext, steps: AssessmentStep[]) {
+export function buildAssessmentContextHash(ctx: TrelloCardContext, steps: AssessmentStep[], waiting: AptlssWaitingSignal | null = null) {
   const normalized = {
     id: ctx.id,
     name: ctx.name.trim(),
@@ -150,6 +152,7 @@ export function buildAssessmentContextHash(ctx: TrelloCardContext, steps: Assess
     comments: ctx.comments.slice(0, 20).map((comment) => [comment.date, comment.memberName, comment.text]),
     activity: (ctx.activity ?? []).slice(0, 40).map((event) => [event.type, event.date, event.memberName, event.detail]),
     steps: steps.map((step) => [step.status, step.category, step.requiresRobert, step.blockedBy, step.dependsOnCards, step.estimatedMinutes, step.completionCriteria, step.riskIfSkipped]),
+    waiting: waiting ? [waiting.reasonId, waiting.rawReason, waiting.category, waiting.waitingOn, waiting.waitingOnName, waiting.requestedItem, waiting.nextAction, waiting.followUpAt, waiting.urgency, waiting.confidenceScore] : null,
   };
   return createHash("sha256").update(safeJson(normalized)).digest("hex");
 }
@@ -248,6 +251,7 @@ export function assessAptlssCard({
   runtime,
   forecast,
   calibration,
+  waiting = null,
   duplicateCardNames = [],
   planMissingNextAction = false,
   nowMs = Date.now(),
@@ -260,6 +264,7 @@ export function assessAptlssCard({
   runtime?: AptlssRuntimeSignal;
   forecast?: AptlssForecast;
   calibration?: AssessmentCalibrationContext;
+  waiting?: AptlssWaitingSignal | null;
   duplicateCardNames?: string[];
   planMissingNextAction?: boolean;
   nowMs?: number;
@@ -280,6 +285,9 @@ export function assessAptlssCard({
   const startMs = parseDateMs(ctx.start);
   const startsInFuture = startMs != null && startMs > nowMs + DAY_MS;
   const question = latestQuestionSignal(ctx);
+  const waitingFollowUpMs = parseDateMs(waiting?.followUpAt);
+  const waitingFollowUpDue = waitingFollowUpMs != null && waitingFollowUpMs <= nowMs;
+  const waitingFollowUpSoon = waitingFollowUpMs != null && waitingFollowUpMs > nowMs && waitingFollowUpMs - nowMs <= DAY_MS;
   const lastProgressMs = meaningfulProgressMs(ctx);
   const daysSinceProgress = lastProgressMs == null ? 0 : Math.max(0, Math.floor((nowMs - lastProgressMs) / DAY_MS));
   const inDoneList = /done|complete|archive/i.test(ctx.listName);
@@ -324,6 +332,10 @@ export function assessAptlssCard({
   if (runtimeSignal.activeTimer) secondarySignals.push("timer_active");
   if (runtimeSignal.scheduledToday) secondarySignals.push("scheduled_today");
   if (runtimeSignal.estimateOverrun) secondarySignals.push("estimate_overrun");
+  if (waiting) secondarySignals.push("waiting_reason_recorded", `waiting_category:${waiting.category}`, `waiting_on:${waiting.waitingOn}`);
+  if (waitingFollowUpDue) secondarySignals.push("waiting_follow_up_due");
+  else if (waitingFollowUpSoon) secondarySignals.push("waiting_follow_up_soon");
+  if (waiting && waiting.confidenceScore < 60) secondarySignals.push("waiting_reason_low_confidence");
 
   let primaryState: CardStateValue;
   let stateReason: string;
@@ -336,10 +348,6 @@ export function assessAptlssCard({
     primaryState = "NEEDS_ARCHIVE";
     stateReason = "Card is in a completion list but its completion metadata is inconsistent.";
     actionability = "repair";
-  } else if (progress.total > 0 && progress.ratio === 1) {
-    primaryState = "READY_FOR_DONE";
-    stateReason = "All APTLSS checklist items are complete; final verification and handoff remain.";
-    actionability = "actionable";
   } else if (portfolioSignal.isInDependencyCycle) {
     primaryState = "BLOCKED_BY_OTHER_CARD";
     stateReason = `A dependency cycle connects ${portfolioSignal.cycleCardIds.length} cards and must be broken before execution can be trusted.`;
@@ -352,6 +360,30 @@ export function assessAptlssCard({
     primaryState = "BLOCKED_BY_OTHER_CARD";
     stateReason = "An open step names another card as a blocker.";
     actionability = "blocked";
+  } else if (waiting?.waitingOn === "dependency" || waiting?.category === "dependency") {
+    primaryState = "BLOCKED_BY_OTHER_CARD";
+    stateReason = `VA-recorded waiting evidence: ${waiting.summary}`;
+    actionability = "blocked";
+  } else if (waiting?.waitingOn === "robert") {
+    primaryState = "WAITING_FOR_ROBERT";
+    stateReason = `VA-recorded waiting evidence: ${waiting.summary}`;
+    actionability = "decision";
+  } else if (waiting?.waitingOn === "external_party") {
+    primaryState = "WAITING_FOR_EXTERNAL_PARTY";
+    stateReason = `VA-recorded waiting evidence: ${waiting.summary}`;
+    actionability = waitingFollowUpDue ? "actionable" : "waiting";
+  } else if (waiting?.waitingOn === "joyce") {
+    primaryState = "WAITING_FOR_JOYCE";
+    stateReason = `VA-recorded waiting evidence: ${waiting.summary}`;
+    actionability = "actionable";
+  } else if (waiting) {
+    primaryState = "WAITING_FOR_JOYCE";
+    stateReason = `The saved waiting reason is ambiguous and needs clarification: ${waiting.rawReason}`;
+    actionability = "repair";
+  } else if (progress.total > 0 && progress.ratio === 1) {
+    primaryState = "READY_FOR_DONE";
+    stateReason = "All APTLSS checklist items are complete; final verification and handoff remain.";
+    actionability = "actionable";
   } else if (hasRobertStep || question?.direction === "robert") {
     primaryState = "WAITING_FOR_ROBERT";
     stateReason = "Execution depends on an unresolved Robert decision.";
@@ -425,8 +457,10 @@ export function assessAptlssCard({
       + (portfolioSignal.isInDependencyCycle ? 8 : 0)),
     portfolioBottleneck: Math.min(10, Math.round(portfolioSignal.bottleneckScore / 10)),
     riskIfIgnored: risk,
-    communicationRisk: runtimeSignal.replyOverdue ? 10 : 0,
+    communicationRisk: Math.max(runtimeSignal.replyOverdue ? 10 : 0, waitingFollowUpDue && waiting?.waitingOn === "external_party" ? 12 : 0),
     decisionDelay: runtimeSignal.decisionStale ? 8 : 0,
+    waitingUrgency: waiting?.urgency === "critical" ? 18 : waiting?.urgency === "high" ? 12 : waiting?.urgency === "normal" ? 4 : 0,
+    waitingFollowUp: waitingFollowUpDue ? 12 : waitingFollowUpSoon ? 5 : 0,
     activeCommitment: runtimeSignal.activeTimer ? 8 : runtimeSignal.scheduledToday ? 4 : 0,
     estimateRisk: runtimeSignal.estimateOverrun ? 7 : 0,
     staleEscalation: daysSinceProgress >= 10 ? 10 : daysSinceProgress >= 5 ? 6 : 0,
@@ -457,6 +491,7 @@ export function assessAptlssCard({
     scheduleContext: runtimeWasProvided && runtimeSignal.scheduledToday,
     estimateCalibration: forecastSignal.calibrationSampleSize > 0,
     humanCalibration: (calibration?.byState?.[primaryState]?.samples ?? 0) >= 5 || (calibration?.sampleSize ?? 0) >= 10,
+    waitingReason: Boolean(waiting),
   };
   const coverageWeights: Record<keyof typeof evidenceCoverage, number> = {
     description: 14,
@@ -476,6 +511,7 @@ export function assessAptlssCard({
     scheduleContext: 3,
     estimateCalibration: 5,
     humanCalibration: 4,
+    waitingReason: 12,
   };
   let confidence = 10;
   for (const key of Object.keys(evidenceCoverage) as Array<keyof typeof evidenceCoverage>) {
@@ -506,6 +542,13 @@ export function assessAptlssCard({
     uncertainties.push("The current generated plan has no executable next action.");
     confidence -= 15;
   }
+  if (waiting && waiting.confidenceScore < 60) {
+    uncertainties.push(`The saved waiting reason was interpreted with only ${waiting.confidenceScore}% confidence.`);
+    confidence -= 8;
+  }
+  if (waiting) {
+    for (const missing of waiting.missingInformation) uncertainties.push(`Waiting reason: ${missing}`);
+  }
   if (ctx.dueComplete && !inDoneList && progress.ratio < 1) {
     uncertainties.push("Trello marks the due item complete while execution evidence remains incomplete.");
     confidence -= 12;
@@ -516,6 +559,9 @@ export function assessAptlssCard({
   if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize === 0) confidence = Math.min(confidence, 88);
   else if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize < 2) confidence = Math.min(confidence, 92);
   if (!evidenceCoverage.humanCalibration) confidence = Math.min(confidence, 95);
+  if (waiting && ["WAITING_FOR_ROBERT", "WAITING_FOR_EXTERNAL_PARTY", "WAITING_FOR_JOYCE", "BLOCKED_BY_OTHER_CARD"].includes(primaryState)) {
+    confidence = Math.min(confidence, Math.min(95, waiting.confidenceScore + 10));
+  }
   confidence = clamp(confidence);
   const confidenceBeforeCalibration = confidence;
   const stateCalibration = calibration?.byState?.[primaryState];
@@ -548,6 +594,7 @@ export function assessAptlssCard({
   const confidenceReason = `${Object.values(evidenceCoverage).filter(Boolean).length}/${Object.keys(evidenceCoverage).length} evidence categories available; ${uncertainties.length} material uncertaint${uncertainties.length === 1 ? "y" : "ies"}.${appliedCalibration.applied ? ` Human calibration adjusted ${confidenceBeforeCalibration}% to ${confidence}% from ${calibrationSamples} ${calibrationScope} review(s).` : " Human calibration is not yet applied because the review sample is too small."}`;
 
   const recommendations: string[] = [];
+  if (waiting) recommendations.push(waiting.nextAction);
   if (primaryState === "WAITING_FOR_JOYCE") recommendations.push("Answer the latest inbound question with a concrete decision or next action.");
   if (primaryState === "WAITING_FOR_ROBERT") recommendations.push("Present Robert with one bounded decision, a recommendation, and the cost of delay.");
   if (primaryState === "WAITING_FOR_EXTERNAL_PARTY") recommendations.push("Confirm the follow-up deadline and prepare a specific follow-up if it has passed.");
@@ -575,11 +622,17 @@ export function assessAptlssCard({
         : actionability === "complete" ? 1440
           : 360;
 
+  let nextAssessmentMs = nowMs + reassessmentMinutes * 60_000;
+  if (waitingFollowUpDue) nextAssessmentMs = Math.min(nextAssessmentMs, nowMs + 30 * 60_000);
+  else if (waitingFollowUpMs != null && (waiting?.waitingOn === "external_party" || waiting?.waitingOn === "dependency")) {
+    nextAssessmentMs = Math.min(waitingFollowUpMs, nowMs + DAY_MS);
+  }
+
   const assessedAt = new Date(nowMs).toISOString();
   return {
     engineVersion: APTLSS_ASSESSMENT_VERSION,
     cardId: ctx.id,
-    contextHash: buildAssessmentContextHash(ctx, steps),
+    contextHash: buildAssessmentContextHash(ctx, steps, waiting),
     primaryState,
     stateReason,
     secondarySignals,
@@ -597,6 +650,8 @@ export function assessAptlssCard({
       { key: "steps", source: "aptlss", value: openSteps.length, quality: steps.length ? "strong" : "weak", detail: `${openSteps.length} open and ${completedSteps.length} completed persisted steps.` },
       { key: "dependencies", source: "aptlss", value: portfolioSignal.directDependentCount, quality: portfolioWasProvided ? "strong" : "moderate", detail: "Number of other cards directly depending on this card." },
       { key: "question_direction", source: "derived", value: question?.direction ?? null, quality: question ? "moderate" : "weak", detail: "Direction of the latest unresolved question." },
+      { key: "waiting_reason", source: "aptlss", value: waiting?.rawReason ?? null, quality: waiting ? (waiting.confidenceScore >= 80 ? "strong" : waiting.confidenceScore >= 60 ? "moderate" : "weak") : "weak", detail: waiting ? `${waiting.summary} Next: ${waiting.nextAction}` : "No VA-supplied waiting reason is active.", observedAt: waiting?.recordedAt },
+      { key: "waiting_follow_up", source: "schedule", value: waiting?.followUpAt ?? null, quality: waiting?.followUpSource === "explicit" ? "strong" : waiting ? "moderate" : "weak", detail: waiting?.followUpReason ?? "No waiting follow-up is scheduled." },
       { key: "portfolio_impact", source: "portfolio", value: portfolioSignal.transitiveDependentCount, quality: portfolioWasProvided ? "strong" : "weak", detail: `${portfolioSignal.transitiveDependentCount} downstream card(s); bottleneck score ${portfolioSignal.bottleneckScore}.` },
       { key: "dependency_depth", source: "portfolio", value: portfolioSignal.criticalPathDepth, quality: portfolioWasProvided ? "strong" : "weak", detail: "Longest unresolved dependency chain from this card." },
       { key: "tracked_minutes", source: "runtime", value: runtimeSignal.trackedMinutes, quality: runtimeSignal.sessionCount ? "strong" : "weak", detail: `${runtimeSignal.sessionCount} persisted timer session(s).` },
@@ -608,13 +663,14 @@ export function assessAptlssCard({
     ],
     uncertainties,
     recommendations: Array.from(new Set(recommendations)),
+    waiting,
     portfolio: portfolioSignal,
     runtime: runtimeSignal,
     forecast: forecastSignal,
     calibration: appliedCalibration,
     lastMeaningfulProgressAt: lastProgressMs ? new Date(lastProgressMs).toISOString() : null,
     daysSinceMeaningfulProgress: daysSinceProgress,
-    nextAssessmentAt: new Date(nowMs + reassessmentMinutes * 60_000).toISOString(),
+    nextAssessmentAt: new Date(nextAssessmentMs).toISOString(),
     assessedAt,
     trigger,
   };

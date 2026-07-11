@@ -99,6 +99,23 @@ try {
 
   await clickButton("Inbox");
   await waitForText("Process one intake source at a time");
+  const onHoldToggle = await page.$('button[aria-label$="Review ON-HOLD Cards"]');
+  if (!onHoldToggle) throw new Error("ON-HOLD review toggle was not found.");
+  if ((await onHoldToggle.evaluate((element) => element.getAttribute("aria-expanded"))) !== "true") await onHoldToggle.click();
+  const waitingReasonControl = await page.waitForSelector('[data-testid^="waiting-reason-"]', { timeout: 10_000 });
+  await waitingReasonControl.click();
+  await page.waitForSelector('[data-testid="waiting-reason-inspector"]', { timeout: 5_000 });
+  await waitForText("Exact waiting reason");
+  await waitForText("Internal APTLSS evidence");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const waitingInspectorOverflow = await page.evaluate(() => {
+    const inspector = document.querySelector('[data-testid="waiting-reason-inspector"]');
+    return inspector ? inspector.scrollWidth > inspector.clientWidth + 1 : true;
+  });
+  if (waitingInspectorOverflow) throw new Error("Waiting-reason inspector has horizontal overflow.");
+  await page.screenshot({ path: path.join(outputDir, "desktop-waiting-reason-dark.png"), fullPage: false });
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[data-testid="waiting-reason-inspector"]', { hidden: true, timeout: 5_000 });
   if (process.env.E2E_RUN_REPLY_SCAN === "1") {
     await page.click('[data-testid="reply-monitor-tab"]');
     await waitForText("Reply Monitor");
@@ -142,10 +159,20 @@ try {
   await page.reload({ waitUntil: "networkidle2", timeout: 30_000 });
   await waitForText("Joyce Work Control");
   await page.waitForFunction(() => document.querySelector('[data-testid="decision-context"]')?.getAttribute("data-state") !== "loading", { timeout: 30_000 });
+  await clickButton("Toggle Sidebar");
+  await clickButton("Inbox");
+  await waitForText("Process one intake source at a time");
+  const mobileOnHoldToggle = await page.$('button[aria-label$="Review ON-HOLD Cards"]');
+  if (!mobileOnHoldToggle) throw new Error("Mobile ON-HOLD review toggle was not found.");
+  if ((await mobileOnHoldToggle.evaluate((element) => element.getAttribute("aria-expanded"))) !== "true") await mobileOnHoldToggle.click();
+  const mobileWaitingReasonControl = await page.waitForSelector('[data-testid^="waiting-reason-"]', { timeout: 10_000 });
+  await mobileWaitingReasonControl.click();
+  await page.waitForSelector('[data-testid="waiting-reason-inspector"]', { timeout: 5_000 });
+  await waitForText("Exact waiting reason");
   await new Promise((resolve) => setTimeout(resolve, 750));
   const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   if (mobileOverflow) throw new Error("Mobile layout has horizontal page overflow.");
-  await page.screenshot({ path: path.join(outputDir, "mobile.png"), fullPage: true });
+  await page.screenshot({ path: path.join(outputDir, "mobile-waiting-reason.png"), fullPage: false });
 
   const relevantProblems = consoleProblems.filter((message) => !message.includes("favicon") && !message.includes("React DevTools"));
   if (relevantProblems.length) throw new Error(`Browser console problems:\n${relevantProblems.join("\n")}`);
@@ -153,8 +180,8 @@ try {
   console.log(JSON.stringify({
     ok: true,
     url: page.url(),
-    screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "desktop-aptlss-health-dark.png", "mobile.png"].map((name) => path.join(outputDir, name)),
-    checks: ["secured login", "Today", "card inspector", "Day plan", "Inbox", "Decisions classifier 7/7", "Time & Pay", "Standards", "Settings", "APTLSS intelligence health", "assessment review gate", "dark mode", "desktop overflow", "mobile overflow", "console"],
+    screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "desktop-waiting-reason-dark.png", "desktop-aptlss-health-dark.png", "mobile-waiting-reason.png"].map((name) => path.join(outputDir, name)),
+    checks: ["secured login", "Today", "card inspector", "Day plan", "Inbox", "waiting reason inspector", "Decisions classifier 7/7", "Time & Pay", "Standards", "Settings", "APTLSS intelligence health", "assessment review gate", "dark mode", "desktop overflow", "mobile overflow", "console"],
   }, null, 2));
 } catch (error) {
   const failurePath = path.join(outputDir, "failure.png");

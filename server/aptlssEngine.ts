@@ -26,6 +26,8 @@ import { saveAssessmentSnapshot } from "./aptlssAssessmentDb";
 import type { AptlssPortfolioSignal } from "./aptlssPortfolio";
 import type { AptlssForecast, AptlssRuntimeSignal } from "./aptlssRuntime";
 import type { AptlssCardStateValue } from "./aptlssStateValues";
+import { getActiveWaitingReason, toAptlssWaitingSignal } from "./aptlssWaitingReasonDb";
+import type { AptlssWaitingSignal } from "./aptlssWaitingReason";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -148,9 +150,14 @@ export async function assessAndSaveCardIntelligence(
     runtime?: AptlssRuntimeSignal;
     forecast?: AptlssForecast;
     calibration?: AssessmentCalibrationContext;
+    waiting?: AptlssWaitingSignal | null;
   } = {},
 ) {
   const steps = signals.steps ?? await getOpenStepsForCard(ctx.id);
+  const waitingRecord = signals.waiting === undefined ? await getActiveWaitingReason(ctx.id) : null;
+  const waiting = signals.waiting === undefined
+    ? waitingRecord ? toAptlssWaitingSignal(waitingRecord) : null
+    : signals.waiting;
   const dependentCardCount = signals.portfolio?.directDependentCount ?? await countDependentCards(ctx.id);
   const assessment = assessAptlssCard({
     ctx,
@@ -163,6 +170,7 @@ export async function assessAndSaveCardIntelligence(
     runtime: signals.runtime,
     forecast: signals.forecast,
     calibration: signals.calibration,
+    waiting,
   });
   const progress = getChecklistProgress(ctx);
   const hasFinalSummary = ctx.comments.some((comment) =>
@@ -200,6 +208,9 @@ export async function assessAndSaveCardIntelligence(
       forecastP50Minutes: assessment.forecast.calibratedP50Minutes,
       forecastP90Minutes: assessment.forecast.calibratedP90Minutes,
       trackedMinutes: assessment.runtime.trackedMinutes,
+      waitingReasonId: assessment.waiting?.reasonId ?? null,
+      waitingFollowUpAt: assessment.waiting?.followUpAt ?? null,
+      waitingConfidenceScore: assessment.waiting?.confidenceScore ?? null,
     }),
     tier: assessment.priorityTier,
     estimatedRemainingMinutes: assessment.forecast.calibratedP50Minutes,
@@ -359,9 +370,18 @@ async function computeLegacyCardState(
 
 /** Compute the current evidence-calibrated state without persisting it. */
 export async function computeCardState(ctx: TrelloCardContext): Promise<{ state: CardStateValue; reason: string }> {
-  const steps = await getOpenStepsForCard(ctx.id);
-  const dependentCardCount = await countDependentCards(ctx.id);
-  const assessment = assessAptlssCard({ ctx, steps, dependentCardCount, trigger: "manual" });
+  const [steps, dependentCardCount, waitingRecord] = await Promise.all([
+    getOpenStepsForCard(ctx.id),
+    countDependentCards(ctx.id),
+    getActiveWaitingReason(ctx.id),
+  ]);
+  const assessment = assessAptlssCard({
+    ctx,
+    steps,
+    dependentCardCount,
+    trigger: "manual",
+    waiting: waitingRecord ? toAptlssWaitingSignal(waitingRecord) : null,
+  });
   return { state: assessment.primaryState, reason: assessment.stateReason };
 }
 

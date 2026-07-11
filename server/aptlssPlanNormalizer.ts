@@ -52,6 +52,34 @@ export function normalizeGeneratedAptlssPlan(
     .slice(0, 12)
     .map((step, index) => ({ ...step, number: index + 1 }));
 
+  if (assessment.waiting) {
+    const waiting = assessment.waiting;
+    const category = waiting.waitingOn === "robert" ? "robert_decision"
+      : waiting.waitingOn === "external_party" ? "external_follow_up"
+        : waiting.waitingOn === "dependency" ? "verification"
+          : "internal_work";
+    const itemKey = (waiting.requestedItem ?? "").toLowerCase();
+    const matchingIndex = itemKey.length >= 5
+      ? steps.findIndex((step) => step.text.toLowerCase().includes(itemKey))
+      : -1;
+    if (matchingIndex >= 0) steps.splice(matchingIndex, 1);
+    steps.unshift({
+      number: 1,
+      text: waiting.nextAction.slice(0, 240),
+      done: false,
+      estimatedMinutes: 10,
+      category,
+      requiresRobert: waiting.requiresRobert,
+      blockedBy: null,
+      dependsOnCards: [],
+      completionCriteria: "The waiting checkpoint is handled and the saved waiting evidence is updated or resolved.",
+      riskIfSkipped: "The card may be resumed too early or the required follow-up may be missed.",
+      recommendedDecision: null,
+    });
+    if (steps.length > 12) steps.length = 12;
+    warnings.push("Plan steps were aligned to the active VA-supplied waiting evidence.");
+  }
+
   if (steps.length < 3) warnings.push("Fewer than three distinct executable steps were generated.");
   while (steps.length < 2) {
     const title = assessment.recommendations[steps.length] ?? (steps.length === 0
@@ -88,11 +116,13 @@ export function normalizeGeneratedAptlssPlan(
     if (steps.length >= 12) steps[steps.length - 1] = verificationStep;
     else steps.push(verificationStep);
   }
+  steps.forEach((step, index) => { step.number = index + 1; });
 
-  const fallbackAction = steps.find((step) => !step.requiresRobert && !step.blockedBy)?.text
+  const fallbackAction = assessment.waiting?.nextAction
+    ?? steps.find((step) => !step.requiresRobert && !step.blockedBy)?.text
     ?? assessment.recommendations[0]
     ?? "Clarify the next executable action.";
-  const action = text(raw.nextBestAction || raw.action, fallbackAction).slice(0, 500);
+  const action = (assessment.waiting?.nextAction ?? text(raw.nextBestAction || raw.action, fallbackAction)).slice(0, 500);
   const rawConfidence = integer(raw.confidenceScore, assessment.confidenceScore, 0, 100);
   const quality = evaluateAptlssPlanQuality({ action, steps });
   let confidenceScore = Math.min(rawConfidence, assessment.confidenceScore + 5);
@@ -115,7 +145,9 @@ export function normalizeGeneratedAptlssPlan(
   const links = Array.from(new Set([
     ...(Array.isArray(raw.links) ? raw.links.map((item) => text(item)).filter(Boolean) : []),
   ])).slice(0, 10);
-  const isBlocked = assessment.actionability === "blocked" || Boolean(raw.isBlocked);
+  const waitingBlocksExecution = Boolean(assessment.waiting && !assessment.waiting.isActionableNow
+    && (assessment.waiting.waitingOn === "external_party" || assessment.waiting.waitingOn === "dependency"));
+  const isBlocked = assessment.actionability === "blocked" || waitingBlocksExecution || Boolean(raw.isBlocked);
   const requiresRobert = assessment.actionability === "decision" || steps.some((step) => step.requiresRobert);
 
   return {
@@ -126,10 +158,10 @@ export function normalizeGeneratedAptlssPlan(
     timeline: text(raw.timeline, `${steps.reduce((sum, step) => sum + step.estimatedMinutes, 0)} estimated minutes across ${steps.length} steps.`),
     links,
     steps,
-    summary: text(raw.summary, "The defined outcome is completed, verified, and communicated with evidence."),
+    summary: assessment.waiting?.summary ?? text(raw.summary, "The defined outcome is completed, verified, and communicated with evidence."),
     urgencyLabel,
-    nextCheckpoint: text(raw.nextCheckpoint, assessment.nextAssessmentAt),
-    robertDecision: requiresRobert ? text(raw.robertDecision) || steps.find((step) => step.requiresRobert)?.recommendedDecision || null : null,
+    nextCheckpoint: assessment.waiting?.followUpAt ?? text(raw.nextCheckpoint, assessment.nextAssessmentAt),
+    robertDecision: requiresRobert ? assessment.waiting?.requestedItem ?? (text(raw.robertDecision) || steps.find((step) => step.requiresRobert)?.recommendedDecision || null) : null,
     isBlocked,
     blockedReason: isBlocked ? text(raw.blockedReason, assessment.stateReason) : null,
     confidenceScore,
@@ -146,6 +178,7 @@ export function normalizeGeneratedAptlssPlan(
       evidenceConfidence: assessment.confidenceScore,
       uncertainties: assessment.uncertainties,
       recommendations: assessment.recommendations,
+      waiting: assessment.waiting,
       assessedAt: assessment.assessedAt,
       nextAssessmentAt: assessment.nextAssessmentAt,
       portfolio: assessment.portfolio,

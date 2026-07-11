@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assessAptlssCard } from "./aptlssAssessment";
 import type { TrelloCardContext } from "./aptlssEngine";
+import { interpretWaitingReason } from "./aptlssWaitingReason";
 
 const NOW = Date.parse("2026-07-10T12:00:00.000Z");
 
@@ -105,5 +106,32 @@ describe("APTLSS evidence assessment", () => {
     expect(result.forecast.calibrationSampleSize).toBe(0);
     expect(result.confidenceScore).toBeLessThanOrEqual(88);
     expect(result.confidenceReason).toContain("not yet applied");
+  });
+
+  it("uses exact VA waiting evidence as the authoritative state and next action", () => {
+    const interpreted = interpretWaitingReason(
+      "Client Sarah still needs to send the final logo files; I emailed her yesterday.",
+      { nowMs: NOW, due: "2026-07-11T12:00:00.000Z" },
+    );
+    const waiting = { ...interpreted, reasonId: 8, recordedAt: new Date(NOW - 60_000).toISOString() };
+    const result = assessAptlssCard({ ctx: context(), steps, waiting, nowMs: NOW });
+
+    expect(result.primaryState).toBe("WAITING_FOR_EXTERNAL_PARTY");
+    expect(result.actionability).toBe("actionable");
+    expect(result.secondarySignals).toEqual(expect.arrayContaining(["waiting_reason_recorded", "waiting_follow_up_due"]));
+    expect(result.recommendations[0]).toBe(waiting.nextAction);
+    expect(result.evidenceCoverage.waitingReason).toBe(true);
+    expect(result.priorityBreakdown.waitingFollowUp).toBe(12);
+  });
+
+  it("routes ambiguous waiting evidence back to Joyce instead of inventing an external party", () => {
+    const interpreted = interpretWaitingReason("Still waiting, not sure what is happening.", { nowMs: NOW });
+    const waiting = { ...interpreted, reasonId: 9, recordedAt: new Date(NOW).toISOString() };
+    const result = assessAptlssCard({ ctx: context(), steps, waiting, nowMs: NOW });
+
+    expect(result.primaryState).toBe("WAITING_FOR_JOYCE");
+    expect(result.actionability).toBe("repair");
+    expect(result.confidenceScore).toBeLessThanOrEqual(interpreted.confidenceScore + 10);
+    expect(result.recommendations[0]).toContain("Clarify the waiting reason");
   });
 });

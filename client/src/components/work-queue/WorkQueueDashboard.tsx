@@ -13,6 +13,7 @@ import {
   type WorkQueueLane,
   type WorkQueueLaneId,
   type WorkQueueSourceData,
+  type WorkQueueWaitingReason,
 } from "@/lib/workQueue";
 function getDueLabel(due?: string | null) {
   if (!due) return "No due date";
@@ -39,6 +40,20 @@ function getActivityLabel(value?: string | null) {
   return days === 1 ? "yesterday" : `${days}d ago`;
 }
 
+function formatWaitingDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unavailable";
+  return parsed.toLocaleString("en-GB", {
+    timeZone: "Africa/Nairobi",
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }) + " EAT";
+}
+
 export function WorkQueueDashboard({
   trelloDisabledReason,
   actionData,
@@ -48,6 +63,7 @@ export function WorkQueueDashboard({
   activeTimerCardId,
   timerBusy,
   preferredCardId,
+  waitingReasons = [],
   onNavigate,
   onStartTimer,
 }: {
@@ -59,10 +75,11 @@ export function WorkQueueDashboard({
   activeTimerCardId?: string | null;
   timerBusy: boolean;
   preferredCardId?: string | null;
+  waitingReasons?: WorkQueueWaitingReason[];
   onNavigate: (section: AppSection) => void;
   onStartTimer: (card: WorkQueueCard) => void;
 }) {
-  const queue = useMemo(() => normalizeWorkQueue(actionData, preferredCardId), [actionData, preferredCardId]);
+  const queue = useMemo(() => normalizeWorkQueue(actionData, preferredCardId, waitingReasons), [actionData, preferredCardId, waitingReasons]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedCard = selectedId ? queue.cards.find((card) => card.id === selectedId) ?? null : null;
   const itemsByLane = useMemo(() => ({
@@ -178,6 +195,7 @@ function NowPanel({
               <div className="mt-4 flex flex-wrap gap-2">
                 <Badge variant="outline" className={riskTone(card.risk)}>{card.risk} risk</Badge>
                 <Badge variant="outline" className="border-border bg-background text-foreground">{getDueLabel(card.due)}</Badge>
+                {card.hasWaitingEvidence && <Badge variant="outline">Waiting on {card.waitingOn}</Badge>}
               </div>
               <div className="mt-5 border-l-2 border-primary pl-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next action</p>
@@ -185,9 +203,9 @@ function NowPanel({
               </div>
             </button>
             <div className="flex flex-col justify-end gap-2">
-              <Button className="h-10 gap-2 rounded-md" onClick={() => onStartTimer(card)} disabled={timerBusy || running}>
+              <Button className="h-10 gap-2 rounded-md" onClick={() => onStartTimer(card)} disabled={timerBusy || running || !card.actionable}>
                 <Timer className="h-4 w-4" />
-                {running ? "Timer running" : "Start timer"}
+                {running ? "Timer running" : card.actionable ? "Start timer" : "Waiting"}
               </Button>
               <p className="text-center text-xs text-muted-foreground">Open details for context and secondary actions.</p>
             </div>
@@ -329,7 +347,13 @@ function CardInspector({
     return null;
   }
 
-  const stepGuidance = card.lane === "overdue"
+  const stepGuidance = card.hasWaitingEvidence
+    ? [
+        card.nextAction,
+        card.actionable ? "Complete only the due internal follow-up step; external actions remain explicit." : "Do not start card execution before the saved checkpoint is due.",
+        "Update or resolve the waiting evidence from Triage when the situation changes.",
+      ]
+    : card.lane === "overdue"
     ? [
         "Confirm whether the due date is still valid.",
         "Start the timer if Joyce can make progress now.",
@@ -369,6 +393,8 @@ function CardInspector({
               <InspectorRow label="Due" value={getDueLabel(card.due)} tone={card.tone} />
               <InspectorRow label="Priority" value={`${card.risk} risk`} tone={card.tone} />
               <InspectorRow label="Lane" value={card.laneLabel} />
+              {card.hasWaitingEvidence && <InspectorRow label="Waiting on" value={card.waitingOn ?? "Unknown"} />}
+              {card.waitingFollowUpAt && <InspectorRow label="Checkpoint" value={formatWaitingDate(card.waitingFollowUpAt)} />}
             </InspectorSection>
             <InspectorSection title="Next action">
               <p className="text-sm font-medium text-foreground">{card.nextAction}</p>

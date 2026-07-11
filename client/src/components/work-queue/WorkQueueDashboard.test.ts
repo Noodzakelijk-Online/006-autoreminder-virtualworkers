@@ -101,4 +101,24 @@ describe("WorkQueueDashboard", () => {
     expect(errorHtml).toContain("Work queue unavailable");
     expect(errorHtml).toContain("Trello request failed");
   });
+
+  it("shows the interpreted waiting action and disables execution before its checkpoint", () => {
+    const html = renderDashboard({
+      actionData: { onHoldCards: sourceData.onHoldCards },
+      waitingReasons: [{
+        cardId: "hold-1",
+        waitingOn: "external_party",
+        waitingOnName: "Sarah",
+        nextAction: "Schedule a follow-up with Sarah for the signed pricing approval.",
+        followUpAt: "2099-07-13T07:00:00.000Z",
+        urgency: "high",
+        interpretationValue: { summary: "Waiting on Sarah to approve the pricing copy." },
+      }],
+    });
+
+    expect(html).toContain("Schedule a follow-up with Sarah");
+    expect(html).toContain("Waiting on Sarah");
+    expect(html).toContain("Waiting</button>");
+    expect(html).not.toContain("Start timer");
+  });
 });

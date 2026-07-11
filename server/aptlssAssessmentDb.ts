@@ -16,7 +16,7 @@ export type HydratedAssessment = AptlssAssessmentSnapshot & {
   priorityBreakdownValue: Record<string, number>;
   evidenceCoverageValue: Record<string, boolean>;
   evidenceValue: AptlssAssessment["evidence"];
-  intelligenceValue: Partial<Pick<AptlssAssessment, "portfolio" | "runtime" | "forecast" | "calibration">>;
+  intelligenceValue: Partial<Pick<AptlssAssessment, "waiting" | "portfolio" | "runtime" | "forecast" | "calibration">>;
   uncertaintiesValue: string[];
   recommendationsValue: string[];
   changeValue: Record<string, { before: unknown; after: unknown }>;
@@ -94,6 +94,7 @@ function materialChanges(previous: HydratedAssessment | null, current: AptlssAss
     ["priorityTier", previous.priorityTier, current.priorityTier],
     ["confidenceScore", previous.confidenceScore, current.confidenceScore],
     ["intelligence", previous.intelligenceValue, {
+      waiting: current.waiting,
       portfolio: current.portfolio,
       runtime: current.runtime,
       forecast: current.forecast,
@@ -147,6 +148,7 @@ export async function saveAssessmentSnapshot(cardName: string, assessment: Aptls
     evidenceCoverage: JSON.stringify(assessment.evidenceCoverage),
     evidenceJson: JSON.stringify(assessment.evidence),
     intelligenceJson: JSON.stringify({
+      waiting: assessment.waiting,
       portfolio: assessment.portfolio,
       runtime: assessment.runtime,
       forecast: assessment.forecast,

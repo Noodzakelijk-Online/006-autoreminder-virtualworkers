@@ -156,6 +156,26 @@ describe("protected mutation gates", () => {
     })).rejects.toThrow("Please login");
   });
 
+  it("requires authentication before recording waiting evidence", async () => {
+    const caller = appRouter.createCaller(createPublicContext());
+
+    await expect(caller.aptlss.recordWaitingReason({
+      cardId: "card-1",
+      cardName: "Waiting card",
+      cardUrl: "https://trello.com/c/card-1",
+      boardName: "Operations",
+      listName: "On Hold",
+      due: null,
+      reason: "Waiting for Sarah to send the signed contract.",
+    })).rejects.toThrow("Please login");
+  });
+
+  it("requires authentication before resolving waiting evidence", async () => {
+    const caller = appRouter.createCaller(createPublicContext());
+
+    await expect(caller.aptlss.resolveWaitingReason({ cardId: "card-1" })).rejects.toThrow("Please login");
+  });
+
   it("requires authentication before running manual APTLSS maintenance", async () => {
     const caller = appRouter.createCaller(createPublicContext());
 

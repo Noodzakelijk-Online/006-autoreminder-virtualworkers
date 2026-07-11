@@ -1430,6 +1430,11 @@ function HomeInner() {
     retry: false,
     staleTime: 5 * 60_000,
   });
+  const { data: activeWaitingReasons = [] } = trpc.aptlss.getActiveWaitingReasons.useQuery(undefined, {
+    enabled: readinessResolved && Boolean(databaseReady),
+    retry: false,
+    staleTime: 60_000,
+  });
   const todayDateKey = useMemo(() => new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10), []);
   const savedPlanFallback = trpc.aptlss.getDailyPlan.useQuery({ dateKey: todayDateKey }, { retry: false, staleTime: 60_000 });
   const fallbackQueueData = useMemo<WorkQueueSourceData | undefined>(() => {
@@ -1610,6 +1615,7 @@ function HomeInner() {
                   activeTimerCardId={activeTimer.data?.cardId ?? null}
                   timerBusy={startTimer.isPending}
                   preferredCardId={preferredPlanCardId}
+                  waitingReasons={activeWaitingReasons}
                   onNavigate={handleNav}
                   onStartTimer={handleWorkQueueStartTimer}
                 />

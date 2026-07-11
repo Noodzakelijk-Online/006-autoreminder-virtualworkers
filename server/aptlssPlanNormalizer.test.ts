@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { normalizeGeneratedAptlssPlan } from "./aptlssPlanNormalizer";
 import type { AptlssAssessment } from "./aptlssAssessment";
+import { interpretWaitingReason } from "./aptlssWaitingReason";
 
 const assessment = {
   engineVersion: "4.0.0",
@@ -20,6 +21,7 @@ const assessment = {
   evidence: [],
   uncertainties: ["Missing due evidence"],
   recommendations: ["Ask Robert"],
+  waiting: null,
   portfolio: {
     directDependentCount: 0,
     transitiveDependentCount: 0,
@@ -95,5 +97,29 @@ describe("APTLSS plan normalization", () => {
     }, { ...assessment, actionability: "actionable", primaryState: "READY_TO_START" }, "deterministic");
     expect(result.steps.filter((step) => step.text.startsWith("Draft"))).toHaveLength(1);
     expect(result.steps.some((step) => step.category === "verification")).toBe(true);
+  });
+
+  it("makes active waiting evidence authoritative over generated execution steps", () => {
+    const waiting = {
+      ...interpretWaitingReason("Waiting for Sarah to send the signed contract by Friday.", { nowMs: Date.parse("2026-07-11T07:00:00Z") }),
+      reasonId: 14,
+      recordedAt: "2026-07-11T07:00:00.000Z",
+    };
+    const result = normalizeGeneratedAptlssPlan({
+      summary: "Implementation is ready to complete.",
+      nextCheckpoint: "Start now",
+      steps: [{ text: "Start implementation immediately", category: "internal_work" }],
+    }, {
+      ...assessment,
+      primaryState: "WAITING_FOR_EXTERNAL_PARTY",
+      actionability: "waiting",
+      waiting,
+    }, "ai");
+
+    expect(result.action).toBe(waiting.nextAction);
+    expect(result.steps[0]).toMatchObject({ text: waiting.nextAction.slice(0, 240), category: "external_follow_up" });
+    expect(result.isBlocked).toBe(true);
+    expect(result.summary).toBe(waiting.summary);
+    expect(result.nextCheckpoint).toBe(waiting.followUpAt);
   });
 });

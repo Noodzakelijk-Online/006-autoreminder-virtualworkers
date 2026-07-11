@@ -99,6 +99,50 @@ describe("normalizeWorkQueue", () => {
       "newer-hold",
     ]);
   });
+
+  it("uses active waiting evidence and keeps future waits behind actionable work", () => {
+    const nowMs = Date.parse("2026-07-11T07:00:00.000Z");
+    const queue = normalizeWorkQueue({
+      overdueCards: [card("future-wait", "Future wait", { due: "2026-07-01T10:00:00.000Z" })],
+      doingCards: [card("actionable", "Actionable update")],
+    }, null, [{
+      cardId: "future-wait",
+      waitingOn: "external_party",
+      waitingOnName: "Sarah",
+      nextAction: "Follow up with Sarah on Monday for the signed contract.",
+      followUpAt: "2026-07-13T07:00:00.000Z",
+      urgency: "high",
+      interpretationValue: { summary: "Waiting on Sarah to send the signed contract." },
+    }], nowMs);
+
+    expect(queue.nowItem?.id).toBe("actionable");
+    expect(queue.cards[1]).toMatchObject({
+      id: "future-wait",
+      actionable: false,
+      hasWaitingEvidence: true,
+      waitingOn: "Sarah",
+      risk: "High",
+      nextAction: "Follow up with Sarah on Monday for the signed contract.",
+    });
+    expect(queue.cards[1].detail).toContain("do not chase early");
+  });
+
+  it("keeps Robert preparation actionable without calling a future checkpoint due", () => {
+    const nowMs = Date.parse("2026-07-11T07:00:00.000Z");
+    const queue = normalizeWorkQueue({ onHoldCards: [card("robert", "Robert decision")] }, null, [{
+      cardId: "robert",
+      waitingOn: "robert",
+      waitingOnName: "Robert",
+      nextAction: "Prepare a bounded decision request for Robert now.",
+      followUpAt: "2026-07-13T07:00:00.000Z",
+      urgency: "high",
+      interpretationValue: { summary: "Waiting on Robert to approve the proposal." },
+    }], nowMs);
+
+    expect(queue.nowItem?.actionable).toBe(true);
+    expect(queue.nowItem?.detail).toContain("preparation step is actionable now");
+    expect(queue.nowItem?.detail).not.toContain("checkpoint is due");
+  });
 });
 
 describe("workQueueSourceFromPlan", () => {

@@ -134,6 +134,13 @@
       "when": 1783792465692,
       "tag": "0018_fresh_stature",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "5",
+      "when": 1783796713977,
+      "tag": "0019_military_wild_child",
+      "breakpoints": true
     }
   ]
 }

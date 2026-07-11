@@ -15,6 +15,10 @@ export type WorkQueueCard = {
   nextAction: string;
   detail: string;
   tone: "red" | "amber" | "violet" | "green";
+  actionable: boolean;
+  hasWaitingEvidence: boolean;
+  waitingOn: string | null;
+  waitingFollowUpAt: string | null;
 };
 
 export type WorkQueueLane = {
@@ -42,6 +46,16 @@ export type WorkQueueSourceData = {
   overdueCards?: WorkQueueSourceCard[];
   doingCards?: WorkQueueSourceCard[];
   onHoldCards?: WorkQueueSourceCard[];
+};
+
+export type WorkQueueWaitingReason = {
+  cardId: string;
+  waitingOn: string;
+  waitingOnName: string | null;
+  nextAction: string;
+  followUpAt: string | Date | null;
+  urgency: string;
+  interpretationValue?: { summary?: string } | null;
 };
 
 export type SavedPlanQueueBlock = {
@@ -105,7 +119,68 @@ function compareByActivityThenTitle(a: WorkQueueCard, b: WorkQueueCard) {
   return compareText(a.title, b.title);
 }
 
-export function normalizeWorkQueue(data?: WorkQueueSourceData, preferredCardId?: string | null) {
+function riskRank(risk: WorkQueueCard["risk"]) {
+  return risk === "High" ? 3 : risk === "Medium" ? 2 : 1;
+}
+
+function highestRisk(left: WorkQueueCard["risk"], right: WorkQueueCard["risk"]) {
+  return riskRank(left) >= riskRank(right) ? left : right;
+}
+
+function evidenceRisk(urgency: string): WorkQueueCard["risk"] {
+  if (urgency === "critical" || urgency === "high") return "High";
+  if (urgency === "normal") return "Medium";
+  return "Low";
+}
+
+function formatWaitingCheckpoint(value: string | Date | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleString("en-GB", {
+    timeZone: "Africa/Nairobi",
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }) + " EAT";
+}
+
+function applyWaitingEvidence(card: WorkQueueCard, evidence: WorkQueueWaitingReason | undefined, nowMs: number): WorkQueueCard {
+  if (!evidence) return card;
+  const followUpAt = evidence.followUpAt ? new Date(evidence.followUpAt) : null;
+  const validFollowUp = followUpAt && !Number.isNaN(followUpAt.getTime()) ? followUpAt : null;
+  const waitsForExternalChange = evidence.waitingOn === "external_party" || evidence.waitingOn === "dependency";
+  const checkpointDue = Boolean(validFollowUp && validFollowUp.getTime() <= nowMs);
+  const actionable = !waitsForExternalChange || !validFollowUp || checkpointDue;
+  const checkpoint = formatWaitingCheckpoint(validFollowUp);
+  const actor = evidence.waitingOnName ?? evidence.waitingOn.replace(/_/g, " ");
+  const summary = evidence.interpretationValue?.summary?.trim() || `Waiting on ${actor}.`;
+  return {
+    ...card,
+    risk: highestRisk(card.risk, evidenceRisk(evidence.urgency)),
+    nextAction: evidence.nextAction,
+    detail: !actionable
+      ? `${summary} Hold execution until ${checkpoint ?? "the saved checkpoint"}; do not chase early.`
+      : validFollowUp && !checkpointDue
+        ? `${summary} The preparation step is actionable now; the follow-up checkpoint is ${checkpoint}.`
+        : `${summary} The APTLSS checkpoint is due.`,
+    actionable,
+    hasWaitingEvidence: true,
+    waitingOn: actor,
+    waitingFollowUpAt: validFollowUp?.toISOString() ?? null,
+  };
+}
+
+export function normalizeWorkQueue(
+  data?: WorkQueueSourceData,
+  preferredCardId?: string | null,
+  waitingReasons: WorkQueueWaitingReason[] = [],
+  nowMs = Date.now(),
+) {
+  const waitingByCard = new Map(waitingReasons.map((reason) => [reason.cardId, reason]));
   const overdue = (data?.overdueCards ?? []).map((card): WorkQueueCard => ({
     id: card.id,
     title: card.name,
@@ -119,7 +194,11 @@ export function normalizeWorkQueue(data?: WorkQueueSourceData, preferredCardId?:
     nextAction: "Resolve the overdue blocker or update Trello with the exact waiting reason.",
     detail: "Past-due card. Start here unless Robert decision work is blocking delivery.",
     tone: "red",
-  })).sort(compareByDueThenTitle);
+    actionable: true,
+    hasWaitingEvidence: false,
+    waitingOn: null,
+    waitingFollowUpAt: null,
+  })).map((card) => applyWaitingEvidence(card, waitingByCard.get(card.id), nowMs)).sort(compareByDueThenTitle);
   const doing = (data?.doingCards ?? [])
     .filter((card) => !card.updatedToday)
     .map((card): WorkQueueCard => ({
@@ -137,7 +216,12 @@ export function normalizeWorkQueue(data?: WorkQueueSourceData, preferredCardId?:
       nextAction: "Post a concise daily update with progress, next step, and blocker status.",
       detail: "This card is in a DOING lane and still needs Joyce's signed daily update today.",
       tone: "amber",
+      actionable: true,
+      hasWaitingEvidence: false,
+      waitingOn: null,
+      waitingFollowUpAt: null,
     }))
+    .map((card) => applyWaitingEvidence(card, waitingByCard.get(card.id), nowMs))
     .sort(compareByDueActivityThenTitle);
   const onHold = (data?.onHoldCards ?? []).map((card): WorkQueueCard => ({
     id: card.id,
@@ -153,17 +237,25 @@ export function normalizeWorkQueue(data?: WorkQueueSourceData, preferredCardId?:
     nextAction: "Review whether this is still blocked, ready to move, or needs a follow-up.",
     detail: "On-hold cards are reviewed without forcing inline action overload on the dashboard.",
     tone: "violet",
-  })).sort(compareByActivityThenTitle);
+    actionable: true,
+    hasWaitingEvidence: false,
+    waitingOn: null,
+    waitingFollowUpAt: null,
+  })).map((card) => applyWaitingEvidence(card, waitingByCard.get(card.id), nowMs)).sort(compareByActivityThenTitle);
 
   const seenCardIds = new Set<string>();
-  const cards = [...overdue, ...doing, ...onHold].filter((card) => {
+  const deduplicated = [...overdue, ...doing, ...onHold].filter((card) => {
     if (seenCardIds.has(card.id)) return false;
     seenCardIds.add(card.id);
     return true;
   });
+  const cards = [
+    ...deduplicated.filter((card) => card.actionable),
+    ...deduplicated.filter((card) => !card.actionable),
+  ];
   if (preferredCardId) {
     const preferredIndex = cards.findIndex((card) => card.id === preferredCardId);
-    if (preferredIndex > 0) {
+    if (preferredIndex > 0 && cards[preferredIndex].actionable) {
       const [preferred] = cards.splice(preferredIndex, 1);
       cards.unshift(preferred);
     }
