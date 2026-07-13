@@ -1,11 +1,11 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { formatShortDate, formatWeekChartLabel, toDateOnlyKey } from "@/lib/dateOnly";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Calculator, Flame, Star, Save, History, TriangleAlert, ChevronDown, ChevronUp, ClipboardCheck,
+import { Calculator, Star, Save, History, TriangleAlert, ChevronDown, ChevronUp, ClipboardCheck,
   TrendingUp, TrendingDown, Minus
 } from "lucide-react";
 import { toast } from "sonner";
@@ -23,26 +23,36 @@ import {
   Tooltip,
   ReferenceLine,
   ResponsiveContainer,
-  Cell,
+  Rectangle,
+  type BarShapeProps,
 } from "recharts";
+import { useEatClock } from "@/hooks/useEatClock";
+import { weekBoundsFromDateKey } from "@shared/eatTime";
 
-// Get Monday of the current week
-function getWeekStart(offset = 0): string {
-  const now = new Date();
-  const day = now.getDay();
-  const diff = now.getDate() - day + (day === 0 ? -6 : 1) + offset * 7;
-  const monday = new Date(now.setDate(diff));
-  return monday.toISOString().slice(0, 10);
-}
+function PayTrendBar(props: BarShapeProps) {
+  const pay = Number(props.payload?.pay ?? props.value ?? 0);
+  const fill = pay >= 90
+    ? "hsl(142, 71%, 45%)"
+    : pay >= 70
+      ? "hsl(38, 92%, 50%)"
+      : "hsl(0, 84%, 60%)";
 
-function getWeekEnd(weekStart: string): string {
-  const d = new Date(`${weekStart}T12:00:00`);
-  d.setDate(d.getDate() + 6);
-  return d.toISOString().slice(0, 10);
+  return <Rectangle x={props.x} y={props.y} width={props.width} height={props.height} radius={[4, 4, 0, 0]} fill={fill} />;
 }
 
 function formatDate(d: string | Date | null | undefined): string {
   return formatShortDate(d);
+}
+
+function isValidPayWeek(weekStartValue: string | Date | null | undefined, weekEndValue: string | Date | null | undefined) {
+  const weekStart = toDateOnlyKey(weekStartValue);
+  const weekEnd = toDateOnlyKey(weekEndValue);
+  if (!weekStart || !weekEnd) return false;
+  try {
+    return weekBoundsFromDateKey(weekStart).startDate === weekStart && weekBoundsFromDateKey(weekStart).endDate === weekEnd;
+  } catch {
+    return false;
+  }
 }
 
 // ── Merit definitions ─────────────────────────────────────────────────────────
@@ -266,6 +276,7 @@ function PayHistoryRow({
   payClr,
   demerits,
   merits,
+  validWeek,
 }: {
   id: string;
   weekStart: string;
@@ -276,11 +287,12 @@ function PayHistoryRow({
   payClr: string;
   demerits: number;
   merits: number;
+  validWeek: boolean;
 }) {
-  const { data } = trpc.compliance.getWeekAvg.useQuery({ weekStart });
+  const { data } = trpc.compliance.getWeekAvg.useQuery({ weekStart }, { enabled: validWeek });
   const { data: prevData } = trpc.compliance.getWeekAvg.useQuery(
     { weekStart: prevWeekStart! },
-    { enabled: prevWeekStart !== null }
+    { enabled: validWeek && prevWeekStart !== null }
   );
   const avg = data?.avg ?? null;
   const prevAvg = prevData?.avg ?? null;
@@ -318,6 +330,7 @@ function PayHistoryRow({
           <p className="text-sm font-medium text-foreground">
             {weekStartLabel} – {weekEndLabel}
           </p>
+          {!validWeek && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300">Legacy dates</Badge>}
           {avg !== null && (
             <Badge className={`text-[10px] py-0 px-1.5 border-0 font-bold ${complianceColor}`}>
               <ClipboardCheck className="w-2.5 h-2.5 mr-0.5" />
@@ -344,14 +357,15 @@ function PayHistoryRow({
 }
 
 export default function WeeklyPayCalculator() {
-  const [weekStart] = useState(() => getWeekStart());
-  const weekEnd = getWeekEnd(weekStart);
+  const { weekBounds } = useEatClock(60_000);
+  const { startDate: weekStart, endDate: weekEnd } = weekBounds;
   const [counts, setCounts] = useState<Counts>(defaultCounts());
   const [notes, setNotes] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [savedThisSession, setSavedThisSession] = useState(false);
   const [mdCollapsed, setMdCollapsed] = useState(true); // reveal detailed adjustments only when needed
   const [d1GuardPending, setD1GuardPending] = useState<number | null>(null); // pending delta when guard fires
+  const hydratedWeekRef = useRef<string | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -381,9 +395,16 @@ export default function WeeklyPayCalculator() {
   }, [handleHashNavigation]);
 
   const { data: existing } = trpc.payLog.getByWeek.useQuery({ weekStart });
-  const [loaded, setLoaded] = useState(false);
-  if (existing && !loaded && !savedThisSession) {
-    setLoaded(true);
+  useEffect(() => {
+    hydratedWeekRef.current = null;
+    setCounts(defaultCounts());
+    setNotes("");
+    setSavedThisSession(false);
+  }, [weekStart]);
+
+  useEffect(() => {
+    if (!existing || hydratedWeekRef.current === weekStart || savedThisSession) return;
+    hydratedWeekRef.current = weekStart;
     setCounts({
       meritM1: Number(existing.meritM1) || 0,
       meritM2: Number(existing.meritM2) || 0,
@@ -402,14 +423,17 @@ export default function WeeklyPayCalculator() {
       demeritD11: Number(existing.demeritD11) || 0,
     });
     setNotes(existing.notes ?? "");
-  }
+  }, [existing, savedThisSession, weekStart]);
 
   const { data: history } = trpc.payLog.getAll.useQuery({ limit: 8 });
+  const validHistory = useMemo(() => (history ?? []).filter((log) => isValidPayWeek(log.weekStart, log.weekEnd)), [history]);
+  const invalidHistoryCount = (history?.length ?? 0) - validHistory.length;
 
   const upsert = trpc.payLog.upsert.useMutation({
     onSuccess: () => {
       utils.payLog.getByWeek.invalidate({ weekStart });
       utils.payLog.getAll.invalidate();
+      hydratedWeekRef.current = weekStart;
       setSavedThisSession(true);
       toast.success("Week saved", { description: "Pay log updated successfully." });
     },
@@ -663,17 +687,17 @@ export default function WeeklyPayCalculator() {
       </Card>
 
       {/* ── Pay History Chart ── */}
-      {history && history.length >= 2 && (
+      {validHistory.length >= 2 && (
         <Card className="border-0 shadow-sm">
           <CardContent className="p-5">
             <div className="flex items-center gap-2.5 mb-4">
               <div className="w-1 h-6 rounded-full bg-gradient-to-b from-violet-500 to-indigo-600"></div>
               <h2 className="text-base font-bold text-foreground">Pay Trend</h2>
-              <span className="text-xs text-muted-foreground">(last {history.length} weeks)</span>
+              <span className="text-xs text-muted-foreground">(last {validHistory.length} valid weeks)</span>
             </div>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart
-                data={[...history].reverse().map(log => ({
+                data={[...validHistory].reverse().map(log => ({
                   week: formatWeekChartLabel(log.weekStart),
                   pay: Number(log.projectedPay),
                 }))}
@@ -694,7 +718,7 @@ export default function WeeklyPayCalculator() {
                   tickFormatter={(v) => `$${v}`}
                 />
                 <Tooltip
-                  formatter={(value: number) => [`$${value.toFixed(2)}`, "Projected Pay"]}
+                  formatter={(value) => [`$${Number(value ?? 0).toFixed(2)}`, "Projected Pay"]}
                   contentStyle={{
                     background: "hsl(var(--card))",
                     border: "1px solid hsl(var(--border))",
@@ -703,17 +727,7 @@ export default function WeeklyPayCalculator() {
                   }}
                 />
                 <ReferenceLine y={90} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" label={{ value: "Base $90", position: "insideTopRight", fontSize: 9, fill: "hsl(var(--muted-foreground))" }} />
-                <Bar dataKey="pay" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                  {[...history].reverse().map((log, i) => {
-                    const pay = Number(log.projectedPay);
-                    const color = pay >= 90
-                      ? "hsl(142, 71%, 45%)"
-                      : pay >= 70
-                      ? "hsl(38, 92%, 50%)"
-                      : "hsl(0, 84%, 60%)";
-                    return <Cell key={i} fill={color} />;
-                  })}
-                </Bar>
+                <Bar dataKey="pay" maxBarSize={40} shape={PayTrendBar} />
               </BarChart>
             </ResponsiveContainer>
             <div className="flex items-center gap-4 mt-2 justify-center">
@@ -746,6 +760,11 @@ export default function WeeklyPayCalculator() {
           </button>
           {showHistory && (
             <div className="mt-4 space-y-2">
+              {invalidHistoryCount > 0 && (
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                  {invalidHistoryCount} legacy entr{invalidHistoryCount === 1 ? "y uses" : "ies use"} non-standard week dates. It remains visible below but is excluded from trend and compliance comparisons.
+                </div>
+              )}
               {!history || history.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">No history yet. Save a week log above.</p>
               ) : (
@@ -760,8 +779,9 @@ export default function WeeklyPayCalculator() {
                     : "text-red-600 dark:text-red-400";
                   // Anchor ID for compliance table "→ Pay log" scroll-links
                   const wStart = toDateOnlyKey(log.weekStart) ?? "unknown";
+                  const validWeek = isValidPayWeek(log.weekStart, log.weekEnd);
                   // Previous week (history is sorted newest-first, so idx+1 is the prior week)
-                  const prevLog = history[idx + 1];
+                  const prevLog = validWeek ? history.slice(idx + 1).find((candidate) => isValidPayWeek(candidate.weekStart, candidate.weekEnd)) : undefined;
                   const prevWStart = prevLog
                     ? toDateOnlyKey(prevLog.weekStart)
                     : null;
@@ -777,6 +797,7 @@ export default function WeeklyPayCalculator() {
                       payClr={payClr}
                       demerits={demerits}
                       merits={merits}
+                      validWeek={validWeek}
                     />
                   );
                 })

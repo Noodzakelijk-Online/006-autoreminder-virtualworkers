@@ -6,7 +6,7 @@
  * 2. Active vague-reply and unsigned-message flags requiring review
  * 3. History of all threads and resolved flags
  */
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +19,6 @@ import {
   ExternalLink,
   RefreshCw,
   MessageSquare,
-  AlertCircle,
-  XCircle,
   ChevronDown,
   ChevronUp,
   PenLine,
@@ -35,16 +33,13 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { useEatClock } from "@/hooks/useEatClock";
 // ─── Countdown helpers ────────────────────────────────────────────────────────
 
 function useCountdown(targetMs: number): { label: string; isExpired: boolean; urgency: "ok" | "warn" | "critical" } {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    // Update every 5 min — minute-level precision is sufficient for the countdown.
-    const id = setInterval(() => setNow(Date.now()), 5 * 60_000);
-    return () => clearInterval(id);
-  }, []);
-  const remaining = targetMs - now;
+  const { nowMs } = useEatClock(5 * 60_000);
+  // Minute-level precision is sufficient for this countdown.
+  const remaining = targetMs - nowMs;
   if (remaining <= 0) return { label: "Overdue", isExpired: true, urgency: "critical" };
   const hours = Math.floor(remaining / 3_600_000);
   const mins = Math.floor((remaining % 3_600_000) / 60_000);
@@ -134,6 +129,8 @@ function ThreadCard({
         <span>{new Date(thread.lastNonJoyceMsgAt).toLocaleString()}</span>
         <button
           onClick={() => setExpanded(!expanded)}
+          aria-label={expanded ? "Hide latest message" : "Show latest message"}
+          title={expanded ? "Hide latest message" : "Show latest message"}
           className="ml-auto text-muted-foreground hover:text-foreground"
         >
           {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -378,11 +375,37 @@ function UnsignedFlagCard({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 10;
+
+function ProgressiveRevealButton({
+  visible,
+  total,
+  onShowMore,
+}: {
+  visible: number;
+  total: number;
+  onShowMore: () => void;
+}) {
+  if (visible >= total) return null;
+  const nextCount = Math.min(PAGE_SIZE, total - visible);
+  return (
+    <Button type="button" variant="ghost" size="sm" className="w-full text-xs" onClick={onShowMore}>
+      <ChevronDown className="h-3.5 w-3.5" />
+      Show {nextCount} more
+    </Button>
+  );
+}
+
 export default function ReplyMonitor() {
   const utils = trpc.useUtils();
+  const [activeTab, setActiveTab] = useState("replies");
+  const [visibleUnsignedCount, setVisibleUnsignedCount] = useState(PAGE_SIZE);
+  const [visibleThreadHistoryCount, setVisibleThreadHistoryCount] = useState(PAGE_SIZE);
+  const [visibleVagueHistoryCount, setVisibleVagueHistoryCount] = useState(PAGE_SIZE);
+  const [visibleUnsignedHistoryCount, setVisibleUnsignedHistoryCount] = useState(PAGE_SIZE);
 
-  // Active-state queries: poll every 30 min. The cron runs every 12 h so
-  // polling faster than that adds no value — use "Scan Now" for on-demand freshness.
+  // The server scans every 15 minutes and pushes completion over SSE. This
+  // 30-minute poll is only a fallback for a missed push event.
   const { data: pendingThreads = [], isLoading: threadsLoading, error: threadsError } = trpc.replyMonitor.getPendingThreads.useQuery(
     undefined,
     { refetchInterval: 30 * 60_000 }
@@ -397,7 +420,7 @@ export default function ReplyMonitor() {
   );
   const { data: scanStatus, isLoading: statusLoading, error: statusError } = trpc.replyMonitor.getStatus.useQuery(
     undefined,
-    { refetchInterval: 60_000 }
+    { refetchInterval: 30 * 60_000 }
   );
   // History queries: no polling needed — they only change after a scan or resolve action.
   const { data: allThreads = [] } = trpc.replyMonitor.getAllThreads.useQuery({ limit: 50 });
@@ -413,6 +436,7 @@ export default function ReplyMonitor() {
     onSuccess: () => {
       utils.replyMonitor.getActiveVagueFlags.invalidate();
       utils.replyMonitor.getAllVagueFlags.invalidate();
+      utils.system.navigationCounts.invalidate();
       toast.success("Flag marked as corrected.");
     },
     onError: () => toast.error("Failed to resolve flag."),
@@ -422,6 +446,7 @@ export default function ReplyMonitor() {
     onSuccess: () => {
       utils.replyMonitor.getActiveUnsignedFlags.invalidate();
       utils.replyMonitor.getAllUnsignedFlags.invalidate();
+      utils.system.navigationCounts.invalidate();
       toast.success("Signature confirmed.");
     },
     onError: () => toast.error("Failed to resolve unsigned flag."),
@@ -437,6 +462,7 @@ export default function ReplyMonitor() {
         utils.replyMonitor.getAllVagueFlags.invalidate(),
         utils.replyMonitor.getAllUnsignedFlags.invalidate(),
         utils.replyMonitor.getStatus.invalidate(),
+        utils.system.navigationCounts.invalidate(),
       ]);
       toast.success("Reply scan completed", { description: `${result.threadsScanned} Trello threads checked.` });
     },
@@ -479,40 +505,6 @@ export default function ReplyMonitor() {
         </Button>
       </div>
 
-      {/* Summary chips */}
-      <div className="flex flex-wrap gap-2">
-        {overdueCount > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400">
-            <XCircle className="w-3.5 h-3.5" />
-            {overdueCount} overdue repl{overdueCount > 1 ? "ies" : "y"}
-          </span>
-        )}
-        {pendingCount > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            {pendingCount} pending repl{pendingCount > 1 ? "ies" : "y"}
-          </span>
-        )}
-        {activeFlagCount > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border bg-orange-500/10 border-orange-500/30 text-orange-700 dark:text-orange-400">
-            <AlertCircle className="w-3.5 h-3.5" />
-            {activeFlagCount} vague flag{activeFlagCount > 1 ? "s" : ""} active
-          </span>
-        )}
-        {activeUnsignedCount > 0 && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border bg-purple-500/10 border-purple-500/30 text-purple-700 dark:text-purple-400">
-            <PenLine className="w-3.5 h-3.5" />
-            {activeUnsignedCount} unsigned message{activeUnsignedCount > 1 ? "s" : ""}
-          </span>
-        )}
-        {overdueCount === 0 && pendingCount === 0 && activeFlagCount === 0 && activeUnsignedCount === 0 && !threadsLoading && !flagsLoading && !unsignedLoading && !statusLoading && !activeDataError && scanIsTrusted && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-400">
-            <CheckCircle className="w-3.5 h-3.5" />
-            All threads replied · No vague flags · All messages signed
-          </span>
-        )}
-      </div>
-
       {activeDataError && (
         <Card className="border-destructive/40 bg-destructive/5">
           <CardContent className="flex items-start gap-3 p-4">
@@ -531,13 +523,13 @@ export default function ReplyMonitor() {
         </Card>
       )}
 
-      <Tabs defaultValue="active">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="h-9">
-          <TabsTrigger value="active" className="text-xs">
-            Active
-            {(overdueCount + pendingCount + activeFlagCount + activeUnsignedCount) > 0 && (
+          <TabsTrigger value="replies" className="text-xs">
+            Replies
+            {(overdueCount + pendingCount) > 0 && (
               <span className="ml-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                {overdueCount + pendingCount + activeFlagCount + activeUnsignedCount}
+                {overdueCount + pendingCount}
               </span>
             )}
           </TabsTrigger>
@@ -560,8 +552,8 @@ export default function ReplyMonitor() {
           <TabsTrigger value="history" className="text-xs">History</TabsTrigger>
         </TabsList>
 
-        {/* ── Active threads + flags ── */}
-        <TabsContent value="active" className="space-y-3 mt-3">
+        {/* ── Unanswered replies ── */}
+        <TabsContent value="replies" className="space-y-3 mt-3">
           {activeDataError ? (
             <p className="py-8 text-center text-sm text-muted-foreground">Active reply data could not be verified.</p>
           ) : threadsLoading ? (
@@ -593,37 +585,6 @@ export default function ReplyMonitor() {
             </div>
           )}
 
-          {/* Active vague flags inline */}
-          {activeVagueFlags.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <p className="text-xs font-semibold text-orange-700 dark:text-orange-400 uppercase tracking-wide">
-                Vague Replies — Correct the reply and record the review outcome
-              </p>
-              {activeVagueFlags.map(f => (
-                <VagueFlagCard
-                  key={f.id}
-                  flag={{ ...f, flaggedAt: new Date(f.flaggedAt), resolvedAt: f.resolvedAt ? new Date(f.resolvedAt) : null, demeritIssuedAt: null }}
-                  onResolve={id => resolveFlag.mutate({ id })}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Active unsigned flags inline */}
-          {activeUnsignedFlags.length > 0 && (
-            <div className="mt-4 space-y-2">
-              <p className="text-xs font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wide">
-                Unsigned Messages — Add ~ Angel or ~ Joyce and record the review outcome
-              </p>
-              {activeUnsignedFlags.map(f => (
-                <UnsignedFlagCard
-                  key={f.id}
-                  flag={{ ...f, flaggedAt: new Date(f.flaggedAt), resolvedAt: f.resolvedAt ? new Date(f.resolvedAt) : null }}
-                  onResolve={(id, note) => resolveUnsigned.mutate({ id, note })}
-                />
-              ))}
-            </div>
-          )}
         </TabsContent>
 
         {/* ── Vague flags tab ── */}
@@ -683,13 +644,20 @@ export default function ReplyMonitor() {
               </CardContent>
             </Card>
           ) : (
-            activeUnsignedFlags.map(f => (
-              <UnsignedFlagCard
-                key={f.id}
-                flag={{ ...f, flaggedAt: new Date(f.flaggedAt), resolvedAt: f.resolvedAt ? new Date(f.resolvedAt) : null }}
-                onResolve={(id, note) => resolveUnsigned.mutate({ id, note })}
+            <>
+              {activeUnsignedFlags.slice(0, visibleUnsignedCount).map(f => (
+                <UnsignedFlagCard
+                  key={f.id}
+                  flag={{ ...f, flaggedAt: new Date(f.flaggedAt), resolvedAt: f.resolvedAt ? new Date(f.resolvedAt) : null }}
+                  onResolve={(id, note) => resolveUnsigned.mutate({ id, note })}
+                />
+              ))}
+              <ProgressiveRevealButton
+                visible={visibleUnsignedCount}
+                total={activeUnsignedFlags.length}
+                onShowMore={() => setVisibleUnsignedCount(count => count + PAGE_SIZE)}
               />
-            ))
+            </>
           )}
 
           <Card className="border-dashed">
@@ -716,7 +684,7 @@ export default function ReplyMonitor() {
               <p className="text-xs text-muted-foreground py-4 text-center">No thread history yet.</p>
             ) : (
               <div className="space-y-1">
-                {allThreads.map(t => {
+                {allThreads.slice(0, visibleThreadHistoryCount).map(t => {
                   const statusColor =
                     t.status === "overdue"
                       ? "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400"
@@ -742,6 +710,11 @@ export default function ReplyMonitor() {
                     </div>
                   );
                 })}
+                <ProgressiveRevealButton
+                  visible={visibleThreadHistoryCount}
+                  total={allThreads.length}
+                  onShowMore={() => setVisibleThreadHistoryCount(count => count + PAGE_SIZE)}
+                />
               </div>
             )}
           </div>
@@ -752,7 +725,7 @@ export default function ReplyMonitor() {
               <p className="text-xs text-muted-foreground py-4 text-center">No vague flag history yet.</p>
             ) : (
               <div className="space-y-1">
-                {allVagueFlags.map(f => (
+                {allVagueFlags.slice(0, visibleVagueHistoryCount).map(f => (
                   <div key={f.id} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
                     {f.demeritIssued ? (
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400">
@@ -780,6 +753,39 @@ export default function ReplyMonitor() {
                     </span>
                   </div>
                 ))}
+                <ProgressiveRevealButton
+                  visible={visibleVagueHistoryCount}
+                  total={allVagueFlags.length}
+                  onShowMore={() => setVisibleVagueHistoryCount(count => count + PAGE_SIZE)}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1 mt-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Signature Flag History (last 50)</p>
+            {allUnsignedFlags.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-4 text-center">No signature flag history yet.</p>
+            ) : (
+              <div className="space-y-1">
+                {allUnsignedFlags.slice(0, visibleUnsignedHistoryCount).map((flag) => (
+                  <div key={flag.id} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
+                    {flag.demeritIssued ? (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400">D1 ISSUED</span>
+                    ) : flag.resolvedAt ? (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-green-500/10 border-green-500/30 text-green-700 dark:text-green-400">RESOLVED</span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-orange-500/10 border-orange-500/30 text-orange-700 dark:text-orange-400">ACTIVE</span>
+                    )}
+                    <a href={flag.cardUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-foreground hover:underline flex-1 truncate">{flag.cardName}</a>
+                    <span className="text-[10px] text-muted-foreground flex-shrink-0">{new Date(flag.flaggedAt).toLocaleDateString()}</span>
+                  </div>
+                ))}
+                <ProgressiveRevealButton
+                  visible={visibleUnsignedHistoryCount}
+                  total={allUnsignedFlags.length}
+                  onShowMore={() => setVisibleUnsignedHistoryCount(count => count + PAGE_SIZE)}
+                />
               </div>
             )}
           </div>

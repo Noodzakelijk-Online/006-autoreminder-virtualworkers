@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { runReplyMonitorScan } from "./cronJobs";
-import { protectedProcedure, router } from "./_core/trpc";
+import { runTrackedJob } from "./scheduledJobsDb";
+import { ownerProcedure as protectedProcedure, router } from "./_core/trpc";
 import {
   getActiveUnsignedFlags,
   getActiveVagueReplyFlags,
@@ -37,14 +38,25 @@ export const replyMonitorRouter = router({
     }),
 
   triggerScan: protectedProcedure.mutation(async () => {
-    await runReplyMonitorScan({ sendNotifications: false });
-    const status = await getReplyMonitorStatus();
-    if (status.state !== "success") {
-      throw new TRPCError({
-        code: "INTERNAL_SERVER_ERROR",
-        message: status.errorMessage || "Reply Monitor scan did not complete successfully.",
-      });
-    }
+    const status = await runTrackedJob({
+      jobKey: "reply_monitor",
+      trigger: "manual",
+      run: async () => {
+        await runReplyMonitorScan({ sendNotifications: false });
+        const result = await getReplyMonitorStatus();
+        if (result.state !== "success") {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: result.errorMessage || "Reply Monitor scan did not complete successfully.",
+          });
+        }
+        return result;
+      },
+      summarize: (result) => ({
+        recordsProcessed: result.threadsScanned,
+        detail: `${result.threadsScanned} Trello threads scanned manually`,
+      }),
+    });
     return {
       success: true,
       message: "Scan completed",

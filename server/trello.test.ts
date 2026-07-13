@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getWeeklyHours, getJoyceCards, getJoyceRecentActions, getCardsNeedingDueDate, getCardsNeedingDailyUpdate, getOnHoldCards, getJoyceCommentedCardIdsToday, getRegisteredWebhooks, clearBoardListCache } from "./trello";
+import { getJoyceCards, getJoyceRecentActions, getCardsNeedingDueDate, getCardsNeedingDailyUpdate, getOnHoldCards, getJoyceCommentedCardIdsToday, getRegisteredWebhooks, clearBoardListCache, moveCardToDoing } from "./trello";
 
 // Mock axios
 vi.mock("axios", () => ({
   default: {
     get: vi.fn(),
+    put: vi.fn(),
     isAxiosError: (error: unknown) => Boolean((error as { isAxiosError?: boolean })?.isAxiosError),
   },
 }));
@@ -72,35 +73,6 @@ describe("Trello API Integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearBoardListCache(); // Ensure each test starts with a fresh cache
-  });
-
-  describe("getWeeklyHours", () => {
-    it("should return weekly hours data with correct structure", async () => {
-      const result = await getWeeklyHours("test-key", "test-token");
-
-      expect(result).toHaveProperty("totalHours");
-      expect(result).toHaveProperty("targetMin");
-      expect(result).toHaveProperty("targetMax");
-      expect(result).toHaveProperty("weekStart");
-      expect(result).toHaveProperty("weekEnd");
-
-      expect(typeof result.totalHours).toBe("number");
-      expect(result.targetMin).toBe(50);
-      expect(result.targetMax).toBe(55);
-      expect(typeof result.weekStart).toBe("string");
-      expect(typeof result.weekEnd).toBe("string");
-    });
-
-    it("should calculate week start as Sunday of current week", async () => {
-      const result = await getWeeklyHours("test-key", "test-token");
-      const weekStart = new Date(result.weekStart);
-      expect(weekStart.getDay()).toBe(0);
-    });
-
-    it("should return 0 hours when no timer data is available", async () => {
-      const result = await getWeeklyHours("test-key", "test-token");
-      expect(result.totalHours).toBe(0);
-    });
   });
 
   describe("getJoyceCards", () => {
@@ -399,6 +371,37 @@ describe("Trello API Integration", () => {
       (axios.get as any).mockResolvedValueOnce({ data: [] });
       const result = await getJoyceCommentedCardIdsToday("test-key", "test-token");
       expect(result.size).toBe(0);
+    });
+  });
+
+  describe("moveCardToDoing", () => {
+    it("moves the card to the board's canonical DOING list", async () => {
+      (axios.get as any)
+        .mockResolvedValueOnce({ data: { idBoard: "board-1", idList: "backlog" } })
+        .mockResolvedValueOnce({ data: [{ id: "backlog", name: "Backlog" }, { id: "doing", name: "DOING" }] })
+        .mockResolvedValueOnce({ data: { id: "board-1", name: "Operations" } });
+      (axios.put as any).mockResolvedValueOnce({ data: { id: "card-1" } });
+
+      const result = await moveCardToDoing("card-1", "key", "token");
+
+      expect(result).toEqual({ moved: true, previousListId: "backlog", targetListId: "doing", targetListName: "DOING" });
+      expect(axios.put).toHaveBeenCalledWith(
+        "https://api.trello.com/1/cards/card-1",
+        null,
+        { params: { key: "key", token: "token", idList: "doing" } },
+      );
+    });
+
+    it("returns a truthful no-op when the card is already in DOING", async () => {
+      (axios.get as any)
+        .mockResolvedValueOnce({ data: { idBoard: "board-1", idList: "doing" } })
+        .mockResolvedValueOnce({ data: [{ id: "doing", name: "DOING" }] })
+        .mockResolvedValueOnce({ data: { id: "board-1", name: "Operations" } });
+
+      const result = await moveCardToDoing("card-1", "key", "token");
+
+      expect(result.moved).toBe(false);
+      expect(axios.put).not.toHaveBeenCalled();
     });
   });
 });

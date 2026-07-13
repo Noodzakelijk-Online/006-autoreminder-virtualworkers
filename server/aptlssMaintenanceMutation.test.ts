@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 
 vi.mock("./scheduledAptlssMaintenance", () => ({
@@ -19,14 +19,14 @@ vi.mock("./scheduledAptlssMaintenance", () => ({
 const { runAptlssMaintenance } = await import("./scheduledAptlssMaintenance");
 const { appRouter } = await import("./routers");
 
-function createContext(role: "admin" | "user"): TrpcContext {
+function createContext(): TrpcContext {
   return {
     user: {
-      openId: role === "admin" ? "owner-open-id" : "joyce-open-id",
-      name: role,
-      email: `${role}@example.test`,
-      role,
-      loginMethod: "local",
+      openId: "joyce-single-user",
+      name: "Joyce",
+      email: null,
+      role: "admin",
+      loginMethod: "single-user",
     },
     req: {
       protocol: "http",
@@ -37,17 +37,13 @@ function createContext(role: "admin" | "user"): TrpcContext {
 }
 
 describe("manual APTLSS maintenance mutation", () => {
-  beforeEach(() => {
-    vi.stubEnv("OWNER_OPEN_ID", "owner-open-id");
-  });
-
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.clearAllMocks();
   });
 
-  it("runs the shared maintenance job with manual source for admin users", async () => {
-    const caller = appRouter.createCaller(createContext("admin"));
+  it("runs the shared maintenance job with manual source", async () => {
+    const caller = appRouter.createCaller(createContext());
 
     const result = await caller.aptlss.runMaintenanceNow();
 
@@ -59,9 +55,4 @@ describe("manual APTLSS maintenance mutation", () => {
     });
   });
 
-  it("rejects non-admin users", async () => {
-    const caller = appRouter.createCaller(createContext("user"));
-
-    await expect(caller.aptlss.runMaintenanceNow()).rejects.toThrow("Manual APTLSS maintenance is restricted");
-  });
 });

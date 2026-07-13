@@ -58,25 +58,25 @@ export default function FollowUpDrafts() {
     undefined,
     { enabled: showAll, staleTime: 2 * 60_000 }
   );
+  const { data: policies = [] } = trpc.aptlss.getPolicies.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const autopilotLevel = Number(policies.find((policy) => policy.ruleKey === "autopilot_level")?.value ?? 2);
 
   const markSent = trpc.aptlss.markFollowUpSent.useMutation({
     onSuccess: () => {
       toast.success("Marked as sent");
       utils.aptlss.getPendingFollowUps.invalidate();
       utils.aptlss.getAllFollowUps.invalidate();
+      utils.system.navigationCounts.invalidate();
     },
     onError: (e) => toast.error("Failed to mark as sent", { description: e.message }),
   });
 
   const postToTrello = trpc.aptlss.postFollowUpToTrello.useMutation({
     onSuccess: (data) => {
-      if (data.postedToTrello) {
-        toast.success("Posted to Trello as a comment and marked as sent");
-      } else {
-        toast.success("Marked as sent (autopilot < 3 — post to Trello manually)");
-      }
+      toast.success(data.postedToTrello ? "Posted to Trello and marked as sent" : "Follow-up remains pending");
       utils.aptlss.getPendingFollowUps.invalidate();
       utils.aptlss.getAllFollowUps.invalidate();
+      utils.system.navigationCounts.invalidate();
     },
     onError: (e) => toast.error("Failed to post to Trello", { description: e.message }),
   });
@@ -86,6 +86,7 @@ export default function FollowUpDrafts() {
       toast.success("Draft dismissed");
       utils.aptlss.getPendingFollowUps.invalidate();
       utils.aptlss.getAllFollowUps.invalidate();
+      utils.system.navigationCounts.invalidate();
     },
     onError: (e) => toast.error("Failed to dismiss", { description: e.message }),
   });
@@ -205,8 +206,8 @@ export default function FollowUpDrafts() {
                   size="sm"
                   className="h-7 text-xs gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
                   onClick={() => postToTrello.mutate({ id: draft.id })}
-                  disabled={postToTrello.isPending}
-                  title="Post this draft as a Trello comment on the card and mark as sent (requires autopilot ≥ 3)"
+                  disabled={postToTrello.isPending || autopilotLevel < 3}
+                  title={autopilotLevel < 3 ? "Set Autopilot to level 3 or higher, or send manually and use Mark Sent" : "Post this approved draft to Trello and mark it sent"}
                 >
                   <Send className="w-3 h-3" />
                   Post to Trello

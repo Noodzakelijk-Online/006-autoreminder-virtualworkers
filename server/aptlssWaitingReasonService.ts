@@ -1,4 +1,4 @@
-import { invokeLLM } from "./_core/llm";
+import { hasConfiguredAptlssLlm, invokeAptlssLLM, type AptlssValidationIssue } from "./aptlssLlmRouter";
 import {
   WAITING_NEXT_STEP_TYPES,
   WAITING_ON_TYPES,
@@ -12,10 +12,10 @@ import {
 /** Hybrid interpreter: deterministic policy always works; AI can refine only supported semantics. */
 export async function interpretWaitingReasonFreeform(reason: string, context: WaitingReasonContext = {}) {
   const deterministic = interpretWaitingReason(reason, context);
-  if (!process.env.BUILT_IN_FORGE_API_KEY) return deterministic;
+  if (!await hasConfiguredAptlssLlm()) return deterministic;
 
   try {
-    const response = await invokeLLM({
+    const response = await invokeAptlssLLM({
       messages: [
         {
           role: "system",
@@ -63,6 +63,26 @@ export async function interpretWaitingReasonFreeform(reason: string, context: Wa
             additionalProperties: false,
           },
         },
+      },
+    }, {
+      purpose: "aptlss_waiting_reason",
+      cardId: context.cardId,
+      cardName: context.cardName,
+      validateCandidate: (candidate) => {
+        const issues: AptlssValidationIssue[] = [];
+        if (!WAITING_REASON_CATEGORIES.includes(candidate.category as typeof WAITING_REASON_CATEGORIES[number])) {
+          issues.push({ code: "invalid_category", severity: "error", message: "Waiting category is unsupported." });
+        }
+        if (!WAITING_ON_TYPES.includes(candidate.waitingOn as typeof WAITING_ON_TYPES[number])) {
+          issues.push({ code: "invalid_waiting_actor", severity: "error", message: "Waiting actor classification is unsupported." });
+        }
+        if (typeof candidate.nextAction !== "string" || candidate.nextAction.trim().length < 8) {
+          issues.push({ code: "weak_next_action", severity: "error", message: "Waiting interpretation lacks an executable next action." });
+        }
+        if (typeof candidate.confidenceScore !== "number" || candidate.confidenceScore < 0 || candidate.confidenceScore > 100) {
+          issues.push({ code: "invalid_confidence", severity: "error", message: "Waiting confidence must be between 0 and 100." });
+        }
+        return issues;
       },
     });
     const content = response.choices?.[0]?.message?.content;

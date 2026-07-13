@@ -1,5 +1,19 @@
 export type WorkQueueLaneId = "overdue" | "doing" | "onhold";
 
+export type WorkQueueConfidenceProfile = {
+  targetScore: number;
+  ceiling: number;
+  gapToTarget: number;
+  eligibleForNearCertainty: boolean;
+  dimensions: {
+    evidence: number;
+    forecast: number;
+    humanValidation: number;
+    consistency: number;
+  };
+  blockers: string[];
+};
+
 export type WorkQueueCard = {
   id: string;
   title: string;
@@ -19,6 +33,15 @@ export type WorkQueueCard = {
   hasWaitingEvidence: boolean;
   waitingOn: string | null;
   waitingFollowUpAt: string | null;
+  priorityScore: number;
+  priorityTier: string;
+  confidenceScore: number | null;
+  confidenceProfile: WorkQueueConfidenceProfile | null;
+  assessmentState: string | null;
+  stateReason: string | null;
+  steps: WorkQueueIntelligenceCard["steps"];
+  recommendations: string[];
+  uncertainties: string[];
 };
 
 export type WorkQueueLane = {
@@ -57,6 +80,34 @@ export type WorkQueueWaitingReason = {
   urgency: string;
   interpretationValue?: { summary?: string } | null;
 };
+
+export type WorkQueueIntelligenceCard = {
+  cardId: string;
+  nextBestAction: string | null;
+  planSummary: string | null;
+  primaryState: string | null;
+  stateReason: string | null;
+  actionability: string | null;
+  priorityScore: number;
+  priorityTier: string;
+  confidenceScore: number | null;
+  confidenceReason: string | null;
+  confidenceProfile: WorkQueueConfidenceProfile | null;
+  recommendations: string[];
+  uncertainties: string[];
+  steps: Array<{
+    id: number;
+    stepNumber: number;
+    title: string;
+    status: string;
+    category: string;
+    requiresRobert: boolean;
+    completionCriteria: string | null;
+    riskIfSkipped: string | null;
+  }>;
+};
+
+export type WorkQueueIntelligence = { cards: WorkQueueIntelligenceCard[] };
 
 export type SavedPlanQueueBlock = {
   cardId?: string | null;
@@ -133,6 +184,45 @@ function evidenceRisk(urgency: string): WorkQueueCard["risk"] {
   return "Low";
 }
 
+function intelligenceRisk(tier: string): WorkQueueCard["risk"] {
+  if (tier === "CRITICAL" || tier === "HIGH") return "High";
+  if (tier === "MEDIUM" || tier === "BLOCKED") return "Medium";
+  return "Low";
+}
+
+function applyIntelligence(card: WorkQueueCard, intelligence: WorkQueueIntelligenceCard | undefined): WorkQueueCard {
+  if (!intelligence) return card;
+  const actionable = intelligence.actionability
+    ? ["actionable", "decision", "repair"].includes(intelligence.actionability)
+    : card.actionable;
+  return {
+    ...card,
+    risk: intelligenceRisk(intelligence.priorityTier),
+    nextAction: intelligence.nextBestAction || card.nextAction,
+    detail: intelligence.stateReason || intelligence.planSummary || card.detail,
+    actionable,
+    priorityScore: intelligence.priorityScore,
+    priorityTier: intelligence.priorityTier,
+    confidenceScore: intelligence.confidenceScore,
+    confidenceProfile: intelligence.confidenceProfile,
+    assessmentState: intelligence.primaryState,
+    stateReason: intelligence.stateReason,
+    steps: intelligence.steps,
+    recommendations: intelligence.recommendations,
+    uncertainties: intelligence.uncertainties,
+  };
+}
+
+function compareQueuePriority(left: WorkQueueCard, right: WorkQueueCard) {
+  if (left.actionable !== right.actionable) return left.actionable ? -1 : 1;
+  if (left.priorityScore !== right.priorityScore) return right.priorityScore - left.priorityScore;
+  const riskDiff = riskRank(right.risk) - riskRank(left.risk);
+  if (riskDiff !== 0) return riskDiff;
+  const dueDiff = dateValue(left.due) - dateValue(right.due);
+  if (dueDiff !== 0) return dueDiff;
+  return compareText(left.title, right.title);
+}
+
 function formatWaitingCheckpoint(value: string | Date | null) {
   if (!value) return null;
   const parsed = new Date(value);
@@ -179,8 +269,10 @@ export function normalizeWorkQueue(
   preferredCardId?: string | null,
   waitingReasons: WorkQueueWaitingReason[] = [],
   nowMs = Date.now(),
+  intelligence?: WorkQueueIntelligence,
 ) {
   const waitingByCard = new Map(waitingReasons.map((reason) => [reason.cardId, reason]));
+  const intelligenceByCard = new Map((intelligence?.cards ?? []).map((card) => [card.cardId, card]));
   const overdue = (data?.overdueCards ?? []).map((card): WorkQueueCard => ({
     id: card.id,
     title: card.name,
@@ -198,7 +290,16 @@ export function normalizeWorkQueue(
     hasWaitingEvidence: false,
     waitingOn: null,
     waitingFollowUpAt: null,
-  })).map((card) => applyWaitingEvidence(card, waitingByCard.get(card.id), nowMs)).sort(compareByDueThenTitle);
+    priorityScore: 70,
+    priorityTier: "HIGH",
+    confidenceScore: null,
+    confidenceProfile: null,
+    assessmentState: null,
+    stateReason: null,
+    steps: [],
+    recommendations: [],
+    uncertainties: [],
+  })).map((card) => applyWaitingEvidence(applyIntelligence(card, intelligenceByCard.get(card.id)), waitingByCard.get(card.id), nowMs)).sort(compareByDueThenTitle);
   const doing = (data?.doingCards ?? [])
     .filter((card) => !card.updatedToday)
     .map((card): WorkQueueCard => ({
@@ -220,8 +321,17 @@ export function normalizeWorkQueue(
       hasWaitingEvidence: false,
       waitingOn: null,
       waitingFollowUpAt: null,
+      priorityScore: 55,
+      priorityTier: "MEDIUM",
+      confidenceScore: null,
+      confidenceProfile: null,
+      assessmentState: null,
+      stateReason: null,
+      steps: [],
+      recommendations: [],
+      uncertainties: [],
     }))
-    .map((card) => applyWaitingEvidence(card, waitingByCard.get(card.id), nowMs))
+    .map((card) => applyWaitingEvidence(applyIntelligence(card, intelligenceByCard.get(card.id)), waitingByCard.get(card.id), nowMs))
     .sort(compareByDueActivityThenTitle);
   const onHold = (data?.onHoldCards ?? []).map((card): WorkQueueCard => ({
     id: card.id,
@@ -241,7 +351,16 @@ export function normalizeWorkQueue(
     hasWaitingEvidence: false,
     waitingOn: null,
     waitingFollowUpAt: null,
-  })).map((card) => applyWaitingEvidence(card, waitingByCard.get(card.id), nowMs)).sort(compareByActivityThenTitle);
+    priorityScore: 30,
+    priorityTier: "LOW",
+    confidenceScore: null,
+    confidenceProfile: null,
+    assessmentState: null,
+    stateReason: null,
+    steps: [],
+    recommendations: [],
+    uncertainties: [],
+  })).map((card) => applyWaitingEvidence(applyIntelligence(card, intelligenceByCard.get(card.id)), waitingByCard.get(card.id), nowMs)).sort(compareByActivityThenTitle);
 
   const seenCardIds = new Set<string>();
   const deduplicated = [...overdue, ...doing, ...onHold].filter((card) => {
@@ -252,7 +371,7 @@ export function normalizeWorkQueue(
   const cards = [
     ...deduplicated.filter((card) => card.actionable),
     ...deduplicated.filter((card) => !card.actionable),
-  ];
+  ].sort(compareQueuePriority);
   if (preferredCardId) {
     const preferredIndex = cards.findIndex((card) => card.id === preferredCardId);
     if (preferredIndex > 0 && cards[preferredIndex].actionable) {

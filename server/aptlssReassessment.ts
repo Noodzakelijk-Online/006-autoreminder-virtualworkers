@@ -21,6 +21,7 @@ export function reassessCardById(cardId: string, trigger: AssessmentTrigger = "m
       forecast: intelligence.forecast,
       calibration: intelligence.calibration,
       waiting: intelligence.waiting,
+      externalEvidence: intelligence.externalEvidence,
     });
   })().finally(() => inFlight.delete(cardId));
   inFlight.set(cardId, task);

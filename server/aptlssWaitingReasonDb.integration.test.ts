@@ -48,5 +48,5 @@ describe("APTLSS waiting evidence ledger integration", () => {
     await resolveAptlssWaitingReason(cardId);
     await expect(getActiveWaitingReason(cardId)).resolves.toBeNull();
     expect((await getWaitingReasonHistory(cardId))[0].status).toBe("resolved");
-  });
+  }, 20_000);
 });

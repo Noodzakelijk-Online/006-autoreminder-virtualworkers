@@ -1,0 +1,40 @@
+name: Quality gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "consolidation/**"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Scan the release tree for secrets
+        shell: bash
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f dir /repo --no-banner --redact
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build
+      - name: Verify migration metadata matches the schema
+        shell: bash
+        run: |
+          pnpm exec drizzle-kit generate --name ci-drift
+          test -z "$(git status --porcelain -- drizzle)"

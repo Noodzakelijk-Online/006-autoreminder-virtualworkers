@@ -41,6 +41,7 @@ export type DailyPlanPayload = {
     status: "good" | "warning" | "blocked";
     source?: "aptlss" | "trello_fallback" | "off_day" | "legacy";
     warnings?: string[];
+    confidenceCeiling?: number;
   };
   constraints: {
     timezone: "EAT";
@@ -60,7 +61,6 @@ export type HandoffDraft = {
   checklist: Array<{ id: string; label: string; done: boolean }>;
 };
 
-export const timeRows = ["08:00", "09:00", "10:30", "12:00", "13:00", "14:30", "16:30", "17:30", "19:00", "20:00", "21:00", "22:00", "23:00"];
 export const planViews: PlanView[] = ["Day Plan", "Board View", "Timeline (Compact)", "Workload", "Plan History"];
 
 export function todayInEat(now = Date.now()) {
@@ -148,13 +148,6 @@ export function accentFor(block: DailyPlanBlock) {
   return "bg-amber-500";
 }
 
-export function statusTone(status: BlockStatus) {
-  if (status === "done") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (status === "active") return "bg-primary/10 text-primary border-primary/30";
-  if (status === "skipped") return "bg-muted text-muted-foreground border-border";
-  return "bg-card text-muted-foreground border-border";
-}
-
 export function compactAction(action: string) {
   return action.length > 72 ? `${action.slice(0, 69)}...` : action;
 }
@@ -169,14 +162,9 @@ export function planAppliedAt(plan: DailyPlanPayload) {
 
 export function plannerErrorMessage(message?: string) {
   if (!message) return "Generate a plan from the current Trello and APTLSS state. No sample tasks are shown as live work.";
-  if (message.includes("Please login") || message.includes("UNAUTHORIZED")) return "Login required: sign in to load, generate, or persist daily plans.";
   if (message.includes("Database not available") || message.includes("Failed query") || message.includes("daily_plans")) return "Database unavailable: daily plan persistence is disabled until DATABASE_URL is configured.";
   if (message.includes("Trello API credentials")) return "Trello credentials missing: configure TrelloAPIKey and TrelloAPIToken before generating a trusted plan.";
-  if (message.includes("BUILT_IN_FORGE_API_KEY")) return "AI planner unavailable: configure BUILT_IN_FORGE_API_KEY before generating APTLSS card plans or full daily plans.";
+  if (message.includes("No APTLSS LLM provider") || message.includes("OPENAI_API_KEY")) return "AI planner unavailable: configure OPENAI_API_KEY before generating full AI plans.";
   if (message.includes("No APTLSS plans")) return "No APTLSS plans found: generate card plans first, then return here to build the daily schedule.";
   return message;
-}
-
-export function isPlannerAuthError(message?: string) {
-  return Boolean(message && (message.includes("Please login") || message.includes("UNAUTHORIZED")));
 }

@@ -296,4 +296,18 @@ describe("analyseCardThread", () => {
     expect(state.needsReply).toBe(false);
     expect(state.lastNonJoyceMsgAt).toBeNull();
   });
+
+  it("ignores APTLSS system notes for reply and signature monitoring", () => {
+    const comments = [makeComment({
+      username: "noodzakelijkonline",
+      fullName: "Board Owner",
+      text: "[APTLSS System]\n\nAssessment refreshed",
+    })];
+
+    const state = analyseCardThread(makeCard(), comments);
+
+    expect(state.needsReply).toBe(false);
+    expect(state.lastNonJoyceMsgAt).toBeNull();
+    expect(state.unsignedMessages).toHaveLength(0);
+  });
 });

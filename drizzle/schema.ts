@@ -41,7 +41,7 @@ export type PaymentCycle = typeof paymentCycles.$inferSelect;
  */
 export const weeklyPayLog = mysqlTable("weekly_pay_log", {
   id: int("id").autoincrement().primaryKey(),
-  weekStart: date("weekStart").notNull(),          // Monday of the week
+  weekStart: date("weekStart").notNull().unique(), // One ledger row per Monday
   weekEnd: date("weekEnd").notNull(),              // Sunday of the week
   paymentCycleId: int("paymentCycleId"),           // FK to paymentCycles
   baseAmount: decimal("baseAmount", { precision: 8, scale: 2 }).notNull().default("90.00"),
@@ -214,7 +214,9 @@ export const timeEntries = mysqlTable("time_entries", {
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (table) => [
+  index("time_entries_running_idx").on(table.stoppedAt, table.startedAt),
+]);
 
 export type TimeEntry = typeof timeEntries.$inferSelect;
 export type InsertTimeEntry = typeof timeEntries.$inferInsert;
@@ -251,11 +253,48 @@ export const dailyComplianceSnapshots = mysqlTable("daily_compliance_snapshots",
   estimatedPenalty: decimal("estimatedPenalty", { precision: 8, scale: 2 }).notNull().default("0.00"),
   source: varchar("source", { length: 16 }).notNull().default("auto"), // 'auto' | 'manual'
   weeklyPayLogId: int("weeklyPayLogId"),                  // FK to weekly_pay_log row (if D1 was added)
+  required: boolean("required").notNull().default(true),
+  verificationStatus: varchar("verificationStatus", { length: 24 }).notNull().default("unverified"),
+  verificationMethod: varchar("verificationMethod", { length: 64 }),
+  verificationCutoffAt: timestamp("verificationCutoffAt"),
+  verifiedAt: timestamp("verifiedAt"),
+  evidenceCount: int("evidenceCount").notNull().default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 export type DailyComplianceSnapshot = typeof dailyComplianceSnapshots.$inferSelect;
+
+/**
+ * Immutable-source evidence used to calculate one card's daily compliance.
+ * Rows are replaced only when the same date is explicitly re-fact-checked.
+ */
+export const complianceCardEvidence = mysqlTable("compliance_card_evidence", {
+  id: int("id").autoincrement().primaryKey(),
+  snapshotDate: date("snapshotDate").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull(),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
+  boardName: varchar("boardName", { length: 256 }).notNull().default(""),
+  listName: varchar("listName", { length: 256 }).notNull().default(""),
+  category: varchar("category", { length: 16 }).notNull(),
+  assignedToJoyce: boolean("assignedToJoyce").notNull().default(true),
+  compliant: boolean("compliant").notNull().default(false),
+  evidenceType: varchar("evidenceType", { length: 32 }).notNull().default("none"),
+  evidenceActionId: varchar("evidenceActionId", { length: 64 }),
+  evidenceAt: timestamp("evidenceAt"),
+  evidenceJson: text("evidenceJson").notNull(),
+  verifiedAt: timestamp("verifiedAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("compliance_evidence_date_card_unique").on(table.snapshotDate, table.cardId),
+  index("compliance_evidence_card_date_idx").on(table.cardId, table.snapshotDate),
+  index("compliance_evidence_date_compliant_idx").on(table.snapshotDate, table.compliant),
+]);
+
+export type ComplianceCardEvidence = typeof complianceCardEvidence.$inferSelect;
+export type InsertComplianceCardEvidence = typeof complianceCardEvidence.$inferInsert;
 
 /**
  * Tracks Trello card comment threads where someone else commented last.
@@ -282,6 +321,7 @@ export const replyThreads = mysqlTable("reply_threads", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => [
   uniqueIndex("reply_threads_source_card_unique").on(t.source, t.cardId),
+  index("reply_threads_status_idx").on(t.status),
   // One row per card — upsert by cardId + source
 ]);
 export type ReplyThread = typeof replyThreads.$inferSelect;
@@ -308,7 +348,9 @@ export const vagueReplyFlags = mysqlTable("vague_reply_flags", {
   demeritIssuedAt: timestamp("demeritIssuedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  index("vague_reply_flags_resolved_idx").on(t.resolvedAt),
+]);
 export type VagueReplyFlag = typeof vagueReplyFlags.$inferSelect;
 export type InsertVagueReplyFlag = typeof vagueReplyFlags.$inferInsert;
 
@@ -322,13 +364,15 @@ export const unsignedMessageFlags = mysqlTable("unsigned_message_flags", {
   messageText: text("messageText").notNull(),
   flaggedAt: timestamp("flaggedAt").notNull(),
   resolvedAt: timestamp("resolvedAt"),
-  resolvedBy: mysqlEnum("resolvedBy", ["manual", "auto_demerit"]),
+  resolvedBy: mysqlEnum("resolvedBy", ["manual", "auto_demerit", "system"]),
   resolutionNote: text("resolutionNote"),
   demeritIssued: boolean("demeritIssued").notNull().default(false),
   demeritIssuedAt: timestamp("demeritIssuedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  index("unsigned_message_flags_resolved_idx").on(t.resolvedAt),
+]);
 
 export type UnsignedMessageFlag = typeof unsignedMessageFlags.$inferSelect;
 
@@ -371,7 +415,9 @@ export const emailTasks = mysqlTable("email_tasks", {
   archivedAt: timestamp("archivedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  index("email_tasks_status_idx").on(t.status),
+]);
 
 export type EmailTask = typeof emailTasks.$inferSelect;
 export type InsertEmailTask = typeof emailTasks.$inferInsert;
@@ -420,7 +466,9 @@ export const aptlssPlans = mysqlTable("aptlss_plans", {
   generatedAt: timestamp("generatedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("aptlss_plans_card_unique").on(t.cardId),
+]);
 export type AptlssPlan = typeof aptlssPlans.$inferSelect;
 export type InsertAptlssPlan = typeof aptlssPlans.$inferInsert;
 
@@ -454,7 +502,11 @@ export const aptlssSteps = mysqlTable("aptlss_steps", {
   lastSyncedAt: timestamp("lastSyncedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  index("aptlss_steps_card_status_idx").on(t.cardId, t.status),
+  index("aptlss_steps_robert_status_idx").on(t.requiresRobert, t.status),
+  index("aptlss_steps_trello_item_idx").on(t.trelloCheckItemId),
+]);
 export type AptlssStep = typeof aptlssSteps.$inferSelect;
 export type InsertAptlssStep = typeof aptlssSteps.$inferInsert;
 
@@ -542,7 +594,10 @@ export const cardStates = mysqlTable("card_states", {
   calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("card_states_card_unique").on(t.cardId),
+  index("card_states_state_idx").on(t.state),
+]);
 export type CardState = typeof cardStates.$inferSelect;
 export type InsertCardState = typeof cardStates.$inferInsert;
 
@@ -566,7 +621,10 @@ export const priorityScores = mysqlTable("priority_scores", {
   calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("priority_scores_card_unique").on(t.cardId),
+  index("priority_scores_tier_score_idx").on(t.tier, t.score),
+]);
 export type PriorityScore = typeof priorityScores.$inferSelect;
 export type InsertPriorityScore = typeof priorityScores.$inferInsert;
 
@@ -665,11 +723,11 @@ export type InsertAptlssOperationalPolicy = typeof aptlssOperationalPolicies.$in
 /**
  * Stored in app_settings as key="aptlss_autopilot_level", value="0"–"5".
  * Level 0 = read-only analysis only.
- * Level 1 = create/update Trello checklists.
+ * Level 1 = create/update Trello checklists after explicit approval.
  * Level 2 = daily plans, priority assignments, blocker marking.
  * Level 3 = draft external communications (not send).
- * Level 4 = send pre-approved routine follow-ups.
- * Level 5 = full operational automation (exception-gated).
+ * Level 4 = send explicitly approved routine follow-ups.
+ * Level 5 = exception-gated internal automation; Trello writes remain explicit.
  * This is NOT a separate table — it uses the existing app_settings table.
  */
 
@@ -760,7 +818,9 @@ export const autoFollowUpDrafts = mysqlTable("auto_follow_up_drafts", {
   status: varchar("status", { length: 16 }).notNull().default("pending"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  index("auto_follow_up_drafts_status_idx").on(t.status),
+]);
 export type AutoFollowUpDraft = typeof autoFollowUpDrafts.$inferSelect;
 export type InsertAutoFollowUpDraft = typeof autoFollowUpDrafts.$inferInsert;
 
@@ -811,7 +871,7 @@ export const aptlssAuditLog = mysqlTable("aptlss_audit_log", {
    *   follow_up_drafted | daily_update_drafted | escalated | robert_notified |
    *   moved_to_doing | kept_on_hold | batch_action | done_gate_blocked |
    *   duplicate_detected | maintenance_run | snooze_applied | comment_posted |
-   *   card_skipped_low_confidence
+   *   card_skipped_low_confidence | llm_provider_call | llm_provider_skipped
    */
   action: varchar("action", { length: 64 }).notNull(),
   /** Human-readable description of what happened */
@@ -856,3 +916,217 @@ export const adminSyncLog = mysqlTable("admin_sync_log", {
 });
 export type AdminSyncLog = typeof adminSyncLog.$inferSelect;
 export type InsertAdminSyncLog = typeof adminSyncLog.$inferInsert;
+
+/** Durable execution ledger for every scheduled or externally-triggered job. */
+export const scheduledJobRuns = mysqlTable("scheduled_job_runs", {
+  id: int("id").autoincrement().primaryKey(),
+  jobKey: varchar("jobKey", { length: 96 }).notNull(),
+  trigger: mysqlEnum("trigger", ["cron", "external", "manual"]).notNull().default("cron"),
+  status: mysqlEnum("status", ["running", "success", "error"]).notNull().default("running"),
+  startedAt: timestamp("startedAt").notNull(),
+  finishedAt: timestamp("finishedAt"),
+  durationMs: int("durationMs"),
+  recordsProcessed: int("recordsProcessed").notNull().default(0),
+  detail: text("detail"),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("scheduled_job_runs_job_started_idx").on(table.jobKey, table.startedAt),
+  index("scheduled_job_runs_status_started_idx").on(table.status, table.startedAt),
+]);
+export type ScheduledJobRun = typeof scheduledJobRuns.$inferSelect;
+export type InsertScheduledJobRun = typeof scheduledJobRuns.$inferInsert;
+
+/**
+ * Read-only source snapshots used to connect Gmail, Drive, and Trello evidence.
+ * Raw credentials are never stored here; content is deliberately compacted by
+ * each source adapter before persistence.
+ */
+export const workspaceEvidenceItems = mysqlTable("workspace_evidence_items", {
+  id: int("id").autoincrement().primaryKey(),
+  source: mysqlEnum("source", ["gmail", "google_drive", "trello", "communication"]).notNull(),
+  sourceId: varchar("sourceId", { length: 256 }).notNull(),
+  sourceContainerId: varchar("sourceContainerId", { length: 256 }),
+  kind: varchar("kind", { length: 128 }).notNull().default("record"),
+  title: varchar("title", { length: 1024 }).notNull(),
+  summary: text("summary"),
+  content: text("content"),
+  sourceUrl: varchar("sourceUrl", { length: 2048 }),
+  mimeType: varchar("mimeType", { length: 256 }),
+  modifiedAt: timestamp("modifiedAt"),
+  observedAt: timestamp("observedAt").notNull(),
+  contentHash: varchar("contentHash", { length: 64 }).notNull(),
+  metadataJson: text("metadataJson"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("workspace_evidence_source_id_unique").on(table.source, table.sourceId),
+  index("workspace_evidence_source_modified_idx").on(table.source, table.modifiedAt),
+  index("workspace_evidence_active_observed_idx").on(table.active, table.observedAt),
+]);
+export type WorkspaceEvidenceItem = typeof workspaceEvidenceItems.$inferSelect;
+export type InsertWorkspaceEvidenceItem = typeof workspaceEvidenceItems.$inferInsert;
+
+/** Evidence can support several cards, and every link retains its match proof. */
+export const workspaceEvidenceLinks = mysqlTable("workspace_evidence_links", {
+  id: int("id").autoincrement().primaryKey(),
+  evidenceId: int("evidenceId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  relevanceScore: int("relevanceScore").notNull(),
+  matchReason: varchar("matchReason", { length: 512 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("workspace_evidence_link_unique").on(table.evidenceId, table.cardId),
+  index("workspace_evidence_card_relevance_idx").on(table.cardId, table.relevanceScore),
+]);
+export type WorkspaceEvidenceLink = typeof workspaceEvidenceLinks.$inferSelect;
+export type InsertWorkspaceEvidenceLink = typeof workspaceEvidenceLinks.$inferInsert;
+
+/** Single-user operating calendar used by planning and compliance. */
+export const operatingProfiles = mysqlTable("operating_profiles", {
+  id: int("id").autoincrement().primaryKey(),
+  profileKey: varchar("profileKey", { length: 64 }).notNull().default("joyce"),
+  timezone: varchar("timezone", { length: 64 }).notNull().default("Africa/Nairobi"),
+  workStart: varchar("workStart", { length: 5 }).notNull().default("08:00"),
+  workEnd: varchar("workEnd", { length: 5 }).notNull().default("23:00"),
+  workingDaysJson: text("workingDaysJson").notNull(),
+  breaksJson: text("breaksJson").notNull(),
+  weeklyHoursMin: int("weeklyHoursMin").notNull().default(50),
+  weeklyHoursMax: int("weeklyHoursMax").notNull().default(55),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("operating_profiles_key_unique").on(table.profileKey),
+]);
+export type OperatingProfile = typeof operatingProfiles.$inferSelect;
+export type InsertOperatingProfile = typeof operatingProfiles.$inferInsert;
+
+/** Explicit non-working days and exceptional working days. */
+export const operatingHolidays = mysqlTable("operating_holidays", {
+  id: int("id").autoincrement().primaryKey(),
+  dateKey: date("dateKey").notNull(),
+  name: varchar("name", { length: 256 }).notNull(),
+  kind: mysqlEnum("kind", ["holiday", "leave", "exceptional_workday"]).notNull().default("holiday"),
+  source: mysqlEnum("source", ["manual", "calendar", "policy"]).notNull().default("manual"),
+  notes: text("notes"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("operating_holidays_date_name_unique").on(table.dateKey, table.name),
+  index("operating_holidays_date_active_idx").on(table.dateKey, table.active),
+]);
+export type OperatingHoliday = typeof operatingHolidays.$inferSelect;
+export type InsertOperatingHoliday = typeof operatingHolidays.$inferInsert;
+
+/** Durable dependency edges supplementing dependencies embedded in APTLSS steps. */
+export const taskDependencies = mysqlTable("task_dependencies", {
+  id: int("id").autoincrement().primaryKey(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  dependsOnCardId: varchar("dependsOnCardId", { length: 64 }).notNull(),
+  dependencyType: mysqlEnum("dependencyType", ["finish_to_start", "start_to_start", "finish_to_finish"]).notNull().default("finish_to_start"),
+  status: mysqlEnum("status", ["active", "resolved", "invalid"]).notNull().default("active"),
+  source: mysqlEnum("source", ["manual", "aptlss", "trello"]).notNull().default("aptlss"),
+  evidenceJson: text("evidenceJson"),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("task_dependencies_edge_unique").on(table.cardId, table.dependsOnCardId),
+  index("task_dependencies_target_status_idx").on(table.dependsOnCardId, table.status),
+  index("task_dependencies_card_status_idx").on(table.cardId, table.status),
+]);
+export type TaskDependency = typeof taskDependencies.$inferSelect;
+export type InsertTaskDependency = typeof taskDependencies.$inferInsert;
+
+/** Client and project context that can be matched to Trello boards. */
+export const projectContexts = mysqlTable("project_contexts", {
+  id: int("id").autoincrement().primaryKey(),
+  projectKey: varchar("projectKey", { length: 128 }).notNull(),
+  name: varchar("name", { length: 512 }).notNull(),
+  clientName: varchar("clientName", { length: 512 }),
+  priority: mysqlEnum("priority", ["standard", "priority", "vip"]).notNull().default("standard"),
+  boardIdsJson: text("boardIdsJson").notNull(),
+  contactEmail: varchar("contactEmail", { length: 320 }),
+  notes: text("notes"),
+  active: boolean("active").notNull().default(true),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("project_contexts_key_unique").on(table.projectKey),
+  index("project_contexts_active_priority_idx").on(table.active, table.priority),
+]);
+export type ProjectContext = typeof projectContexts.$inferSelect;
+export type InsertProjectContext = typeof projectContexts.$inferInsert;
+
+/** Normalized communication evidence across Gmail, Trello, Upwork, and future channels. */
+export const communicationEvidence = mysqlTable("communication_evidence", {
+  id: int("id").autoincrement().primaryKey(),
+  channel: varchar("channel", { length: 64 }).notNull(),
+  externalId: varchar("externalId", { length: 256 }).notNull(),
+  threadId: varchar("threadId", { length: 256 }),
+  direction: mysqlEnum("direction", ["inbound", "outbound", "system", "unknown"]).notNull().default("unknown"),
+  sender: varchar("sender", { length: 512 }),
+  recipientsJson: text("recipientsJson"),
+  subject: varchar("subject", { length: 1024 }),
+  summary: text("summary"),
+  occurredAt: timestamp("occurredAt").notNull(),
+  responseRequired: boolean("responseRequired").notNull().default(false),
+  respondedAt: timestamp("respondedAt"),
+  linkedCardId: varchar("linkedCardId", { length: 64 }),
+  evidenceItemId: int("evidenceItemId"),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("communication_evidence_channel_external_unique").on(table.channel, table.externalId),
+  index("communication_evidence_card_occurred_idx").on(table.linkedCardId, table.occurredAt),
+  index("communication_evidence_response_idx").on(table.responseRequired, table.respondedAt),
+]);
+export type CommunicationEvidence = typeof communicationEvidence.$inferSelect;
+export type InsertCommunicationEvidence = typeof communicationEvidence.$inferInsert;
+
+/** Local delivery history exists even when an optional notification provider is unavailable. */
+export const operatorNotifications = mysqlTable("operator_notifications", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 1200 }).notNull(),
+  content: text("content").notNull(),
+  category: varchar("category", { length: 64 }).notNull().default("operational"),
+  deliveryStatus: mysqlEnum("deliveryStatus", ["pending", "delivered", "skipped", "failed"]).notNull().default("pending"),
+  provider: varchar("provider", { length: 64 }).notNull().default("local"),
+  providerReference: varchar("providerReference", { length: 512 }),
+  errorMessage: text("errorMessage"),
+  deliveredAt: timestamp("deliveredAt"),
+  readAt: timestamp("readAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("operator_notifications_status_created_idx").on(table.deliveryStatus, table.createdAt),
+  index("operator_notifications_read_created_idx").on(table.readAt, table.createdAt),
+]);
+export type OperatorNotification = typeof operatorNotifications.$inferSelect;
+export type InsertOperatorNotification = typeof operatorNotifications.$inferInsert;
+
+/** Versioned end-of-day and shift handoffs with their source plan snapshot. */
+export const handoffRecords = mysqlTable("handoff_records", {
+  id: int("id").autoincrement().primaryKey(),
+  dateKey: date("dateKey").notNull(),
+  handoffType: mysqlEnum("handoffType", ["end_of_day", "shift", "manual"]).notNull().default("end_of_day"),
+  status: mysqlEnum("status", ["draft", "reviewed", "sent", "superseded"]).notNull().default("draft"),
+  version: int("version").notNull().default(1),
+  content: text("content").notNull(),
+  checklistJson: text("checklistJson").notNull(),
+  sourcePlanJson: text("sourcePlanJson"),
+  reviewedAt: timestamp("reviewedAt"),
+  sentAt: timestamp("sentAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("handoff_records_date_type_version_unique").on(table.dateKey, table.handoffType, table.version),
+  index("handoff_records_date_status_idx").on(table.dateKey, table.status),
+]);
+export type HandoffRecord = typeof handoffRecords.$inferSelect;
+export type InsertHandoffRecord = typeof handoffRecords.$inferInsert;

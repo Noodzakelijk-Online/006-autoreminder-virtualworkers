@@ -1,12 +1,25 @@
 import React, { useMemo, useState, type ReactNode } from "react";
-import { ArrowRight, CheckCircle, ChevronDown, ChevronUp, ExternalLink, MessageSquare, Timer } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckCircle, ChevronDown, ChevronUp, Clock, ExternalLink, GitBranch, MessageSquare, Settings2, ShieldCheck, Timer } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TRIAGE_TAB_KEY, type AppSection } from "@/lib/navigationState";
+import { trpc } from "@/lib/trpc";
+import { useEatClock } from "@/hooks/useEatClock";
+import { dateKeyInEat } from "@shared/eatTime";
 import {
   normalizeWorkQueue,
   type WorkQueueCard,
@@ -15,13 +28,19 @@ import {
   type WorkQueueSourceData,
   type WorkQueueWaitingReason,
 } from "@/lib/workQueue";
+
+type WorkQueuePlanSummary = {
+  planHealth?: { focusMinutes?: number; confidence?: number };
+  totalScheduledMinutes?: number;
+};
+
 function getDueLabel(due?: string | null) {
   if (!due) return "No due date";
   const dueDate = new Date(due);
   if (Number.isNaN(dueDate.getTime())) return "Due date set";
   const today = new Date();
-  const todayKey = today.toISOString().slice(0, 10);
-  const dueKey = dueDate.toISOString().slice(0, 10);
+  const todayKey = dateKeyInEat(today);
+  const dueKey = dateKeyInEat(dueDate);
   if (dueKey === todayKey) return "Due today";
   if (dueDate.getTime() < today.getTime()) return "Overdue";
   return dueDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -60,11 +79,19 @@ export function WorkQueueDashboard({
   actionsLoading,
   actionsError,
   dataNotice,
+  dayPlan,
+  dayPlanLoading = false,
   activeTimerCardId,
+  activeTimerCardName,
+  activeTimerStartedAt,
+  activeTimerLoading = false,
   timerBusy,
   preferredCardId,
+  readiness,
   waitingReasons = [],
+  protectedDay = false,
   onNavigate,
+  onOpenPlan,
   onStartTimer,
 }: {
   trelloDisabledReason?: string;
@@ -72,16 +99,41 @@ export function WorkQueueDashboard({
   actionsLoading: boolean;
   actionsError?: { message: string } | null;
   dataNotice?: string;
+  dayPlan?: WorkQueuePlanSummary | null;
+  dayPlanLoading?: boolean;
   activeTimerCardId?: string | null;
+  activeTimerCardName?: string | null;
+  activeTimerStartedAt?: Date | string | null;
+  activeTimerLoading?: boolean;
   timerBusy: boolean;
   preferredCardId?: string | null;
+  readiness?: { status: string; counts: { warning: number } };
   waitingReasons?: WorkQueueWaitingReason[];
+  protectedDay?: boolean;
   onNavigate: (section: AppSection) => void;
+  onOpenPlan: () => void;
   onStartTimer: (card: WorkQueueCard) => void;
 }) {
-  const queue = useMemo(() => normalizeWorkQueue(actionData, preferredCardId, waitingReasons), [actionData, preferredCardId, waitingReasons]);
+  const { nowMs } = useEatClock();
+  const { data: intelligence, isLoading: intelligenceLoading } = trpc.aptlss.getWorkQueueContext.useQuery(undefined, {
+    retry: false,
+    staleTime: 60_000,
+  });
+  const queue = useMemo(
+    () => normalizeWorkQueue(actionData, preferredCardId, waitingReasons, nowMs, intelligence),
+    [actionData, preferredCardId, waitingReasons, nowMs, intelligence],
+  );
+  const decisionCount = useMemo(() => intelligence?.cards.reduce(
+    (count, card) => count + card.steps.filter((step) => step.requiresRobert && step.status !== "complete").length,
+    0,
+  ) ?? 0, [intelligence]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [pendingTimerCard, setPendingTimerCard] = useState<WorkQueueCard | null>(null);
   const selectedCard = selectedId ? queue.cards.find((card) => card.id === selectedId) ?? null : null;
+  const { data: selectedAudit = [] } = trpc.aptlss.getCardAuditLog.useQuery(
+    { cardId: selectedId ?? "", limit: 20 },
+    { enabled: Boolean(selectedId), retry: false, staleTime: 30_000 },
+  );
   const itemsByLane = useMemo(() => ({
     overdue: queue.cards.filter((card) => card.lane === "overdue"),
     doing: queue.cards.filter((card) => card.lane === "doing"),
@@ -91,34 +143,68 @@ export function WorkQueueDashboard({
     localStorage.setItem(TRIAGE_TAB_KEY, "work-intake");
     onNavigate("triage");
   };
+  const requestStartTimer = (card: WorkQueueCard) => {
+    if (protectedDay || (activeTimerCardId && activeTimerCardId !== card.id)) {
+      setPendingTimerCard(card);
+      return;
+    }
+    onStartTimer(card);
+  };
   return (
     <>
-      <div className="mx-auto flex min-h-[calc(100vh-12rem)] w-full max-w-5xl flex-col gap-4">
-        {dataNotice && <Alert><AlertDescription>{dataNotice}</AlertDescription></Alert>}
-        <NowPanel
-          card={queue.nowItem}
-          loading={actionsLoading}
-          disabledReason={trelloDisabledReason}
-          errorMessage={actionsError?.message}
+      <div className="mx-auto grid min-h-[calc(100vh-12rem)] w-full max-w-7xl gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="flex min-w-0 flex-col gap-4">
+          {dataNotice && <Alert><AlertDescription>{dataNotice}</AlertDescription></Alert>}
+          {protectedDay && (
+            <Alert className="border-emerald-500/30 bg-emerald-500/5">
+              <ShieldCheck className="h-4 w-4 text-emerald-600" />
+              <AlertDescription>
+                Sunday is Joyce&apos;s protected day off. The queue remains visible for awareness; starting work requires an explicit emergency confirmation.
+              </AlertDescription>
+            </Alert>
+          )}
+          <NowPanel
+            card={queue.nowItem}
+            loading={actionsLoading}
+            disabledReason={trelloDisabledReason}
+            errorMessage={actionsError?.message}
+            activeTimerCardId={activeTimerCardId}
+            timerBusy={timerBusy}
+            anotherTimerRunning={Boolean(activeTimerCardId && activeTimerCardId !== queue.nowItem?.id)}
+            onSelect={(card) => setSelectedId(card.id)}
+            onStartTimer={requestStartTimer}
+            protectedDay={protectedDay}
+            onOpenTriage={openTriageQueue}
+            onOpenSettings={() => onNavigate("settings")}
+          />
+          <NextUpTable
+            items={queue.nextItems}
+            loading={actionsLoading}
+            selectedId={selectedCard?.id}
+            onSelect={(card) => setSelectedId(card.id)}
+            onOpenQueue={openTriageQueue}
+          />
+          <TriageLaneSummary
+            lanes={queue.lanes}
+            loading={actionsLoading}
+            itemsByLane={itemsByLane}
+            selectedId={selectedCard?.id}
+            onSelectCard={(card) => setSelectedId(card.id)}
+            onOpenQueue={openTriageQueue}
+          />
+        </div>
+        <WorkQueueContextRail
+          readiness={readiness}
+          dayPlan={dayPlan}
+          dayPlanLoading={dayPlanLoading}
           activeTimerCardId={activeTimerCardId}
-          timerBusy={timerBusy}
-          onSelect={(card) => setSelectedId(card.id)}
-          onStartTimer={onStartTimer}
-          onOpenTriage={openTriageQueue}
-          onOpenSettings={() => onNavigate("settings")}
-        />
-        <NextUpTable
-          items={queue.nextItems}
-          selectedId={selectedCard?.id}
-          onSelect={(card) => setSelectedId(card.id)}
-          onOpenQueue={openTriageQueue}
-        />
-        <TriageLaneSummary
-          lanes={queue.lanes}
-          itemsByLane={itemsByLane}
-          selectedId={selectedCard?.id}
-          onSelectCard={(card) => setSelectedId(card.id)}
-          onOpenQueue={openTriageQueue}
+          activeTimerCardName={activeTimerCardName}
+          activeTimerStartedAt={activeTimerStartedAt}
+          activeTimerLoading={activeTimerLoading}
+          decisionCount={decisionCount}
+          decisionCountLoading={intelligenceLoading}
+          onNavigate={onNavigate}
+          onOpenPlan={onOpenPlan}
         />
       </div>
 
@@ -130,11 +216,140 @@ export function WorkQueueDashboard({
           </SheetDescription>
           <CardInspector
             card={selectedCard}
+            audit={selectedAudit}
             onOpenTriage={openTriageQueue}
           />
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={Boolean(pendingTimerCard)} onOpenChange={(open) => { if (!open) setPendingTimerCard(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {protectedDay
+                ? activeTimerCardId && activeTimerCardId !== pendingTimerCard?.id ? "Switch timer on the protected day?" : "Start work on the protected day?"
+                : "Switch the active timer?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {activeTimerCardId && activeTimerCardId !== pendingTimerCard?.id
+                ? `The running timer${activeTimerCardName ? ` for ${activeTimerCardName}` : ""} will be stopped and saved before this timer starts. ${protectedDay ? "Sunday has no normal work target; continue only for a genuine emergency." : ""}`
+                : "Sunday has no normal work target. Continue only for a genuine emergency; the timer and card assessment will still be recorded normally."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep Sunday protected</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const card = pendingTimerCard;
+              setPendingTimerCard(null);
+              if (card) onStartTimer(card);
+            }}>{protectedDay ? "Start emergency timer" : "Switch timer"}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+  );
+}
+
+function WorkQueueContextRail({
+  readiness,
+  dayPlan,
+  dayPlanLoading,
+  activeTimerCardId,
+  activeTimerCardName,
+  activeTimerStartedAt,
+  activeTimerLoading,
+  decisionCount,
+  decisionCountLoading,
+  onNavigate,
+  onOpenPlan,
+}: {
+  readiness?: { status: string; counts: { warning: number } };
+  dayPlan?: WorkQueuePlanSummary | null;
+  dayPlanLoading: boolean;
+  activeTimerCardId?: string | null;
+  activeTimerCardName?: string | null;
+  activeTimerStartedAt?: Date | string | null;
+  activeTimerLoading: boolean;
+  decisionCount: number;
+  decisionCountLoading: boolean;
+  onNavigate: (section: AppSection) => void;
+  onOpenPlan: () => void;
+}) {
+  const { dateKey, nowMs } = useEatClock();
+  const { data: timeSummary = [], isLoading: timeSummaryLoading } = trpc.timer.getDailySummary.useQuery({ date: dateKey }, { retry: false, staleTime: 60_000 });
+  const activeTimerIsToday = Boolean(activeTimerCardId && activeTimerStartedAt && dateKeyInEat(new Date(activeTimerStartedAt)) === dateKey);
+  const activeSeconds = activeTimerIsToday
+    ? Math.max(0, Math.floor((nowMs - new Date(activeTimerStartedAt!).getTime()) / 1_000))
+    : 0;
+  const totalSeconds = timeSummary.reduce((sum, entry) => sum + entry.totalSeconds, 0) + activeSeconds;
+  const warnings = readiness?.counts.warning ?? 0;
+
+  return (
+    <aside className="h-fit rounded-lg border border-border bg-card shadow-sm lg:sticky lg:top-4">
+      <div className="border-b border-border/60 px-4 py-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Context</p>
+      </div>
+      <div className="divide-y divide-border/60">
+        <ContextRailItem
+          icon={<CalendarDays className="h-4 w-4" />}
+          label="Day plan"
+          value={`${dayPlan?.planHealth?.focusMinutes ?? 0}m focus`}
+          detail={dayPlan ? `${dayPlan.planHealth?.confidence ?? 0}% confidence` : "No saved plan"}
+          loading={dayPlanLoading}
+          onClick={onOpenPlan}
+        />
+        <ContextRailItem
+          icon={<Clock className="h-4 w-4" />}
+          label="Time today"
+          value={totalSeconds >= 3600 ? `${Math.floor(totalSeconds / 3600)}h ${Math.round(totalSeconds % 3600 / 60)}m` : `${Math.round(totalSeconds / 60)}m`}
+          detail={activeTimerCardId ? `Timer running: ${activeTimerCardName ?? "Active card"}` : activeTimerLabel(timeSummary)}
+          loading={timeSummaryLoading || activeTimerLoading}
+          onClick={() => onNavigate("performance")}
+        />
+        <ContextRailItem
+          icon={<GitBranch className="h-4 w-4" />}
+          label="Robert decisions"
+          value={`${decisionCount} open`}
+          detail={decisionCount ? "Outcome required before closure" : "No decision blockers"}
+          loading={decisionCountLoading}
+          onClick={() => onNavigate("decisions")}
+        />
+        <ContextRailItem
+          icon={<Settings2 className="h-4 w-4" />}
+          label="System readiness"
+          value={readiness?.status ?? "checking"}
+          detail={!readiness ? "Loading system status" : warnings ? `${warnings} warning${warnings === 1 ? "" : "s"}` : "No setup warnings"}
+          onClick={() => onNavigate("settings")}
+        />
+      </div>
+    </aside>
+  );
+}
+
+function activeTimerLabel(summary: Array<{ cardName: string; totalSeconds: number }>) {
+  return summary.length ? `${summary.length} tracked card${summary.length === 1 ? "" : "s"}` : "Nothing tracked yet";
+}
+
+function ContextRailItem({ icon, label, value, detail, loading = false, onClick }: { icon: ReactNode; label: string; value: string; detail: string; loading?: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="flex w-full items-start gap-3 px-4 py-4 text-left transition-colors hover:bg-accent/50">
+      <span className="mt-0.5 text-muted-foreground">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs font-medium text-muted-foreground">{label}</span>
+        {loading ? (
+          <span className="mt-2 block space-y-1.5" aria-label={`Loading ${label.toLowerCase()}`}>
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-3 w-28" />
+          </span>
+        ) : (
+          <>
+            <span className="mt-1 block text-sm font-semibold text-foreground">{value}</span>
+            <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{detail}</span>
+          </>
+        )}
+      </span>
+      <ArrowRight className="mt-1 h-3.5 w-3.5 text-muted-foreground" />
+    </button>
   );
 }
 
@@ -145,6 +360,8 @@ function NowPanel({
   errorMessage,
   activeTimerCardId,
   timerBusy,
+  protectedDay,
+  anotherTimerRunning,
   onSelect,
   onStartTimer,
   onOpenTriage,
@@ -156,6 +373,8 @@ function NowPanel({
   errorMessage?: string;
   activeTimerCardId?: string | null;
   timerBusy: boolean;
+  protectedDay: boolean;
+  anotherTimerRunning: boolean;
   onSelect: (card: WorkQueueCard) => void;
   onStartTimer: (card: WorkQueueCard) => void;
   onOpenTriage: () => void;
@@ -205,7 +424,7 @@ function NowPanel({
             <div className="flex flex-col justify-end gap-2">
               <Button className="h-10 gap-2 rounded-md" onClick={() => onStartTimer(card)} disabled={timerBusy || running || !card.actionable}>
                 <Timer className="h-4 w-4" />
-                {running ? "Timer running" : card.actionable ? "Start timer" : "Waiting"}
+                {running ? "Timer running" : card.actionable ? protectedDay ? "Start emergency timer" : anotherTimerRunning ? "Switch timer" : "Start timer" : "Waiting"}
               </Button>
               <p className="text-center text-xs text-muted-foreground">Open details for context and secondary actions.</p>
             </div>
@@ -218,15 +437,19 @@ function NowPanel({
   );
 }
 
-function NextUpTable({ items, selectedId, onSelect, onOpenQueue }: { items: WorkQueueCard[]; selectedId?: string; onSelect: (card: WorkQueueCard) => void; onOpenQueue: () => void }) {
+function NextUpTable({ items, loading, selectedId, onSelect, onOpenQueue }: { items: WorkQueueCard[]; loading: boolean; selectedId?: string; onSelect: (card: WorkQueueCard) => void; onOpenQueue: () => void }) {
   return (
     <section className="rounded-lg border border-border bg-card shadow-sm">
       <div className="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next up ({items.length})</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Next up{loading ? "" : ` (${items.length})`}</p>
         <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={onOpenQueue}>View full queue <ArrowRight className="h-3.5 w-3.5" /></Button>
       </div>
       <div className="p-2">
-        {items.length === 0 ? (
+        {loading ? (
+          <div className="space-y-2 px-3 py-2" aria-label="Loading next work items">
+            {[0, 1, 2].map((item) => <Skeleton key={item} className="h-14 w-full" />)}
+          </div>
+        ) : items.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">No more queued items for this first pass.</div>
         ) : items.map((item, index) => (
           <button
@@ -255,12 +478,14 @@ function NextUpTable({ items, selectedId, onSelect, onOpenQueue }: { items: Work
 
 function TriageLaneSummary({
   lanes,
+  loading,
   itemsByLane,
   selectedId,
   onSelectCard,
   onOpenQueue,
 }: {
   lanes: WorkQueueLane[];
+  loading: boolean;
   itemsByLane: Record<WorkQueueLaneId, WorkQueueCard[]>;
   selectedId?: string;
   onSelectCard: (card: WorkQueueCard) => void;
@@ -279,7 +504,7 @@ function TriageLaneSummary({
         <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs" onClick={onOpenQueue}>Open Triage <ArrowRight className="h-3.5 w-3.5" /></Button>
       </div>
       <div className="space-y-2">
-        {lanes.map((lane) => {
+        {loading ? [0, 1, 2].map((item) => <Skeleton key={item} className="h-[58px] w-full" />) : lanes.map((lane) => {
           const expanded = expandedLane === lane.id;
           const laneItems = itemsByLane[lane.id] ?? [];
           return (
@@ -338,16 +563,20 @@ function TriageLaneSummary({
 
 function CardInspector({
   card,
+  audit,
   onOpenTriage,
 }: {
   card: WorkQueueCard | null;
+  audit: Array<{ id: number; action: string; description: string; createdAt: Date | string }>;
   onOpenTriage: () => void;
 }) {
   if (!card) {
     return null;
   }
 
-  const stepGuidance = card.hasWaitingEvidence
+  const stepGuidance = card.steps.length > 0
+    ? card.steps.map((step) => `${step.status === "complete" ? "Done" : "Open"}: ${step.title}`)
+    : card.hasWaitingEvidence
     ? [
         card.nextAction,
         card.actionable ? "Complete only the due internal follow-up step; external actions remain explicit." : "Do not start card execution before the saved checkpoint is due.",
@@ -370,6 +599,9 @@ function CardInspector({
           "Choose follow-up, snooze, move, or unblock from the full queue.",
           "Keep Robert or dependency context visible before rescheduling work.",
         ];
+  const normalizeContext = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const representedContext = new Set([normalizeContext(card.nextAction), normalizeContext(card.detail)]);
+  const contextRecommendations = card.recommendations.filter((item) => !representedContext.has(normalizeContext(item)));
 
   return (
     <aside className="min-h-full bg-card" data-testid="card-inspector">
@@ -391,7 +623,16 @@ function CardInspector({
             <InspectorSection title="Overview">
               <InspectorRow label="Board / List" value={`${card.boardName} / ${card.listName}`} />
               <InspectorRow label="Due" value={getDueLabel(card.due)} tone={card.tone} />
-              <InspectorRow label="Priority" value={`${card.risk} risk`} tone={card.tone} />
+              <InspectorRow label="Priority" value={`${card.priorityTier} (${card.priorityScore})`} tone={card.tone} />
+              <InspectorRow label="Assessment" value={card.assessmentState?.replaceAll("_", " ") ?? "Not assessed"} />
+              <InspectorRow label="Validated confidence" value={card.confidenceScore == null ? "Not measured" : `${card.confidenceScore}%`} />
+              {card.confidenceProfile && (
+                <InspectorRow
+                  label="Near-certainty ceiling"
+                  value={`${card.confidenceProfile.ceiling}% / ${card.confidenceProfile.targetScore}% target`}
+                  tone={card.confidenceProfile.eligibleForNearCertainty ? "green" : "amber"}
+                />
+              )}
               <InspectorRow label="Lane" value={card.laneLabel} />
               {card.hasWaitingEvidence && <InspectorRow label="Waiting on" value={card.waitingOn ?? "Unknown"} />}
               {card.waitingFollowUpAt && <InspectorRow label="Checkpoint" value={formatWaitingDate(card.waitingFollowUpAt)} />}
@@ -400,6 +641,22 @@ function CardInspector({
               <p className="text-sm font-medium text-foreground">{card.nextAction}</p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{card.detail}</p>
             </InspectorSection>
+            {(contextRecommendations.length > 0 || card.uncertainties.length > 0) && (
+              <InspectorSection title="Assessment context">
+                {contextRecommendations.slice(0, 3).map((item) => <p key={item} className="text-xs leading-relaxed text-foreground">{item}</p>)}
+                {card.uncertainties.slice(0, 2).map((item) => <p key={item} className="text-xs leading-relaxed text-muted-foreground">Uncertainty: {item}</p>)}
+              </InspectorSection>
+            )}
+            {card.confidenceProfile && card.confidenceProfile.blockers.length > 0 && (
+              <InspectorSection title={`Path to ${card.confidenceProfile.targetScore}% confidence`}>
+                {card.confidenceProfile.blockers.slice(0, 4).map((item) => (
+                  <p key={item} className="text-xs leading-relaxed text-muted-foreground">{item}</p>
+                ))}
+                <p className="text-xs font-medium text-foreground">
+                  Current gap: {card.confidenceProfile.gapToTarget} percentage points
+                </p>
+              </InspectorSection>
+            )}
             <InspectorSection title="Card actions">
               <Button variant="outline" className="w-full gap-2 rounded-md" asChild>
                 <a href={card.url} target="_blank" rel="noreferrer">
@@ -431,18 +688,30 @@ function CardInspector({
         </TabsContent>
         <TabsContent value="activity" className="space-y-5 p-4">
           <InspectorSection title="Recent activity">
-            <div className="rounded-md border border-border bg-background p-3">
-              <p className="text-sm font-medium text-foreground">{getActivityLabel(card.lastActivity)}</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Full comment history and Trello metadata stay out of the dashboard until the card is opened.
-              </p>
-            </div>
+            {audit.length > 0 ? (
+              <div className="divide-y divide-border rounded-md border border-border bg-background">
+                {audit.slice(0, 8).map((event) => (
+                  <div key={event.id} className="p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-medium text-foreground">{event.action.replaceAll("_", " ")}</p>
+                      <span className="text-[11px] text-muted-foreground">{getActivityLabel(String(event.createdAt))}</span>
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{event.description}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-md border border-border bg-background p-3">
+                <p className="text-sm font-medium text-foreground">No recorded APTLSS activity</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Open Trello for the original card history.</p>
+              </div>
+            )}
           </InspectorSection>
           <InspectorSection title="State trail">
             <div className="space-y-2">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="h-2 w-2 rounded-full bg-muted-foreground" />Captured from Trello action alerts</div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className={`h-2 w-2 rounded-full ${card.tone === "red" ? "bg-red-500" : card.tone === "amber" ? "bg-amber-500" : "bg-violet-500"}`} />Routed to {card.laneLabel}</div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="h-2 w-2 rounded-full bg-primary" />Selected for focused review</div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="h-2 w-2 rounded-full bg-muted-foreground" />{card.assessmentState?.replaceAll("_", " ") ?? "Awaiting assessment"}</div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className={`h-2 w-2 rounded-full ${card.tone === "red" ? "bg-red-500" : card.tone === "amber" ? "bg-amber-500" : "bg-violet-500"}`} />Priority {card.priorityScore} / {card.priorityTier}</div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="h-2 w-2 rounded-full bg-primary" />{card.confidenceScore == null ? "Confidence not measured" : `${card.confidenceScore}% confidence`}</div>
             </div>
             <Button variant="outline" className="mt-3 w-full gap-2 rounded-md" asChild>
               <a href={card.url} target="_blank" rel="noreferrer">

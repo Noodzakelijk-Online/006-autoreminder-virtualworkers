@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { useEatClock } from "@/hooks/useEatClock";
 import {
   Mail,
   MessageSquare,
@@ -27,7 +28,6 @@ import {
   Pause,
   RotateCcw,
   AlertTriangle,
-  Zap,
   Edit2,
   Save,
   MessageSquareWarning,
@@ -124,14 +124,9 @@ function generateId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function getTodayDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function TriageTab() {
-  const today = getTodayDate();
+  const { dateKey: today } = useEatClock(60_000);
   const [view, setView] = useState<View>("intro");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [deferredTasks, setDeferredTasks] = useState<Task[]>([]);
@@ -140,25 +135,43 @@ export default function TriageTab() {
   // Track which morning ritual steps are done
   const [stepsDone, setStepsDone] = useState<boolean[]>([false, false, false, false, false]);
   const [eveningStepsDone, setEveningStepsDone] = useState<boolean[]>([false, false, false, false]);
-  const [dbLoaded, setDbLoaded] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadedDateRef = useRef<string | null>(null);
+  const saveDateRef = useRef(today);
 
   // DB queries
-  const { data: savedState } = trpc.triage.getByDate.useQuery({ date: today });
+  const { data: savedState, isLoading: savedStateLoading } = trpc.triage.getByDate.useQuery({ date: today });
   const { data: recentReports } = trpc.triage.getRecent.useQuery({ limit: 7 });
   const upsertTriage = trpc.triage.upsert.useMutation();
+  type SavePatch = Omit<Parameters<typeof upsertTriage.mutate>[0], "triageDate">;
+  const pendingSaveRef = useRef<SavePatch>({});
 
   const [newTask, setNewTask] = useState("");
   const [newDuration, setNewDuration] = useState("");
   const [isHighPriority, setIsHighPriority] = useState(false);
 
   // Auto-save helper (debounced 1s)
-  const scheduleSave = useCallback((patch: Omit<Parameters<typeof upsertTriage.mutate>[0], 'triageDate'>) => {
+  const scheduleSave = useCallback((patch: SavePatch) => {
+    pendingSaveRef.current = { ...pendingSaveRef.current, ...patch };
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      upsertTriage.mutate({ triageDate: today, ...patch });
+      const pending = pendingSaveRef.current;
+      pendingSaveRef.current = {};
+      upsertTriage.mutate({ triageDate: today, ...pending });
     }, 1000);
   }, [today, upsertTriage]);
+
+  const toggleEveningStep = useCallback((index: number) => {
+    setEveningStepsDone((previous) => {
+      const next = [...previous];
+      next[index] = !next[index];
+      if (index === 0) scheduleSave({ eveningStep1Done: next[index] });
+      if (index === 1) scheduleSave({ eveningStep2Done: next[index] });
+      if (index === 2) scheduleSave({ eveningStep3Done: next[index] });
+      if (index === 3) scheduleSave({ eveningStep4Done: next[index] });
+      return next;
+    });
+  }, [scheduleSave]);
 
   // Triage 2-min timer
   const [isTriageTimerActive, setIsTriageTimerActive] = useState(false);
@@ -182,21 +195,29 @@ export default function TriageTab() {
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
   const [tempTimeEdit, setTempTimeEdit] = useState("");
 
-  // Load saved state when it arrives (all state declared above)
-  if (savedState && !dbLoaded) {
-    setDbLoaded(true);
-    const s = savedState;
-    setStepsDone([s.step1Done, s.step2Done, s.step3Done, s.step4Done, s.step5Done]);
-    setEveningStepsDone([s.eveningStep1Done, s.eveningStep2Done, s.eveningStep3Done, s.eveningStep4Done]);
-    if (s.eodReport) setEodNotes(s.eodReport);
-    // Always start at intro when navigating to Triage — do not resume mid-flow
-    if (s.focusTasks) {
+  useEffect(() => {
+    if (savedStateLoading || loadedDateRef.current === today) return;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      const pending = pendingSaveRef.current;
+      pendingSaveRef.current = {};
+      if (Object.keys(pending).length > 0) upsertTriage.mutate({ triageDate: saveDateRef.current, ...pending });
+    }
+    saveDateRef.current = today;
+    loadedDateRef.current = today;
+    setView("intro");
+    setCurrentStepIndex(0);
+    setStepsDone(savedState ? [savedState.step1Done, savedState.step2Done, savedState.step3Done, savedState.step4Done, savedState.step5Done] : [false, false, false, false, false]);
+    setEveningStepsDone(savedState ? [savedState.eveningStep1Done, savedState.eveningStep2Done, savedState.eveningStep3Done, savedState.eveningStep4Done] : [false, false, false, false]);
+    setEodNotes(savedState?.eodReport ?? "");
+    setTasks([]);
+    if (savedState?.focusTasks) {
       try {
-        const parsed = JSON.parse(s.focusTasks);
+        const parsed = JSON.parse(savedState.focusTasks);
         if (Array.isArray(parsed)) setTasks(parsed);
       } catch {}
     }
-  }
+  }, [savedState, savedStateLoading, today, upsertTriage]);
 
   const currentStep = TRIAGE_STEPS[currentStepIndex];
 
@@ -1145,21 +1166,37 @@ export default function TriageTab() {
               )}
             </div>
 
-            {/* Loose info sweep */}
             <div>
-              <div className="flex items-center gap-2 mb-2">
-                <FileText className="w-4 h-4 text-foreground" />
-                <h3 className="font-semibold text-sm text-foreground">Loose Info Sweep</h3>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-foreground" />
+                  <h3 className="text-sm font-semibold text-foreground">Close-out checks</h3>
+                </div>
+                <Badge variant="outline" className="text-[10px]">{eveningStepsDone.filter(Boolean).length}/4</Badge>
               </div>
-              <p className="text-xs text-muted-foreground mb-3">Did you receive new info via WhatsApp/Email today? Don't leave it there.</p>
-              <label className="flex items-center gap-3 p-3 bg-muted/40 rounded-lg border border-border cursor-pointer hover:bg-muted/60 transition-colors">
-                <input type="checkbox" className="w-4 h-4 rounded accent-indigo-600" />
-                <span className="text-sm text-foreground">I have moved all new loose info into Trello Cards.</span>
-              </label>
+              <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-muted/20">
+                {[
+                  "Every active task has a useful Trello update.",
+                  "Logged time matches the work completed.",
+                  "New loose information is captured in Trello.",
+                  "Blockers and tomorrow's priorities are ready for handoff.",
+                ].map((label, index) => (
+                  <label key={label} className="flex cursor-pointer items-start gap-3 px-3 py-3 text-sm text-foreground transition-colors hover:bg-muted/50">
+                    <input
+                      type="checkbox"
+                      checked={eveningStepsDone[index]}
+                      onChange={() => toggleEveningStep(index)}
+                      className="mt-0.5 h-4 w-4 rounded accent-indigo-600"
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
 
             <Button
-              onClick={() => { setView("evening_summary"); scheduleSave({ currentView: "evening_summary", eveningStep1Done: true, eveningStep2Done: true, eveningStep3Done: true, eveningStep4Done: true }); }}
+              onClick={() => { setView("evening_summary"); scheduleSave({ currentView: "evening_summary" }); }}
+              disabled={!eveningStepsDone.every(Boolean)}
               className="w-full bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white h-11 font-semibold"
             >
               Review Complete <ArrowRight className="w-4 h-4 ml-2" />
@@ -1227,5 +1264,3 @@ export default function TriageTab() {
 
   return null;
 }
-
-

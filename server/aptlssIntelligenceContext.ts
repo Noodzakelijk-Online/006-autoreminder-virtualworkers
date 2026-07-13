@@ -8,6 +8,8 @@ import { buildAptlssRuntimeAnalysis } from "./aptlssRuntime";
 import { getAssessmentCalibration } from "./aptlssFeedbackDb";
 import { APTLSS_ASSESSMENT_VERSION } from "./aptlssAssessment";
 import { getActiveWaitingReason, toAptlssWaitingSignal } from "./aptlssWaitingReasonDb";
+import { getAptlssExternalEvidenceForCard } from "./workspaceEvidenceDb";
+import { getActiveTaskDependencies, mergeDependencyEdges } from "./taskDependenciesDb";
 
 /** Load a coherent cross-system context for an on-demand card assessment. */
 export async function loadAptlssIntelligenceForCard({
@@ -19,7 +21,7 @@ export async function loadAptlssIntelligenceForCard({
   cardName: string;
   nowMs?: number;
 }) {
-  const [plans, allSteps, states, timeEntries, activeTimers, dailyPlan, assessmentCalibration, waitingRecord] = await Promise.all([
+  const [plans, allSteps, states, timeEntries, activeTimers, dailyPlan, assessmentCalibration, waitingRecord, externalEvidence, durableDependencies] = await Promise.all([
     getAllAptlssPlans(),
     getAllAptlssSteps(),
     getAllCardStates(),
@@ -28,6 +30,8 @@ export async function loadAptlssIntelligenceForCard({
     getSavedDailyPlan(getEatDateKey()),
     getAssessmentCalibration(5_000, APTLSS_ASSESSMENT_VERSION),
     getActiveWaitingReason(cardId),
+    getAptlssExternalEvidenceForCard(cardId),
+    getActiveTaskDependencies(),
   ]);
   let replyThreads: Awaited<ReturnType<typeof getAllReplyThreads>> = [];
   try {
@@ -44,11 +48,12 @@ export async function loadAptlssIntelligenceForCard({
     stepsByCard.set(step.cardId, [...(stepsByCard.get(step.cardId) ?? []), step]);
   }
   const cards = Array.from(catalog.values());
-  const portfolio = analyzeAptlssPortfolio(cards.map((card) => ({
+  const portfolioCards = mergeDependencyEdges(cards.map((card) => ({
     ...card,
     state: stateByCard.get(card.id),
     steps: stepsByCard.get(card.id) ?? [],
-  })));
+  })), durableDependencies);
+  const portfolio = analyzeAptlssPortfolio(portfolioCards);
   const runtime = buildAptlssRuntimeAnalysis({
     cardIds: cards.map((card) => card.id),
     steps: allSteps,
@@ -67,8 +72,10 @@ export async function loadAptlssIntelligenceForCard({
     forecast: cardRuntime?.forecast,
     calibration: assessmentCalibration,
     waiting: waitingRecord ? toAptlssWaitingSignal(waitingRecord) : null,
+    externalEvidence,
     diagnostics: {
       dependencyCycles: portfolio.cycles.length,
+      durableDependencyEdges: durableDependencies.length,
       orphanReferences: portfolio.orphanReferenceCount,
       effortCalibration: runtime.calibration,
     },

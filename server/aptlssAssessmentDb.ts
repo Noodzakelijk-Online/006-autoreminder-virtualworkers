@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, getTableColumns, max, sql } from "drizzle-orm";
 import { aptlssAssessments, type AptlssAssessmentSnapshot } from "../drizzle/schema";
 import { getDb } from "./db";
 import type { AptlssAssessment } from "./aptlssAssessment";
@@ -16,7 +16,7 @@ export type HydratedAssessment = AptlssAssessmentSnapshot & {
   priorityBreakdownValue: Record<string, number>;
   evidenceCoverageValue: Record<string, boolean>;
   evidenceValue: AptlssAssessment["evidence"];
-  intelligenceValue: Partial<Pick<AptlssAssessment, "waiting" | "portfolio" | "runtime" | "forecast" | "calibration">>;
+  intelligenceValue: Partial<Pick<AptlssAssessment, "waiting" | "externalEvidence" | "portfolio" | "runtime" | "forecast" | "calibration" | "confidenceProfile">>;
   uncertaintiesValue: string[];
   recommendationsValue: string[];
   changeValue: Record<string, { before: unknown; after: unknown }>;
@@ -63,18 +63,20 @@ export async function getAssessmentHistory(cardId: string, limit = 20) {
 export async function getLatestAssessments() {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db
-    .select()
+  const latestByCard = db
+    .select({
+      cardId: aptlssAssessments.cardId,
+      latestId: max(aptlssAssessments.id).as("latestId"),
+    })
     .from(aptlssAssessments)
-    .orderBy(desc(aptlssAssessments.id))
-    .limit(5_000);
-  const latestByCard = new Map<string, AptlssAssessmentSnapshot>();
-  for (const row of rows) {
-    if (!latestByCard.has(row.cardId)) latestByCard.set(row.cardId, row);
-  }
-  return Array.from(latestByCard.values())
-    .sort((left, right) => right.priorityScore - left.priorityScore)
-    .map(hydrateAssessment);
+    .groupBy(aptlssAssessments.cardId)
+    .as("latest_assessments");
+  const rows = await db
+    .select({ ...getTableColumns(aptlssAssessments) })
+    .from(aptlssAssessments)
+    .innerJoin(latestByCard, eq(aptlssAssessments.id, latestByCard.latestId))
+    .orderBy(desc(aptlssAssessments.priorityScore));
+  return rows.map(hydrateAssessment);
 }
 
 export async function getAssessmentsDue(now = new Date()) {
@@ -95,10 +97,12 @@ function materialChanges(previous: HydratedAssessment | null, current: AptlssAss
     ["confidenceScore", previous.confidenceScore, current.confidenceScore],
     ["intelligence", previous.intelligenceValue, {
       waiting: current.waiting,
+      externalEvidence: current.externalEvidence,
       portfolio: current.portfolio,
       runtime: current.runtime,
       forecast: current.forecast,
       calibration: current.calibration,
+      confidenceProfile: current.confidenceProfile,
     }],
     ["recommendations", previous.recommendationsValue, current.recommendations],
   ];
@@ -149,10 +153,12 @@ export async function saveAssessmentSnapshot(cardName: string, assessment: Aptls
     evidenceJson: JSON.stringify(assessment.evidence),
     intelligenceJson: JSON.stringify({
       waiting: assessment.waiting,
+      externalEvidence: assessment.externalEvidence,
       portfolio: assessment.portfolio,
       runtime: assessment.runtime,
       forecast: assessment.forecast,
       calibration: assessment.calibration,
+      confidenceProfile: assessment.confidenceProfile,
     }),
     uncertaintiesJson: JSON.stringify(assessment.uncertainties),
     recommendationsJson: JSON.stringify(assessment.recommendations),

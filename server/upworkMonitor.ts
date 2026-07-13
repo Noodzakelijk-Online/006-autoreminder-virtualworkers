@@ -17,6 +17,8 @@
  */
 
 import { notifyOwner } from "./_core/notification";
+import { upsertCommunicationEvidence } from "./communicationEvidenceDb";
+import { upsertWorkspaceEvidence } from "./workspaceEvidenceDb";
 import { isVagueReply, hasValidSignature } from "./replyMonitor";
 import {
   upsertUpworkThread,
@@ -203,6 +205,41 @@ export async function runUpworkReplyMonitorScan(): Promise<{
           : "ok",
         demerited: false,
       });
+      if (analysis.lastNonOwnerMsgAt) {
+        const evidenceItemId = await upsertWorkspaceEvidence({
+          source: "communication",
+          sourceId: `upwork:${analysis.roomId}:${analysis.lastNonOwnerMsgAt}`,
+          sourceContainerId: analysis.roomId,
+          kind: "upwork_message",
+          title: `${analysis.roomName}: ${analysis.topic}`,
+          summary: analysis.lastNonOwnerText,
+          content: analysis.lastNonOwnerText,
+          sourceUrl: analysis.roomUrl,
+          mimeType: "application/vnd.upwork.message+json",
+          modifiedAt: new Date(analysis.lastNonOwnerMsgAt),
+          observedAt: new Date(),
+          metadataJson: JSON.stringify({
+            channel: "upwork",
+            responseRequired: analysis.needsReply,
+            overdue: analysis.isOverdue,
+          }),
+          active: true,
+        });
+        await upsertCommunicationEvidence({
+          channel: "upwork",
+          externalId: `${analysis.roomId}:${analysis.lastNonOwnerMsgAt}`,
+          threadId: analysis.roomId,
+          direction: "inbound",
+          sender: analysis.lastNonOwnerAuthor || analysis.roomName,
+          subject: analysis.topic || analysis.roomName,
+          summary: analysis.lastNonOwnerText,
+          occurredAt: new Date(analysis.lastNonOwnerMsgAt),
+          responseRequired: analysis.needsReply,
+          respondedAt: analysis.lastOwnerReplyAt ? new Date(analysis.lastOwnerReplyAt) : null,
+          evidenceItemId,
+          metadata: { roomUrl: analysis.roomUrl, overdue: analysis.isOverdue },
+        });
+      }
 
       if (analysis.needsReply) {
         if (analysis.isOverdue) overdue++;

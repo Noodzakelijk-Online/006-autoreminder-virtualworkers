@@ -3,20 +3,20 @@
  *
  * POST /api/scheduled/gmail-scan
  *
- * Called by the AGENT cron that scans Gmail and upserts email tasks.
- * The agent uses Gmail MCP tools to fetch ALL emails (not just unread),
- * classifies them as financial/non-financial, and POSTs the batch here.
+ * Backward-compatible external import endpoint. Normal unattended ingestion now
+ * runs directly inside the server through gmailIngestion.ts.
  *
  * Also handles snooze resurface: expired snoozes are automatically
  * cleared so cards reappear in ActionAlerts.
  *
  * POST /api/scheduled/gmail-resurface
  *
- * Called by a Heartbeat cron every hour to resurface expired snoozes.
+ * Kept for compatibility with external snooze-resurface callers.
  */
 import type { Express } from "express";
 import { assertScheduledTaskAuthorized } from "./_core/scheduledAuth";
 import { upsertEmailTask, resurfaceExpiredSnoozes } from "./db";
+import { runTrackedJob } from "./scheduledJobsDb";
 
 interface EmailTaskPayload {
   gmailMessageId: string;
@@ -34,7 +34,7 @@ interface EmailTaskPayload {
 }
 
 export function registerScheduledGmailScanRoute(app: Express) {
-  // ── Gmail scan: upsert email tasks from AGENT cron ──────────────────────────
+  // External batch import kept for compatibility with owner integrations.
   app.post("/api/scheduled/gmail-scan", async (req, res) => {
     if (!assertScheduledTaskAuthorized(req, res)) return;
 
@@ -45,31 +45,38 @@ export function registerScheduledGmailScanRoute(app: Express) {
         return;
       }
 
-      let upserted = 0;
-      let errors = 0;
-
-      for (const email of body.emails) {
-        try {
-          await upsertEmailTask({
-            gmailMessageId: email.gmailMessageId,
-            gmailThreadId: email.gmailThreadId,
-            subject: email.subject || "(no subject)",
-            fromAddress: email.fromAddress || "",
-            fromName: email.fromName || "",
-            snippet: email.snippet ?? null,
-            receivedAt: new Date(email.receivedAt),
-            category: email.category || "non_financial",
-            status: email.status || "pending",
-            deadlineAt: email.deadlineAt ? new Date(email.deadlineAt) : null,
-            suggestedNextAction: email.suggestedNextAction ?? null,
-            llmSummary: email.llmSummary ?? null,
-          } as any);
-          upserted++;
-        } catch (err) {
-          console.error("[GmailScan] Failed to upsert email:", email.gmailMessageId, err);
-          errors++;
-        }
-      }
+      const { upserted, errors } = await runTrackedJob({
+        jobKey: "gmail_ingestion",
+        trigger: "external",
+        run: async () => {
+          let upserted = 0;
+          let errors = 0;
+          for (const email of body.emails!) {
+            try {
+              await upsertEmailTask({
+                gmailMessageId: email.gmailMessageId,
+                gmailThreadId: email.gmailThreadId,
+                subject: email.subject || "(no subject)",
+                fromAddress: email.fromAddress || "",
+                fromName: email.fromName || "",
+                snippet: email.snippet ?? null,
+                receivedAt: new Date(email.receivedAt),
+                category: email.category || "non_financial",
+                status: email.status || "pending",
+                deadlineAt: email.deadlineAt ? new Date(email.deadlineAt) : null,
+                suggestedNextAction: email.suggestedNextAction ?? null,
+                llmSummary: email.llmSummary ?? null,
+              } as any);
+              upserted++;
+            } catch (err) {
+              console.error("[GmailScan] Failed to upsert email:", email.gmailMessageId, err);
+              errors++;
+            }
+          }
+          return { upserted, errors };
+        },
+        summarize: (result) => ({ recordsProcessed: result.upserted, detail: `${result.upserted} imported, ${result.errors} rejected` }),
+      });
 
       console.log(`[GmailScan] Upserted ${upserted} emails, ${errors} errors`);
       res.json({ success: true, upserted, errors });
@@ -84,7 +91,12 @@ export function registerScheduledGmailScanRoute(app: Express) {
     if (!assertScheduledTaskAuthorized(req, res)) return;
 
     try {
-      const resurfaced = await resurfaceExpiredSnoozes();
+      const resurfaced = await runTrackedJob({
+        jobKey: "snooze_resurface",
+        trigger: "external",
+        run: resurfaceExpiredSnoozes,
+        summarize: (count) => ({ recordsProcessed: count, detail: `${count} snoozes resurfaced` }),
+      });
       console.log(`[GmailResurface] Resurfaced ${resurfaced} expired snoozes`);
       res.json({ success: true, resurfaced });
     } catch (err) {

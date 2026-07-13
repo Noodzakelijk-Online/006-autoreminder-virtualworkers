@@ -1,17 +1,22 @@
 import { toast } from "sonner";
-import { InfoTooltip } from "@/components/InfoTooltip";
 import TimeTracker from "@/components/TimeTracker";
 import WebhookHealthPanel from "@/components/WebhookHealthPanel";
-import { useAuth } from "@/_core/hooks/useAuth";
+import GmailIngestionSettings from "@/components/GmailIngestionSettings";
 import { useTriageCounts } from "./useTriageCounts";
 import { trpc } from "@/lib/trpc";
-import { ACTIVE_SECTION_KEY, isAppSection, type AppSection } from "@/lib/navigationState";
+import {
+  ACTIVE_SECTION_KEY,
+  TODAY_MODE_KEY,
+  isAppSection,
+  readTodayMode,
+  serializeTodayMode,
+  type AppSection,
+  type TodayMode,
+} from "@/lib/navigationState";
 import { workQueueSourceFromPlan, type WorkQueueCard, type WorkQueueSourceData } from "@/lib/workQueue";
-import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sidebar,
@@ -29,41 +34,34 @@ import {
 import { useTheme } from "@/contexts/ThemeContext";
 import {
   Clock,
-  Mail,
   MessageSquare,
-  Briefcase,
-  Coffee,
-  Utensils,
   Moon,
   Sun,
   Keyboard,
-  LogOut,
   CheckCircle,
   AlertTriangle,
-  ExternalLink,
-  TrendingUp,
   Activity,
   Award,
   Zap,
-  Flame,
   Timer,
   CalendarDays,
   ArrowRight,
   GitBranch,
   Settings,
   BookOpen,
-  Battery,
   Target,
   ChevronDown,
   ChevronUp,
   Shield,
-  DollarSign,
   RefreshCw,
+  Play,
 } from "lucide-react";
 import { CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { WorkQueueDashboard } from "@/components/work-queue/WorkQueueDashboard";
 import type { DashboardReadiness } from "@/lib/readiness";
+import { useOperationalEvents } from "@/hooks/useOperationalEvents";
+import { useEatClock } from "@/hooks/useEatClock";
 
 const TriagePage = lazy(() => import("./TriagePage"));
 const PlanMyDay = lazy(() => import("./PlanMyDay"));
@@ -83,27 +81,6 @@ function SectionFallback() {
 }
 
 // ─── Today's compliance chip for the header ─────────────────────────────────
-function TodayComplianceChip() {
-  const { data: history = [] } = trpc.compliance.getHistory.useQuery({ limit: 1 });
-  const today = new Date().toISOString().slice(0, 10);
-  const todayRow = history.find(r => {
-    const d = typeof r.snapshotDate === 'string' ? r.snapshotDate : new Date(r.snapshotDate).toISOString().slice(0, 10);
-    return d === today;
-  });
-  if (!todayRow) return <span className="text-xs font-semibold text-muted-foreground">Pending</span>;
-  const pct = todayRow.compliancePct;
-  const colorClass = pct >= 90
-    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
-    : pct >= 70
-    ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400"
-    : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400";
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold ${colorClass}`}>
-      {pct}% today
-    </span>
-  );
-}
-
 // ─── Compliance badge for the Performance sidebar item ───────────────────────
 function ComplianceBadge() {
   const { data } = trpc.compliance.getRollingAvg.useQuery({ days: 7 });
@@ -122,150 +99,17 @@ function ComplianceBadge() {
 }
 
 // ─── No-due-date badge for the Triage sidebar item ───────────────────────────
-function NoDueDateBadge({ enabled = true }: { enabled?: boolean }) {
-  // Share the same cache entry as ActionAlerts (5 min staleTime) — no extra fetch needed.
-  const { data } = trpc.trello.actionAlerts.useQuery(undefined, {
-    enabled,
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
-  if (!enabled) return null;
-  const count = data?.noDueDateCards?.length ?? 0;
-  if (count === 0) return null;
+function InboxAttentionDot() {
+  const { total } = useTriageCounts();
+  if (total === 0) return null;
   return (
-    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-bold text-white flex items-center justify-center leading-none bg-amber-500">
-      {count}
-    </span>
-  );
-}
-
-/** Red badge on the Reply Monitor nav item showing total active flags. */
-function ReplyMonitorBadge() {
-  // All three share cache with the ReplyMonitor page queries (15 min staleTime).
-  // No extra network requests are made when the ReplyMonitor page is already mounted.
-  const { data: badgeSetting } = trpc.settings.getReplyMonitorBadge.useQuery(undefined, { staleTime: 5 * 60_000 });
-  const { data: pendingThreads } = trpc.replyMonitor.getPendingThreads.useQuery(undefined, { staleTime: 15 * 60_000, enabled: badgeSetting?.enabled !== false });
-  const { data: vagueFlags } = trpc.replyMonitor.getActiveVagueFlags.useQuery(undefined, { staleTime: 15 * 60_000, enabled: badgeSetting?.enabled !== false });
-  const { data: unsignedFlags } = trpc.replyMonitor.getActiveUnsignedFlags.useQuery(undefined, { staleTime: 15 * 60_000, enabled: badgeSetting?.enabled !== false });
-
-  if (!badgeSetting?.enabled) return null;
-
-  const count = (pendingThreads?.length ?? 0) + (vagueFlags?.length ?? 0) + (unsignedFlags?.length ?? 0);
-  if (count === 0) return null;
-
-  return (
-    <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-bold text-white flex items-center justify-center leading-none bg-red-500">
-      {count > 99 ? '99+' : count}
-    </span>
-  );
-}
-
-/** Combined badge on the Triage sidebar item: shows reply + email counts as two pills. */
-function TriageSidebarBadge() {
-  const { replyCount, emailCount } = useTriageCounts();
-  return (
-    <span className="ml-auto flex items-center gap-0.5">
-      {replyCount > 0 && (
-        <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-bold text-white flex items-center justify-center leading-none bg-red-500">
-          {replyCount > 99 ? '99+' : replyCount}
-        </span>
-      )}
-      {emailCount > 0 && (
-        <span className="min-w-[18px] h-[18px] px-1 rounded-full text-[9px] font-bold text-white flex items-center justify-center leading-none bg-amber-500">
-          {emailCount > 99 ? '99+' : emailCount}
-        </span>
-      )}
+    <span className="ml-auto flex h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" title="Inbox has work requiring attention">
+      <span className="sr-only">Inbox has work requiring attention</span>
     </span>
   );
 }
 // ─── Projected pay chip for the sidebar footer ───────────────────────────────
-const MERIT_AMOUNTS: Record<string, number> = { meritM1: 5, meritM2: 7.5, meritM3: 1, meritStreak: 10 };
-const DEMERIT_AMOUNTS: Record<string, number> = { demeritD1: 5, demeritD2: 10, demeritD3: 5, demeritD4: 5, demeritD5: 10, demeritD6: 5, demeritD7: 5, demeritD8: 10, demeritD9: 15, demeritD10: 15, demeritD11: 15 };
-
-function ProjectedPayChip() {
-  // Get the current week start (Monday) and end (Sunday)
-  const { weekStart, weekEnd } = useMemo(() => {
-    const d = new Date();
-    const day = d.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    const start = new Date(d);
-    start.setDate(d.getDate() + diff);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    return {
-      weekStart: start.toISOString().slice(0, 10),
-      weekEnd: end.toISOString().slice(0, 10),
-    };
-  }, []);
-  const utils = trpc.useUtils();
-  const { data: payData, isLoading } = trpc.payLog.getByWeek.useQuery({ weekStart }, { staleTime: 5 * 60_000 });
-  const createWeekLog = trpc.payLog.upsert.useMutation({
-    onSuccess: () => utils.payLog.getByWeek.invalidate({ weekStart }),
-  });
-  // Auto-create a zero-row for this week so the Weekly Pay Calculator is pre-populated
-  useEffect(() => {
-    if (!isLoading && payData === null) {
-      createWeekLog.mutate({
-        weekStart, weekEnd,
-        meritM1: 0, meritM2: 0, meritM3: 0, meritStreak: 0,
-        demeritD1: 0, demeritD2: 0, demeritD3: 0, demeritD4: 0,
-        demeritD5: 0, demeritD6: 0, demeritD7: 0, demeritD8: 0,
-        demeritD9: 0, demeritD10: 0, demeritD11: 0,
-      });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, payData === null]);
-  // Show brief loading indicator; fall back to base $90 if no row exists yet this week
-  if (isLoading) return <span className="text-xs text-muted-foreground">…</span>;
-  // Calculate projected pay using same formula as WeeklyPayCalculator
-  // Base is $90/week; merits add, demerits subtract
-  // Use empty object fallback so chip shows $90.00 base when no row exists yet
-  const safeData = (payData ?? {}) as Record<string, unknown>;
-  const totalMerits = Object.entries(MERIT_AMOUNTS).reduce((sum, [key, amt]) => sum + (Number(safeData[key]) || 0) * amt, 0);
-  const totalDemerits = Object.entries(DEMERIT_AMOUNTS).reduce((sum, [key, amt]) => sum + (Number(safeData[key]) || 0) * amt, 0);
-  const rawProjected = 90 - totalDemerits + totalMerits;
-  const isNegative = rawProjected < 0;
-  const isWarning = rawProjected < 90 && rawProjected >= 0;
-  return (
-    <span className={`text-xs font-semibold tabular-nums ${
-      isNegative ? "text-red-600 dark:text-red-400" :
-      isWarning ? "text-amber-600 dark:text-amber-400" :
-      "text-emerald-600 dark:text-emerald-400"
-    }`}>
-      {isNegative ? `-$${Math.abs(rawProjected).toFixed(2)}` : `$${rawProjected.toFixed(2)}`}
-    </span>
-  );
-}
-
 // ─── Compliance trend arrow for the Overview ─────────────────────────────────
-function ComplianceTrendChip() {
-  const { data: history = [] } = trpc.compliance.getHistory.useQuery({ limit: 14 });
-  const { data: rollingData } = trpc.compliance.getRollingAvg.useQuery({ days: 7 });
-  const avg7 = rollingData?.avg;
-  if (avg7 === undefined || history.length < 2) return null;
-  // Compare last 7 days avg vs previous 7 days avg
-  const sorted = [...history].sort((a, b) => new Date(a.snapshotDate).getTime() - new Date(b.snapshotDate).getTime());
-  const recent7 = sorted.slice(-7);
-  const prev7 = sorted.slice(-14, -7);
-  const recentAvg = recent7.length ? Math.round(recent7.reduce((s, r) => s + r.compliancePct, 0) / recent7.length) : avg7;
-  const prevAvg = prev7.length ? Math.round(prev7.reduce((s, r) => s + r.compliancePct, 0) / prev7.length) : recentAvg;
-  const delta = recentAvg - prevAvg;
-  const isUp = delta > 0;
-  const isFlat = delta === 0;
-  const colorClass = avg7 >= 90
-    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400"
-    : avg7 >= 70
-    ? "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400"
-    : "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400";
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full border ${colorClass}`}>
-      {isFlat ? "→" : isUp ? "↑" : "↓"} {avg7}% 7-day avg
-      {!isFlat && <span className="text-[10px] opacity-70">({delta > 0 ? "+" : ""}{delta}%)</span>}
-    </span>
-  );
-}
-
 // ─── Trello Comment Token Settings ──────────────────────────────────────────
 function TrelloCommentTokenSettings() {
   const { data: tokenData, refetch } = trpc.trello.getCommentToken.useQuery(undefined, {
@@ -681,6 +525,7 @@ function ReplyMonitorBadgeSettings() {
     onSuccess: (data) => {
       toast.success(data.enabled ? "Reply Monitor badge enabled" : "Reply Monitor badge disabled");
       utils.settings.getReplyMonitorBadge.invalidate();
+      utils.system.navigationCounts.invalidate();
     },
     onError: (e) => toast.error(`Failed to update: ${e.message}`),
   });
@@ -923,173 +768,8 @@ function ReadyForDonePanel() {
 }
 
 // ─── Worker Performance Panel ───────────────────────────────────────────────
-function WorkerPerformancePanel() {
-  const { data: performance, isLoading } = trpc.aptlss.getWorkerPerformance.useQuery(undefined, { staleTime: 5 * 60_000 });
-  if (isLoading) return null;
-  if (!performance || performance.length === 0) return null;
-
-  const grouped = performance.reduce((acc, p) => {
-    if (!acc[p.workerId]) acc[p.workerId] = [];
-    acc[p.workerId].push(p);
-    return acc;
-  }, {} as Record<string, typeof performance>);
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <div className="h-px flex-1 bg-border" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Worker Performance Signals</span>
-        <div className="h-px flex-1 bg-border" />
-      </div>
-      <div className="space-y-3">
-        {Object.entries(grouped).map(([workerId, signals]) => {
-          const latest = signals[0];
-          const score = Math.max(0, 100 - (latest.stalledCardsCount * 10) - (latest.missedDeadlines * 15) - (latest.reworkCount * 8) - (latest.unclearHandovers * 5));
-          const scoreColor = score >= 80 ? "text-emerald-600 dark:text-emerald-400" : score >= 60 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
-          return (
-            <div key={workerId} className="rounded-xl border border-border/50 bg-card/50 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-foreground">{latest.workerName}</p>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Week {latest.weekKey}</span>
-                  <span className={`text-lg font-bold ${scoreColor}`}>{score}</span>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { label: "Stalled", value: latest.stalledCardsCount, bad: latest.stalledCardsCount > 2 },
-                  { label: "Missed Deadlines", value: latest.missedDeadlines, bad: latest.missedDeadlines > 1 },
-                  { label: "Rework", value: latest.reworkCount, bad: latest.reworkCount > 1 },
-                  { label: "Escalations", value: latest.robertEscalationsCount, bad: latest.robertEscalationsCount > 2 },
-                  { label: "Unclear Handovers", value: latest.unclearHandovers, bad: latest.unclearHandovers > 1 },
-                  { label: "Checklist Items", value: latest.checklistItemsCompleted, bad: false },
-                ].map(item => (
-                  <div key={item.label} className={`rounded-lg p-2 text-center ${item.bad ? "bg-red-500/10 border border-red-500/30" : "bg-muted/30"}`}>
-                    <p className={`text-sm font-bold ${item.bad ? "text-red-600 dark:text-red-400" : "text-foreground"}`}>{item.value}</p>
-                    <p className="text-xs text-muted-foreground">{item.label}</p>
-                  </div>
-                ))}
-              </div>
-              {latest.notes && <p className="text-xs text-muted-foreground mt-2 italic">{latest.notes}</p>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ─── Weekly Analysis Panel ───────────────────────────────────────────────────
-function WeeklyAnalysisPanel() {
-  const { data: latestAnalysis, isLoading } = trpc.aptlss.getLatestWeeklyAnalysis.useQuery(undefined, { staleTime: 10 * 60_000 });
-  const { data: history } = trpc.aptlss.getWeeklyAnalysisHistory.useQuery(undefined, { staleTime: 10 * 60_000 });
-  const { data: liveExceptions } = trpc.trello.actionAlerts.useQuery(undefined, { staleTime: 2 * 60_000 });
-  const [selectedWeekKey, setSelectedWeekKey] = useState<string | null>(null);
-
-  const analysis = selectedWeekKey
-    ? (history ?? []).find(h => h.weekKey === selectedWeekKey) ?? latestAnalysis
-    : latestAnalysis;
-
-  if (isLoading || !analysis) return null;
-
-  let noProgressCards: { cardId: string; cardName: string; state: string }[] = [];
-  let recurringBlockers: { reason: string; count: number; cards: string[] }[] = [];
-  let processImprovements: string[] = [];
-  try { noProgressCards = JSON.parse(analysis.noProgressCards ?? "[]"); } catch { /* ignore */ }
-  try { recurringBlockers = JSON.parse(analysis.recurringBlockers ?? "[]"); } catch { /* ignore */ }
-  try { processImprovements = JSON.parse(analysis.processImprovements ?? "[]"); } catch { /* ignore */ }
-
-  const historyList = history ?? [];
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <div className="h-px flex-1 bg-border" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Historical APTLSS Analysis</span>
-        <div className="h-px flex-1 bg-border" />
-      </div>
-      {/* History selector */}
-      {historyList.length > 1 && (
-        <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-          {historyList.map(h => (
-            <button
-              key={h.weekKey}
-              onClick={() => setSelectedWeekKey(h.weekKey === latestAnalysis?.weekKey ? null : h.weekKey)}
-              className={`text-[10px] font-mono px-2 py-0.5 rounded-full border transition-colors ${
-                (selectedWeekKey === h.weekKey || (!selectedWeekKey && h.weekKey === latestAnalysis?.weekKey))
-                  ? "bg-blue-500/20 border-blue-500/50 text-blue-700 dark:text-blue-300"
-                  : "bg-muted/30 border-border/40 text-muted-foreground hover:border-blue-500/30"
-              }`}
-            >
-              {h.weekKey}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4 space-y-4">
-        {liveExceptions && (
-          <div className="grid gap-2 rounded-md border border-border bg-background p-3 text-xs sm:grid-cols-3">
-            <div><span className="text-muted-foreground">Current Trello overdue</span><p className="mt-1 font-semibold text-red-600 dark:text-red-300">{liveExceptions.overdueCards.length}</p></div>
-            <div><span className="text-muted-foreground">Doing updates</span><p className="mt-1 font-semibold text-amber-600 dark:text-amber-300">{liveExceptions.doingCards.filter((card) => !card.updatedToday).length}</p></div>
-            <div><span className="text-muted-foreground">On-hold review</span><p className="mt-1 font-semibold text-violet-600 dark:text-violet-300">{liveExceptions.onHoldCards.length}</p></div>
-          </div>
-        )}
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-foreground">Week {analysis.weekKey}</p>
-          <span className="text-xs text-muted-foreground">{new Date(analysis.createdAt).toLocaleDateString()}</span>
-        </div>
-        <p className="text-xs text-muted-foreground"><span className="font-semibold text-foreground">Saved snapshot:</span> {analysis.summary}</p>
-        {noProgressCards.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">No-Progress Cards ({noProgressCards.length})</p>
-            <div className="space-y-1">
-              {noProgressCards.slice(0, 5).map(c => (
-                <div key={c.cardId} className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
-                  {c.cardName} <span className="text-amber-500">({c.state})</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {recurringBlockers.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold text-red-600 dark:text-red-400 mb-1">Recurring Blockers ({recurringBlockers.length})</p>
-            <div className="space-y-1">
-              {recurringBlockers.map((b, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0 mt-1" />
-                  <span>{b.reason} <span className="text-red-500">({b.count} cards)</span></span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {processImprovements.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">Process Improvements</p>
-            <div className="space-y-1">
-              {processImprovements.map((imp, i) => (
-                <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 flex-shrink-0 mt-1" />
-                  {imp}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Progress color helper ───────────────────────────────────────────────────
-function getProgressColor(hours: number) {
-  if (hours < 50) return { gradient: "from-red-500 to-red-600", text: "text-red-600 dark:text-red-400", label: "Below Target", bg: "bg-red-500" };
-  if (hours < 53) return { gradient: "from-orange-400 to-orange-500", text: "text-orange-600 dark:text-orange-400", label: "On Track", bg: "bg-orange-500" };
-  if (hours < 55) return { gradient: "from-yellow-400 to-yellow-500", text: "text-yellow-600 dark:text-yellow-400", label: "Almost There", bg: "bg-yellow-500" };
-  return { gradient: "from-emerald-400 to-emerald-500", text: "text-emerald-600 dark:text-emerald-400", label: "Target Met", bg: "bg-emerald-500" };
-}
 
 //// ─── Routine Section (Daily Schedule tab) ───────────────────────────────────
 type Section = AppSection;
@@ -1111,8 +791,6 @@ const NAV_ITEMS: {
 ];
 
 const SIDEBAR_WIDTH_KEY = "joyce-sidebar-width";
-const TODAY_MODE_KEY = "joyce-today-mode";
-type TodayMode = "queue" | "plan";
 const DEFAULT_WIDTH = 220;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 320;
@@ -1121,93 +799,6 @@ function formatHoursValue(hours?: number | null) {
   const whole = Math.floor(hours);
   const mins = Math.round((hours - whole) * 60);
   return mins > 0 ? `${whole}h ${mins}m` : `${whole}h`;
-}
-
-function StatusPill({
-  icon: Icon,
-  label,
-  value,
-  tone = "neutral",
-  onClick,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: React.ReactNode;
-  tone?: "neutral" | "blue" | "green" | "amber" | "red" | "violet";
-  onClick?: () => void;
-}) {
-  const toneClasses = {
-    neutral: "text-foreground",
-    blue: "text-blue-700 dark:text-blue-300",
-    green: "text-emerald-700 dark:text-emerald-300",
-    amber: "text-amber-800 dark:text-amber-300",
-    red: "text-red-700 dark:text-red-300",
-    violet: "text-violet-700 dark:text-violet-300",
-  }[tone];
-
-  return (
-    <button
-      type="button"
-      data-testid={`status-${label.toLowerCase()}`}
-      onClick={onClick}
-      className={`flex min-h-9 min-w-[98px] items-center gap-2 border-r border-border/60 px-3 py-1.5 text-left transition-colors last:border-r-0 hover:bg-accent ${toneClasses}`}
-      aria-label={`Open ${label}`}
-    >
-      <Icon className="h-4 w-4 shrink-0" />
-      <div className="min-w-0">
-        <p className="text-[9px] font-medium uppercase leading-none text-muted-foreground md:text-[10px]">{label}</p>
-        <div className="mt-1 whitespace-nowrap text-[11px] font-semibold leading-none md:text-sm">{value}</div>
-      </div>
-    </button>
-  );
-}
-
-function WorkspaceStatusStrip({
-  todayHours,
-  hoursUnavailable,
-  setupWarnings,
-  onOpenPlan,
-  onNavigate,
-}: {
-  todayHours: React.ReactNode;
-  hoursUnavailable: boolean;
-  setupWarnings: number | null;
-  onOpenPlan: () => void;
-  onNavigate: (section: Section) => void;
-}) {
-  return (
-    <div className="border-b border-border/60 bg-card px-2 lg:px-4">
-      <div className="flex overflow-x-auto">
-        <StatusPill icon={CalendarDays} label="Plan" value={<DailyPlanStatusChip />} tone="blue" onClick={onOpenPlan} />
-        <StatusPill icon={Timer} label="Time" value={hoursUnavailable ? "Setup needed" : todayHours} tone={hoursUnavailable ? "amber" : "neutral"} onClick={() => onNavigate("performance")} />
-        <StatusPill icon={GitBranch} label="Decisions" value={<DecisionQueueStatusChip />} tone="violet" onClick={() => onNavigate("decisions")} />
-        <StatusPill
-          icon={Settings}
-          label="Setup"
-          value={setupWarnings === null ? "Checking..." : setupWarnings === 0 ? "Ready" : `${setupWarnings} open`}
-          tone={setupWarnings === null ? "neutral" : setupWarnings === 0 ? "green" : "amber"}
-          onClick={() => onNavigate("settings")}
-        />
-      </div>
-    </div>
-  );
-}
-
-function TodayHoursChip() {
-  const todayDate = useMemo(() => {
-    const eatNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
-    return eatNow.toISOString().slice(0, 10);
-  }, []);
-  const { data: dailySummary = [] } = trpc.timer.getDailySummary.useQuery(
-    { date: todayDate },
-    { staleTime: 30 * 60_000 }
-  );
-  const totalSecs = dailySummary.reduce((s, e) => s + e.totalSeconds, 0);
-  if (totalSecs === 0) return <span className="text-xs text-muted-foreground">0h today</span>;
-  const h = Math.floor(totalSecs / 3600);
-  const m = Math.floor((totalSecs % 3600) / 60);
-  const label = h > 0 ? `${h}h ${m}m today` : `${m}m today`;
-  return <span className="text-xs font-medium text-foreground">{label}</span>;
 }
 
 function TimeAndPaySection() {
@@ -1227,8 +818,6 @@ function TimeAndPaySection() {
         </div>
         <TabsContent value="time" className="mt-0 flex flex-col gap-4">
           <TimeTracker />
-          <WorkerPerformancePanel />
-          <WeeklyAnalysisPanel />
         </TabsContent>
         <TabsContent value="pay" className="mt-0 flex flex-col gap-4">
           <Suspense fallback={<SectionFallback />}><PaymentTracker /></Suspense>
@@ -1243,25 +832,6 @@ function TimeAndPaySection() {
   );
 }
 
-function DailyPlanStatusChip() {
-  const dateKey = useMemo(() => new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10), []);
-  const query = trpc.aptlss.getDailyPlan.useQuery({ dateKey }, { retry: false, staleTime: 60_000 });
-  if (query.isLoading) return <span className="text-xs text-muted-foreground">Checking...</span>;
-  if (query.error) return <span className="text-xs font-medium">Unavailable</span>;
-  const plan = query.data?.plan as { planHealth?: { workloadMinutes?: number }; totalScheduledMinutes?: number } | null | undefined;
-  if (!plan) return <span className="text-xs font-medium">Generate</span>;
-  const focusMinutes = plan.planHealth?.workloadMinutes ?? plan.totalScheduledMinutes ?? 0;
-  return <span className="text-xs font-medium">{formatHoursValue(focusMinutes / 60)} focus</span>;
-}
-
-function DecisionQueueStatusChip() {
-  const query = trpc.aptlss.getDecisionQueue.useQuery(undefined, { retry: false, staleTime: 60_000 });
-  if (query.isLoading) return <span className="text-xs text-muted-foreground">Checking...</span>;
-  if (query.error) return <span className="text-xs font-medium">Unavailable</span>;
-  const count = query.data?.items.length ?? 0;
-  return <span className="text-xs font-medium">{count} waiting</span>;
-}
-
 // ─── Inner layout (needs useSidebar) ────────────────────────────────────────
 
 function SettingsSection({
@@ -1273,6 +843,7 @@ function SettingsSection({
   readiness?: DashboardReadiness;
   readinessError?: { message: string } | null;
 }) {
+  const defaultTab = new URLSearchParams(window.location.search).has("gmail") ? "automation" : "workday";
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
       <div className="border-b border-border pb-4">
@@ -1280,7 +851,7 @@ function SettingsSection({
         <p className="mt-1 text-sm text-muted-foreground">Choose one configuration area at a time. System health stays separate from workday controls.</p>
       </div>
 
-      <Tabs defaultValue="workday" className="gap-5">
+      <Tabs defaultValue={defaultTab} className="gap-5">
         <div className="border-b border-border">
           <TabsList className="grid h-auto w-full grid-cols-2 rounded-none bg-transparent p-0 sm:grid-cols-5">
             <TabsTrigger value="workday" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Workday</TabsTrigger>
@@ -1335,20 +906,96 @@ function SettingsSection({
         </TabsContent>
 
         <TabsContent value="automation" className="mt-0 grid gap-4 lg:grid-cols-2">
+          <GmailIngestionSettings />
           <ReplyMonitorBadgeSettings />
           <OperationalPoliciesSettings />
           <div className="lg:col-span-2"><DefaultActionsSettings /></div>
         </TabsContent>
 
         <TabsContent value="system" className="mt-0 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
+          <div className="lg:col-span-2"><ScheduledJobFreshnessPanel /></div>
           <SettingsStatusPanel readiness={readiness} readinessError={readinessError} />
           <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Settings className="h-4 w-4 text-primary" />Integration health</h2>
-            <div className="mt-4"><WebhookHealthPanel /></div>
+            <div className="mt-4"><WebhookHealthPanel readiness={readiness} readinessError={readinessError} /></div>
           </section>
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function ScheduledJobFreshnessPanel() {
+  const { data: runs = [], isLoading, error, refetch, isFetching } = trpc.system.scheduledJobFreshness.useQuery(undefined, {
+    retry: false,
+    staleTime: 60_000,
+  });
+  const utils = trpc.useUtils();
+  const runEodCompliance = trpc.system.runEodCompliance.useMutation({
+    onSuccess: async (result) => {
+      await Promise.all([refetch(), utils.system.readiness.invalidate()]);
+      toast.success(result.status === "skipped" ? "EOD check recorded" : "EOD compliance completed", {
+        description: result.detail,
+      });
+    },
+    onError: (mutationError) => toast.error("EOD compliance failed", { description: mutationError.message }),
+  });
+  const runWeeklyAnalysis = trpc.system.runWeeklyAnalysis.useMutation({
+    onSuccess: async (result) => {
+      await Promise.all([
+        refetch(),
+        utils.system.readiness.invalidate(),
+        utils.aptlss.getLatestWeeklyAnalysis.invalidate(),
+        utils.aptlss.getWeeklyAnalysisHistory.invalidate(),
+      ]);
+      toast.success("Weekly analysis completed", { description: result.summary });
+    },
+    onError: (mutationError) => toast.error("Weekly analysis failed", { description: mutationError.message }),
+  });
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Clock className="h-4 w-4 text-primary" />Scheduled job freshness</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Durable proof of the latest background and external job executions.</p>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" size="sm" disabled={runEodCompliance.isPending} onClick={() => runEodCompliance.mutate()}>
+            <Play className="h-3.5 w-3.5" />
+            {runEodCompliance.isPending ? "Running..." : "Run EOD"}
+          </Button>
+          <Button variant="outline" size="sm" disabled={runWeeklyAnalysis.isPending} onClick={() => runWeeklyAnalysis.mutate()}>
+            <Activity className="h-3.5 w-3.5" />
+            {runWeeklyAnalysis.isPending ? "Running..." : "Run weekly"}
+          </Button>
+          <Button variant="outline" size="icon" aria-label="Refresh scheduled job freshness" disabled={isFetching} onClick={() => void refetch()}>
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
+      </div>
+      <div className="mt-4 divide-y divide-border rounded-md border border-border bg-background">
+        {isLoading ? (
+          <p className="px-3 py-5 text-sm text-muted-foreground">Loading recorded job runs...</p>
+        ) : error ? (
+          <p className="px-3 py-5 text-sm text-red-700 dark:text-red-300">Job freshness is unavailable: {error.message}</p>
+        ) : runs.length === 0 ? (
+          <p className="px-3 py-5 text-sm text-muted-foreground">No durable job execution has been recorded yet.</p>
+        ) : runs.map((run) => (
+          <div key={run.jobKey} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-medium capitalize text-foreground">{run.jobKey.replaceAll("_", " ")}</p>
+                <Badge variant="outline" className={run.status === "success" ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-300" : run.status === "error" ? "border-red-500/30 text-red-700 dark:text-red-300" : "border-amber-500/30 text-amber-700 dark:text-amber-300"}>{run.status}</Badge>
+                <span className="text-xs text-muted-foreground">{run.trigger}</span>
+              </div>
+              <p className="mt-1 truncate text-xs text-muted-foreground">{run.detail || run.errorMessage || `${run.recordsProcessed} records processed`}</p>
+            </div>
+            <time className="text-xs text-muted-foreground" dateTime={new Date(run.startedAt).toISOString()}>{new Date(run.startedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</time>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1380,10 +1027,11 @@ function SettingsStatusPanel({ readiness, readinessError }: { readiness?: Dashbo
 
 function HomeInner() {
   const { theme, toggleTheme } = useTheme();
-  const auth = useAuth();
   const utils = trpc.useUtils();
   const { state, setOpenMobile } = useSidebar();
   const isCollapsed = state === "collapsed";
+  useOperationalEvents();
+  const eatClock = useEatClock();
 
   const [activeSection, setActiveSection] = useState<Section>(() => {
     const saved = localStorage.getItem(ACTIVE_SECTION_KEY);
@@ -1391,14 +1039,29 @@ function HomeInner() {
     if (saved === "sunday") return "settings";
     return isAppSection(saved) ? saved : "overview";
   });
-  const [todayMode, setTodayMode] = useState<TodayMode>(() => localStorage.getItem(ACTIVE_SECTION_KEY) === "routine" || localStorage.getItem(TODAY_MODE_KEY) === "plan" ? "plan" : "queue");
+  const [todayMode, setTodayMode] = useState<TodayMode>(() => {
+    if (localStorage.getItem(ACTIVE_SECTION_KEY) === "routine") return "plan";
+    return readTodayMode(localStorage.getItem(TODAY_MODE_KEY), eatClock.dateKey, eatClock.isSunday);
+  });
+  const workQueueQueriesEnabled = activeSection === "overview" && todayMode === "queue";
+  const readinessQueryEnabled = workQueueQueriesEnabled || activeSection === "settings";
+  const previousEatDateRef = useRef(eatClock.dateKey);
+
+  useEffect(() => {
+    if (previousEatDateRef.current === eatClock.dateKey) return;
+    previousEatDateRef.current = eatClock.dateKey;
+    const nextMode: TodayMode = eatClock.isSunday ? "plan" : "queue";
+    setTodayMode(nextMode);
+    localStorage.setItem(TODAY_MODE_KEY, serializeTodayMode(eatClock.dateKey, nextMode));
+  }, [eatClock.dateKey, eatClock.isSunday]);
 
   const { data: readiness, error: readinessError } = trpc.system.readiness.useQuery(
-    { probeDatabase: true, probeTrello: true },
+    { probeDatabase: true, probeTrello: activeSection === "settings" },
     {
+      enabled: readinessQueryEnabled,
       retry: false,
-      staleTime: 2 * 60_000,
-      refetchInterval: 5 * 60_000,
+      staleTime: 5 * 60_000,
+      refetchInterval: 15 * 60_000,
     },
   );
   const trelloAccessStatus = readiness?.items.find((item) => item.id === "trello-api-access")?.status;
@@ -1407,36 +1070,26 @@ function HomeInner() {
     readiness?.items.find((item) => item.id === "trello-api-token")?.status === "ready" &&
     trelloAccessStatus !== "blocked",
   );
-  const readinessResolved = Boolean(readiness || readinessError);
-  const databaseReady = readiness?.items.find((item) => item.id === "database")?.status === "ready";
-  const trelloQueryEnabled = trelloReady && readinessResolved;
-  const trelloUnavailable = readinessResolved && !trelloReady;
+  const trelloUnavailable = Boolean(readiness) && !trelloReady;
+  const trelloQueryEnabled = workQueueQueriesEnabled && !trelloUnavailable;
   const trelloDisabledReason = trelloUnavailable
     ? "Configure and verify TrelloAPIKey and TrelloAPIToken before live Trello activity can load."
     : undefined;
-  const hoursQueryEnabled = readinessResolved && Boolean(databaseReady);
-  const hoursUnavailable = readinessResolved && !databaseReady;
-  const setupWarnings = readinessResolved
-    ? (readiness?.counts.warning ?? 0) + (readiness?.counts.blocked ?? (readinessError ? 1 : 0))
-    : null;
-
-  const { data: weeklyHours, isLoading: hoursLoading } = trpc.trello.weeklyHours.useQuery(undefined, {
-    enabled: hoursQueryEnabled,
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
-  const { data: actionAlertsData, isLoading: actionAlertsLoading, error: actionAlertsError } = trpc.trello.actionAlerts.useQuery(undefined, {
+  const { data: actionAlertsData, error: actionAlertsError } = trpc.trello.actionAlerts.useQuery(undefined, {
     enabled: trelloQueryEnabled,
     retry: false,
     staleTime: 5 * 60_000,
   });
   const { data: activeWaitingReasons = [] } = trpc.aptlss.getActiveWaitingReasons.useQuery(undefined, {
-    enabled: readinessResolved && Boolean(databaseReady),
+    enabled: workQueueQueriesEnabled,
     retry: false,
     staleTime: 60_000,
   });
-  const todayDateKey = useMemo(() => new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10), []);
-  const savedPlanFallback = trpc.aptlss.getDailyPlan.useQuery({ dateKey: todayDateKey }, { retry: false, staleTime: 60_000 });
+  const todayDateKey = eatClock.dateKey;
+  const savedPlanFallback = trpc.aptlss.getDailyPlan.useQuery(
+    { dateKey: todayDateKey },
+    { enabled: workQueueQueriesEnabled, retry: false, staleTime: 60_000 },
+  );
   const fallbackQueueData = useMemo<WorkQueueSourceData | undefined>(() => {
     if (!actionAlertsError || !savedPlanFallback.data?.plan) return undefined;
     const plan = savedPlanFallback.data.plan as {
@@ -1452,32 +1105,30 @@ function HomeInner() {
   const preferredPlanCardId = useMemo(() => {
     const plan = savedPlanFallback.data?.plan as { blocks?: Array<{ cardId?: string | null; startTime: string; endTime: string; status?: string }> } | null | undefined;
     const blocks = (plan?.blocks ?? []).filter((block) => block.cardId && (block.status === "planned" || block.status === "active"));
-    const eatTime = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(11, 16);
+    const eatTime = eatClock.timeKey;
     const toMinute = (value: string) => { const [hour, minute] = value.split(":").map(Number); return hour * 60 + minute; };
     const now = toMinute(eatTime);
     const active = blocks.find((block) => block.status === "active");
     const current = blocks.find((block) => toMinute(block.startTime) <= now && toMinute(block.endTime) > now);
     const future = blocks.filter((block) => toMinute(block.startTime) >= now).sort((a, b) => toMinute(a.startTime) - toMinute(b.startTime))[0];
     return active?.cardId ?? current?.cardId ?? future?.cardId ?? null;
-  }, [savedPlanFallback.data?.plan]);
+  }, [eatClock.timeKey, savedPlanFallback.data?.plan]);
   const activeTimer = trpc.timer.getActive.useQuery(undefined, {
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    enabled: workQueueQueriesEnabled,
+    staleTime: 30 * 60_000,
   });
   const startTimer = trpc.timer.start.useMutation({
     onSuccess: async () => {
-      await utils.timer.getActive.invalidate();
+      await Promise.all([
+        utils.timer.getActive.invalidate(),
+        utils.timer.getDailySummary.invalidate(),
+        utils.timer.getWeeklyTotal.invalidate(),
+        utils.timer.getWeeklyBreakdown.invalidate(),
+      ]);
       toast.success("Timer started");
     },
     onError: (err) => toast.error("Timer failed", { description: err.message }),
   });
-  const { data: streakData } = trpc.streak.get.useQuery(undefined, { staleTime: 5 * 60_000 });
-
-  const progressColor = useMemo(() => {
-    if (!weeklyHours) return getProgressColor(0);
-    return getProgressColor(weeklyHours.totalHours);
-  }, [weeklyHours]);
-
   const handleNav = (id: Section) => {
     setActiveSection(id);
     localStorage.setItem(ACTIVE_SECTION_KEY, id);
@@ -1486,17 +1137,11 @@ function HomeInner() {
 
   const openTodayMode = (mode: TodayMode) => {
     setTodayMode(mode);
-    localStorage.setItem(TODAY_MODE_KEY, mode);
+    localStorage.setItem(TODAY_MODE_KEY, serializeTodayMode(eatClock.dateKey, mode));
     handleNav("overview");
   };
 
   const handleWorkQueueStartTimer = (card: WorkQueueCard) => {
-    if (!auth.isAuthenticated) {
-      toast.error("Sign in required", {
-        description: "Starting timers is locked to the signed-in owner.",
-      });
-      return;
-    }
     if (startTimer.isPending) return;
     startTimer.mutate({
       cardId: card.id,
@@ -1551,10 +1196,7 @@ function HomeInner() {
                     </span>
                     {item.badge === "compliance" && <ComplianceBadge />}
                     {item.badge === "triage" && (
-                      <>
-                        <NoDueDateBadge enabled={trelloQueryEnabled} />
-                        <TriageSidebarBadge />
-                      </>
+                      <InboxAttentionDot />
                     )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -1578,7 +1220,7 @@ function HomeInner() {
             <div className="hidden min-w-0 items-center gap-3 md:flex">
               <span className="text-sm font-semibold text-foreground">Joyce Work Control</span>
               <span className="h-4 w-px bg-border" />
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" />{new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(new Date())}</span>
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" />{new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Nairobi", weekday: "short", day: "numeric", month: "short" }).format(new Date(eatClock.nowMs))}</span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -1588,35 +1230,39 @@ function HomeInner() {
           </div>
         </header>
 
-        <WorkspaceStatusStrip
-          todayHours={<TodayHoursChip />}
-          hoursUnavailable={hoursUnavailable}
-          setupWarnings={setupWarnings}
-          onOpenPlan={() => openTodayMode("plan")}
-          onNavigate={handleNav}
-        />
-
         <main className="flex-1 overflow-auto bg-muted/20 p-4 lg:p-6">
           {activeSection === "overview" && (
             <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
               <div className="flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-end sm:justify-between">
                 <div><h1 className="text-xl font-semibold text-foreground">Today</h1><p className="mt-1 text-sm text-muted-foreground">Work from one trusted queue, then use the same live context to plan the day.</p></div>
-                <Tabs value={todayMode} onValueChange={(value) => { const mode = value as TodayMode; setTodayMode(mode); localStorage.setItem(TODAY_MODE_KEY, mode); }}>
+                <Tabs value={todayMode} onValueChange={(value) => { const mode = value as TodayMode; setTodayMode(mode); localStorage.setItem(TODAY_MODE_KEY, serializeTodayMode(eatClock.dateKey, mode)); }}>
                   <TabsList><TabsTrigger value="queue">Work queue</TabsTrigger><TabsTrigger value="plan" data-testid="today-day-plan">Day plan</TabsTrigger></TabsList>
                 </Tabs>
               </div>
               {todayMode === "queue" ? (
                 <WorkQueueDashboard
                   trelloDisabledReason={trelloDisabledReason}
-                  actionData={trelloQueryEnabled ? actionAlertsData ?? fallbackQueueData : undefined}
-                  actionsLoading={!readinessResolved || (trelloQueryEnabled && actionAlertsLoading && !fallbackQueueData)}
+                  actionData={trelloUnavailable ? undefined : actionAlertsData ?? fallbackQueueData}
+                  actionsLoading={!trelloUnavailable && !actionAlertsData && !fallbackQueueData && (!actionAlertsError || savedPlanFallback.isLoading)}
                   actionsError={fallbackQueueData ? undefined : actionAlertsError}
                   dataNotice={workQueueDataNotice}
+                  dayPlan={savedPlanFallback.data?.plan ?? null}
+                  dayPlanLoading={savedPlanFallback.isLoading}
                   activeTimerCardId={activeTimer.data?.cardId ?? null}
+                  activeTimerCardName={activeTimer.data?.cardName ?? null}
+                  activeTimerStartedAt={activeTimer.data?.startedAt ?? null}
+                  activeTimerLoading={activeTimer.isLoading}
                   timerBusy={startTimer.isPending}
                   preferredCardId={preferredPlanCardId}
+                  readiness={readiness
+                    ? { status: readiness.status, counts: readiness.counts }
+                    : readinessError
+                      ? { status: "unavailable", counts: { warning: 1 } }
+                      : undefined}
                   waitingReasons={activeWaitingReasons}
+                  protectedDay={eatClock.isSunday}
                   onNavigate={handleNav}
+                  onOpenPlan={() => openTodayMode("plan")}
                   onStartTimer={handleWorkQueueStartTimer}
                 />
               ) : <Suspense fallback={<SectionFallback />}><PlanMyDay /></Suspense>}

@@ -111,6 +111,10 @@
   // ── Trello Power-Up initialisation ───────────────────────────────────────────
   var BASE_URL = window.location.origin; // same origin as the dashboard
 
+  function isEATSunday() {
+    return new Date(Date.now() + 3 * 60 * 60 * 1000).getUTCDay() === 0;
+  }
+
   var POWERUP_API_KEY = (window.JOYCE_POWERUP_CONFIG && window.JOYCE_POWERUP_CONFIG.appKey) || '';
   if (!POWERUP_API_KEY) {
     console.error('TRELLO_POWERUP_API_KEY is not configured.');
@@ -127,12 +131,12 @@
               icon: isRunning
                 ? BASE_URL + '/powerup/stop-icon.svg'
                 : BASE_URL + '/powerup/start-icon.svg',
-              text: isRunning ? '⏹ Stop Timer' : '⏱ Start Timer',
+              text: isRunning ? '⏹ Stop Timer' : (isEATSunday() ? '⏱ Emergency Timer' : '⏱ Start Timer'),
               callback: function(t) {
                 return t.popup({
                   title: 'Time Tracker',
                   url: BASE_URL + '/powerup/popup.html',
-                  height: 200,
+                  height: isEATSunday() ? 250 : 200,
                 });
               },
             },

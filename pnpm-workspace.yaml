@@ -1,0 +1,25 @@
+packages:
+  - "."
+
+minimumReleaseAgeExclude:
+  - postcss@8.5.17
+
+overrides:
+  "@babel/core": 7.29.7
+  esbuild: 0.28.1
+  rollup: 4.62.2
+  picomatch: 4.0.4
+  postcss: 8.5.17
+  vite: 7.3.6
+  "tailwindcss>nanoid": 3.3.7
+  fast-xml-parser: 5.9.3
+  dompurify: 3.4.11
+  mermaid: 11.16.0
+  lodash: 4.18.1
+  lodash-es: 4.18.1
+  qs: 6.15.3
+  form-data: 4.0.6
+  ws: 8.21.0
+  uuid: 14.0.1
+  "path-to-regexp@0.1.12": 0.1.13
+  follow-redirects: 1.16.0

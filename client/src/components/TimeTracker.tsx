@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,8 +25,11 @@ import {
   RefreshCw,
   Pencil,
   AlertTriangle,
+  ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useEatClock } from "@/hooks/useEatClock";
+import { dateKeyInEat } from "@shared/eatTime";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,24 +47,6 @@ function formatHHMMSS(totalSeconds: number): string {
   const m = Math.floor((totalSeconds % 3600) / 60);
   const s = totalSeconds % 60;
   return [h, m, s].map(v => v.toString().padStart(2, "0")).join(":");
-}
-
-function getEATDateString(): string {
-  const eatNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
-  return eatNow.toISOString().slice(0, 10);
-}
-
-function getWeekBounds(): { startDate: string; endDate: string } {
-  const eatNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
-  const dayOfWeek = eatNow.getUTCDay(); // 0 = Sun
-  const monday = new Date(eatNow);
-  monday.setUTCDate(eatNow.getUTCDate() - ((dayOfWeek + 6) % 7));
-  const sunday = new Date(monday);
-  sunday.setUTCDate(monday.getUTCDate() + 6);
-  return {
-    startDate: monday.toISOString().slice(0, 10),
-    endDate: sunday.toISOString().slice(0, 10),
-  };
 }
 
 /** Parse "HH:MM:SS" or "H:MM" or just minutes into total seconds. */
@@ -98,7 +82,6 @@ interface EditDialogProps {
 }
 
 function EditDialog({ cardId, cardName, date, open, onClose, onSaved }: EditDialogProps) {
-  const { isAuthenticated } = useAuth();
   const { data: entries = [], refetch } = trpc.timer.getEntriesForCard.useQuery(
     { cardId, date },
     { enabled: open }
@@ -124,14 +107,6 @@ function EditDialog({ cardId, cardName, date, open, onClose, onSaved }: EditDial
 
   const [editValues, setEditValues] = useState<Record<number, string>>({});
 
-  const requireTimerAccess = () => {
-    if (isAuthenticated) return true;
-    toast.error("Sign in required", {
-      description: "Timer corrections are locked to the signed-in owner.",
-    });
-    return false;
-  };
-
   useEffect(() => {
     if (entries.length > 0) {
       const initial: Record<number, string> = {};
@@ -143,7 +118,6 @@ function EditDialog({ cardId, cardName, date, open, onClose, onSaved }: EditDial
   }, [entries]);
 
   const handleSave = (id: number) => {
-    if (!requireTimerAccess()) return;
     const raw = editValues[id] ?? "";
     const secs = parseDurationInput(raw);
     if (secs === null || secs < 0) {
@@ -194,11 +168,10 @@ function EditDialog({ cardId, cardName, date, open, onClose, onSaved }: EditDial
                     size="icon"
                     className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-500/10"
                     onClick={() => {
-                      if (!requireTimerAccess()) return;
                       deleteMutation.mutate({ id: entry.id });
                     }}
-                    disabled={deleteMutation.isPending || !isAuthenticated}
-                    title={isAuthenticated ? "Delete session" : "Sign in to delete timer sessions"}
+                    disabled={deleteMutation.isPending}
+                    title="Delete session"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
@@ -211,15 +184,14 @@ function EditDialog({ cardId, cardName, date, open, onClose, onSaved }: EditDial
                       onChange={(e) => setEditValues(prev => ({ ...prev, [entry.id]: e.target.value }))}
                       className="h-8 text-sm font-mono"
                       placeholder="1:30:00"
-                      disabled={!isAuthenticated}
                     />
                   </div>
                   <Button
                     size="sm"
                     className="mt-5 bg-violet-600 hover:bg-violet-700 text-white"
                     onClick={() => handleSave(entry.id)}
-                    disabled={updateMutation.isPending || !isAuthenticated}
-                    title={isAuthenticated ? "Save duration correction" : "Sign in to correct timer sessions"}
+                    disabled={updateMutation.isPending}
+                    title="Save duration correction"
                   >
                     Save
                   </Button>
@@ -243,9 +215,10 @@ interface WeeklyBarChartProps {
   breakdown: { date: string; totalSeconds: number }[];
   todayDate: string;
   dailyGoalSeconds: number;
+  protectedDayIndex?: number;
 }
 
-function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds }: WeeklyBarChartProps) {
+function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds, protectedDayIndex = 6 }: WeeklyBarChartProps) {
   const maxSeconds = Math.max(...breakdown.map(d => d.totalSeconds), dailyGoalSeconds);
 
   return (
@@ -257,10 +230,13 @@ function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds }: WeeklyBarCha
       <div className="flex items-end gap-1.5 h-28 pt-6 relative">
         {breakdown.map((day, i) => {
           const pct = day.totalSeconds / maxSeconds;
-          const goalPct = dailyGoalSeconds / maxSeconds;
+          const isProtectedDay = i === protectedDayIndex;
+          const goalPct = isProtectedDay ? 0 : dailyGoalSeconds / maxSeconds;
           const isToday = day.date === todayDate;
-          const isGoalMet = day.totalSeconds >= dailyGoalSeconds;
-          const barColor = isGoalMet
+          const isGoalMet = !isProtectedDay && day.totalSeconds >= dailyGoalSeconds;
+          const barColor = isProtectedDay && day.totalSeconds > 0
+            ? "bg-amber-500"
+            : isGoalMet
             ? "bg-green-500"
             : isToday
             ? "bg-violet-500"
@@ -277,10 +253,10 @@ function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds }: WeeklyBarCha
               {/* Bar container — fills remaining height */}
               <div className="w-full flex-1 relative flex flex-col justify-end">
                 {/* Goal line */}
-                <div
+                {!isProtectedDay && <div
                   className="absolute w-full border-t border-dashed border-muted-foreground/30"
                   style={{ bottom: `${goalPct * 100}%` }}
-                />
+                />}
                 {/* Bar */}
                 {day.totalSeconds > 0 ? (
                   <div
@@ -317,7 +293,7 @@ function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds }: WeeklyBarCha
           );
         })}
       </div>
-      <div className="flex items-center gap-3 mt-2">
+      <div className="mt-2 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 rounded-sm bg-green-500" />
           <span className="text-xs text-muted-foreground">Goal met</span>
@@ -326,9 +302,9 @@ function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds }: WeeklyBarCha
           <div className="w-2 h-2 rounded-sm bg-violet-500" />
           <span className="text-xs text-muted-foreground">In progress</span>
         </div>
-        <div className="flex items-center gap-1 ml-auto">
+        <div className="flex items-center gap-1 sm:ml-auto">
           <div className="w-4 border-t border-dashed border-muted-foreground/50" />
-          <span className="text-xs text-muted-foreground">{(dailyGoalSeconds / 3600).toFixed(0)}h target</span>
+          <span className="text-xs text-muted-foreground">{(dailyGoalSeconds / 3600).toFixed(0)}h weekday target · Sun protected</span>
         </div>
       </div>
     </div>
@@ -338,11 +314,9 @@ function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds }: WeeklyBarCha
 // ─── main component ────────────────────────────────────────────────────────────
 
 export default function TimeTracker() {
-  const { isAuthenticated } = useAuth();
+  const { dateKey: todayDate, weekBounds, isSunday } = useEatClock(60_000);
   const [isExpanded, setIsExpanded] = useState(true);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [todayDate] = useState(() => getEATDateString());
-  const [weekBounds] = useState(() => getWeekBounds());
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // Edit dialog state
@@ -377,18 +351,6 @@ export default function TimeTracker() {
   });
 
   // ── SSE listener: invalidate all timer queries on server push ─────────────────
-  useEffect(() => {
-    const es = new EventSource("/api/sse/trello");
-    es.addEventListener("timer-invalidate", () => {
-      utils.timer.getActive.invalidate();
-      utils.timer.getDailySummary.invalidate();
-      utils.timer.getWeeklyTotal.invalidate();
-      utils.timer.getWeeklyBreakdown.invalidate();
-      utils.trello.weeklyHours.invalidate();
-    });
-    return () => { es.close(); };
-  }, [utils]);
-
   const dailyGoalSeconds = (goalData?.hours ?? 9) * 3600;
 
   // ── live elapsed counter ──────────────────────────────────────────────────────
@@ -408,44 +370,42 @@ export default function TimeTracker() {
   const stopMutation = trpc.timer.stop.useMutation({
     onSuccess: () => {
       toast.success("Timer stopped");
-      setBannerDismissed(false); // reset banner state
-      // SSE "timer-invalidate" event handles cache invalidation automatically.
-      // refetchActive/refetchDaily/invalidate calls are no longer needed here.
+      setBannerDismissed(false);
+      void utils.timer.getActive.invalidate();
+      void utils.timer.getDailySummary.invalidate();
+      void utils.timer.getWeeklyTotal.invalidate();
+      void utils.timer.getWeeklyBreakdown.invalidate();
     },
     onError: (e) => toast.error(`Failed to stop: ${e.message}`),
   });
 
   const handleStop = useCallback(() => {
     if (!activeTimer) return;
-    if (!isAuthenticated) {
-      toast.error("Sign in required", {
-        description: "Stopping timers is locked to the signed-in owner.",
-      });
-      return;
-    }
     stopMutation.mutate({ cardId: activeTimer.cardId });
-  }, [activeTimer, isAuthenticated, stopMutation]);
+  }, [activeTimer, stopMutation]);
 
   const handleOpenEdit = useCallback((entry: { cardId: string; cardName: string }) => {
-    if (!isAuthenticated) {
-      toast.error("Sign in required", {
-        description: "Timer corrections are locked to the signed-in owner.",
-      });
-      return;
-    }
     setEditCard({ cardId: entry.cardId, cardName: entry.cardName });
-  }, [isAuthenticated]);
+  }, []);
 
   const handleEditSaved = useCallback(() => {
-    // SSE "timer-invalidate" event handles cache invalidation automatically.
-    // No manual invalidation needed here.
-  }, []);
+    void utils.timer.getActive.invalidate();
+    void utils.timer.getDailySummary.invalidate();
+    void utils.timer.getWeeklyTotal.invalidate();
+    void utils.timer.getWeeklyBreakdown.invalidate();
+  }, [utils]);
 
   // ── derived ───────────────────────────────────────────────────────────────────
   const todayTotalSeconds = dailySummary.reduce((s, r) => s + r.totalSeconds, 0)
     + (activeTimer ? elapsedSeconds : 0);
 
-  const weeklyHours = weeklyTotal?.totalHours ?? 0;
+  const activeStartedDate = activeTimer ? dateKeyInEat(new Date(activeTimer.startedAt)) : null;
+  const activeIsInWeek = Boolean(activeStartedDate && activeStartedDate >= weekBounds.startDate && activeStartedDate <= weekBounds.endDate);
+  const weeklySeconds = (weeklyTotal?.totalSeconds ?? 0) + (activeIsInWeek ? elapsedSeconds : 0);
+  const weeklyHours = Math.round((weeklySeconds / 3600) * 10) / 10;
+  const liveWeeklyBreakdown = weeklyBreakdown.map((day) => day.date === todayDate && activeIsInWeek
+    ? { ...day, totalSeconds: day.totalSeconds + elapsedSeconds }
+    : day);
 
   // Show the resume banner if a timer is running and it hasn't been dismissed this session
   const showResumeBanner = !!activeTimer && !bannerDismissed;
@@ -473,8 +433,8 @@ export default function TimeTracker() {
               variant="outline"
               className="border-red-500/50 text-red-600 dark:text-red-400 hover:bg-red-500/10 h-7 text-xs"
               onClick={handleStop}
-              disabled={stopMutation.isPending || !isAuthenticated}
-              title={isAuthenticated ? "Stop running timer" : "Sign in to stop timers"}
+              disabled={stopMutation.isPending}
+              title="Stop running timer"
             >
               <StopCircle className="w-3.5 h-3.5 mr-1" />
               Stop
@@ -491,11 +451,11 @@ export default function TimeTracker() {
         </div>
       )}
 
-      <Card className="border-violet-500/30 bg-gradient-to-br from-violet-500/5 to-purple-500/5">
+      <Card className="border-border bg-card shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Timer className="w-5 h-5 text-violet-500" />
+              <Timer className="w-5 h-5 text-primary" />
               <CardTitle className="text-base font-semibold text-foreground">Time Tracker</CardTitle>
               {activeTimer && (
                 <Badge className="bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/30 animate-pulse text-xs">
@@ -561,8 +521,8 @@ export default function TimeTracker() {
                     variant="outline"
                     className="border-red-500/50 text-red-600 dark:text-red-400 hover:bg-red-500/10"
                     onClick={handleStop}
-                    disabled={stopMutation.isPending || !isAuthenticated}
-                    title={isAuthenticated ? "Stop running timer" : "Sign in to stop timers"}
+                    disabled={stopMutation.isPending}
+                    title="Stop running timer"
                   >
                     <StopCircle className="w-4 h-4 mr-1" />
                     Stop
@@ -573,16 +533,18 @@ export default function TimeTracker() {
               <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-lg border border-dashed border-border">
                 <Timer className="w-4 h-4 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
-                  No timer running. Start the current task from Today, or use the Trello Power-Up from a card.
+                  {isSunday
+                    ? "No timer running. Sunday is protected; emergency work can be started from Today with confirmation."
+                    : "No timer running. Start the current task from Today, or use the Trello Power-Up from a card."}
                 </p>
               </div>
             )}
 
             {/* ── Summary Row ───────────────────────────────────────────────────── */}
             {(() => {
-              const isOvertime = todayTotalSeconds > dailyGoalSeconds;
+              const isOvertime = !isSunday && todayTotalSeconds > dailyGoalSeconds;
               const otSeconds = isOvertime ? todayTotalSeconds - dailyGoalSeconds : 0;
-              const pct = Math.min(todayTotalSeconds / dailyGoalSeconds, 1);
+              const pct = isSunday ? 0 : Math.min(todayTotalSeconds / dailyGoalSeconds, 1);
               const radius = 28;
               const circumference = 2 * Math.PI * radius;
               const strokeDashoffset = circumference * (1 - pct);
@@ -596,9 +558,9 @@ export default function TimeTracker() {
               const isWeeklyOT = weeklyHours > WEEKLY_OT_THRESHOLD;
               return (
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="p-3 bg-violet-500/10 border border-violet-500/20 rounded-lg text-center">
-                    <p className="text-xs text-violet-600 dark:text-violet-400 font-medium uppercase tracking-wide mb-1">Today</p>
-                    <p className="text-lg font-bold text-violet-700 dark:text-violet-300 tabular-nums">
+                  <div className="rounded-lg border border-primary/20 bg-primary/10 p-3 text-center">
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wide text-primary">Today</p>
+                    <p className="text-lg font-bold tabular-nums text-foreground">
                       {formatSeconds(todayTotalSeconds)}
                     </p>
                     {isOvertime && (
@@ -607,36 +569,43 @@ export default function TimeTracker() {
                       </p>
                     )}
                   </div>
-                  {/* Daily goal progress ring */}
-                  <div className={`flex flex-col items-center justify-center p-2 border rounded-lg ${
-                    isOvertime ? "bg-amber-500/10 border-amber-500/30" : "bg-muted/30 border-border"
-                  }`}>
-                    <div className="relative w-16 h-16">
-                      <svg viewBox="0 0 72 72" className="w-full h-full -rotate-90">
-                        <circle cx="36" cy="36" r={radius} fill="none" stroke="currentColor" strokeWidth="6" className="text-muted-foreground/20" />
-                        <circle
-                          cx="36" cy="36" r={radius} fill="none"
-                          stroke={ringColor} strokeWidth="6"
-                          strokeLinecap="round"
-                          strokeDasharray={circumference}
-                          strokeDashoffset={strokeDashoffset}
-                          style={{ transition: "stroke-dashoffset 0.5s ease" }}
-                        />
-                      </svg>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xs font-bold tabular-nums" style={{ color: ringColor }}>
-                          {isOvertime ? "OT" : `${Math.round(pct * 100)}%`}
-                        </span>
-                      </div>
+                  {isSunday ? (
+                    <div className="flex flex-col items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-center">
+                      <ShieldCheck className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+                      <p className="mt-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">Protected day</p>
+                      <p className="text-[10px] text-muted-foreground">No hour target</p>
                     </div>
-                    <p className="text-xs mt-1" style={{ color: ringColor }}>
-                      {isOvertime
-                        ? `+${formatSeconds(otSeconds)} over`
-                        : isOnTrack
-                        ? `${goalHours}h goal ✓`
-                        : `${formatSeconds(Math.max(dailyGoalSeconds - todayTotalSeconds, 0))} left`}
-                    </p>
-                  </div>
+                  ) : (
+                    <div className={`flex flex-col items-center justify-center p-2 border rounded-lg ${
+                      isOvertime ? "bg-amber-500/10 border-amber-500/30" : "bg-muted/30 border-border"
+                    }`}>
+                      <div className="relative w-16 h-16">
+                        <svg viewBox="0 0 72 72" className="w-full h-full -rotate-90" aria-label={`${Math.round(pct * 100)}% of daily target`}>
+                          <circle cx="36" cy="36" r={radius} fill="none" stroke="currentColor" strokeWidth="6" className="text-muted-foreground/20" />
+                          <circle
+                            cx="36" cy="36" r={radius} fill="none"
+                            stroke={ringColor} strokeWidth="6"
+                            strokeLinecap="round"
+                            strokeDasharray={circumference}
+                            strokeDashoffset={strokeDashoffset}
+                            style={{ transition: "stroke-dashoffset 0.5s ease" }}
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-xs font-bold tabular-nums" style={{ color: ringColor }}>
+                            {isOvertime ? "OT" : `${Math.round(pct * 100)}%`}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-xs mt-1" style={{ color: ringColor }}>
+                        {isOvertime
+                          ? `+${formatSeconds(otSeconds)} over`
+                          : isOnTrack
+                          ? `${goalHours}h goal complete`
+                          : `${formatSeconds(Math.max(dailyGoalSeconds - todayTotalSeconds, 0))} left`}
+                      </p>
+                    </div>
+                  )}
                   <div className={`p-3 border rounded-lg text-center ${
                     isWeeklyOT ? "bg-amber-500/10 border-amber-500/30" : "bg-blue-500/10 border-blue-500/20"
                   }`}>
@@ -666,10 +635,10 @@ export default function TimeTracker() {
             })()}
 
             {/* ── Weekly Bar Chart ──────────────────────────────────────────────── */}
-            {weeklyBreakdown.length > 0 && (
+            {liveWeeklyBreakdown.length > 0 && (
               <>
                 <Separator />
-                <WeeklyBarChart breakdown={weeklyBreakdown} todayDate={todayDate} dailyGoalSeconds={dailyGoalSeconds} />
+                <WeeklyBarChart breakdown={liveWeeklyBreakdown} todayDate={todayDate} dailyGoalSeconds={dailyGoalSeconds} />
               </>
             )}
 
@@ -732,7 +701,7 @@ export default function TimeTracker() {
                               size="icon"
                               className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-violet-500"
                               onClick={() => handleOpenEdit(entry)}
-                              title={isAuthenticated ? "Edit / correct session durations" : "Sign in to correct timer sessions"}
+                              title="Edit / correct session durations"
                             >
                               <Pencil className="w-3 h-3" />
                             </Button>

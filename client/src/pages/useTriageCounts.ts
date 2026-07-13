@@ -1,19 +1,22 @@
 import { trpc } from "@/lib/trpc";
 
-export function useTriageCounts() {
-  const { data: badgeSetting } = trpc.settings.getReplyMonitorBadge.useQuery(undefined, { staleTime: 5 * 60_000 });
-  const enabled = badgeSetting?.enabled !== false;
-  const { data: pendingThreads } = trpc.replyMonitor.getPendingThreads.useQuery(undefined, { staleTime: 15 * 60_000, enabled });
-  const { data: vagueFlags } = trpc.replyMonitor.getActiveVagueFlags.useQuery(undefined, { staleTime: 15 * 60_000, enabled });
-  const { data: unsignedFlags } = trpc.replyMonitor.getActiveUnsignedFlags.useQuery(undefined, { staleTime: 15 * 60_000, enabled });
-  const { data: emailData } = trpc.emailInbox.getPendingCount.useQuery(undefined, { staleTime: 5 * 60_000 });
-  const { data: followUpData } = trpc.aptlss.getPendingFollowUps.useQuery(undefined, { staleTime: 5 * 60_000 });
-
-  const replyCount = enabled
-    ? (pendingThreads?.length ?? 0) + (vagueFlags?.length ?? 0) + (unsignedFlags?.length ?? 0)
+export function useTriageCounts(queriesEnabled = true) {
+  const { data } = trpc.system.navigationCounts.useQuery(undefined, {
+    enabled: queriesEnabled,
+    staleTime: 5 * 60_000,
+  });
+  const replyCount = data?.replyMonitorEnabled
+    ? data.pendingThreads + data.vagueFlags + data.unsignedFlags
     : 0;
-  const emailCount = emailData?.count ?? 0;
-  const followUpCount = followUpData?.length ?? 0;
+  const emailCount = data?.emailCount ?? 0;
+  const followUpCount = data?.followUpCount ?? 0;
+  const operationalCardCount = data?.operationalCardCount ?? 0;
 
-  return { replyCount, emailCount, followUpCount, total: replyCount + emailCount + followUpCount };
+  return {
+    replyCount,
+    emailCount,
+    followUpCount,
+    operationalCardCount,
+    total: replyCount + emailCount + followUpCount + operationalCardCount,
+  };
 }

@@ -21,6 +21,7 @@ import {
   uncompleteStepByCheckItemId,
 } from "./aptlssStepsDb";
 import { fetchCardContext } from "./trelloCardContext";
+import { invalidateTrelloCardCache } from "./trello";
 import {
   assessAndSaveCardIntelligence,
 } from "./aptlssEngine";
@@ -113,6 +114,7 @@ export function registerTrelloWebhookRoute(app: Application): void {
 
     // Process the event asynchronously
     const action = req.body?.action;
+    invalidateTrelloCardCache();
     if (!action) {
       broadcastTrelloInvalidate();
       return;

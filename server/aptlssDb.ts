@@ -11,9 +11,17 @@ import { eq, desc } from "drizzle-orm";
 export async function upsertAptlssPlan(plan: InsertAptlssPlan): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  // Delete any existing plan for this card first, then insert fresh
-  await db.delete(aptlssPlans).where(eq(aptlssPlans.cardId, plan.cardId));
-  await db.insert(aptlssPlans).values(plan);
+  await db.insert(aptlssPlans).values(plan).onDuplicateKeyUpdate({
+    set: {
+      cardName: plan.cardName,
+      cardUrl: plan.cardUrl,
+      boardName: plan.boardName ?? "",
+      listName: plan.listName ?? "",
+      planJson: plan.planJson,
+      contextSnapshot: plan.contextSnapshot ?? null,
+      generatedAt: plan.generatedAt ?? new Date(),
+    },
+  });
 }
 
 /** Get the most recent APTLSS plan for a card (null if none). */

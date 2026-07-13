@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeWorkQueue, workQueueSourceFromPlan, type WorkQueueSourceData } from "./workQueue";
+import { normalizeWorkQueue, workQueueSourceFromPlan, type WorkQueueIntelligenceCard, type WorkQueueSourceData } from "./workQueue";
 
 type SourceCard = NonNullable<WorkQueueSourceData["doingCards"]>[number];
 
@@ -12,6 +12,26 @@ function card(id: string, name = id, extras: Partial<SourceCard> = {}) {
     listName: "Doing",
     due: null,
     dateLastActivity: "2026-07-09T10:00:00.000Z",
+    ...extras,
+  };
+}
+
+function intelligence(cardId: string, extras: Partial<WorkQueueIntelligenceCard> = {}): WorkQueueIntelligenceCard {
+  return {
+    cardId,
+    nextBestAction: null,
+    planSummary: null,
+    primaryState: "READY_TO_START",
+    stateReason: null,
+    actionability: "actionable",
+    priorityScore: 50,
+    priorityTier: "MEDIUM",
+    confidenceScore: 70,
+    confidenceProfile: null,
+    confidenceReason: null,
+    recommendations: [],
+    uncertainties: [],
+    steps: [],
     ...extras,
   };
 }
@@ -142,6 +162,34 @@ describe("normalizeWorkQueue", () => {
     expect(queue.nowItem?.actionable).toBe(true);
     expect(queue.nowItem?.detail).toContain("preparation step is actionable now");
     expect(queue.nowItem?.detail).not.toContain("checkpoint is due");
+  });
+
+  it("uses live APTLSS actionability and score instead of lane age for Now", () => {
+    const queue = normalizeWorkQueue({
+      overdueCards: [card("old-overdue", "Old overdue", { due: "2026-06-01T10:00:00.000Z" })],
+      doingCards: [card("critical-doing", "Critical execution")],
+    }, null, [], Date.parse("2026-07-12T07:00:00.000Z"), {
+      cards: [
+        intelligence("old-overdue", { priorityScore: 35, priorityTier: "LOW" }),
+        intelligence("critical-doing", {
+          priorityScore: 96,
+          priorityTier: "CRITICAL",
+          nextBestAction: "Complete the signed client delivery and attach proof.",
+          stateReason: "Delivery is executable and due today.",
+          confidenceScore: 91,
+          confidenceProfile: null,
+        }),
+      ],
+    });
+
+    expect(queue.nowItem).toMatchObject({
+      id: "critical-doing",
+      priorityScore: 96,
+      priorityTier: "CRITICAL",
+      confidenceScore: 91,
+      nextAction: "Complete the signed client delivery and attach proof.",
+      detail: "Delivery is executable and due today.",
+    });
   });
 });
 

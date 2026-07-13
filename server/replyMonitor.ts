@@ -11,8 +11,11 @@
  */
 
 import axios from "axios";
+import { isAptlssSystemComment } from "./trelloCommentService";
+import { getJoyceCards, type TrelloCard } from "./trello";
 
 const TRELLO_API_BASE = "https://api.trello.com/1";
+const commentCache = new Map<string, { dateLastActivity: string; comments: TrelloCommentAction[] }>();
 
 // Joyce's Trello member identifiers
 const JOYCE_MEMBER_IDS = new Set([
@@ -40,6 +43,7 @@ export function hasValidSignature(text: string): boolean {
  * or Joyce (both are considered owner-account messages that require a signature).
  */
 export function isOwnerComment(action: TrelloCommentAction): boolean {
+  if (isAptlssSystemComment(action.data?.text)) return false;
   const username = action.memberCreator?.username?.toLowerCase() ?? "";
   const id = action.memberCreator?.id ?? "";
   return (
@@ -100,6 +104,7 @@ export function isVagueReply(text: string): boolean {
  * with her @mention, which is how the dashboard inline comment box works).
  */
 export function isJoyceComment(action: TrelloCommentAction): boolean {
+  if (isAptlssSystemComment(action.data?.text)) return false;
   const username = action.memberCreator?.username?.toLowerCase() ?? "";
   const id = action.memberCreator?.id ?? "";
   // Direct Joyce comment
@@ -162,17 +167,6 @@ export interface CardThreadState {
   }>;
 }
 
-interface TrelloCard {
-  id: string;
-  name: string;
-  url: string;
-  idList: string;
-  idBoard?: string;
-  list?: { id: string; name: string };
-  boardName?: string;
-  dateLastActivity: string;
-}
-
 /**
  * Fetch the last N comments on a Trello card.
  */
@@ -181,7 +175,7 @@ async function getCardComments(
   apiKey: string,
   apiToken: string,
   limit = 50
-): Promise<TrelloCommentAction[]> {
+): Promise<TrelloCommentAction[] | null> {
   try {
     const response = await axios.get(
       `${TRELLO_API_BASE}/cards/${cardId}/actions`,
@@ -196,8 +190,12 @@ async function getCardComments(
     );
     return response.data as TrelloCommentAction[];
   } catch {
-    return [];
+    return null;
   }
+}
+
+export function clearReplyMonitorCommentCache(): void {
+  commentCache.clear();
 }
 
 /**
@@ -224,6 +222,7 @@ export function analyseCardThread(
   for (const action of sorted) {
     const text = action.data?.text ?? "";
     const date = new Date(action.date);
+    if (isAptlssSystemComment(text)) continue;
 
     if (isJoyceComment(action)) {
       lastJoyceReplyAt = date;
@@ -296,48 +295,7 @@ export async function scanTrelloReplyThreads(
   apiToken: string,
   joycePersonalToken?: string | null
 ): Promise<CardThreadState[]> {
-  // Fetch all active cards assigned to Joyce (reuse existing helper via direct API call)
-  const cardsResp = await axios.get(`${TRELLO_API_BASE}/members/joyjemimajj1/cards`, {
-    params: {
-      key: apiKey,
-      token: apiToken,
-      filter: "open",
-      fields: "id,name,dateLastActivity,due,url,idList,idBoard",
-    },
-  });
-  const rawCards: TrelloCard[] = cardsResp.data;
-
-  // Resolve board/list names using the Trello boards API
-  const boardIds = Array.from(new Set(rawCards.map(c => c.idBoard).filter(Boolean))) as string[];
-  const boardDataMap = new Map<string, { lists: Array<{ id: string; name: string }>; boardName: string }>();
-
-  await Promise.all(
-    boardIds.map(async boardId => {
-      try {
-        const [listsResp, boardResp] = await Promise.all([
-          axios.get(`${TRELLO_API_BASE}/boards/${boardId}/lists`, {
-            params: { key: apiKey, token: apiToken, fields: "id,name" },
-          }),
-          axios.get(`${TRELLO_API_BASE}/boards/${boardId}`, {
-            params: { key: apiKey, token: apiToken, fields: "id,name" },
-          }),
-        ]);
-        boardDataMap.set(boardId, {
-          lists: listsResp.data,
-          boardName: boardResp.data.name,
-        });
-      } catch {
-        boardDataMap.set(boardId, { lists: [], boardName: "Unknown Board" });
-      }
-    })
-  );
-
-  // Attach list and board names to cards
-  const cards: TrelloCard[] = rawCards.map(card => {
-    const boardData = card.idBoard ? boardDataMap.get(card.idBoard) : undefined;
-    const list = boardData?.lists.find(l => l.id === card.idList);
-    return { ...card, list, boardName: boardData?.boardName };
-  });
+  const cards = await getJoyceCards(apiKey, apiToken);
 
   // Filter out DONE cards and cards with no recent activity (>7 days)
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -349,6 +307,10 @@ export async function scanTrelloReplyThreads(
   });
 
   if (activeCards.length === 0) return [];
+  const activeCardIds = new Set(activeCards.map((card) => card.id));
+  for (const cardId of Array.from(commentCache.keys())) {
+    if (!activeCardIds.has(cardId)) commentCache.delete(cardId);
+  }
 
   // Fetch comments for each active card in parallel (batched to avoid rate limits)
   const BATCH_SIZE = 10;
@@ -357,7 +319,16 @@ export async function scanTrelloReplyThreads(
   for (let i = 0; i < activeCards.length; i += BATCH_SIZE) {
     const batch = activeCards.slice(i, i + BATCH_SIZE);
     const commentBatches = await Promise.all(
-      batch.map(card => getCardComments(card.id, apiKey, joycePersonalToken ?? apiToken))
+      batch.map(async (card) => {
+        const cached = commentCache.get(card.id);
+        if (cached?.dateLastActivity === card.dateLastActivity) return cached.comments;
+        const comments = await getCardComments(card.id, apiKey, joycePersonalToken ?? apiToken);
+        if (comments) {
+          commentCache.set(card.id, { dateLastActivity: card.dateLastActivity, comments });
+          return comments;
+        }
+        return cached?.comments ?? [];
+      })
     );
     for (let j = 0; j < batch.length; j++) {
       const comments = commentBatches[j];

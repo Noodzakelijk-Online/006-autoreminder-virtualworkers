@@ -21,6 +21,14 @@ import type { Application, Request, Response } from "express";
 
 // Set of active SSE response objects (one per connected browser tab)
 const clients = new Set<Response>();
+export type OperationalEvent =
+  | "trello-invalidate"
+  | "timer-invalidate"
+  | "pay-invalidate"
+  | "scan-complete"
+  | "aptlss-invalidate"
+  | "gmail-invalidate"
+  | "jobs-invalidate";
 
 /**
  * Register the GET /api/sse/trello route.
@@ -57,7 +65,7 @@ export function registerSseRoute(app: Application): void {
  * The frontend listens for these events and immediately invalidates
  * the relevant tRPC cache entries.
  */
-export function broadcast(eventName: string): void {
+export function broadcast(eventName: OperationalEvent): void {
   const payload = JSON.stringify({ ts: Date.now() });
   const message = `event: ${eventName}\ndata: ${payload}\n\n`;
   for (const res of Array.from(clients)) {

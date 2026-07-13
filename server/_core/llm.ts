@@ -66,6 +66,31 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
+  temperature?: number;
+};
+
+export type LlmTier = "free" | "open_source" | "freemium" | "paid";
+export type LlmStagePurpose = "generate" | "review" | "repair";
+
+export type LlmRoutingAttempt = {
+  stageId: string;
+  providerId: string;
+  tier: LlmTier;
+  model: string;
+  reasoningEffort: string | null;
+  purpose: LlmStagePurpose;
+  status: "success" | "failed" | "skipped";
+  latencyMs: number;
+  error?: string;
+};
+
+export type LlmRoutingTrace = {
+  correlationId: string;
+  purpose: string;
+  outcome: "generated" | "verified" | "repaired" | "unverified";
+  selectedStageId: string;
+  verifiedByStageId: string | null;
+  attempts: LlmRoutingAttempt[];
 };
 
 export type ToolCall = {
@@ -95,6 +120,7 @@ export type InvokeResult = {
     completion_tokens: number;
     total_tokens: number;
   };
+  routing?: LlmRoutingTrace;
 };
 
 export type JsonSchema = {
@@ -210,13 +236,11 @@ const normalizeToolChoice = (
 };
 
 const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+  `${ENV.openAiApiUrl.replace(/\/$/, "").replace(/\/chat\/completions$/i, "")}/chat/completions`;
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("BUILT_IN_FORGE_API_KEY is not configured");
+  if (!ENV.openAiApiKey) {
+    throw new Error("OPENAI_API_KEY is not configured");
   }
 };
 
@@ -265,9 +289,34 @@ const normalizeResponseFormat = ({
   };
 };
 
-export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+export class LlmHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryAfterSeconds: number | null,
+  ) {
+    super(message);
+    this.name = "LlmHttpError";
+  }
+}
 
+export type OpenAiCompatibleOptions = {
+  endpoint: string;
+  apiKey?: string;
+  model: string;
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+  maxTokenField?: "max_tokens" | "max_completion_tokens";
+  supportsJsonSchema?: boolean;
+  timeoutMs?: number;
+  headers?: Record<string, string>;
+  extraPayload?: Record<string, unknown>;
+};
+
+/** Invoke one OpenAI-compatible chat-completions endpoint. Routing lives above this transport. */
+export async function invokeOpenAiCompatible(
+  params: InvokeParams,
+  options: OpenAiCompatibleOptions,
+): Promise<InvokeResult> {
   const {
     messages,
     tools,
@@ -280,53 +329,77 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: options.model,
     messages: messages.map(normalizeMessage),
+    ...(options.extraPayload ?? {}),
   };
+  if (tools && tools.length > 0) payload.tools = tools;
 
-  if (tools && tools.length > 0) {
-    payload.tools = tools;
-  }
+  const normalizedToolChoice = normalizeToolChoice(toolChoice || tool_choice, tools);
+  if (normalizedToolChoice) payload.tool_choice = normalizedToolChoice;
 
-  const normalizedToolChoice = normalizeToolChoice(
-    toolChoice || tool_choice,
-    tools
-  );
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
+  const tokenField = options.maxTokenField ?? "max_tokens";
+  payload[tokenField] = params.maxTokens ?? params.max_tokens ?? 32768;
+  if (typeof params.temperature === "number") payload.temperature = params.temperature;
+  if (options.reasoningEffort) payload.reasoning_effort = options.reasoningEffort;
 
-  payload.max_tokens = 32768
-  payload.thinking = {
-    "budget_tokens": 128
-  }
-
-  const normalizedResponseFormat = normalizeResponseFormat({
+  const normalizedFormat = normalizeResponseFormat({
     responseFormat,
     response_format,
     outputSchema,
     output_schema,
   });
-
-  if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
+  if (normalizedFormat) {
+    payload.response_format = normalizedFormat.type === "json_schema" && options.supportsJsonSchema === false
+      ? { type: "json_object" }
+      : normalizedFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? 60_000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(options.endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}),
+        ...(options.headers ?? {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorText = (await response.text()).slice(0, 2_000);
+      const retryAfter = Number(response.headers.get("retry-after"));
+      throw new LlmHttpError(
+        `LLM invoke failed: ${response.status} ${response.statusText} - ${errorText}`,
+        response.status,
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
+      );
+    }
+
+    return (await response.json()) as InvokeResult;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`LLM invoke timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
+  assertApiKey();
+  return invokeOpenAiCompatible(params, {
+    endpoint: resolveApiUrl(),
+    apiKey: ENV.openAiApiKey,
+    model: ENV.openAiDefaultModel,
+    maxTokenField: "max_completion_tokens",
+    supportsJsonSchema: true,
+    timeoutMs: 180_000,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
-  }
-
-  return (await response.json()) as InvokeResult;
 }

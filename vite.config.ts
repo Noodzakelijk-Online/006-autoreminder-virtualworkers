@@ -1,4 +1,4 @@
-import { jsxLocPlugin } from "@builder.io/vite-plugin-jsx-loc";
+/// <reference types="vitest/config" />
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
@@ -150,10 +150,18 @@ function vitePluginManusDebugCollector(): Plugin {
   };
 }
 
-const plugins = [react(), tailwindcss(), jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()];
+const plugins = [
+  react(),
+  tailwindcss(),
+  ...(process.env.MANUS_RUNTIME_ENABLED === "true" ? [vitePluginManusRuntime()] : []),
+  vitePluginManusDebugCollector(),
+];
 
 export default defineConfig({
   plugins,
+  test: {
+    fileParallelism: false,
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "client", "src"),
@@ -173,7 +181,7 @@ export default defineConfig({
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("@radix-ui") || id.includes("lucide-react")) return "vendor-ui";
           if (id.includes("@trpc") || id.includes("@tanstack") || id.includes("superjson")) return "vendor-data";
-          if (id.includes("recharts") || id.includes("framer-motion")) return "vendor-visuals";
+          if (id.includes("recharts")) return "vendor-visuals";
           if (/node_modules[\\/](@?react|react-dom|scheduler)[\\/]/.test(id)) return "vendor-react";
           return "vendor";
         },

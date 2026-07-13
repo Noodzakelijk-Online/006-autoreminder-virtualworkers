@@ -2,7 +2,6 @@ import axios from "axios";
 
 const TRELLO_API_BASE = "https://api.trello.com/1";
 const JOYCE_MEMBER_ID = "joyjemimajj1";
-const JOYCE_MEMBER_ID_HEX = "664ed797b37eb4605ed64bc1";
 // Board owner member ID — comments posted via the dashboard's inline comment box use this token
 const BOARD_OWNER_MEMBER_ID = "noodzakelijkonline";
 
@@ -56,10 +55,6 @@ export function isOnHoldList(listName: string): boolean {
   return ON_HOLD_LIST_NAMES.has(listName.trim().toLowerCase());
 }
 
-function isTodoList(listName: string): boolean {
-  return TODO_LIST_NAMES.has(listName.trim().toLowerCase());
-}
-
 export function getListCategory(listName: string): "on-hold" | "doing" | "todo" | "other" {
   const n = listName.trim().toLowerCase();
   if (ON_HOLD_LIST_NAMES.has(n)) return "on-hold";
@@ -73,12 +68,17 @@ interface TrelloList {
   name: string;
 }
 
-interface TrelloCard {
+export interface TrelloCard {
   id: string;
   name: string;
+  desc?: string;
   dateLastActivity: string;
   due: string | null;
+  dueComplete?: boolean;
   url: string;
+  shortUrl?: string;
+  labels?: Array<{ id?: string; name?: string; color?: string }>;
+  attachments?: Array<{ id?: string; name?: string; url?: string }>;
   idList: string;
   idBoard?: string;
   list?: TrelloList;
@@ -106,12 +106,16 @@ export function getTrelloCacheStatus(): TrelloCacheStatus {
   return { ...cardCacheStatus };
 }
 
-/** Exposed for testing only — clears the board list cache so tests start clean */
-export function clearBoardListCache(): void {
-  boardListCache.clear();
+export function invalidateTrelloCardCache(): void {
   cardCache = null;
   cardRequest = null;
   cardCacheStatus = { fetchedAt: null, stale: false, source: "none" };
+}
+
+/** Exposed for testing only — clears the board list cache so tests start clean */
+export function clearBoardListCache(): void {
+  boardListCache.clear();
+  invalidateTrelloCardCache();
   commentCache = null;
 }
 
@@ -197,7 +201,11 @@ async function fetchJoyceCards(apiKey: string, apiToken: string): Promise<Trello
           key: apiKey,
           token: apiToken,
           filter: "open",
-          fields: "id,name,dateLastActivity,due,url,idList,idBoard",
+          fields: "id,name,desc,dateLastActivity,due,dueComplete,url,shortUrl,idList,idBoard,closed",
+          labels: "all",
+          label_fields: "id,name,color",
+          attachments: "true",
+          attachment_fields: "id,name,url",
         },
       }
     );
@@ -439,75 +447,6 @@ export async function getJoyceCommentedCardIdsToday(
   }
 }
 
-/**
- * Calculate weekly hours from Trello card timer data.
- * Note: Trello doesn't have built-in timer tracking.
- * Implement via custom fields, card descriptions, or a Power-Up.
- */
-export async function getWeeklyHours(apiKey: string, apiToken: string): Promise<{
-  totalHours: number;
-  targetMin: number;
-  targetMax: number;
-  weekStart: string;
-  weekEnd: string;
-}> {
-  const now = new Date();
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
-
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekStart.getDate() + 6); // End of week (Saturday)
-
-  return {
-    totalHours: 0, // Placeholder — needs actual timer Power-Up implementation
-    targetMin: 50,
-    targetMax: 55,
-    weekStart: weekStart.toISOString(),
-    weekEnd: weekEnd.toISOString(),
-  };
-}
-
-/**
- * Get all cards assigned to Joyce that are due today (Kenyan time, EAT = UTC+3).
- * Used for the morning briefing section in ActionAlerts.
- */
-export async function getCardsDueToday(apiKey: string, apiToken: string): Promise<TrelloCard[]> {
-  try {
-    const allCards = await getJoyceCards(apiKey, apiToken);
-    // Compute today's date in EAT (UTC+3)
-    const eatOffsetMs = 3 * 60 * 60 * 1000;
-    const todayEAT = new Date(Date.now() + eatOffsetMs).toISOString().slice(0, 10); // "YYYY-MM-DD"
-    return allCards.filter(card => {
-      if (!card.due) return false;
-      const dueDateEAT = new Date(new Date(card.due).getTime() + eatOffsetMs)
-        .toISOString()
-        .slice(0, 10);
-      return dueDateEAT === todayEAT;
-    });
-  } catch (error) {
-    logTrelloError("[Trello] Failed to fetch cards due today:", error);
-    return [];
-  }
-}
-
-/**
- * Get all active cards assigned to Joyce that are past their due date.
- * Excludes cards in DONE lists (already handled by getJoyceCards).
- */
-export async function getOverdueCards(apiKey: string, apiToken: string): Promise<TrelloCard[]> {
-  try {
-    const allCards = await getJoyceCards(apiKey, apiToken);
-    const now = Date.now();
-    return allCards.filter(card => {
-      if (!card.due) return false;
-      return new Date(card.due).getTime() < now;
-    });
-  } catch (error) {
-    logTrelloError("[Trello] Failed to fetch overdue cards:", error);
-    return [];
-  }
-}
-
 export interface TrelloBoard {
   id: string;
   name: string;
@@ -584,4 +523,58 @@ export async function postCardComment(
     }
   );
   return { id: response.data.id, date: response.data.date };
+}
+
+export type MoveCardResult = {
+  moved: boolean;
+  previousListId: string;
+  targetListId: string;
+  targetListName: string;
+};
+
+/** Move a card to the board's canonical DOING/In Progress list. */
+export async function moveCardToDoing(
+  cardId: string,
+  apiKey: string,
+  apiToken: string,
+): Promise<MoveCardResult> {
+  const cardResponse = await axios.get<{ idBoard: string; idList: string }>(
+    `${TRELLO_API_BASE}/cards/${cardId}`,
+    {
+      params: { key: apiKey, token: apiToken, fields: "idBoard,idList" },
+    },
+  );
+  const { idBoard, idList: previousListId } = cardResponse.data;
+  if (!idBoard) throw new Error("Trello card does not identify its board");
+
+  const { lists } = await getBoardListsCached(idBoard, apiKey, apiToken);
+  const doingLists = lists.filter((list) => isDoingList(list.name));
+  if (doingLists.length === 0) {
+    throw new Error("This board has no open DOING or In Progress list");
+  }
+
+  const target = doingLists.find((list) => list.name.trim().toLowerCase() === "doing") ?? doingLists[0];
+  if (target.id === previousListId) {
+    return {
+      moved: false,
+      previousListId,
+      targetListId: target.id,
+      targetListName: target.name,
+    };
+  }
+
+  await axios.put(
+    `${TRELLO_API_BASE}/cards/${cardId}`,
+    null,
+    { params: { key: apiKey, token: apiToken, idList: target.id } },
+  );
+  cardCache = null;
+  cardCacheStatus = { fetchedAt: null, stale: false, source: "none" };
+
+  return {
+    moved: true,
+    previousListId,
+    targetListId: target.id,
+    targetListName: target.name,
+  };
 }

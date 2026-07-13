@@ -12,10 +12,10 @@
  * Priority hero: the panel with the most urgent pending items is highlighted.
  * Priority order: Overdue > DOING pending > ON-HOLD pending
  */
-import { useState, useEffect, useRef, useMemo } from "react";
+import { Children, useState, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useEatClock } from "@/hooks/useEatClock";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -88,19 +88,16 @@ function getTodayEAT(): string {
   return new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-function minutesUntilDeadline(): number {
-  const eatNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
+function minutesUntilDeadline(nowMs: number): number {
+  const eatNow = new Date(nowMs + 3 * 60 * 60 * 1000);
   const deadline = new Date(eatNow);
   deadline.setHours(23, 0, 0, 0);
   return Math.max(0, Math.floor((deadline.getTime() - eatNow.getTime()) / 60000));
 }
 
 function DeadlineCountdown({ allDone }: { allDone: boolean }) {
-  const [mins, setMins] = useState(minutesUntilDeadline);
-  useEffect(() => {
-    const id = setInterval(() => setMins(minutesUntilDeadline()), 60_000);
-    return () => clearInterval(id);
-  }, []);
+  const { nowMs } = useEatClock(60_000);
+  const mins = minutesUntilDeadline(nowMs);
   const hours = Math.floor(mins / 60);
   const rem = mins % 60;
   const urgent = mins < 120;
@@ -157,7 +154,6 @@ function QuickComment({
 }) {
   const [text, setText] = useState("");
   const utils = trpc.useUtils();
-  const { isAuthenticated } = useAuth();
   // Fetch comment token status to show the "posted as" chip.
   // Token rarely changes; share cache with Settings (5-min staleTime).
   const { data: tokenStatus } = trpc.trello.getCommentToken.useQuery(undefined, {
@@ -183,12 +179,6 @@ function QuickComment({
   const handleSubmit = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    if (!isAuthenticated) {
-      toast.error("Sign in required", {
-        description: "Posting Trello comments is locked to the signed-in owner.",
-      });
-      return;
-    }
     if (!hasSignature) {
       toast.error("Signature required", {
         description: "End your comment with \"~ Joyce\" or \"~ Angel\" before posting.",
@@ -252,12 +242,12 @@ function QuickComment({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={!text.trim() || postComment.isPending || !isAuthenticated}
+            disabled={!text.trim() || postComment.isPending}
             className="flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-medium bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title={isAuthenticated ? "Post signed update to Trello" : "Sign in to post Trello comments"}
+            title="Post signed update to Trello"
           >
             <Send className="w-3 h-3" />
-            {postComment.isPending ? "Posting..." : isAuthenticated ? "Post" : "Locked"}
+            {postComment.isPending ? "Posting..." : "Post"}
           </button>
         </div>
       </div>
@@ -375,50 +365,20 @@ function CardRow({
 
 // ── ScrollList: shows up to 5 items, scrollable if more, with ↓ X more indicator ──
 
-const ITEM_HEIGHT_PX = 44; // approximate height of one CardRow
-const VISIBLE_ITEMS = 3;
-const MAX_H = ITEM_HEIGHT_PX * VISIBLE_ITEMS; // 220px
-
 function ScrollList({ children }: { children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [moreCount, setMoreCount] = useState(0);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const update = () => {
-      const scrolled = el.scrollTop;
-      const visible = el.clientHeight;
-      const full = el.scrollHeight;
-      const hiddenPx = full - visible - scrolled;
-      const hidden = Math.max(0, Math.round(hiddenPx / ITEM_HEIGHT_PX));
-      setMoreCount(hidden);
-    };
-    update();
-    el.addEventListener("scroll", update);
-    // re-check when children change
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => { el.removeEventListener("scroll", update); ro.disconnect(); };
-  }, [children]);
+  const items = Children.toArray(children);
+  const [expanded, setExpanded] = useState(false);
+  const visibleItems = expanded ? items : items.slice(0, 5);
+  const hiddenCount = Math.max(0, items.length - visibleItems.length);
 
   return (
-    <div className="relative">
-      <div
-        ref={ref}
-        className="overflow-y-auto space-y-1.5 pr-0.5 scrollbar-thin"
-        style={{ maxHeight: `${MAX_H}px` }}
-      >
-        {children}
-      </div>
-      {moreCount > 0 && (
-        <div
-          className="flex items-center justify-center gap-1 pt-1 text-[10px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors select-none"
-          onClick={() => ref.current?.scrollBy({ top: MAX_H, behavior: "smooth" })}
-        >
-          <ChevronDown className="w-3 h-3" />
-          {moreCount} more
-        </div>
+    <div className="flex flex-col gap-1.5">
+      {visibleItems}
+      {items.length > 5 && (
+        <Button type="button" variant="ghost" size="sm" className="h-8 justify-center text-xs" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {expanded ? "Show fewer" : `Show ${hiddenCount} more`}
+        </Button>
       )}
     </div>
   );
@@ -759,13 +719,7 @@ function WaitingReasonInspector({
 export default function ActionAlerts({ disabledReason }: { disabledReason?: string } = {}) {
   const [collapsed, setCollapsed] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-
-  // Tick every 30 s so the "X min ago" label stays accurate without hammering the server
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, []);
+  const { nowMs: now } = useEatClock();
   const streakRecordedRef = useRef(false);
   // Poll every 10 minutes as a safety-net fallback for missed webhook events.
   // The SSE channel (EventSource below) handles instant invalidation when Trello webhooks fire,
@@ -780,6 +734,7 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
   const [snoozePickerCardId, setSnoozePickerCardId] = useState<string | null>(null);
   const [snoozeDate, setSnoozeDate] = useState("");
   const [snoozeNote, setSnoozeNote] = useState("");
+  const [showSnoozedCards, setShowSnoozedCards] = useState(false);
   const [waitingReasonCard, setWaitingReasonCard] = useState<WaitingReasonCard | null>(null);
 
   const { data, isLoading, error, refetch, isFetching } =
@@ -814,13 +769,6 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
     if (data && !isFetching) setLastSynced(new Date());
   }, [data, isFetching]);
 
-  useEffect(() => {
-    if (disabledReason) return;
-    const es = new EventSource("/api/sse/trello");
-    es.addEventListener("trello-invalidate", () => { refetch(); });
-    return () => { es.close(); };
-  }, [disabledReason, refetch]);
-
   const { data: streakData } = trpc.streak.get.useQuery(undefined, { staleTime: 5 * 60_000 });
   const todayEAT = getTodayEAT();
   // APTLSS priority scores + card states (for urgency chips on card rows)
@@ -841,10 +789,11 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
   const repairQueue = repairQueueData ?? [];
   // Card snooze
   const { data: snoozedIdsData, refetch: refetchSnoozes } = trpc.cardSnooze.getSnoozedIds.useQuery(undefined, { staleTime: 60_000 });
+  const { data: activeSnoozes = [], refetch: refetchActiveSnoozes } = trpc.cardSnooze.getActive.useQuery(undefined, { staleTime: 60_000 });
   const snoozedCardIds = useMemo(() => new Set(snoozedIdsData?.cardIds ?? []), [snoozedIdsData]);
   const snoozeCardMutation = trpc.cardSnooze.snooze.useMutation({
     onSuccess: () => {
-      refetchSnoozes();
+      void Promise.all([refetchSnoozes(), refetchActiveSnoozes()]);
       setSnoozePickerCardId(null);
       setSnoozeDate("");
       setSnoozeNote("");
@@ -853,7 +802,10 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
     onError: () => toast.error("Failed to snooze card"),
   });
   const cancelSnoozeMutation = trpc.cardSnooze.cancel.useMutation({
-    onSuccess: () => { refetchSnoozes(); toast.success("Snooze cancelled — card is visible again."); },
+    onSuccess: () => {
+      void Promise.all([refetchSnoozes(), refetchActiveSnoozes()]);
+      toast.success("Snooze cancelled — card is visible again.");
+    },
     onError: () => toast.error("Failed to cancel snooze"),
   });
   const handleSnoozeSubmit = (card: { id: string; name: string; url: string; boardName?: string; listName?: string }) => {
@@ -957,7 +909,7 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
     if (doingCards.length === 0) return;
     const allUpdated = doingCards.every((c) => c.updatedToday);
     if (!allUpdated) return;
-    const minsLeft = minutesUntilDeadline();
+    const minsLeft = minutesUntilDeadline(Date.now());
     if (minsLeft > 0) {
       streakRecordedRef.current = true;
       recordStreakMutation.mutate({
@@ -1092,7 +1044,7 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
             <>
               {/* ── 1. ON-HOLD Review (first) ── */}
               <ActionSection
-                icon={<PauseCircle className={`w-${heroPanel === "onhold" ? "5" : "4"} h-${heroPanel === "onhold" ? "5" : "4"} text-purple-500`} />}
+                icon={<PauseCircle className={`${heroPanel === "onhold" ? "h-5 w-5" : "h-4 w-4"} text-purple-500`} />}
                 accentClass="border-l-purple-500"
                 bgClass="bg-purple-500/8"
                 title="Review ON-HOLD Cards"
@@ -1100,8 +1052,8 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
                   onHoldCount === 0
                     ? "No cards on hold — all clear!"
                     : onHoldPendingCount === 0
-                    ? `All ${onHoldCount} ON-HOLD card${onHoldCount !== 1 ? "s" : ""} reviewed today ✓`
-                    : `${onHoldPendingCount} of ${onHoldCount} card${onHoldCount !== 1 ? "s" : ""} still need review today`
+                    ? `${visibleOnHoldCards.length} visible card${visibleOnHoldCards.length !== 1 ? "s" : ""} reviewed${activeSnoozes.length ? `; ${activeSnoozes.length} snoozed` : ""}`
+                    : `${onHoldPendingCount} visible card${onHoldPendingCount !== 1 ? "s" : ""} still need review${activeSnoozes.length ? `; ${activeSnoozes.length} snoozed` : ""}`
                 }
                 isHero={heroPanel === "onhold"}
                 allClear={onHoldCount === 0 || onHoldPendingCount === 0}
@@ -1114,13 +1066,41 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
                     <p className="text-[10px] text-muted-foreground -mt-1">
                       Tick each card after reviewing. Move to DOING in Trello if you can work on it today.
                     </p>
-                    {/* Snoozed cards count badge */}
-                    {snoozedCardIds.size > 0 && (
-                      <div className="flex items-center gap-1.5 px-2 py-1 bg-violet-500/8 border border-violet-500/20 rounded-md -mt-0.5 mb-1">
-                        <BellOff className="w-3 h-3 text-violet-500 flex-shrink-0" />
-                        <span className="text-[10px] text-violet-700 dark:text-violet-300">
-                          {snoozedCardIds.size} card{snoozedCardIds.size !== 1 ? "s" : ""} snoozed (hidden until their resurface date)
-                        </span>
+                    {activeSnoozes.length > 0 && (
+                      <div className="overflow-hidden rounded-md border border-violet-500/20 bg-violet-500/8 -mt-0.5 mb-1">
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-xs text-violet-700 transition-colors hover:bg-violet-500/10 dark:text-violet-300"
+                          aria-expanded={showSnoozedCards}
+                          onClick={() => setShowSnoozedCards((value) => !value)}
+                        >
+                          <BellOff className="h-3.5 w-3.5 shrink-0" />
+                          <span className="flex-1">Snoozed cards</span>
+                          <Badge variant="outline" className="h-5 border-violet-500/30 px-1.5 text-[10px]">{activeSnoozes.length}</Badge>
+                          {showSnoozedCards ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                        </button>
+                        {showSnoozedCards && (
+                          <div className="divide-y divide-violet-500/15 border-t border-violet-500/15 bg-background/70">
+                            {activeSnoozes.map((snooze) => (
+                              <div key={snooze.id} className="flex items-center gap-2 px-2.5 py-2">
+                                <div className="min-w-0 flex-1">
+                                  <a href={snooze.cardUrl} target="_blank" rel="noreferrer" className="block truncate text-xs font-medium text-foreground hover:underline">{snooze.cardName}</a>
+                                  <p className="mt-0.5 truncate text-[10px] text-muted-foreground">Hidden until {new Date(snooze.snoozedUntil).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}{snooze.note ? ` - ${snooze.note}` : ""}</p>
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 shrink-0 px-2 text-[10px]"
+                                  disabled={cancelSnoozeMutation.isPending}
+                                  onClick={() => cancelSnoozeMutation.mutate({ cardId: snooze.cardId })}
+                                >
+                                  <BellRing className="h-3 w-3" />Restore
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                     <ScrollList>
@@ -1269,7 +1249,7 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
               {(() => {
                 return (
                   <ActionSection
-                    icon={<MessageSquarePlus className={`w-${heroPanel === "doing" ? "5" : "4"} h-${heroPanel === "doing" ? "5" : "4"} text-blue-500`} />}
+                    icon={<MessageSquarePlus className={`${heroPanel === "doing" ? "h-5 w-5" : "h-4 w-4"} text-blue-500`} />}
                     accentClass="border-l-blue-500"
                     bgClass="bg-blue-500/8"
                     title="Post Daily Update on DOING Cards"
@@ -1546,7 +1526,7 @@ export default function ActionAlerts({ disabledReason }: { disabledReason?: stri
 
               {/* ── 4. Overdue Cards (fourth) ── */}
               <ActionSection
-                icon={<AlertTriangle className={`w-${heroPanel === "overdue" ? "5" : "4"} h-${heroPanel === "overdue" ? "5" : "4"} text-red-500`} />}
+                icon={<AlertTriangle className={`${heroPanel === "overdue" ? "h-5 w-5" : "h-4 w-4"} text-red-500`} />}
                 accentClass="border-l-red-500"
                 bgClass="bg-red-500/8"
                 title="Overdue Cards"

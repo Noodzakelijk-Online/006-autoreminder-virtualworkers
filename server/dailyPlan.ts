@@ -1,4 +1,4 @@
-import { invokeLLM } from "./_core/llm";
+import { hasConfiguredAptlssLlm, invokeAptlssLLM, type AptlssValidationIssue } from "./aptlssLlmRouter";
 import { getActiveTimer, getDailyGoalHours, getDailyTimeSummary, getDb, getScheduleSettings } from "./db";
 import { getAllAptlssPlans, getDailyPlanByDate, upsertDailyPlan } from "./aptlssDb";
 import {
@@ -11,6 +11,10 @@ import {
 import { getJoyceCards, getListCategory } from "./trello";
 import { getLatestAssessments } from "./aptlssAssessmentDb";
 import { getActiveWaitingReasons, toAptlssWaitingSignal } from "./aptlssWaitingReasonDb";
+import { broadcast } from "./sse";
+import { getOperatingDay } from "./operatingCalendar";
+import { persistHandoffDraft } from "./operatorRecordsDb";
+import { listProjectContexts } from "./projectContextDb";
 
 export type PlanBlockStatus = "planned" | "active" | "done" | "skipped";
 
@@ -54,6 +58,7 @@ export type DailyPlanPayload = {
     status: "good" | "warning" | "blocked";
     source?: "aptlss" | "trello_fallback" | "off_day" | "legacy";
     warnings?: string[];
+    confidenceCeiling?: number;
   };
   constraints: {
     timezone: "EAT";
@@ -152,9 +157,14 @@ function constraintsForDate(dateKey: string): DailyPlanPayload["constraints"] {
 }
 
 async function loadConstraintsForDate(dateKey: string): Promise<DailyPlanPayload["constraints"]> {
-  const base = constraintsForDate(dateKey);
-  if (!base.isWorkday) return base;
-  const schedule = await getScheduleSettings();
+  const [operatingDay, schedule] = await Promise.all([getOperatingDay(dateKey), getScheduleSettings()]);
+  const base: DailyPlanPayload["constraints"] = {
+    ...DEFAULT_CONSTRAINTS,
+    isWorkday: operatingDay.isWorkday,
+    dayType: operatingDay.isWorkday ? "workday" : "off_day",
+    offDayReason: operatingDay.reason ?? undefined,
+  };
+  if (!base.isWorkday) return { ...base, breaks: [] };
   return {
     ...base,
     workStart: schedule.startTime,
@@ -228,23 +238,24 @@ function makeBreakBlock(label: string, startTime: string, endTime: string, index
   };
 }
 
-function makeOffDayBlock(dateKey: string): DailyPlanBlock {
+function makeOffDayBlock(dateKey: string, constraints: DailyPlanPayload["constraints"]): DailyPlanBlock {
+  const isSunday = constraints.offDayReason?.toLowerCase().includes("sunday") ?? false;
   return {
-    id: stableBlockId(`${dateKey}-sunday-off`, 0),
-    startTime: "08:00",
-    endTime: "23:00",
+    id: stableBlockId(`${dateKey}-protected-off`, 0),
+    startTime: constraints.workStart,
+    endTime: constraints.workEnd,
     cardId: null,
-    cardName: "Sunday Off",
+    cardName: isSunday ? "Sunday Off" : "Protected Day Off",
     cardUrl: null,
     boardName: "Routine",
     listName: "Protected time",
-    action: "No scheduled work. Preserve Joyce's weekly rest day and handle only true emergencies.",
+    action: "No scheduled work. Preserve Joyce's protected time and handle only true emergencies.",
     stepIds: [],
     priority: "Low",
     score: 0,
     state: "OFF_DAY",
     status: "planned",
-    notes: "Sunday is protected time off; generate the next working plan on Monday.",
+    notes: constraints.offDayReason ?? "Protected time off; generate the next working plan on the next workday.",
     flags: ["Off day", "Protected"],
   };
 }
@@ -457,7 +468,7 @@ function deterministicBlocks(summaries: CardSummary[]) {
 }
 
 async function buildSummaries() {
-  const [allPlans, allScores, allStates, robertSteps, allSteps, assessments, waitingRecords] = await Promise.all([
+  const [allPlans, allScores, allStates, robertSteps, allSteps, assessments, waitingRecords, projectContexts] = await Promise.all([
     getAllAptlssPlans(),
     getAllPriorityScores(),
     getAllCardStates(),
@@ -465,6 +476,7 @@ async function buildSummaries() {
     getAllAptlssSteps(),
     getLatestAssessments(),
     getActiveWaitingReasons(),
+    listProjectContexts(),
   ]);
 
   const scoreMap = new Map(allScores.map((score) => [score.cardId, score]));
@@ -488,6 +500,13 @@ async function buildSummaries() {
       const state = stateMap.get(planRow.cardId);
       const assessment = assessmentMap.get(planRow.cardId);
       const waiting = waitingMap.get(planRow.cardId);
+      const normalizedBoardName = planRow.boardName.trim().toLowerCase();
+      const projectContext = projectContexts.find((context) => context.active && (
+        context.projectKey.trim().toLowerCase() === normalizedBoardName
+        || context.name.trim().toLowerCase() === normalizedBoardName
+        || context.boardIds.includes(planRow.boardName)
+      ));
+      const projectPriorityBoost = projectContext?.priority === "vip" ? 15 : projectContext?.priority === "priority" ? 8 : 0;
       const steps = stepsByCard.get(planRow.cardId) ?? await getOpenStepsForCard(planRow.cardId);
       const openSteps = steps.filter((step) => step.status === "open");
       const planSteps = (plan.steps as Array<{ estimatedMinutes?: number; requiresRobert?: boolean; title?: string }> | undefined) ?? [];
@@ -520,7 +539,7 @@ async function buildSummaries() {
         requiresRobert,
         isBlocked,
         confidenceScore: assessment?.confidenceScore ?? (plan.confidenceScore as number | undefined) ?? 70,
-        priorityScore: assessment?.priorityScore ?? score?.score ?? 50,
+        priorityScore: Math.min(100, (assessment?.priorityScore ?? score?.score ?? 50) + projectPriorityBoost),
         priorityTier: assessment?.priorityTier ?? score?.tier ?? "MEDIUM",
         cardState: waitingState ?? assessment?.primaryState ?? state?.state ?? "READY_TO_WORK",
         stepIds: openSteps.map((step) => step.id),
@@ -535,6 +554,8 @@ async function buildSummaries() {
           ...(assessment?.secondarySignalsValue.includes("estimate_overrun") ? ["Estimate overrun"] : []),
           ...(waiting ? ["Waiting reason"] : []),
           ...(waitingFollowUpDue ? ["Follow-up due"] : []),
+          ...(projectContext ? [`Project: ${projectContext.name}`] : []),
+          ...(projectContext?.priority === "vip" ? ["VIP client"] : []),
         ],
       };
     }),
@@ -640,7 +661,13 @@ async function buildLiveTrelloSummaries() {
   return summarizeLiveTrelloCards(cards);
 }
 
-async function callPlannerLLM(dateKey: string, summaries: CardSummary[]) {
+async function callPlannerLLM(
+  dateKey: string,
+  summaries: CardSummary[],
+  auditSource: "manual" | "maintenance_job",
+  constraints: DailyPlanPayload["constraints"],
+  remainingGoalMinutes: number,
+) {
   const summaryText = summaries
     .slice(0, 20)
     .map(
@@ -651,18 +678,19 @@ async function callPlannerLLM(dateKey: string, summaries: CardSummary[]) {
     )
     .join("\n\n");
 
-  const response = await invokeLLM({
+  const response = await invokeAptlssLLM({
     messages: [
       {
         role: "system" as const,
         content:
           "You create approval-gated daily operator plans for Joyce, a virtual assistant working Trello cards for Robert. " +
-          "Return a realistic time-blocked schedule for 08:00-23:00 EAT. Respect lunch 12:00-13:00 and buffer 17:30-19:00. " +
+          `Return a realistic schedule inside ${constraints.workStart}-${constraints.workEnd} EAT. ` +
+          `Protect these configured breaks exactly: ${constraints.breaks.map((item) => `${item.label} ${item.startTime}-${item.endTime}`).join(", ") || "none"}. ` +
           "Prioritize CRITICAL/HIGH, Robert decisions, overdue cards, then ready work. Keep blocks 30-120 minutes. Return only JSON.",
       },
       {
         role: "user" as const,
-        content: `Date: ${dateKey}\nActive work:\n\n${summaryText}\n\nCreate the operator cockpit daily plan.`,
+        content: `Date: ${dateKey}\nRemaining tracked-work target: ${remainingGoalMinutes} minutes\nActive work:\n\n${summaryText}\n\nCreate the operator cockpit daily plan.`,
       },
     ],
     response_format: {
@@ -712,16 +740,41 @@ async function callPlannerLLM(dateKey: string, summaries: CardSummary[]) {
         },
       },
     },
+  }, {
+    purpose: "aptlss_daily_plan",
+    auditSource,
+    validateCandidate: (candidate) => {
+      const issues: AptlssValidationIssue[] = [];
+      const blocks = Array.isArray(candidate.blocks)
+        ? candidate.blocks.filter((block): block is Record<string, unknown> => Boolean(block && typeof block === "object"))
+        : [];
+      if (!blocks.length) issues.push({ code: "empty_schedule", severity: "error", message: "Daily plan contains no time blocks." });
+      const times = blocks.map((block) => ({
+        start: timeToMinutes(typeof block.startTime === "string" ? block.startTime : null),
+        end: timeToMinutes(typeof block.endTime === "string" ? block.endTime : null),
+      }));
+      if (times.some((time) => time.start === null || time.end === null || time.end <= time.start)) {
+        issues.push({ code: "invalid_block_time", severity: "error", message: "One or more daily-plan blocks have invalid times." });
+      }
+      const ordered = times
+        .filter((time): time is { start: number; end: number } => time.start !== null && time.end !== null)
+        .sort((a, b) => a.start - b.start);
+      if (ordered.some((time, index) => index > 0 && time.start < ordered[index - 1].end)) {
+        issues.push({ code: "overlapping_blocks", severity: "error", message: "Daily-plan blocks overlap." });
+      }
+      return issues;
+    },
   });
 
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("No schedule generated");
-  return JSON.parse(typeof content === "string" ? content : JSON.stringify(content)) as {
+  const parsed = JSON.parse(typeof content === "string" ? content : JSON.stringify(content)) as {
     blocks: Array<Partial<DailyPlanBlock> & { time?: string; estimatedMinutes?: number }>;
     dailySummary: string;
     topPriority: string;
     unscheduledCards: Array<{ cardId: string; cardName: string; reason: string; priority?: string }>;
   };
+  return { ...parsed, routing: response.routing };
 }
 
 export function parseDailyPlanPayload(raw: string | null | undefined, dateKey?: string): DailyPlanPayload | null {
@@ -736,6 +789,7 @@ export function parseDailyPlanPayload(raw: string | null | undefined, dateKey?: 
           generatedBy: "edited",
           sourceBlocks: payload.blocks,
           robertItems: payload.robertItems ?? [],
+          constraints: constraintsForDate(resolvedDateKey),
           audit: [
             ...(payload.audit ?? []),
             { at: new Date().toISOString(), action: "normalized_off_day", detail: "Existing Sunday work plan was converted to an off-day plan." },
@@ -763,6 +817,7 @@ export function parseDailyPlanPayload(raw: string | null | undefined, dateKey?: 
       generatedBy: "auto",
       sourceBlocks: legacySchedule,
       robertItems: (parsed.robertItems as DailyPlanPayload["robertItems"] | undefined) ?? [],
+      constraints: constraintsForDate(resolvedDateKey),
       audit: [{ at: new Date().toISOString(), action: "loaded_legacy_off_day_plan", detail: "Converted legacy Sunday plan to protected off-day payload." }],
     });
   }
@@ -785,6 +840,7 @@ function buildOffDayPayload({
   sourceBlocks = [],
   summaries = [],
   robertItems = [],
+  constraints,
   audit,
 }: {
   dateKey: string;
@@ -792,14 +848,16 @@ function buildOffDayPayload({
   sourceBlocks?: Array<Partial<DailyPlanBlock> & { estimatedMinutes?: number }>;
   summaries?: CardSummary[];
   robertItems?: DailyPlanPayload["robertItems"];
+  constraints: DailyPlanPayload["constraints"];
   audit: DailyPlanPayload["audit"];
 }): DailyPlanPayload {
+  const offDayReason = constraints.offDayReason ?? "Joyce has a protected non-working day.";
   const unscheduledById = new Map<string, { cardId: string; cardName: string; reason: string; priority?: string }>();
   for (const summary of summaries) {
     unscheduledById.set(summary.cardId, {
       cardId: summary.cardId,
       cardName: summary.cardName,
-      reason: "Sunday is Joyce's protected day off; schedule this on the next working day unless it is an emergency.",
+      reason: `${offDayReason} Schedule this on the next working day unless it is an emergency.`,
       priority: normalizePriority(summary.priorityTier),
     });
   }
@@ -808,11 +866,11 @@ function buildOffDayPayload({
     unscheduledById.set(block.cardId, {
       cardId: block.cardId,
       cardName: block.cardName ?? block.cardId,
-      reason: "Removed from Sunday schedule because Sunday is Joyce's protected day off.",
+      reason: `Removed from the schedule because ${offDayReason}`,
       priority: normalizePriority(block.priority),
     });
   }
-  const blocks = [makeOffDayBlock(dateKey)];
+  const blocks = [makeOffDayBlock(dateKey, constraints)];
   return {
     version: 1,
     dateKey,
@@ -820,7 +878,7 @@ function buildOffDayPayload({
     generatedBy,
     blocks,
     totalScheduledMinutes: 0,
-    dailySummary: "Sunday is Joyce's protected day off. No routine work is scheduled; use only for true emergencies.",
+    dailySummary: `${offDayReason} No routine work is scheduled; use only for true emergencies.`,
     topPriority: "Rest day",
     robertItems,
     unscheduledCards: Array.from(unscheduledById.values()).slice(0, 12),
@@ -835,7 +893,7 @@ function buildOffDayPayload({
       source: "off_day",
       warnings: [],
     },
-    constraints: constraintsForDate(dateKey),
+    constraints,
     audit,
   };
 }
@@ -923,6 +981,7 @@ function buildPayload({
       status: overlaps > 0 || robertItems.length > 3 || warnings.length > 0 ? "warning" : "good",
       source,
       warnings,
+      confidenceCeiling: confidenceCap,
     },
     constraints: constraints ?? constraintsForDate(dateKey),
     audit,
@@ -948,18 +1007,21 @@ export async function saveDailyPlan(payload: DailyPlanPayload, autoGenerated = f
     autoGenerated,
     generatedAt: new Date(payload.generatedAt),
   });
+  broadcast("aptlss-invalidate");
 }
 
 export async function generateDailyPlan(dateKey = eatDateKey(), generatedBy: DailyPlanPayload["generatedBy"] = "manual") {
   await assertDailyPlanDbAvailable();
-  if (isSundayOffDay(dateKey)) {
+  const constraints = await loadConstraintsForDate(dateKey);
+  if (!constraints.isWorkday) {
     const payload = buildOffDayPayload({
       dateKey,
       generatedBy,
+      constraints,
       audit: [{
         at: new Date().toISOString(),
         action: "generated_off_day",
-        detail: "Sunday plan generated as a protected off-day schedule.",
+        detail: `${constraints.offDayReason ?? "Configured non-working day"} Plan generated as a protected off-day schedule.`,
       }],
     });
     await saveDailyPlan(payload, generatedBy === "auto");
@@ -977,21 +1039,27 @@ export async function generateDailyPlan(dateKey = eatDateKey(), generatedBy: Dai
     throw new Error("No APTLSS plans or live Trello cards found. Check Trello access, then generate card plans for richer daily planning.");
   }
 
-  const constraints = await loadConstraintsForDate(dateKey);
   const [dailyGoalHours, trackedEntries] = await Promise.all([
     getDailyGoalHours(),
     getDailyTimeSummary(dateKey),
   ]);
   const trackedMinutes = Math.floor(trackedEntries.reduce((sum, entry) => sum + entry.totalSeconds, 0) / 60);
   const remainingGoalMinutes = Math.max(0, Math.round(dailyGoalHours * 60) - trackedMinutes);
+  const aiPlannerConfigured = await hasConfiguredAptlssLlm();
 
   let llmPlan: Awaited<ReturnType<typeof callPlannerLLM>> | null = null;
   try {
-    llmPlan = await callPlannerLLM(dateKey, summaries);
+    llmPlan = await callPlannerLLM(
+      dateKey,
+      summaries,
+      generatedBy === "auto" ? "maintenance_job" : "manual",
+      constraints,
+      remainingGoalMinutes,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("BUILT_IN_FORGE_API_KEY")) {
-      console.info("[DailyPlan] AI planner key missing; using deterministic fallback.");
+    if (message.includes("No APTLSS LLM provider")) {
+      console.info("[DailyPlan] No AI planner provider is configured; using deterministic fallback.");
     } else {
       console.error("[DailyPlan] LLM plan failed; using deterministic fallback:", error);
     }
@@ -1014,7 +1082,7 @@ export async function generateDailyPlan(dateKey = eatDateKey(), generatedBy: Dai
 
   const warnings = [
     ...(usedLiveTrelloFallback ? ["APTLSS card plans are unavailable; this schedule uses live Trello fallback ordering."] : []),
-    ...(!process.env.BUILT_IN_FORGE_API_KEY ? ["AI planning is unavailable; deterministic scheduling was used."] : []),
+    ...(!aiPlannerConfigured ? ["AI planning is unavailable; deterministic scheduling was used."] : []),
     ...(remainingGoalMinutes === 0 ? ["The configured daily time goal has already been reached."] : []),
   ];
   const payload = buildPayload({
@@ -1032,27 +1100,31 @@ export async function generateDailyPlan(dateKey = eatDateKey(), generatedBy: Dai
       action: "generated",
       detail: usedLiveTrelloFallback
         ? "Daily plan generated from live Trello fallback because no APTLSS plans were available."
-        : generatedBy === "replan" ? "Remaining day replanned." : "Daily plan generated.",
+        : llmPlan?.routing
+          ? `Daily plan generated through ${llmPlan.routing.selectedStageId}; ${llmPlan.routing.verifiedByStageId ? `verified by ${llmPlan.routing.verifiedByStageId}` : "no higher verification stage was available"}.`
+          : generatedBy === "replan" ? "Remaining day replanned." : "Daily plan generated.",
     }],
     constraints,
     source: usedLiveTrelloFallback ? "trello_fallback" : "aptlss",
     warnings,
-    confidenceCap: usedLiveTrelloFallback ? 55 : !process.env.BUILT_IN_FORGE_API_KEY ? 70 : 95,
+    confidenceCap: usedLiveTrelloFallback ? 55 : !aiPlannerConfigured ? 70 : llmPlan?.routing?.verifiedByStageId ? 95 : 82,
   });
   await saveDailyPlan(payload, generatedBy === "auto");
   return payload;
 }
 
 export async function updateDailyPlan(dateKey: string, payload: DailyPlanPayload) {
-  if (isSundayOffDay(dateKey)) {
+  const configuredConstraints = await loadConstraintsForDate(dateKey);
+  if (!configuredConstraints.isWorkday) {
     const offDay = buildOffDayPayload({
       dateKey,
       generatedBy: "edited",
       sourceBlocks: payload.blocks,
       robertItems: payload.robertItems ?? [],
+      constraints: configuredConstraints,
       audit: [
         ...(payload.audit ?? []),
-        { at: new Date().toISOString(), action: "protected_off_day", detail: "Sunday edits were kept as an off-day plan." },
+        { at: new Date().toISOString(), action: "protected_off_day", detail: "Edits were kept as a configured off-day plan." },
       ].slice(-20),
     });
     await saveDailyPlan(offDay, false);
@@ -1074,14 +1146,16 @@ export async function updateDailyPlan(dateKey: string, payload: DailyPlanPayload
     constraints: payload.constraints,
     source: payload.planHealth?.source ?? "legacy",
     warnings: payload.planHealth?.warnings ?? [],
-    confidenceCap: payload.planHealth?.source === "trello_fallback" ? 55 : 95,
+    confidenceCap: payload.planHealth?.confidenceCeiling
+      ?? (payload.planHealth?.source === "trello_fallback" ? 55 : payload.planHealth?.source === "off_day" ? 95 : 70),
   });
   await saveDailyPlan(normalized, false);
   return normalized;
 }
 
 export async function replanRemainingDay(dateKey: string, completedBlockIds: string[], activeBlockId?: string | null) {
-  if (isSundayOffDay(dateKey)) return generateDailyPlan(dateKey, "replan");
+  const configuredConstraints = await loadConstraintsForDate(dateKey);
+  if (!configuredConstraints.isWorkday) return generateDailyPlan(dateKey, "replan");
 
   const current = await getSavedDailyPlan(dateKey);
   if (!current) return generateDailyPlan(dateKey, "replan");
@@ -1133,7 +1207,7 @@ export async function draftDailyHandoff(dateKey = eatDateKey()) {
     `Tracked today: ${timeSummary.reduce((sum, item) => sum + item.totalSeconds, 0)} seconds.`,
   ].filter(Boolean);
 
-  return {
+  const handoff = {
     dateKey,
     draft: lines.join("\n"),
     checklist: [
@@ -1143,6 +1217,13 @@ export async function draftDailyHandoff(dateKey = eatDateKey()) {
       { id: "prepare_tomorrow", label: "Prepare tomorrow's plan", done: false },
     ],
   };
+  const record = await persistHandoffDraft({
+    dateKey,
+    content: handoff.draft,
+    checklist: handoff.checklist,
+    sourcePlan: plan,
+  });
+  return { ...handoff, recordId: record.id, version: record.version };
 }
 
 export function getEatDateKey(date?: Date) {

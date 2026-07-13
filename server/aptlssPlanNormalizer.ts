@@ -1,8 +1,9 @@
 import type { AptlssAssessment } from "./aptlssAssessment";
 import { evaluateAptlssPlanQuality } from "./aptlssPlanQuality";
+import type { LlmRoutingTrace } from "./_core/llm";
+import { stepRequiresRobertApproval } from "./aptlssApproval";
 
 const CATEGORIES = new Set(["internal_work", "external_follow_up", "robert_decision", "verification", "communication"]);
-const APPROVAL_PATTERN = /\b(legal|contract|payment|financial|invoice|purchase|budget|scope approval)\b/i;
 
 function text(value: unknown, fallback = "") {
   return typeof value === "string" ? value.trim() : fallback;
@@ -17,6 +18,7 @@ export function normalizeGeneratedAptlssPlan(
   raw: Record<string, unknown>,
   assessment: AptlssAssessment,
   source: "ai" | "deterministic",
+  routing?: LlmRoutingTrace,
 ) {
   const warnings: string[] = [];
   const seen = new Set<string>();
@@ -28,9 +30,14 @@ export function normalizeGeneratedAptlssPlan(
       const dedupeKey = title.toLowerCase().replace(/\s+/g, " ");
       if (!title || seen.has(dedupeKey)) return null;
       seen.add(dedupeKey);
-      const combined = `${title} ${text(step.completionCriteria)} ${text(step.riskIfSkipped)}`;
-      const requiresRobert = Boolean(step.requiresRobert) || APPROVAL_PATTERN.test(combined);
       const requestedCategory = text(step.category, "internal_work");
+      const requiresRobert = stepRequiresRobertApproval({
+        title,
+        completionCriteria: text(step.completionCriteria),
+        category: requestedCategory,
+        requiresRobert: step.requiresRobert,
+        recommendedDecision: text(step.recommendedDecision) || null,
+      }, { explicitFalseWins: source === "deterministic" });
       const category = requiresRobert ? "robert_decision" : CATEGORIES.has(requestedCategory) ? requestedCategory : "internal_work";
       return {
         number: 0,
@@ -187,6 +194,11 @@ export function normalizeGeneratedAptlssPlan(
       calibration: assessment.calibration,
     },
     quality,
-    generation: { source, normalizedAt: new Date().toISOString(), warnings: Array.from(new Set(warnings)) },
+    generation: {
+      source,
+      normalizedAt: new Date().toISOString(),
+      warnings: Array.from(new Set(warnings)),
+      ...(routing ? { routing } : {}),
+    },
   };
 }

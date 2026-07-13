@@ -4,12 +4,12 @@
  * Goals:
  *   - Show ALL emails (not just unread) — inbox-zero every day
  *   - Financial emails: 48h deadline countdown, archive when handled
- *   - Non-financial emails: LLM-suggested Trello card link + next action
+ *   - Non-financial emails: suggested Trello card link + next action
  *   - Inbox-zero progress bar
  *   - Batch "Archive All" button for end-of-day inbox zero
  *
- * Data is populated by the AGENT cron that scans Gmail and calls
- * trpc.emailInbox.upsertBatch. This page is read-only from the DB.
+ * Data is populated by the server-owned Gmail scheduler configured in Settings.
+ * This page reads the durable imported records from the database.
  */
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
@@ -33,6 +33,7 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
+  Loader2,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -230,6 +231,24 @@ function EmailRow({
                   </a>
                 </div>
               )}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <Button variant="outline" size="sm" className="h-8 gap-1.5" asChild>
+                  <a
+                    href={`https://mail.google.com/mail/u/0/#inbox/${email.gmailThreadId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    Open in Gmail
+                  </a>
+                </Button>
+                {!isArchived && !isProcessed && (
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => onArchive(email.id)} disabled={isArchiving}>
+                    <Archive className="h-3.5 w-3.5" />
+                    Archive directly
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -237,31 +256,18 @@ function EmailRow({
         {/* Actions */}
         <div className="flex items-center gap-1 flex-shrink-0">
           {/* Expand/collapse */}
-          {(email.llmSummary || email.suggestedNextAction || email.trelloCardName) && (
-            <button
-              type="button"
-              onClick={() => setExpanded(e => !e)}
-              className="p-1 rounded hover:bg-accent/50 transition-colors"
-              title={expanded ? "Collapse" : "Expand details"}
-            >
-              {expanded ? (
-                <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
-              )}
-            </button>
-          )}
-
-          {/* Open in Gmail */}
-          <a
-            href={`https://mail.google.com/mail/u/0/#inbox/${email.gmailThreadId}`}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
+            onClick={() => setExpanded(e => !e)}
             className="p-1 rounded hover:bg-accent/50 transition-colors"
-            title="Open in Gmail"
+            title={expanded ? "Collapse details" : "Expand details"}
           >
-            <ExternalLink className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
-          </a>
+            {expanded ? (
+              <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+            )}
+          </button>
 
           {/* Mark as processed */}
           {!isArchived && !isProcessed && (
@@ -276,7 +282,7 @@ function EmailRow({
           )}
 
           {/* Archive */}
-          {!isArchived && (
+          {!isArchived && isProcessed && (
             <button
               type="button"
               onClick={() => onArchive(email.id)}
@@ -300,16 +306,25 @@ export default function EmailInbox() {
   const [isArchivingAll, setIsArchivingAll] = useState(false);
 
   const { data: emails = [], isLoading, error: inboxError, refetch } = trpc.emailInbox.getPending.useQuery(undefined, {
-    refetchInterval: 5 * 60 * 1000, // refresh every 5 min
+    refetchInterval: 15 * 60_000,
+  });
+  const gmailStatus = trpc.settings.getGmailIngestion.useQuery(undefined, {
+    staleTime: 60_000,
+    refetchInterval: 15 * 60_000,
+    retry: false,
   });
 
   const updateStatus = trpc.emailInbox.updateStatus.useMutation({
-    onSuccess: () => utils.emailInbox.getPending.invalidate(),
+    onSuccess: () => {
+      utils.emailInbox.getPending.invalidate();
+      utils.system.navigationCounts.invalidate();
+    },
   });
 
   const archiveAll = trpc.emailInbox.archiveAll.useMutation({
     onSuccess: (data) => {
       utils.emailInbox.getPending.invalidate();
+      utils.system.navigationCounts.invalidate();
       toast.success(`Inbox zero! Archived ${data.archived} email${data.archived !== 1 ? "s" : ""}.`);
       setIsArchivingAll(false);
     },
@@ -354,6 +369,42 @@ export default function EmailInbox() {
   // Inbox-zero progress
   const progressPct = total === 0 ? 0 : Math.round(((total - pending) / total) * 100);
   const isInboxZero = total > 0 && pending === 0;
+  const latestGmailRun = gmailStatus.data?.latestRun;
+  const latestRunAt = latestGmailRun?.startedAt ? new Date(latestGmailRun.startedAt) : null;
+  const scanAgeMs = latestRunAt ? Date.now() - latestRunAt.getTime() : Number.POSITIVE_INFINITY;
+  const expectedFreshnessMs = Math.max(15 * 60_000, (gmailStatus.data?.settings.intervalMinutes ?? 60) * 2 * 60_000);
+  const isScannerFresh = Boolean(
+    gmailStatus.data?.connected
+      && gmailStatus.data.settings.enabled
+      && latestGmailRun?.status === "success"
+      && scanAgeMs <= expectedFreshnessMs,
+  );
+  const gmailFreshnessLabel = gmailStatus.isLoading
+    ? "Checking Gmail import"
+    : isScannerFresh
+      ? "Gmail import is current"
+      : latestGmailRun?.status === "running"
+        ? "Gmail scan in progress"
+      : !gmailStatus.data?.connected
+        ? "Gmail connection required"
+        : !gmailStatus.data.settings.enabled
+          ? "Automatic Gmail import is off"
+          : latestGmailRun?.status === "error"
+            ? "Latest Gmail import failed"
+            : "Gmail import is overdue";
+  const gmailFreshnessMessage = gmailStatus.isLoading
+    ? "Loading the internal scheduler status."
+    : latestGmailRun?.status === "running"
+      ? "The internal scheduler is reading Gmail now. Imported records will refresh when it finishes."
+    : gmailStatus.data?.runtime.blockedReason
+      ? gmailStatus.data.runtime.blockedReason
+      : latestGmailRun?.status === "error"
+        ? latestGmailRun.errorMessage ?? "The last scan did not complete."
+        : latestRunAt && latestGmailRun?.status === "success"
+          ? `Last successful import ${formatRelativeTime(latestRunAt)}.${gmailStatus.data?.settings.enabled ? "" : " Enable an interval in Settings to keep it current."}`
+          : gmailStatus.data?.connected
+            ? "No Gmail ingestion run has completed yet."
+            : "Connect Gmail in Settings before relying on imported records.";
 
   // Financial urgency sort: overdue first, then by deadline
   const sortedFinancial = useMemo(() => {
@@ -385,7 +436,7 @@ export default function EmailInbox() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refetch()}
+            onClick={() => void Promise.all([refetch(), gmailStatus.refetch()])}
             disabled={isLoading}
             className="h-8 gap-1.5"
           >
@@ -408,7 +459,14 @@ export default function EmailInbox() {
       </div>
 
       {/* Import coverage and inbox progress */}
-      {inboxError ? (
+      {isLoading ? (
+        <Card className="border-border">
+          <CardContent className="flex items-center gap-3 p-4 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading imported email records...
+          </CardContent>
+        </Card>
+      ) : inboxError ? (
         <Card className="border-destructive/40 bg-destructive/5">
           <CardContent className="flex items-start gap-3 p-4">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
@@ -443,6 +501,15 @@ export default function EmailInbox() {
               {total - pending} of {total} emails processed or archived
             </p>
           )}
+          <div className={`mt-3 flex items-start gap-2 border-t pt-3 ${isScannerFresh ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}`}>
+            {isScannerFresh ? <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+            <div>
+              <p className="text-xs font-medium">{gmailFreshnessLabel}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {gmailFreshnessMessage}
+              </p>
+            </div>
+          </div>
         </CardContent>
       </Card>}
 
@@ -459,7 +526,7 @@ export default function EmailInbox() {
               <div className="flex items-start gap-2">
                 <Info className="w-3.5 h-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-blue-700 dark:text-blue-300">
-                  Gmail scanning is handled by the Manus AGENT cron. Once the site is deployed and the cron is set up, emails will appear here automatically.
+                  Emails appear only after the authenticated Gmail ingestion job succeeds. Check Settings if the freshness status above is missing, stale, or failed.
                 </p>
               </div>
             </div>

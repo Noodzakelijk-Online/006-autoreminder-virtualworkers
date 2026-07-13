@@ -1,7 +1,7 @@
 type LiveExceptions = {
-  overdueCards: unknown[];
-  doingCards: Array<{ updatedToday?: boolean }>;
-  onHoldCards: unknown[];
+  overdueCards: Array<{ id: string }>;
+  doingCards: Array<{ id: string; updatedToday?: boolean }>;
+  onHoldCards: Array<{ id: string }>;
 };
 
 type CommandExceptions = {
@@ -12,10 +12,23 @@ type CommandExceptions = {
 
 export function getOperationalExceptionCounts(live?: LiveExceptions, command?: CommandExceptions) {
   if (live) {
+    // Match Work Queue lane precedence so one Trello card is never presented as
+    // several separate operational exceptions across the application.
+    const overdueIds = new Set(live.overdueCards.map((item) => item.id));
+    const doingIds = new Set(
+      live.doingCards
+        .filter((item) => !item.updatedToday && !overdueIds.has(item.id))
+        .map((item) => item.id),
+    );
+    const onHoldIds = new Set(
+      live.onHoldCards
+        .filter((item) => !overdueIds.has(item.id) && !doingIds.has(item.id))
+        .map((item) => item.id),
+    );
     return {
-      critical: live.overdueCards.length,
-      waiting: live.doingCards.filter((item) => !item.updatedToday).length,
-      blocked: live.onHoldCards.length,
+      critical: overdueIds.size,
+      waiting: doingIds.size,
+      blocked: onHoldIds.size,
       source: "live" as const,
     };
   }

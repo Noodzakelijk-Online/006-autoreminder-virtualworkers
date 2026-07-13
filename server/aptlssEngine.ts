@@ -1,10 +1,9 @@
 /**
  * APTLSS Operational Engine
  *
- * Three deterministic engines that run on real card data:
- *   1. Card State Machine   — classifies each card into one of 14 states
- *   2. Priority Scoring     — calculates a 0–100 score with component breakdown
- *   3. Trello Checklist Writer — creates/updates the APTLSS Execution Checklist
+ * One evidence-calibrated assessment pipeline computes state, priority,
+ * forecast, confidence, and portfolio signals from live card evidence. The
+ * checklist writer then synchronizes approved execution steps to Trello.
  *
  * These engines are called from:
  *   - aptlss.generate tRPC procedure (on-demand)
@@ -28,6 +27,8 @@ import type { AptlssForecast, AptlssRuntimeSignal } from "./aptlssRuntime";
 import type { AptlssCardStateValue } from "./aptlssStateValues";
 import { getActiveWaitingReason, toAptlssWaitingSignal } from "./aptlssWaitingReasonDb";
 import type { AptlssWaitingSignal } from "./aptlssWaitingReason";
+import { getOperationalPolicySnapshot } from "./aptlssPoliciesDb";
+import type { AptlssExternalEvidenceSignal } from "./workspaceEvidence";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -78,32 +79,11 @@ export interface AptlssStepInput {
   recommendedDecision?: string;
 }
 
+export function isFinalSummaryComment(text: string): boolean {
+  return /(?:^|\n)\s*(?:final summary|completion summary|completed|done)\s*(?::|[-\u2013\u2014]|\n|$)/i.test(text);
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function daysSince(ms: number): number {
-  return Math.floor((Date.now() - ms) / (1000 * 60 * 60 * 24));
-}
-
-function isOverdue(due: string | null): boolean {
-  if (!due) return false;
-  return new Date(due).getTime() < Date.now();
-}
-
-function hasUnansweredQuestion(
-  comments: TrelloCardContext["comments"]
-): boolean {
-  if (comments.length === 0) return false;
-  const sorted = [...comments].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
-  const latest = sorted[0];
-  // If the latest comment ends with a question mark and is from Joyce
-  return (
-    latest.text.trim().endsWith("?") &&
-    (latest.memberName.toLowerCase().includes("joyce") ||
-      latest.memberName.toLowerCase().includes("assistant"))
-  );
-}
 
 function getChecklistProgress(ctx: TrelloCardContext): {
   total: number;
@@ -119,20 +99,6 @@ function getChecklistProgress(ctx: TrelloCardContext): {
     (i) => i.state === "complete"
   ).length;
   return { total, completed, ratio: total > 0 ? completed / total : 0 };
-}
-
-function hasRobertOpenStep(steps: Awaited<ReturnType<typeof getOpenStepsForCard>>): boolean {
-  return steps.some((s) => s.requiresRobert && s.status === "open");
-}
-
-function hasExternalWaitingStep(steps: Awaited<ReturnType<typeof getOpenStepsForCard>>): boolean {
-  return steps.some(
-    (s) => s.category === "external_follow_up" && s.status === "open"
-  );
-}
-
-function hasBlockedStep(steps: Awaited<ReturnType<typeof getOpenStepsForCard>>): boolean {
-  return steps.some((s) => !!s.blockedBy && s.status === "open");
 }
 
 /**
@@ -151,6 +117,7 @@ export async function assessAndSaveCardIntelligence(
     forecast?: AptlssForecast;
     calibration?: AssessmentCalibrationContext;
     waiting?: AptlssWaitingSignal | null;
+    externalEvidence?: AptlssExternalEvidenceSignal;
   } = {},
 ) {
   const steps = signals.steps ?? await getOpenStepsForCard(ctx.id);
@@ -159,6 +126,7 @@ export async function assessAndSaveCardIntelligence(
     ? waitingRecord ? toAptlssWaitingSignal(waitingRecord) : null
     : signals.waiting;
   const dependentCardCount = signals.portfolio?.directDependentCount ?? await countDependentCards(ctx.id);
+  const policy = await getOperationalPolicySnapshot();
   const assessment = assessAptlssCard({
     ctx,
     steps,
@@ -171,11 +139,14 @@ export async function assessAndSaveCardIntelligence(
     forecast: signals.forecast,
     calibration: signals.calibration,
     waiting,
+    externalEvidence: signals.externalEvidence,
+    policy: {
+      stallThresholdDays: policy.stallDetectionEnabled ? policy.stallThresholdDays : Number.MAX_SAFE_INTEGER,
+      confidenceFlagThreshold: policy.confidenceFlaggingEnabled ? policy.confidenceFlagThreshold : 0,
+    },
   });
   const progress = getChecklistProgress(ctx);
-  const hasFinalSummary = ctx.comments.some((comment) =>
-    /final summary|completed|done\s*[-â€”]/i.test(comment.text),
-  );
+  const hasFinalSummary = ctx.comments.some((comment) => isFinalSummaryComment(comment.text));
 
   const stateRow: InsertCardState = {
     cardId: ctx.id,
@@ -229,287 +200,7 @@ export async function assessAndSaveCardIntelligence(
 
 // ─── 1. Card State Machine ────────────────────────────────────────────────────
 
-/**
- * Deterministically classify a card into one of 14 states.
- * Rules are evaluated in priority order — first match wins.
- */
-async function computeLegacyCardState(
-  ctx: TrelloCardContext
-): Promise<{ state: CardStateValue; reason: string }> {
-  const steps = await getOpenStepsForCard(ctx.id);
-  const { total, completed, ratio } = getChecklistProgress(ctx);
-  const staleDays = daysSince(ctx.lastActivityMs);
-  const overdue = isOverdue(ctx.due);
-  const unansweredQ = hasUnansweredQuestion(ctx.comments);
-  const inDoneList =
-    ctx.listName.toLowerCase().includes("done") ||
-    ctx.listName.toLowerCase().includes("complete") ||
-    ctx.listName.toLowerCase().includes("archive");
-
-  if (inDoneList && ctx.dueComplete) {
-    return { state: "DONE_CONFIRMED", reason: "Card is in Done list and marked complete." };
-  }
-
-  if (inDoneList && !ctx.dueComplete) {
-    return {
-      state: "NEEDS_ARCHIVE",
-      reason: "Card is in Done list but not marked complete — verify and archive.",
-    };
-  }
-
-  if (total > 0 && ratio === 1 && !inDoneList) {
-    return {
-      state: "READY_FOR_DONE",
-      reason: "All APTLSS checklist items are complete. Ready to move to Done.",
-    };
-  }
-
-  if (hasRobertOpenStep(steps)) {
-    return {
-      state: "WAITING_FOR_ROBERT",
-      reason: "One or more open steps require a Robert decision.",
-    };
-  }
-
-  if (hasBlockedStep(steps)) {
-    return {
-      state: "BLOCKED_BY_OTHER_CARD",
-      reason: "One or more open steps are blocked by another card.",
-    };
-  }
-
-  if (hasExternalWaitingStep(steps)) {
-    return {
-      state: "WAITING_FOR_EXTERNAL_PARTY",
-      reason: "One or more steps are waiting for an external party reply.",
-    };
-  }
-
-  if (overdue) {
-    return {
-      state: "OVERDUE",
-      reason: `Card is past its due date (${ctx.due}).`,
-    };
-  }
-
-  if (staleDays >= 5 && completed > 0 && ratio < 1) {
-    return {
-      state: "STALLED",
-      reason: `No checklist progress in ${staleDays} days despite having open items.`,
-    };
-  }
-
-  if (unansweredQ) {
-    return {
-      state: "WAITING_FOR_JOYCE",
-      reason: "Latest comment contains an unanswered question from Joyce.",
-    };
-  }
-
-  // ── Enhanced NEEDS_RESTRUCTURING detection (Item 18) ─────────────────────
-  // 1. Classic: no description, no checklist, no comments
-  if (total === 0 && !ctx.desc && ctx.comments.length === 0) {
-    return {
-      state: "NEEDS_RESTRUCTURING",
-      reason: "Card has no description, no checklist, and no comments — too vague to work on.",
-    };
-  }
-  // 2. Too large: more than 15 checklist items across all checklists
-  const allCheckItems = ctx.checklists.flatMap((cl) => cl.checkItems);
-  if (allCheckItems.length > 15) {
-    return {
-      state: "NEEDS_RESTRUCTURING",
-      reason: `Card has ${allCheckItems.length} checklist items — too large to manage. Split into smaller cards (max 15 items each).`,
-    };
-  }
-  // 3. Missing due date on a non-trivial card (has checklist but no due date)
-  if (total > 0 && !ctx.due) {
-    return {
-      state: "NEEDS_RESTRUCTURING",
-      reason: "Card has a checklist but no due date. Add a due date so it can be prioritised correctly.",
-    };
-  }
-  // 4. Missing owner: card has checklist items but no assigned member
-  if (total > 0 && (!ctx.members || ctx.members.length === 0)) {
-    return {
-      state: "NEEDS_RESTRUCTURING",
-      reason: "Card has a checklist but no assigned member. Assign a member so ownership is clear.",
-    };
-  }
-
-  if (total === 0) {
-    return {
-      state: "NEW_UNTRIAGED",
-      reason: "Card has no APTLSS checklist yet. Generate a plan to start.",
-    };
-  }
-
-  if (
-    ctx.listName.toLowerCase().includes("to do") ||
-    ctx.listName.toLowerCase().includes("todo") ||
-    ctx.listName.toLowerCase().includes("backlog")
-  ) {
-    return {
-      state: "READY_TO_START",
-      reason: "Card is in the To-Do list with a checklist ready.",
-    };
-  }
-
-  if (completed > 0 && ratio < 1) {
-    return {
-      state: "IN_PROGRESS",
-      reason: `${completed}/${total} checklist items complete. Actively in progress.`,
-    };
-  }
-
-  return {
-    state: "READY_TO_START",
-    reason: "Card has a checklist and is ready to start.",
-  };
-}
-
-/** Compute the current evidence-calibrated state without persisting it. */
-export async function computeCardState(ctx: TrelloCardContext): Promise<{ state: CardStateValue; reason: string }> {
-  const [steps, dependentCardCount, waitingRecord] = await Promise.all([
-    getOpenStepsForCard(ctx.id),
-    countDependentCards(ctx.id),
-    getActiveWaitingReason(ctx.id),
-  ]);
-  const assessment = assessAptlssCard({
-    ctx,
-    steps,
-    dependentCardCount,
-    trigger: "manual",
-    waiting: waitingRecord ? toAptlssWaitingSignal(waitingRecord) : null,
-  });
-  return { state: assessment.primaryState, reason: assessment.stateReason };
-}
-
-/** Compute and persist card state to DB. */
-export async function computeAndSaveCardState(
-  ctx: TrelloCardContext
-): Promise<CardStateValue> {
-  return (await assessAndSaveCardIntelligence(ctx)).primaryState;
-}
-
 // ─── 2. Priority Scoring Engine ───────────────────────────────────────────────
-
-interface ScoreBreakdown {
-  dueDatePressure: number;
-  overduePenalty: number;
-  stalledPenalty: number;
-  labelUrgency: number;
-  dependencyImpact: number;
-  estimatedEffort: number;
-  riskIfIgnored: number;
-  waitingDiscount: number;
-}
-
-function labelUrgencyScore(labels: TrelloCardContext["labels"]): number {
-  let score = 0;
-  for (const l of labels) {
-    const n = l.name.toLowerCase();
-    if (n.includes("critical") || n.includes("urgent") || n.includes("asap")) score += 25;
-    else if (n.includes("high") || n.includes("important")) score += 15;
-    else if (n.includes("medium") || n.includes("normal")) score += 5;
-    else if (n.includes("low") || n.includes("minor")) score -= 5;
-    // Financial/legal/client labels get extra weight
-    if (
-      n.includes("financial") ||
-      n.includes("legal") ||
-      n.includes("client") ||
-      n.includes("payment") ||
-      n.includes("invoice")
-    )
-      score += 10;
-  }
-  return Math.min(score, 30);
-}
-
-function dueDatePressureScore(due: string | null): number {
-  if (!due) return 0;
-  const daysUntilDue =
-    (new Date(due).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
-  if (daysUntilDue < 0) return 0; // handled by overdue penalty
-  if (daysUntilDue <= 1) return 30;
-  if (daysUntilDue <= 3) return 22;
-  if (daysUntilDue <= 7) return 14;
-  if (daysUntilDue <= 14) return 7;
-  return 2;
-}
-
-export async function computePriorityScore(
-  ctx: TrelloCardContext,
-  state: CardStateValue,
-  openStepCount: number,
-  estimatedRemainingMinutes: number,
-  dependentCardCount: number = 0,
-  riskScore: number = 0
-): Promise<{ score: number; tier: PriorityTier; breakdown: ScoreBreakdown }> {
-  const staleDays = daysSince(ctx.lastActivityMs);
-  const overdue = isOverdue(ctx.due);
-
-  const breakdown: ScoreBreakdown = {
-    dueDatePressure: dueDatePressureScore(ctx.due),
-    overduePenalty: overdue ? 25 : 0,
-    stalledPenalty: staleDays >= 7 ? 10 : staleDays >= 5 ? 5 : 0,
-    labelUrgency: labelUrgencyScore(ctx.labels),
-    // dependencyImpact: how many other cards are blocked by this one × 3 (capped at 15)
-    dependencyImpact: Math.min(dependentCardCount * 3, 15),
-    estimatedEffort: Math.min(Math.floor(estimatedRemainingMinutes / 30) * 2, 10),
-    // riskIfIgnored: derived from the highest-severity riskIfSkipped text across all open steps
-    riskIfIgnored: Math.min(riskScore, 15),
-    waitingDiscount:
-      state === "WAITING_FOR_EXTERNAL_PARTY" ||
-      state === "WAITING_FOR_ROBERT"
-        ? -10
-        : 0,
-  };
-
-  // Blocked cards get a heavy discount — don't schedule active work
-  if (
-    state === "BLOCKED_BY_OTHER_CARD" ||
-    state === "DONE_CONFIRMED" ||
-    state === "NEEDS_ARCHIVE"
-  ) {
-    return { score: 5, tier: "BLOCKED", breakdown };
-  }
-
-  const raw = Object.values(breakdown).reduce((a, b) => a + b, 0);
-  const score = Math.max(0, Math.min(100, raw));
-
-  let tier: PriorityTier;
-  if (score >= 80) tier = "CRITICAL";
-  else if (score >= 60) tier = "HIGH";
-  else if (score >= 35) tier = "MEDIUM";
-  else tier = "LOW";
-
-  return { score, tier, breakdown };
-}
-
-/**
- * Convert a riskIfSkipped text string to a numeric severity score (0–15).
- * Looks for severity keywords in the text.
- */
-function riskTextToScore(text: string | null | undefined): number {
-  if (!text) return 0;
-  const t = text.toLowerCase();
-  if (t.includes("critical") || t.includes("contract") || t.includes("legal") || t.includes("payment") || t.includes("lose client")) return 15;
-  if (t.includes("high") || t.includes("deadline") || t.includes("blocked") || t.includes("escalat") || t.includes("urgent")) return 10;
-  if (t.includes("medium") || t.includes("delay") || t.includes("miss") || t.includes("slow")) return 5;
-  if (t.includes("low") || t.includes("minor") || t.includes("cosmetic")) return 2;
-  // Non-empty but no keyword match → small bump
-  return 3;
-}
-
-/** Compute and persist priority score to DB. */
-export async function computeAndSavePriorityScore(
-  ctx: TrelloCardContext,
-  _state: CardStateValue
-): Promise<{ score: number; tier: PriorityTier }> {
-  const assessment = await assessAndSaveCardIntelligence(ctx);
-  return { score: assessment.priorityScore, tier: assessment.priorityTier };
-}
 
 // ─── 3. Trello Checklist Writer ───────────────────────────────────────────────
 
@@ -526,7 +217,6 @@ function trelloAuth() {
 
 /** Fetch the current APTLSS checklist for a card (null if none). */
 async function getAptlssChecklist(
-  cardId: string,
   checklists: TrelloCardContext["checklists"]
 ) {
   return (
@@ -582,18 +272,6 @@ async function addCheckItem(
   return item.id;
 }
 
-/** Delete a check item from a checklist. */
-async function deleteCheckItem(
-  cardId: string,
-  checklistId: string,
-  checkItemId: string
-): Promise<void> {
-  await fetch(
-    `${TRELLO_API}/cards/${cardId}/checkItem/${checkItemId}?${trelloAuth()}`,
-    { method: "DELETE" }
-  );
-}
-
 /** Rename a check item (used to mark as [REPLACED]). */
 async function renameCheckItem(
   cardId: string,
@@ -625,7 +303,7 @@ export async function writeChecklistToTrello(
   ctx: TrelloCardContext,
   newSteps: AptlssStepInput[]
 ): Promise<{ checklistId: string; stepCheckItemIds: Record<number, string> }> {
-  const existing = await getAptlssChecklist(cardId, ctx.checklists);
+  const existing = await getAptlssChecklist(ctx.checklists);
 
   const stepCheckItemIds: Record<number, string> = {};
 

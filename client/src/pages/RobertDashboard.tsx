@@ -33,11 +33,11 @@ import {
   CheckCheck,
   Flame,
   ThumbsUp,
-  TrendingDown,
   Zap,
   Shield,
+  ChevronDown,
 } from "lucide-react";
-import { useState } from "react";
+import { Children, useState } from "react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 
@@ -93,7 +93,7 @@ function CardLink({ url, name, boardName }: { url: string; name: string; boardNa
       className="flex items-center gap-1 text-xs font-medium text-foreground hover:text-blue-600 dark:hover:text-blue-400 transition-colors group"
     >
       <span className="truncate">{name}</span>
-      {boardName && <span className="text-muted-foreground text-[10px] flex-shrink-0">· {boardName}</span>}
+      {boardName && <span className="max-w-[40%] flex-shrink truncate text-[10px] text-muted-foreground">· {boardName}</span>}
       <ExternalLink className="w-3 h-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
     </a>
   );
@@ -104,6 +104,30 @@ function AllClear({ label }: { label: string }) {
     <div className="flex items-center gap-2 py-2 text-emerald-600 dark:text-emerald-400 text-xs">
       <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
       <span className="font-medium">{label}</span>
+    </div>
+  );
+}
+
+function ProgressiveList({ children, initialCount = 5 }: { children: React.ReactNode; initialCount?: number }) {
+  const [visibleCount, setVisibleCount] = useState(initialCount);
+  const items = Children.toArray(children);
+  const hiddenCount = Math.max(0, items.length - visibleCount);
+
+  return (
+    <div className="space-y-2">
+      {items.slice(0, visibleCount)}
+      {hiddenCount > 0 && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full text-xs"
+          onClick={() => setVisibleCount(count => count + initialCount)}
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+          Show {Math.min(initialCount, hiddenCount)} more
+        </Button>
+      )}
     </div>
   );
 }
@@ -119,6 +143,23 @@ export default function RobertDashboard() {
   const dismiss = trpc.aptlss.dismissFollowUp.useMutation({ onSuccess: () => {} });
   const utils = trpc.useUtils();
   const [copiedId, setCopiedId] = useState<number | null>(null);
+
+  const decisionCardIds = new Set((data?.pendingDecisions ?? []).map(item => item.cardId));
+  const deadlineRisks = (data?.deadlineRisks ?? []).filter(card => !decisionCardIds.has(card.cardId));
+  const deadlineRiskIds = new Set(deadlineRisks.map(card => card.cardId));
+  const escalations = (data?.escalations ?? []).filter(item => !decisionCardIds.has(item.cardId) && !deadlineRiskIds.has(item.cardId));
+  const representedCardIds = new Set([
+    ...(data?.pendingDecisions ?? []).map(item => item.cardId),
+    ...deadlineRisks.map(card => card.cardId),
+    ...escalations.map(item => item.cardId),
+  ]);
+  const stalledCards = (data?.stalledCards ?? []).filter(card => !representedCardIds.has(card.cardId));
+  stalledCards.forEach(card => representedCardIds.add(card.cardId));
+  const blockedCards = (data?.blockedCards ?? []).filter(card => !representedCardIds.has(card.cardId));
+  blockedCards.forEach(card => representedCardIds.add(card.cardId));
+  const waitingCards = (data?.waitingCards ?? []).filter(card => !representedCardIds.has(card.cardId));
+  waitingCards.forEach(card => representedCardIds.add(card.cardId));
+  const repairCards = (data?.repairCards ?? []).filter(card => !representedCardIds.has(card.cardId));
 
   const handleCopy = (id: number, text: string) => {
     navigator.clipboard.writeText(text);
@@ -139,34 +180,37 @@ export default function RobertDashboard() {
       {/* Header */}
       <header className="sticky top-0 z-50 bg-card border-b border-border">
         <div className="container py-3">
-          <div className="flex items-center gap-3">
-            <Link href="/">
-              <button
-                type="button"
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                Back to Joyce's Dashboard
-              </button>
-            </Link>
-            <div className="flex-1" />
-            <div>
-              <h1 className="text-lg font-bold text-foreground">Robert's Oversight Dashboard</h1>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-2">
+              <Button asChild variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                <Link href="/" aria-label="Back to Joyce's Dashboard" title="Back to Joyce's Dashboard">
+                  <ArrowLeft className="h-4 w-4" />
+                </Link>
+              </Button>
+              <div className="min-w-0">
+              <h1 className="text-base font-bold text-foreground sm:text-lg">Robert's Oversight Dashboard</h1>
               <p className="text-[11px] text-muted-foreground">Decisions, risks, and exceptions requiring your attention</p>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Link href="/command-center">
-                <Button variant="outline" size="sm" className="flex items-center gap-1.5 text-xs">
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              <Button asChild variant="outline" size="sm" className="flex items-center gap-1.5 text-xs">
+                <Link href="/">
                   <Zap className="w-3.5 h-3.5" />
-                  Command Center
-                </Button>
-              </Link>
-              <Link href="/admin">
-                <Button variant="outline" size="sm" className="flex items-center gap-1.5 text-xs">
+                  Joyce Work Queue
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="sm" className="flex items-center gap-1.5 text-xs">
+                <Link href="/command-center">
+                  <BarChart2 className="w-3.5 h-3.5" />
+                  Operations
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="sm" className="flex items-center gap-1.5 text-xs">
+                <Link href="/admin">
                   <Shield className="w-3.5 h-3.5" />
                   Admin
-                </Button>
-              </Link>
+                </Link>
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -260,7 +304,7 @@ export default function RobertDashboard() {
                 {data.pendingDecisions.length === 0 ? (
                   <AllClear label="No pending decisions — Joyce can proceed autonomously." />
                 ) : (
-                  <div className="space-y-2">
+                  <ProgressiveList>
                     {data.pendingDecisions.map((item, i) => (
                       <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-orange-500/5 border-orange-500/20">
                         <TierChip tier={item.tier} />
@@ -275,25 +319,60 @@ export default function RobertDashboard() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </ProgressiveList>
                 )}
               </CardContent>
             </Card>
 
-            {/* ── 2. Escalations ── */}
+            {/* ── 2. Deadline Risks ── */}
+            {deadlineRisks.length > 0 && (
+              <Card className="border-border/60">
+                <CardContent className="p-4">
+                  <SectionHeader
+                    icon={<Flame className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />}
+                    title="Deadline Risks"
+                    count={deadlineRisks.length}
+                    color="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30"
+                  />
+                  <p className="text-[10px] text-muted-foreground mb-3">
+                    These cards are overdue or are HIGH/CRITICAL priority cards that are stalled or blocked.
+                  </p>
+                  <ProgressiveList>
+                    {deadlineRisks.map((card, i) => (
+                      <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-red-500/5 border-red-500/20">
+                        <TierChip tier={card.tier} />
+                        <div className="flex-1 min-w-0">
+                          <CardLink url={card.cardUrl} name={card.cardName} boardName={card.boardName} />
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {card.isOverdue && (
+                              <span className="text-[10px] font-bold text-red-600 dark:text-red-400">OVERDUE</span>
+                            )}
+                            {card.stateReason && (
+                              <p className="text-[11px] text-muted-foreground">{card.stateReason}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </ProgressiveList>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ── 3. Other Escalations ── */}
             <Card className="border-border/60">
               <CardContent className="p-4">
                 <SectionHeader
                   icon={<ShieldAlert className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />}
-                  title="Escalations"
-                  count={data.escalations.length}
+                  title="Other Escalations"
+                  count={escalations.length}
                   color="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30"
                 />
-                {data.escalations.length === 0 ? (
-                  <AllClear label="No escalations — no cards require special approval." />
+                {escalations.length === 0 ? (
+                  <AllClear label="No additional escalations outside the decision and deadline queues." />
                 ) : (
-                  <div className="space-y-2">
-                    {data.escalations.map((item, i) => (
+                  <ProgressiveList>
+                    {escalations.map((item, i) => (
                       <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-red-500/5 border-red-500/20">
                         <TierChip tier={item.tier} />
                         <div className="flex-1 min-w-0">
@@ -321,46 +400,12 @@ export default function RobertDashboard() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </ProgressiveList>
                 )}
               </CardContent>
             </Card>
 
-            {/* ── 2b. Deadline Risks ── */}
-            {(data.deadlineRisks ?? []).length > 0 && (
-              <Card className="border-border/60">
-                <CardContent className="p-4">
-                  <SectionHeader
-                    icon={<Flame className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />}
-                    title="Deadline Risks"
-                    count={(data.deadlineRisks ?? []).length}
-                    color="bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30"
-                  />
-                  <p className="text-[10px] text-muted-foreground mb-3">
-                    These cards are overdue or are HIGH/CRITICAL priority cards that are stalled or blocked.
-                  </p>
-                  <div className="space-y-2">
-                    {(data.deadlineRisks ?? []).map((card, i) => (
-                      <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-red-500/5 border-red-500/20">
-                        <TierChip tier={card.tier} />
-                        <div className="flex-1 min-w-0">
-                          <CardLink url={card.cardUrl} name={card.cardName} boardName={card.boardName} />
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {card.isOverdue && (
-                              <span className="text-[10px] font-bold text-red-600 dark:text-red-400">OVERDUE</span>
-                            )}
-                            {card.stateReason && (
-                              <p className="text-[11px] text-muted-foreground">{card.stateReason}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-            {/* ── 2c. Ready for Final Approval ── */}
+            {/* ── 4. Ready for Final Approval ── */}
             {(data.readyForApproval ?? []).length > 0 && (
               <Card className="border-border/60">
                 <CardContent className="p-4">
@@ -373,7 +418,7 @@ export default function RobertDashboard() {
                   <p className="text-[10px] text-muted-foreground mb-3">
                     These cards have passed the Done quality gate and are waiting for your final approval before being moved to Done.
                   </p>
-                  <div className="space-y-2">
+                  <ProgressiveList>
                     {(data.readyForApproval ?? []).map((card, i) => (
                       <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-emerald-500/5 border-emerald-500/20">
                         <TierChip tier={card.tier} />
@@ -385,7 +430,7 @@ export default function RobertDashboard() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </ProgressiveList>
                 </CardContent>
               </Card>
             )}
@@ -402,7 +447,7 @@ export default function RobertDashboard() {
                   <p className="text-[10px] text-muted-foreground mb-3">
                     These cards have completed all checklist items and passed the Done quality gate. Move them to the Done list in Trello.
                   </p>
-                  <div className="space-y-2">
+                  <ProgressiveList>
                     {(readyForDoneCards ?? []).map((card) => (
                       <div key={card.cardId} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-teal-500/5 border-teal-500/20">
                         <div className="flex-1 min-w-0">
@@ -421,7 +466,7 @@ export default function RobertDashboard() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </ProgressiveList>
                 </CardContent>
               </Card>
             )}
@@ -431,14 +476,14 @@ export default function RobertDashboard() {
                 <SectionHeader
                   icon={<ZapOff className="w-3.5 h-3.5 text-slate-500" />}
                   title="Stalled Cards"
-                  count={data.stalledCards.length}
+                  count={stalledCards.length}
                   color="bg-slate-500/15 text-slate-500 border-slate-500/30"
                 />
-                {data.stalledCards.length === 0 ? (
-                  <AllClear label="No stalled cards — all active work is progressing." />
+                {stalledCards.length === 0 ? (
+                  <AllClear label={data.stalledCards.length ? "All stalled cards are already represented in higher-priority queues." : "No stalled cards — all active work is progressing."} />
                 ) : (
-                  <div className="space-y-2">
-                    {data.stalledCards.map((card, i) => (
+                  <ProgressiveList>
+                    {stalledCards.map((card, i) => (
                       <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-slate-500/5 border-slate-500/20">
                         <TierChip tier={card.tier} />
                         <div className="flex-1 min-w-0">
@@ -449,7 +494,7 @@ export default function RobertDashboard() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </ProgressiveList>
                 )}
               </CardContent>
             </Card>
@@ -460,14 +505,14 @@ export default function RobertDashboard() {
                 <SectionHeader
                   icon={<AlertTriangle className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />}
                   title="Blocked Cards"
-                  count={data.blockedCards.length}
+                  count={blockedCards.length}
                   color="bg-purple-500/15 text-purple-600 dark:text-purple-400 border-purple-500/30"
                 />
-                {data.blockedCards.length === 0 ? (
-                  <AllClear label="No blocked cards — all work can proceed." />
+                {blockedCards.length === 0 ? (
+                  <AllClear label={data.blockedCards.length ? "All blocked cards are already represented in higher-priority queues." : "No blocked cards — all work can proceed."} />
                 ) : (
-                  <div className="space-y-2">
-                    {data.blockedCards.map((card, i) => (
+                  <ProgressiveList>
+                    {blockedCards.map((card, i) => (
                       <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-purple-500/5 border-purple-500/20">
                         <TierChip tier={card.tier} />
                         <div className="flex-1 min-w-0">
@@ -478,7 +523,7 @@ export default function RobertDashboard() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </ProgressiveList>
                 )}
               </CardContent>
             </Card>
@@ -489,14 +534,14 @@ export default function RobertDashboard() {
                 <SectionHeader
                   icon={<HelpCircle className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
                   title="Waiting for Joyce (Unanswered Questions)"
-                  count={data.waitingCards.length}
+                  count={waitingCards.length}
                   color="bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30"
                 />
-                {data.waitingCards.length === 0 ? (
-                  <AllClear label="No cards waiting — Joyce has answered all questions." />
+                {waitingCards.length === 0 ? (
+                  <AllClear label={data.waitingCards.length ? "All waiting cards are already represented in higher-priority queues." : "No cards waiting — Joyce has answered all questions."} />
                 ) : (
-                  <div className="space-y-2">
-                    {data.waitingCards.map((card, i) => (
+                  <ProgressiveList>
+                    {waitingCards.map((card, i) => (
                       <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-blue-500/5 border-blue-500/20">
                         <TierChip tier={card.tier} />
                         <div className="flex-1 min-w-0">
@@ -507,7 +552,7 @@ export default function RobertDashboard() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </ProgressiveList>
                 )}
               </CardContent>
             </Card>
@@ -518,17 +563,17 @@ export default function RobertDashboard() {
                 <SectionHeader
                   icon={<Wrench className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />}
                   title="Cards Needing Repair"
-                  count={data.repairCards.length}
+                  count={repairCards.length}
                   color="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
                 />
                 <p className="text-[10px] text-muted-foreground mb-3">
                   These cards are too vague, missing a description, or have no checklist. Joyce needs to re-generate their APTLSS plan, or you need to add more detail to the Trello card.
                 </p>
-                {data.repairCards.length === 0 ? (
-                  <AllClear label="No cards need repair — all cards are well-structured." />
+                {repairCards.length === 0 ? (
+                  <AllClear label={data.repairCards.length ? "All repair cards are already represented in higher-priority queues." : "No cards need repair — all cards are well-structured."} />
                 ) : (
-                  <div className="space-y-2">
-                    {data.repairCards.map((card, i) => (
+                  <ProgressiveList>
+                    {repairCards.map((card, i) => (
                       <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-amber-500/5 border-amber-500/20">
                         <TierChip tier={card.tier} />
                         <div className="flex-1 min-w-0">
@@ -539,7 +584,7 @@ export default function RobertDashboard() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </ProgressiveList>
                 )}
               </CardContent>
             </Card>
@@ -557,7 +602,7 @@ export default function RobertDashboard() {
                   <p className="text-[10px] text-muted-foreground mb-3">
                     These follow-up messages were auto-drafted by the APTLSS engine for cards waiting on external parties. Review, copy, and send — or dismiss if no longer needed.
                   </p>
-                  <div className="space-y-3">
+                  <ProgressiveList>
                     {followUps.map((draft) => (
                       <div key={draft.id} className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
                         <div className="flex items-start justify-between gap-2 mb-2">
@@ -597,7 +642,7 @@ export default function RobertDashboard() {
                         </div>
                       </div>
                     ))}
-                  </div>
+                  </ProgressiveList>
                 </CardContent>
               </Card>
             )}

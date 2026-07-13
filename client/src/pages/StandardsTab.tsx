@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { InfoTooltip } from "@/components/InfoTooltip";
 import { RULE_CATEGORIES } from "@/lib/decisionRules";
+import { EXECUTION_ORDER, PRIORITY_CLASSIFIER_QUESTIONS, PRIORITY_MATRIX } from "@/lib/priorityPlaybook";
 import {
   BookOpen,
   Shield,
@@ -23,6 +24,52 @@ import {
   Clock,
   RefreshCw,
 } from "lucide-react";
+
+function PriorityPlaybookContent() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
+      <section className="rounded-lg border border-border bg-card shadow-sm">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Target className="h-4 w-4 text-primary" />Priority matrix</h2>
+          <p className="mt-1 text-sm text-muted-foreground">The first matching level controls the response.</p>
+        </div>
+        <div className="divide-y divide-border">
+          {PRIORITY_MATRIX.map((item) => (
+            <div key={item.level} className="grid gap-2 px-5 py-4 sm:grid-cols-[100px_minmax(0,1fr)]">
+              <div><p className={`text-sm font-semibold ${item.tone}`}>{item.level}</p><p className="text-xs text-muted-foreground">{item.name}</p></div>
+              <div><p className="text-sm text-foreground">{item.trigger}</p><p className="mt-1 text-xs text-muted-foreground">{item.response}</p></div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="flex flex-col gap-4">
+        <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Clock className="h-4 w-4 text-primary" />Execution order</h2>
+          <ol className="mt-4 space-y-3">
+            {EXECUTION_ORDER.map((item, index) => (
+              <li key={item} className="flex gap-3 text-sm leading-relaxed text-foreground"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-xs font-semibold">{index + 1}</span><span>{item}</span></li>
+            ))}
+          </ol>
+        </section>
+
+        <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><AlertTriangle className="h-4 w-4 text-primary" />Classifier reference</h2>
+          <Accordion type="single" collapsible className="mt-3">
+            <AccordionItem value="classifier" className="border-0">
+              <AccordionTrigger className="py-2 text-sm">Seven decision questions</AccordionTrigger>
+              <AccordionContent>
+                <ol className="space-y-2 text-xs leading-relaxed text-muted-foreground">
+                  {PRIORITY_CLASSIFIER_QUESTIONS.map((item, index) => <li key={item.question}><span className="font-semibold text-foreground">{index + 1}.</span> {item.question}</li>)}
+                </ol>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </section>
+      </div>
+    </div>
+  );
+}
 
 // ── Guidelines sub-tab ──────────────────────────────────────────────────────
 function GuidelinesContent() {
@@ -457,11 +504,15 @@ export default function StandardsTab() {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
       <div className="border-b border-border pb-4"><h1 className="text-xl font-semibold text-foreground">Standards</h1><p className="mt-1 text-sm text-muted-foreground">Open reference guidance only when the current task needs it.</p></div>
-    <Tabs defaultValue="guidelines" className="space-y-4">
-      <TabsList className="grid h-10 w-full max-w-xl grid-cols-2">
+    <Tabs defaultValue="priority" className="space-y-4">
+      <TabsList className="grid h-auto w-full max-w-2xl grid-cols-1 sm:h-10 sm:grid-cols-3">
+        <TabsTrigger value="priority" className="text-sm font-medium flex items-center gap-1.5">
+          <Target className="w-3.5 h-3.5" />
+          Priority playbook
+        </TabsTrigger>
         <TabsTrigger value="guidelines" className="text-sm font-medium flex items-center gap-1.5">
           <BookOpen className="w-3.5 h-3.5" />
-          Priority playbook
+          Work guidelines
         </TabsTrigger>
         <TabsTrigger value="rules" className="text-sm font-medium flex items-center gap-1.5">
           <Shield className="w-3.5 h-3.5" />
@@ -469,6 +520,10 @@ export default function StandardsTab() {
           <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0">360</Badge>
         </TabsTrigger>
       </TabsList>
+
+      <TabsContent value="priority">
+        <PriorityPlaybookContent />
+      </TabsContent>
 
       <TabsContent value="guidelines">
         <GuidelinesContent />

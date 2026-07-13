@@ -3,7 +3,6 @@ import {
   buildEmptyPlan,
   durationMinutes,
   formatDuration,
-  isPlannerAuthError,
   plannerErrorMessage,
   todayInEat,
   type DailyPlanBlock,
@@ -52,9 +51,4 @@ describe("Plan My Day model", () => {
     expect(plannerErrorMessage("No APTLSS plans")).toContain("generate card plans first");
   });
 
-  it("recognizes both local and tRPC authentication failures", () => {
-    expect(isPlannerAuthError("Please login")).toBe(true);
-    expect(isPlannerAuthError("UNAUTHORIZED")).toBe(true);
-    expect(isPlannerAuthError("Database unavailable")).toBe(false);
-  });
 });

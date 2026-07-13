@@ -4,7 +4,15 @@ import { getOperationalExceptionCounts } from "./operationalContext";
 describe("operational exception counts", () => {
   it("uses live Trello as the shared cross-workspace truth", () => {
     expect(getOperationalExceptionCounts(
-      { overdueCards: [1, 2], doingCards: [{ updatedToday: false }, { updatedToday: true }], onHoldCards: [1] },
+      {
+        overdueCards: [{ id: "overdue" }, { id: "shared-doing" }],
+        doingCards: [
+          { id: "doing", updatedToday: false },
+          { id: "shared-doing", updatedToday: false },
+          { id: "updated", updatedToday: true },
+        ],
+        onHoldCards: [{ id: "on-hold" }, { id: "overdue" }],
+      },
       { criticalToday: [1, 2, 3], waitingExternal: [1, 2, 3], onHoldCards: [{ onHoldClassification: "needs_escalation" }, { onHoldClassification: "needs_escalation" }] },
     )).toEqual({ critical: 2, waiting: 1, blocked: 1, source: "live" });
   });

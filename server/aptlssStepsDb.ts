@@ -14,6 +14,7 @@ import {
   InsertPriorityScore,
 } from "../drizzle/schema";
 import { eq, and, inArray, desc, sql } from "drizzle-orm";
+import { inferNonRobertStepCategory, stepRequiresRobertApproval } from "./aptlssApproval";
 
 // ─── aptlss_steps ─────────────────────────────────────────────────────────────
 
@@ -123,6 +124,36 @@ export async function getAllRobertDecisionSteps() {
     .orderBy(desc(aptlssSteps.createdAt));
 }
 
+/** Repair legacy rows where a sensitive word in the card title promoted every step to a Robert decision. */
+export async function repairRobertDecisionStepFlags(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const candidates = await db
+    .select()
+    .from(aptlssSteps)
+    .where(and(eq(aptlssSteps.requiresRobert, true), eq(aptlssSteps.status, "open")));
+  let repaired = 0;
+  for (const step of candidates) {
+    const knownOperationalFallback = /^(?:Extract|Add clear|Identify|Complete|Verify|Post or prepare)\b/i.test(step.title)
+      && !step.recommendedDecision?.trim();
+    const stillRequiresRobert = !knownOperationalFallback && stepRequiresRobertApproval({
+      title: step.title,
+      completionCriteria: step.completionCriteria,
+      category: step.category,
+      requiresRobert: step.requiresRobert,
+      recommendedDecision: step.recommendedDecision,
+    }, { trustCategory: false, trustExplicit: false });
+    if (stillRequiresRobert) continue;
+    await db.update(aptlssSteps).set({
+      requiresRobert: false,
+      category: inferNonRobertStepCategory(step.title),
+      recommendedDecision: null,
+    }).where(eq(aptlssSteps.id, step.id));
+    repaired++;
+  }
+  return repaired;
+}
+
 /** Mark a step as complete by its Trello check-item ID. */
 export async function completeStepByCheckItemId(
   trelloCheckItemId: string
@@ -165,6 +196,37 @@ export async function uncompleteStepByCheckItemId(
     .where(eq(aptlssSteps.trelloCheckItemId, trelloCheckItemId));
 }
 
+/** Set a current step's completion state from the Power-Up card view. */
+export async function setStepCompletionByCardAndNumber(
+  cardId: string,
+  stepNumber: number,
+  complete: boolean,
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db
+    .select({ id: aptlssSteps.id })
+    .from(aptlssSteps)
+    .where(and(
+      eq(aptlssSteps.cardId, cardId),
+      eq(aptlssSteps.stepNumber, stepNumber),
+      inArray(aptlssSteps.status, ["open", "complete"]),
+    ))
+    .orderBy(desc(aptlssSteps.updatedAt))
+    .limit(1);
+  if (!rows[0]) return false;
+
+  await db
+    .update(aptlssSteps)
+    .set({
+      status: complete ? "complete" : "open",
+      completedAt: complete ? new Date() : null,
+      lastSyncedAt: new Date(),
+    })
+    .where(eq(aptlssSteps.id, rows[0].id));
+  return true;
+}
+
 /** Mark a Robert-required step as resolved (removes from Decision Queue). */
 export async function resolveRobertStep(stepId: number): Promise<void> {
   const db = await getDb();
@@ -196,8 +258,21 @@ export async function getCardStepProgress(cardId: string) {
 export async function upsertCardState(state: InsertCardState): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  await db.delete(cardStates).where(eq(cardStates.cardId, state.cardId));
-  await db.insert(cardStates).values(state);
+  await db.insert(cardStates).values(state).onDuplicateKeyUpdate({
+    set: {
+      cardName: state.cardName ?? "",
+      boardName: state.boardName ?? "",
+      listName: state.listName ?? "",
+      state: state.state ?? "NEW_UNTRIAGED",
+      stateReason: state.stateReason ?? null,
+      daysSinceProgress: state.daysSinceProgress ?? 0,
+      hasUnansweredQuestion: state.hasUnansweredQuestion ?? false,
+      isOverdue: state.isOverdue ?? false,
+      checklistComplete: state.checklistComplete ?? false,
+      hasFinalSummary: state.hasFinalSummary ?? false,
+      calculatedAt: state.calculatedAt ?? new Date(),
+    },
+  });
 }
 
 /** Get the current state for a card (null if never computed). */
@@ -227,10 +302,18 @@ export async function upsertPriorityScore(
 ): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  await db
-    .delete(priorityScores)
-    .where(eq(priorityScores.cardId, score.cardId));
-  await db.insert(priorityScores).values(score);
+  await db.insert(priorityScores).values(score).onDuplicateKeyUpdate({
+    set: {
+      cardName: score.cardName ?? "",
+      score: score.score ?? 0,
+      breakdown: score.breakdown ?? null,
+      tier: score.tier ?? "MEDIUM",
+      estimatedRemainingMinutes: score.estimatedRemainingMinutes ?? 0,
+      openSteps: score.openSteps ?? 0,
+      completedSteps: score.completedSteps ?? 0,
+      calculatedAt: score.calculatedAt ?? new Date(),
+    },
+  });
 }
 
 /** Get the priority score for a card (null if never computed). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessAptlssCard } from "./aptlssAssessment";
+import { assessAptlssCard, assessmentNeedsRefresh } from "./aptlssAssessment";
 import type { TrelloCardContext } from "./aptlssEngine";
 import { interpretWaitingReason } from "./aptlssWaitingReason";
 
@@ -28,6 +28,25 @@ function context(overrides: Partial<TrelloCardContext> = {}): TrelloCardContext 
 }
 
 const steps = [{ status: "open", category: "internal_work", requiresRobert: false, estimatedMinutes: 45, completionCriteria: "Launch package exists", riskIfSkipped: "Client deadline is missed" }];
+
+describe("APTLSS assessment scheduling", () => {
+  const previous = {
+    lastEvaluatedAt: "2026-07-10T11:00:00.000Z",
+    nextAssessmentAt: "2026-07-10T14:00:00.000Z",
+  };
+
+  it("refreshes new, forced, changed, and due assessments", () => {
+    expect(assessmentNeedsRefresh({}, null, { nowMs: NOW })).toBe(true);
+    expect(assessmentNeedsRefresh({}, previous, { force: true, nowMs: NOW })).toBe(true);
+    expect(assessmentNeedsRefresh({ dateLastActivity: "2026-07-10T11:30:00.000Z" }, previous, { nowMs: NOW })).toBe(true);
+    expect(assessmentNeedsRefresh({}, { ...previous, nextAssessmentAt: "2026-07-10T12:00:00.000Z" }, { nowMs: NOW })).toBe(true);
+  });
+
+  it("defers unchanged cards until their next assessment window", () => {
+    expect(assessmentNeedsRefresh({ dateLastActivity: "2026-07-10T10:00:00.000Z" }, previous, { nowMs: NOW })).toBe(false);
+    expect(assessmentNeedsRefresh({}, previous, { nowMs: NOW })).toBe(false);
+  });
+});
 
 describe("APTLSS evidence assessment", () => {
   it("classifies an inbound question as waiting for Joyce", () => {
@@ -89,6 +108,48 @@ describe("APTLSS evidence assessment", () => {
     expect(changed.contextHash).not.toBe(first.contextHash);
   });
 
+  it("uses linked Gmail and Drive evidence in confidence, risk, and the context hash", () => {
+    const externalEvidence = {
+      total: 2,
+      sourceCounts: { gmail: 1, google_drive: 1, trello: 0 },
+      highConfidenceLinks: 2,
+      latestObservedAt: "2026-07-10T11:30:00.000Z",
+      items: [
+        {
+          source: "gmail" as const,
+          sourceId: "message-1",
+          title: "Acme launch approval required",
+          summary: "Approval is required before the deadline.",
+          contentSnippet: "Please approve the final launch copy.",
+          sourceUrl: "https://mail.google.com/thread-1",
+          modifiedAt: "2026-07-10T11:30:00.000Z",
+          observedAt: "2026-07-10T11:30:00.000Z",
+          relevanceScore: 92,
+          matchReason: "Full card name appears in the source",
+        },
+        {
+          source: "google_drive" as const,
+          sourceId: "file-1",
+          title: "Acme launch brief",
+          summary: "Final approved copy and launch constraints.",
+          contentSnippet: "Deadline Friday.",
+          sourceUrl: "https://drive.google.com/open?id=file-1",
+          modifiedAt: "2026-07-10T11:00:00.000Z",
+          observedAt: "2026-07-10T11:00:00.000Z",
+          relevanceScore: 98,
+          matchReason: "Explicit source identifier match",
+        },
+      ],
+    };
+    const linked = assessAptlssCard({ ctx: context(), steps, externalEvidence, nowMs: NOW });
+    const unlinked = assessAptlssCard({ ctx: context(), steps, nowMs: NOW });
+    expect(linked.evidenceCoverage).toMatchObject({ gmailContext: true, driveContext: true, crossSourceLinks: true });
+    expect(linked.secondarySignals).toEqual(expect.arrayContaining(["gmail_context_linked", "drive_context_linked", "cross_source_risk_signal"]));
+    expect(linked.priorityBreakdown.crossSourceRisk).toBe(6);
+    expect(linked.contextHash).not.toBe(unlinked.contextHash);
+    expect(linked.externalEvidence.total).toBe(2);
+  });
+
   it("recalibrates confidence from a credible human-review sample", () => {
     const baseline = assessAptlssCard({ ctx: context(), steps, nowMs: NOW });
     const calibrated = assessAptlssCard({
@@ -106,6 +167,36 @@ describe("APTLSS evidence assessment", () => {
     expect(result.forecast.calibrationSampleSize).toBe(0);
     expect(result.confidenceScore).toBeLessThanOrEqual(88);
     expect(result.confidenceReason).toContain("not yet applied");
+    expect(result.confidenceProfile).toMatchObject({ targetScore: 99, ceiling: 88, eligibleForNearCertainty: false });
+    expect(result.confidenceProfile.blockers).toEqual(expect.arrayContaining([
+      expect.stringContaining("fully timed"),
+      expect.stringContaining("empirical validation"),
+    ]));
+  });
+
+  it("allows near-certainty only after forecast and human validation gates are satisfied", () => {
+    const result = assessAptlssCard({
+      ctx: context(),
+      steps,
+      nowMs: NOW,
+      forecast: {
+        rawEstimatedRemainingMinutes: 45,
+        calibratedP50Minutes: 45,
+        calibratedP90Minutes: 58,
+        calibrationFactor: 1,
+        calibrationSampleSize: 6,
+        uncertainty: "low",
+      },
+      calibration: { sampleSize: 10, accuracyScore: 100, byState: {} },
+    });
+    expect(result.confidenceScore).toBeGreaterThanOrEqual(99);
+    expect(result.confidenceProfile).toMatchObject({
+      targetScore: 99,
+      ceiling: 100,
+      gapToTarget: 0,
+      eligibleForNearCertainty: true,
+      blockers: [],
+    });
   });
 
   it("uses exact VA waiting evidence as the authoritative state and next action", () => {

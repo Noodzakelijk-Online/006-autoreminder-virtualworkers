@@ -182,7 +182,7 @@ export function buildAptlssRuntimeAnalysis({
       activeTimerMinutes: activeTimer ? Math.max(0, Math.round((nowMs - (dateMs(activeTimer.startedAt) ?? nowMs)) / 60_000)) : 0,
       replyStatus: reply?.status ?? null,
       replyAgeHours: replyAgeHours == null ? null : Math.round(replyAgeHours * 10) / 10,
-      replyOverdue: Boolean(reply && (reply.status === "overdue" || (reply.status === "pending" && (replyAgeHours ?? 0) >= 24))),
+      replyOverdue: Boolean(reply && (reply.status === "overdue" || (reply.status === "pending" && (replyAgeHours ?? 0) >= 12))),
       openDecisionAgeHours: openDecisionAgeHours == null ? null : Math.round(openDecisionAgeHours * 10) / 10,
       decisionStale: (openDecisionAgeHours ?? 0) >= 24,
       scheduledToday: blocks.length > 0,

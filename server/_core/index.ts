@@ -3,7 +3,6 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -16,9 +15,10 @@ import { registerScheduledGmailScanRoute } from "../scheduledGmailScan";
 import { registerScheduledAptlssMaintenanceRoute } from "../scheduledAptlssMaintenance";
 import { registerScheduledWeeklyAnalysisRoute } from "../scheduledWeeklyAnalysis";
 import { startCronJobs } from "../cronJobs";
-import { getSystemHealth } from "./systemRouter";
-import { isOwnerLoginDisabled } from "./localAuthUser";
-import { assertOwnerBypassHost, displayServerHost, resolveServerHost } from "./serverBinding";
+import { registerGmailOauthRoutes } from "../gmailOauth";
+import { startGmailIngestionScheduler } from "../gmailIngestion";
+import { getSystemHealth, getSystemLiveness } from "./systemRouter";
+import { displayServerHost, resolveServerHost } from "./serverBinding";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -42,9 +42,17 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
+  app.disable("x-powered-by");
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    next();
+  });
+
+  const requestBodyLimit = process.env.REQUEST_BODY_LIMIT?.trim() || "2mb";
   app.use(express.json({
-    limit: "50mb",
+    limit: requestBodyLimit,
     verify: (req, _res, buf) => {
       const expressReq = req as express.Request & { rawBody?: string };
       if (expressReq.originalUrl?.startsWith("/api/trello/webhook")) {
@@ -52,8 +60,11 @@ async function startServer() {
       }
     },
   }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  app.get("/api/health", async (_req, res) => {
+  app.use(express.urlencoded({ limit: requestBodyLimit, extended: true }));
+  app.get("/api/health", (_req, res) => {
+    res.json(getSystemLiveness());
+  });
+  app.get("/api/readiness", async (_req, res) => {
     try {
       const health = await getSystemHealth({ probeDatabase: true, probeTrello: true });
       res.status(health.ok ? 200 : 503).json(health);
@@ -61,7 +72,7 @@ async function startServer() {
       res.status(503).json({
         ok: false,
         status: "blocked",
-        summary: error instanceof Error ? error.message : "Health check failed.",
+        summary: error instanceof Error ? error.message : "Readiness check failed.",
         checkedAt: new Date().toISOString(),
         uptimeSeconds: Math.round(process.uptime()),
         nodeEnv: process.env.NODE_ENV || "development",
@@ -100,8 +111,7 @@ async function startServer() {
     authorizeUrl.searchParams.set("key", apiKey);
     res.redirect(authorizeUrl.toString());
   });
-  // OAuth callback under /api/oauth/callback
-  registerOAuthRoutes(app);
+  registerGmailOauthRoutes(app);
 
   // Server-Sent Events — frontend subscribes for instant Trello invalidation
   registerSseRoute(app);
@@ -138,7 +148,6 @@ async function startServer() {
   }
 
   const host = resolveServerHost(process.env.HOST, process.env.NODE_ENV);
-  assertOwnerBypassHost(host, isOwnerLoginDisabled());
 
   server.listen(port, host, () => {
     const displayHost = displayServerHost(host);
@@ -147,6 +156,10 @@ async function startServer() {
     registerTrelloWebhooksForAllBoards().catch(console.error);
     // Start server-side cron jobs (midnight auto-stop, etc.)
     startCronJobs();
+    // Gmail is pulled directly by this process at the interval selected in Settings.
+    startGmailIngestionScheduler().catch((error) => {
+      console.error("[GmailIngestion] Scheduler failed to start:", error);
+    });
   });
 }
 

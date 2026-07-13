@@ -1,17 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import axios from "axios";
-import { getSystemHealth, getSystemReadiness } from "./systemRouter";
+import { getSystemHealth, getSystemLiveness, getSystemReadiness } from "./systemRouter";
 
 vi.mock("axios", () => ({
   default: {
     get: vi.fn(),
+    head: vi.fn(),
     isAxiosError: vi.fn((error) => Boolean(error?.isAxiosError)),
   },
   get: vi.fn(),
+  head: vi.fn(),
   isAxiosError: vi.fn((error) => Boolean(error?.isAxiosError)),
 }));
 
 describe("system readiness", () => {
+  beforeEach(() => {
+    vi.stubEnv("OPENAI_API_KEY", "");
+    vi.stubEnv("APTLSS_MODEL_DISCOVERY_ENABLED", "false");
+    vi.mocked(axios.head).mockResolvedValue({ status: 200 });
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.clearAllMocks();
@@ -21,12 +29,6 @@ describe("system readiness", () => {
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("TrelloAPIKey", "");
     vi.stubEnv("TrelloAPIToken", "");
-    vi.stubEnv("JWT_SECRET", "");
-    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
-    vi.stubEnv("OWNER_OPEN_ID", "");
-    vi.stubEnv("OAUTH_SERVER_URL", "");
-    vi.stubEnv("LOCAL_AUTH_TOKEN", "");
-    vi.stubEnv("LOCAL_AUTH_OPEN_ID", "");
     vi.stubEnv("SCHEDULED_TASK_SECRET", "");
     vi.stubEnv("TRELLO_POWERUP_API_KEY", "");
     vi.stubEnv("TRELLO_POWERUP_SECRET", "");
@@ -58,17 +60,12 @@ describe("system readiness", () => {
         expect.objectContaining({
           id: "ai-planner-key",
           status: "warning",
-          action: expect.stringContaining("BUILT_IN_FORGE_API_KEY"),
+          action: expect.stringContaining("account-visible OpenAI models automatically"),
         }),
         expect.objectContaining({
           id: "trello-powerup-api-key",
           status: "warning",
           action: expect.stringContaining("TRELLO_POWERUP_API_KEY"),
-        }),
-        expect.objectContaining({
-          id: "owner-open-id",
-          status: "warning",
-          message: expect.stringContaining("locked closed"),
         }),
         expect.objectContaining({
           id: "scheduled-task-secret",
@@ -94,12 +91,7 @@ describe("system readiness", () => {
     vi.stubEnv("DATABASE_URL", "mysql://user:pass@example.test/db");
     vi.stubEnv("TrelloAPIKey", "secret-value");
     vi.stubEnv("TrelloAPIToken", "secret-value");
-    vi.stubEnv("JWT_SECRET", "secret-value");
-    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "secret-value");
-    vi.stubEnv("OWNER_OPEN_ID", "");
-    vi.stubEnv("OAUTH_SERVER_URL", "");
-    vi.stubEnv("LOCAL_AUTH_TOKEN", "secret-value");
-    vi.stubEnv("LOCAL_AUTH_OPEN_ID", "joyce-local");
+    vi.stubEnv("OPENAI_API_KEY", "secret-value");
     vi.stubEnv("SCHEDULED_TASK_SECRET", "secret-value");
     vi.stubEnv("TRELLO_POWERUP_API_KEY", "secret-value");
     vi.stubEnv("TRELLO_POWERUP_SECRET", "secret-value");
@@ -124,10 +116,6 @@ describe("system readiness", () => {
     expect(readiness.items.find((item) => item.id === "ai-planner-key")).toMatchObject({
       status: "ready",
     });
-    expect(readiness.items.find((item) => item.id === "oauth-server")).toMatchObject({
-      status: "ready",
-      message: expect.stringContaining("Local owner login"),
-    });
     expect(readiness.items.find((item) => item.id === "scheduled-task-secret")).toMatchObject({
       status: "ready",
     });
@@ -142,50 +130,11 @@ describe("system readiness", () => {
     expect(JSON.stringify(readiness)).not.toContain("secret-value");
   });
 
-  it("reports the temporary local login bypass as intentional development access", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    vi.stubEnv("DATABASE_URL", "mysql://user:pass@example.test/db");
-    vi.stubEnv("TrelloAPIKey", "secret-value");
-    vi.stubEnv("TrelloAPIToken", "secret-value");
-    vi.stubEnv("JWT_SECRET", "secret-value");
-    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "secret-value");
-    vi.stubEnv("OWNER_OPEN_ID", "");
-    vi.stubEnv("OAUTH_SERVER_URL", "");
-    vi.stubEnv("LOCAL_AUTH_TOKEN", "");
-    vi.stubEnv("LOCAL_AUTH_OPEN_ID", "");
-    vi.stubEnv("JOYCE_DISABLE_OWNER_LOGIN", "true");
-    vi.stubEnv("SCHEDULED_TASK_SECRET", "secret-value");
-    vi.stubEnv("TRELLO_POWERUP_API_KEY", "secret-value");
-    vi.stubEnv("TRELLO_POWERUP_SECRET", "secret-value");
-    vi.stubEnv("TRELLO_WEBHOOK_CALLBACK_URL", "");
-    vi.stubEnv("TRELLO_WEBHOOK_SECRET", "");
-
-    const readiness = await getSystemReadiness({ probeDatabase: false, probeTrello: false });
-
-    expect(readiness.ok).toBe(true);
-    expect(readiness.items.find((item) => item.id === "owner-open-id")).toMatchObject({
-      status: "warning",
-      message: expect.stringContaining("JOYCE_DISABLE_OWNER_LOGIN"),
-      action: expect.stringContaining("before production"),
-    });
-    expect(readiness.items.find((item) => item.id === "oauth-server")).toMatchObject({
-      status: "warning",
-      message: expect.stringContaining("bypassing the owner login"),
-      action: expect.stringContaining("restore login"),
-    });
-    expect(JSON.stringify(readiness)).not.toContain("secret-value");
-  });
-
   it("probes live Trello access when credentials are configured", async () => {
     vi.stubEnv("DATABASE_URL", "mysql://user:pass@example.test/db");
     vi.stubEnv("TrelloAPIKey", "secret-value");
     vi.stubEnv("TrelloAPIToken", "secret-value");
-    vi.stubEnv("JWT_SECRET", "secret-value");
-    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "secret-value");
-    vi.stubEnv("OWNER_OPEN_ID", "");
-    vi.stubEnv("OAUTH_SERVER_URL", "");
-    vi.stubEnv("LOCAL_AUTH_TOKEN", "secret-value");
-    vi.stubEnv("LOCAL_AUTH_OPEN_ID", "joyce-local");
+    vi.stubEnv("OPENAI_API_KEY", "secret-value");
     vi.stubEnv("SCHEDULED_TASK_SECRET", "secret-value");
     vi.stubEnv("TRELLO_POWERUP_API_KEY", "secret-value");
     vi.stubEnv("TRELLO_POWERUP_SECRET", "secret-value");
@@ -216,12 +165,7 @@ describe("system readiness", () => {
     vi.stubEnv("DATABASE_URL", "mysql://user:pass@example.test/db");
     vi.stubEnv("TrelloAPIKey", "secret-value");
     vi.stubEnv("TrelloAPIToken", "secret-value");
-    vi.stubEnv("JWT_SECRET", "secret-value");
-    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "secret-value");
-    vi.stubEnv("OWNER_OPEN_ID", "");
-    vi.stubEnv("OAUTH_SERVER_URL", "");
-    vi.stubEnv("LOCAL_AUTH_TOKEN", "secret-value");
-    vi.stubEnv("LOCAL_AUTH_OPEN_ID", "joyce-local");
+    vi.stubEnv("OPENAI_API_KEY", "secret-value");
     vi.stubEnv("SCHEDULED_TASK_SECRET", "secret-value");
     vi.stubEnv("TRELLO_POWERUP_API_KEY", "secret-value");
     vi.stubEnv("TRELLO_POWERUP_SECRET", "secret-value");
@@ -248,9 +192,7 @@ describe("system readiness", () => {
     vi.stubEnv("DATABASE_URL", "mysql://user:pass@example.test/db");
     vi.stubEnv("TrelloAPIKey", "secret-value");
     vi.stubEnv("TrelloAPIToken", "secret-value");
-    vi.stubEnv("JWT_SECRET", "secret-value");
-    vi.stubEnv("LOCAL_AUTH_TOKEN", "secret-value");
-    vi.stubEnv("LOCAL_AUTH_OPEN_ID", "joyce-local");
+    vi.stubEnv("OPENAI_API_KEY", "secret-value");
     vi.mocked(axios.get).mockRejectedValueOnce({ isAxiosError: true, response: { status: 429 } });
 
     const readiness = await getSystemReadiness({ probeDatabase: false, probeTrello: true });
@@ -268,12 +210,6 @@ describe("system readiness", () => {
     vi.stubEnv("DATABASE_URL", "");
     vi.stubEnv("TrelloAPIKey", "secret-value");
     vi.stubEnv("TrelloAPIToken", "secret-value");
-    vi.stubEnv("JWT_SECRET", "");
-    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
-    vi.stubEnv("OWNER_OPEN_ID", "");
-    vi.stubEnv("OAUTH_SERVER_URL", "");
-    vi.stubEnv("LOCAL_AUTH_TOKEN", "");
-    vi.stubEnv("LOCAL_AUTH_OPEN_ID", "");
     vi.stubEnv("SCHEDULED_TASK_SECRET", "");
     vi.stubEnv("TRELLO_POWERUP_API_KEY", "");
     vi.stubEnv("TRELLO_POWERUP_SECRET", "");
@@ -288,5 +224,15 @@ describe("system readiness", () => {
     expect(health.counts.blocked).toBeGreaterThan(0);
     expect(health).not.toHaveProperty("items");
     expect(JSON.stringify(health)).not.toContain("secret-value");
+  });
+
+  it("returns process liveness without probing external services", () => {
+    const health = getSystemLiveness();
+
+    expect(health.ok).toBe(true);
+    expect(health.status).toBe("ready");
+    expect(health.summary).toContain("running");
+    expect(axios.get).not.toHaveBeenCalled();
+    expect(axios.head).not.toHaveBeenCalled();
   });
 });

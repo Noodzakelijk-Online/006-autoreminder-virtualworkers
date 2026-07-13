@@ -26,6 +26,7 @@ import {
   Zap,
   Pause,
   ArrowRight,
+  ArrowLeft,
   Users,
   Wrench,
   History,
@@ -427,12 +428,15 @@ function BucketSection({
   batchActions?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [visibleCount, setVisibleCount] = useState(5);
   if (count === 0) return null;
 
   return (
     <div className="rounded-xl border border-border overflow-hidden">
       <button
         onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        aria-label={`${open ? "Collapse" : "Expand"} ${title}`}
         className={`w-full flex items-center gap-3 p-4 ${colorClass} hover:opacity-90 transition-opacity`}
       >
         <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
@@ -450,7 +454,7 @@ function BucketSection({
       {open && (
         <div className="p-4 space-y-2 bg-background">
           {batchActions && <div className="mb-3">{batchActions}</div>}
-          {cards.map(card => (
+          {cards.slice(0, visibleCount).map(card => (
             <CardRow
               key={card.cardId}
               card={card}
@@ -463,6 +467,18 @@ function BucketSection({
               onDraftUpdate={onDraftUpdate}
             />
           ))}
+          {visibleCount < cards.length && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full text-xs"
+              onClick={() => setVisibleCount(current => current + 5)}
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+              Show {Math.min(5, cards.length - visibleCount)} more
+            </Button>
+          )}
         </div>
       )}
     </div>
@@ -625,9 +641,9 @@ export default function PriorityCommandCenter() {
         <div className="container py-3">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-2">
-              <Link href="/robert">
-                <Button variant="ghost" size="sm" className="h-7 text-xs">← Back</Button>
-              </Link>
+              <Button asChild variant="ghost" size="sm" className="h-7 text-xs">
+                <Link href="/robert"><ArrowLeft className="h-3 w-3" />Back</Link>
+              </Button>
               <h1 className="text-sm font-semibold text-foreground">Priority Command Center</h1>
               {isFetching && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
             </div>
@@ -662,11 +678,11 @@ export default function PriorityCommandCenter() {
               <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => refetch()}>
                 <RefreshCw className="w-3 h-3 mr-1" /> Refresh
               </Button>
-              <Link href="/admin">
-                <Button variant="outline" size="sm" className="h-7 text-xs">
+              <Button asChild variant="outline" size="sm" className="h-7 text-xs">
+                <Link href="/admin">
                   <Shield className="w-3 h-3 mr-1" /> Admin
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </div>
@@ -802,7 +818,7 @@ export default function PriorityCommandCenter() {
           defaultOpen={true}
           selectedIds={selectedIds}
           onToggleSelect={toggleSelect}
-          onDraftUpdate={(id, name) => batchDraftUpdates.mutate({ cardIds: [id], autoPost: false })}
+          onDraftUpdate={(id) => batchDraftUpdates.mutate({ cardIds: [id], autoPost: false })}
         />
 
         {/* ── Bucket 2: Ready to Act ────────────────────────────────────────── */}
@@ -816,7 +832,7 @@ export default function PriorityCommandCenter() {
           defaultOpen={true}
           selectedIds={selectedIds}
           onToggleSelect={toggleSelect}
-          onDraftUpdate={(id, name) => batchDraftUpdates.mutate({ cardIds: [id], autoPost: false })}
+          onDraftUpdate={(id) => batchDraftUpdates.mutate({ cardIds: [id], autoPost: false })}
           batchActions={
             (data?.readyToAct.length ?? 0) > 0 ? (
               <Button

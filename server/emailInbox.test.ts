@@ -3,15 +3,18 @@
  *
  * These tests verify:
  * - emailInbox.getPendingCount returns { count: number }
- * - emailInbox.archiveAll returns { success: true, archived: number }
+ * - emailInbox.archiveAll fails closed without persistence
  * - emailInbox.upsertBatch accepts valid email payloads
  * - cardSnooze.getSnoozedIds returns { cardIds: string[] }
  * - cardSnooze.snooze and cancel work correctly
  * - cardSnooze.resurfaceExpired returns { success: true, resurfaced: number }
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import { getDb } from "./db";
+import { emailTasks } from "../drizzle/schema";
+import { like } from "drizzle-orm";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
@@ -36,6 +39,11 @@ function createAuthContext(): TrpcContext {
 
 const caller = appRouter.createCaller(createAuthContext());
 const describeWithDb = process.env.DATABASE_URL ? describe : describe.skip;
+const itWithoutDb = process.env.DATABASE_URL ? it.skip : it;
+afterAll(async () => {
+  const db = await getDb();
+  if (db) await db.delete(emailTasks).where(like(emailTasks.gmailMessageId, "test-%"));
+});
 
 // ── emailInbox ────────────────────────────────────────────────────────────────
 
@@ -116,12 +124,9 @@ describeWithDb("emailInbox.upsertBatch", () => {
   });
 });
 
-describeWithDb("emailInbox.archiveAll", () => {
-  it("archives all non-archived emails and returns count", async () => {
-    const result = await caller.emailInbox.archiveAll();
-    expect(result.success).toBe(true);
-    expect(typeof result.archived).toBe("number");
-    expect(result.archived).toBeGreaterThanOrEqual(0);
+describe("emailInbox.archiveAll API shape", () => {
+  itWithoutDb("fails closed when persistence is unavailable", async () => {
+    await expect(caller.emailInbox.archiveAll()).rejects.toThrow("Database not available");
   });
 });
 

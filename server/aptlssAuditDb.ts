@@ -66,6 +66,22 @@ export async function countRecentActions(hours = 24): Promise<number> {
   return rows[0]?.count ?? 0;
 }
 
+/** Count actual calls to one LLM provider since a timestamp. Null means persistence is unavailable. */
+export async function countLlmProviderAttempts(providerId: string, since: Date): Promise<number | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const providerMarker = `%\"providerId\":\"${providerId}\"%`;
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(aptlssAuditLog)
+    .where(and(
+      eq(aptlssAuditLog.action, "llm_provider_call"),
+      gte(aptlssAuditLog.createdAt, since),
+      sql`${aptlssAuditLog.payload} LIKE ${providerMarker}`,
+    ));
+  return rows[0]?.count ?? 0;
+}
+
 /** Prune audit log entries older than 90 days. */
 export async function pruneOldAuditLog(): Promise<number> {
   const db = await getDb();

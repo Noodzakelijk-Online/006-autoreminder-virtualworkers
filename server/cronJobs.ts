@@ -5,16 +5,11 @@
  * Registered once at server startup via `startCronJobs()`.
  */
 import cron from "node-cron";
-import { autoStopAllRunningTimers, upsertComplianceSnapshot, getWeeklyPayLogByWeek, getOnHoldChecksByDate } from "./db";
+import { getWeeklyPayLogByWeek } from "./db";
 import { notifyOwner } from "./_core/notification";
-import { getJoyceCards, getJoyceCommentedCardIdsToday, isDoingList, isOnHoldList } from "./trello";
-import { scanTrelloReplyThreads, REPLY_DEADLINE_MS, VAGUE_CORRECTION_WINDOW_MS } from "./replyMonitor";
+import { scanTrelloReplyThreads } from "./replyMonitor";
 import { runUpworkReplyMonitorScan } from "./upworkMonitor";
-import { getAllAptlssPlans } from "./aptlssDb";
-import { getAllCardStates, getAllPriorityScores } from "./aptlssStepsDb";
-import { upsertWeeklyAnalysis } from "./aptlssPoliciesDb";
-import { invokeLLM } from "./_core/llm";
-import { buildComplianceEvidence } from "./complianceEvidence";
+import { factCheckComplianceHistory } from "./complianceHistoryFactCheck";
 import { runAptlssMaintenance } from "./scheduledAptlssMaintenance";
 import {
   upsertReplyThread,
@@ -23,7 +18,12 @@ import {
   markReplyMonitorScanFailed,
   markReplyMonitorScanStarted,
   markReplyMonitorScanSucceeded,
+  resolveSystemGeneratedUnsignedFlags,
 } from "./replyMonitorDb";
+import { runTrackedJob, type JobTrigger } from "./scheduledJobsDb";
+import { broadcast } from "./sse";
+import { autoStopManagedTimers } from "./timerService";
+import { runWeeklyAnalysis as runSharedWeeklyAnalysis } from "./weeklyAnalysisService";
 
 /**
  * Midnight auto-stop: every day at 00:00 EAT (UTC+3 = 21:00 UTC previous day).
@@ -33,7 +33,7 @@ import {
 async function runMidnightAutoStop() {
   console.log("[CronJob] Running midnight auto-stop timers…");
   try {
-    const stopped = await autoStopAllRunningTimers(12 * 3600);
+    const stopped = await autoStopManagedTimers(12 * 3600);
 
     if (stopped.length === 0) {
       console.log("[CronJob] No running timers found — nothing to stop.");
@@ -62,6 +62,7 @@ async function runMidnightAutoStop() {
     console.log(`[CronJob] Auto-stopped ${stopped.length} timer(s) and notified owner.`);
   } catch (err) {
     console.error("[CronJob] Midnight auto-stop failed:", err);
+    throw err;
   }
 }
 
@@ -70,50 +71,34 @@ async function runMidnightAutoStop() {
  * Fetches live Trello state, computes compliance %, and saves the daily snapshot.
  * Skips on Sundays (Joyce's day off).
  */
-async function runEODComplianceSnapshot() {
+export type EodComplianceResult = {
+  status: "completed" | "skipped";
+  dateKey: string;
+  detail: string;
+  recordsProcessed: number;
+};
+
+export async function runEODComplianceSnapshot(now = new Date()): Promise<EodComplianceResult> {
   const eatOffsetMs = 3 * 60 * 60 * 1000;
-  const nowEAT = new Date(Date.now() + eatOffsetMs);
+  const nowEAT = new Date(now.getTime() + eatOffsetMs);
+  const todayEAT = nowEAT.toISOString().slice(0, 10);
   // Skip Sundays
   if (nowEAT.getDay() === 0) {
     console.log("[CronJob] EOD compliance snapshot skipped — Sunday.");
-    return;
+    return {
+      status: "skipped",
+      dateKey: todayEAT,
+      detail: "Sunday is Joyce's protected day; no compliance snapshot is required.",
+      recordsProcessed: 0,
+    };
   }
-  const todayEAT = nowEAT.toISOString().slice(0, 10);
   console.log(`[CronJob] Running EOD compliance snapshot for ${todayEAT}…`);
   try {
-    const apiKey = process.env.TrelloAPIKey;
-    const apiToken = process.env.TrelloAPIToken;
-    if (!apiKey || !apiToken) {
-      console.warn("[CronJob] EOD compliance snapshot skipped — Trello credentials not configured.");
-      return;
-    }
-    const [allCards, commentedCardIds, onHoldChecks] = await Promise.all([
-      getJoyceCards(apiKey, apiToken),
-      getJoyceCommentedCardIdsToday(apiKey, apiToken),
-      getOnHoldChecksByDate(todayEAT),
-    ]);
-    const doingCards = allCards.filter(c => c.list && isDoingList(c.list.name));
-    const onHoldCards = allCards.filter(c => c.list && isOnHoldList(c.list.name));
-    const checkedOnHoldIds = new Set(onHoldChecks.filter((item) => item.checked).map((item) => item.cardId));
-    const evidence = buildComplianceEvidence({ doingCards, onHoldCards, commentedCardIds, reviewedOnHoldIds: checkedOnHoldIds });
-    const { doingUpdated, doingMissed, onHoldReviewed, onHoldMissed, compliancePct } = evidence;
-    const onHoldReviewedCount = onHoldReviewed.length;
-    const d1Instances = evidence.potentialD1Instances;
-    const estimatedPenalty = evidence.estimatedReviewImpact;
-    await upsertComplianceSnapshot({
-      snapshotDate: todayEAT,
-      onHoldTotal: onHoldCards.length,
-      onHoldReviewed: onHoldReviewedCount,
-      onHoldMissedCards: onHoldMissed.map(c => ({ id: c.id, name: c.name, url: c.url })),
-      doingTotal: doingCards.length,
-      doingUpdated: doingUpdated.length,
-      doingMissedCards: doingMissed.map(c => ({ id: c.id, name: c.name, url: c.url })),
-      d1Instances,
-      estimatedPenalty,
-      source: "auto",
-      weeklyPayLogId: null,
-    });
-    const summary = `${compliancePct}% compliance — ${doingUpdated.length}/${doingCards.length} DOING updated, ${onHoldReviewedCount}/${onHoldCards.length} ON-HOLD reviewed${d1Instances > 0 ? `, ${d1Instances} potential D1 exception${d1Instances > 1 ? 's' : ''} (review impact: $${estimatedPenalty})` : ''}`;
+    const checked = await factCheckComplianceHistory({ dateKeys: [todayEAT], source: "auto_verified", now });
+    const result = checked.results[0];
+    const d1Instances = result.doingTotal - result.doingUpdated;
+    const estimatedPenalty = d1Instances * 5;
+    const summary = `${result.compliancePct}% verified compliance — ${result.doingUpdated}/${result.doingTotal} DOING updated, ${result.onHoldReviewed}/${result.onHoldTotal} ON-HOLD reviewed${d1Instances > 0 ? `, ${d1Instances} potential D1 exception${d1Instances > 1 ? 's' : ''} (review impact: $${estimatedPenalty})` : ''}`;
     console.log(`[CronJob] EOD compliance snapshot saved: ${summary}`);
 
     if (d1Instances > 0) {
@@ -124,15 +109,34 @@ async function runEODComplianceSnapshot() {
           `• ${summary}`,
           "",
           "Missed DOING cards:",
-          ...doingMissed.map(c => `• ${c.name} — ${c.url}`),
+          ...result.doingMissedCards.map(c => `• ${c.name} — ${c.url}`),
           "",
           "No pay adjustment was made automatically. Review the evidence in Time & Pay.",
         ].join("\n"),
       });
     }
+    return {
+      status: "completed",
+      dateKey: todayEAT,
+      detail: summary,
+      recordsProcessed: result.evidenceCount,
+    };
   } catch (err) {
     console.error("[CronJob] EOD compliance snapshot failed:", err);
+    throw err;
   }
+}
+
+export function runEodComplianceJob(trigger: JobTrigger = "manual") {
+  return runTrackedJob({
+    jobKey: "eod_compliance",
+    trigger,
+    run: () => runEODComplianceSnapshot(),
+    summarize: (result) => ({
+      recordsProcessed: result.recordsProcessed,
+      detail: result.detail,
+    }),
+  });
 }
 
 /**
@@ -200,6 +204,7 @@ async function runFridayWeeklyPaySummary() {
     console.log(`[CronJob] Friday weekly pay summary sent. Projected: $${projected.toFixed(2)}`);
   } catch (err) {
     console.error("[CronJob] Friday weekly pay summary failed:", err);
+    throw err;
   }
 }
 
@@ -226,14 +231,15 @@ async function executeReplyMonitorScan({ sendNotifications = false }: { sendNoti
   await markReplyMonitorScanStarted();
   if (!apiKey || !apiToken) {
     await markReplyMonitorScanFailed(new Error("Trello API credentials are not configured."));
+    broadcast("scan-complete");
     console.warn("[ReplyMonitor] Trello API credentials not configured — skipping scan.");
     return;
   }
 
   console.log("[ReplyMonitor] Starting Trello reply-thread scan…");
   try {
+    await resolveSystemGeneratedUnsignedFlags();
     const threads = await scanTrelloReplyThreads(apiKey, apiToken);
-    const now = Date.now();
     const newOverdueCards: string[] = [];
     const newVagueFlags: Array<{ cardName: string; cardUrl: string; text: string }> = [];
     const newUnsignedMessages: Array<{ cardName: string; cardUrl: string; text: string }> = [];
@@ -354,108 +360,70 @@ async function executeReplyMonitorScan({ sendNotifications = false }: { sendNoti
     }
 
     await markReplyMonitorScanSucceeded(threads.length);
+    broadcast("scan-complete");
     console.log(`[ReplyMonitor] Scan complete. ${threads.length} Trello threads scanned, ${newOverdueCards.length} newly overdue, ${newVagueFlags.length} new vague flags, ${newUnsignedMessages.length} new unsigned flags.`);
   } catch (err) {
     console.error("[ReplyMonitor] Scan failed:", err);
     await markReplyMonitorScanFailed(err).catch((statusError) => {
       console.error("[ReplyMonitor] Failed to persist scan failure:", statusError);
     });
+    broadcast("scan-complete");
+    throw err;
   }
 }
 
-/**
- * Weekly analysis: every Sunday at 19:00 UTC (22:00 EAT).
- * Finds stalled cards, recurring blockers, estimate drift, list-hoppers, unclear scope.
- * Generates LLM process improvement suggestions and saves snapshot to DB.
- */
-function getISOWeekKey(date: Date): string {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const weekNo = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
-}
-
-async function runWeeklyAnalysis() {
-  console.log("[CronJob] Running weekly APTLSS analysis…");
-  try {
-    const weekKey = getISOWeekKey(new Date());
-    const [cardStates, plans, priorityScores] = await Promise.all([
-      getAllCardStates(),
-      getAllAptlssPlans(),
-      getAllPriorityScores(),
-    ]);
-    const noProgressCards = cardStates
-      .filter(cs => cs.state === "STALLED" || cs.state === "IN_PROGRESS")
-      .map(cs => { const plan = plans.find(p => p.cardId === cs.cardId); return { cardId: cs.cardId, cardName: plan?.cardName ?? cs.cardId, state: cs.state }; });
-    const blockedPlans = plans.filter(p => { try { return (JSON.parse(p.planJson) as Record<string, unknown>).isBlocked === true; } catch { return false; } });
-    const blockerReasons: Record<string, string[]> = {};
-    for (const p of blockedPlans) {
-      try { const plan = JSON.parse(p.planJson) as Record<string, unknown>; const reason = (plan.blockedReason as string) ?? "Unknown"; const key = reason.slice(0, 60); if (!blockerReasons[key]) blockerReasons[key] = []; blockerReasons[key].push(p.cardName); } catch { /* skip */ }
-    }
-    const recurringBlockers = Object.entries(blockerReasons).filter(([, cards]) => cards.length >= 2).map(([reason, cards]) => ({ reason, cards, count: cards.length }));
-    const overdueCards = cardStates.filter(cs => cs.state === "OVERDUE");
-    const estimateDrift = overdueCards.map(cs => { const plan = plans.find(p => p.cardId === cs.cardId); const score = priorityScores.find(s => s.cardId === cs.cardId); return { cardId: cs.cardId, cardName: plan?.cardName ?? cs.cardId, priorityScore: score?.score ?? 0, tier: score?.tier ?? "MEDIUM" }; });
-    const restructuringCards = cardStates.filter(cs => cs.state === "NEEDS_RESTRUCTURING");
-    const underperformingWorkers = restructuringCards.length > 0 ? [{ signal: "NEEDS_RESTRUCTURING", count: restructuringCards.length, cards: restructuringCards.map(cs => cs.cardId) }] : [];
-    const waitingCards = cardStates.filter(cs => cs.state === "WAITING_FOR_ROBERT" || cs.state === "WAITING_FOR_EXTERNAL_PARTY");
-    const listHoppers = waitingCards.map(cs => { const plan = plans.find(p => p.cardId === cs.cardId); return { cardId: cs.cardId, cardName: plan?.cardName ?? cs.cardId, state: cs.state }; });
-    const unclearScopeProjects = restructuringCards.map(cs => { const plan = plans.find(p => p.cardId === cs.cardId); return { cardId: cs.cardId, cardName: plan?.cardName ?? cs.cardId }; });
-    let processImprovements: string[] = [];
-    try {
-      const context = `Weekly APTLSS Analysis:\n- Stalled: ${noProgressCards.length}\n- Recurring blockers: ${recurringBlockers.length}\n- Overdue: ${estimateDrift.length}\n- Needs restructuring: ${restructuringCards.length}\n- Waiting: ${waitingCards.length}\n- Total: ${cardStates.length}`;
-      const llmResponse = await invokeLLM({ messages: [{ role: "system", content: "You are an operations analyst. Based on the weekly Trello work analysis, suggest 3-5 specific, actionable process improvements. Return a JSON object with an \"improvements\" array of strings." }, { role: "user", content: context }], response_format: { type: "json_schema", json_schema: { name: "process_improvements", strict: true, schema: { type: "object", properties: { improvements: { type: "array", items: { type: "string" } } }, required: ["improvements"], additionalProperties: false } } } });
-      const rawContent = llmResponse?.choices?.[0]?.message?.content;
-      const content = typeof rawContent === "string" ? rawContent : null;
-      if (content) { const parsed = JSON.parse(content) as { improvements: string[] }; processImprovements = parsed.improvements ?? []; }
-    } catch { /* LLM failure is non-fatal */ }
-    const summary = `Week ${weekKey}: ${cardStates.length} active cards. ${noProgressCards.length} stalled, ${overdueCards.length} overdue, ${recurringBlockers.length} recurring blocker patterns, ${restructuringCards.length} needing restructuring.`;
-    await upsertWeeklyAnalysis({ weekKey, noProgressCards: JSON.stringify(noProgressCards), recurringBlockers: JSON.stringify(recurringBlockers), estimateDrift: JSON.stringify(estimateDrift), underperformingWorkers: JSON.stringify(underperformingWorkers), listHoppers: JSON.stringify(listHoppers), unclearScopeProjects: JSON.stringify(unclearScopeProjects), processImprovements: JSON.stringify(processImprovements), summary });
-    await notifyOwner({ title: `📊 Weekly APTLSS Analysis — ${weekKey}`, content: summary + (processImprovements.length > 0 ? `\n\nProcess improvements:\n${processImprovements.map(i => `• ${i}`).join("\n")}` : "") });
-    console.log(`[CronJob] Weekly analysis complete: ${summary}`);
-  } catch (err) {
-    console.error("[CronJob] Weekly analysis failed:", err);
-  }
+/** Record ordinary cron jobs that do not own their own single-flight ledger. */
+function launchTrackedCron<T>(jobKey: string, run: () => Promise<T>, summarize?: (result: T) => { recordsProcessed?: number; detail?: string }) {
+  void runTrackedJob({ jobKey, trigger: "cron", run, summarize }).catch((error) => {
+    console.error(`[CronJob] ${jobKey} failed:`, error instanceof Error ? error.message : String(error));
+  });
 }
 
 export function startCronJobs() {
   // Hourly evidence sweep. The shared maintenance runner coalesces overlaps
   // with manual or externally scheduled runs and performs no Trello writes.
-  cron.schedule("15 * * * *", () => {
-    void runAptlssMaintenance("scheduled").catch((error) => {
-      console.error("[CronJob] Continuous APTLSS assessment failed:", error);
+  cron.schedule("7 * * * *", () => {
+    void runAptlssMaintenance("scheduled", "cron").catch((error) => {
+      console.error("[CronJob] aptlss_maintenance failed:", error instanceof Error ? error.message : String(error));
     });
   }, { timezone: "UTC" });
-  console.log("[CronJob] Continuous APTLSS assessment scheduled (hourly at :15 UTC).");
+  console.log("[CronJob] Continuous APTLSS assessment scheduled (hourly at :07 UTC).");
 
   // 21:00 UTC = 00:00 EAT (UTC+3)
   // cron format: second minute hour day month weekday
-  cron.schedule("0 21 * * *", runMidnightAutoStop, {
+  cron.schedule("0 21 * * *", () => launchTrackedCron("timer_auto_stop", runMidnightAutoStop), {
     timezone: "UTC",
   });
   console.log("[CronJob] Midnight auto-stop timer scheduled (21:00 UTC = 00:00 EAT).");
 
-  // 19:30 UTC = 22:30 EAT — EOD compliance snapshot
-  cron.schedule("30 19 * * *", runEODComplianceSnapshot, {
+  // 20:05 UTC = 23:05 EAT — verify after the 23:00 daily update deadline.
+  cron.schedule("5 20 * * *", () => {
+    void runEodComplianceJob("cron").catch((error) => {
+      console.error("[CronJob] eod_compliance failed:", error instanceof Error ? error.message : String(error));
+    });
+  }, {
     timezone: "UTC",
   });
-  console.log("[CronJob] EOD compliance snapshot scheduled (19:30 UTC = 22:30 EAT).");
+  console.log("[CronJob] EOD compliance fact-check scheduled (20:05 UTC = 23:05 EAT).");
 
   // 18:00 UTC = 21:00 EAT — Friday weekly pay summary notification
-  cron.schedule("0 18 * * 5", runFridayWeeklyPaySummary, {
+  cron.schedule("0 18 * * 5", () => launchTrackedCron("weekly_pay_summary", runFridayWeeklyPaySummary), {
     timezone: "UTC",
   });
   console.log("[CronJob] Friday weekly pay summary scheduled (18:00 UTC = 21:00 EAT every Friday).");
 
-  // Every 12 hours — Trello reply-thread monitor (08:00 UTC + 20:00 UTC)
-  cron.schedule("0 8,20 * * *", () => runReplyMonitorScan({ sendNotifications: true }), {
+  // Every 15 minutes so the 12-hour SLA and 30-minute freshness check agree.
+  cron.schedule("*/15 * * * *", () => launchTrackedCron("reply_monitor", () => runReplyMonitorScan({ sendNotifications: true })), {
     timezone: "UTC",
   });
-  console.log("[CronJob] Reply monitor scheduled (every 12 hours: 08:00 UTC + 20:00 UTC).");
+  console.log("[CronJob] Reply monitor scheduled every 15 minutes.");
 
   // 19:00 UTC = 22:00 EAT — Sunday weekly analysis
-  cron.schedule("0 19 * * 0", runWeeklyAnalysis, {
+  cron.schedule("0 19 * * 0", () => {
+    void runSharedWeeklyAnalysis("cron", { force: false, notify: true }).catch((error) => {
+      console.error("[CronJob] weekly_analysis failed:", error instanceof Error ? error.message : String(error));
+    });
+  }, {
     timezone: "UTC",
   });
   console.log("[CronJob] Weekly analysis scheduled (19:00 UTC every Sunday = 22:00 EAT).");

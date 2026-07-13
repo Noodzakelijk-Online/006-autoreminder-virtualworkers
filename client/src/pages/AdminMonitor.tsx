@@ -10,7 +10,6 @@
  *   - Failed recommendations (low-confidence escalations)
  */
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,7 +23,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  ExternalLink,
   Loader2,
   RefreshCw,
   Shield,
@@ -122,19 +120,16 @@ function readinessTone(status: "ready" | "warning" | "blocked") {
 }
 
 export default function AdminMonitor() {
-  const { user, loading: authLoading } = useAuth();
   const utils = trpc.useUtils();
-  const adminQueriesEnabled = Boolean(user) && !authLoading;
-  const { data, isLoading, isFetching, refetch, error } = trpc.aptlss.getAdminMonitor.useQuery(undefined, {
-    enabled: adminQueriesEnabled,
+  const { data, isFetching, refetch } = trpc.aptlss.getAdminMonitor.useQuery(undefined, {
     retry: false,
     staleTime: 2 * 60_000,
-    refetchInterval: adminQueriesEnabled ? 5 * 60_000 : false,
+    refetchInterval: 5 * 60_000,
   });
 
   const { data: recentAudit } = trpc.aptlss.getRecentAuditLog.useQuery(
     { limit: 100 },
-    { enabled: adminQueriesEnabled, retry: false, staleTime: 2 * 60_000 }
+    { retry: false, staleTime: 2 * 60_000 }
   );
   const {
     data: readiness,
@@ -187,34 +182,6 @@ export default function AdminMonitor() {
   const [showFullSyncLog, setShowFullSyncLog] = useState(false);
   const [showFullAuditLog, setShowFullAuditLog] = useState(false);
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mx-auto" />
-          <p className="text-sm text-muted-foreground">Loading admin monitor…</p>
-        </div>
-      </div>
-    );
-  }
-  // Access denied — not the owner
-  if (error?.data?.code === 'FORBIDDEN' || error?.data?.code === 'UNAUTHORIZED' || (user && !authLoading && error)) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-4 max-w-sm">
-          <Shield className="w-12 h-12 text-muted-foreground mx-auto" />
-          <h1 className="text-lg font-semibold text-foreground">Access Restricted</h1>
-          <p className="text-sm text-muted-foreground">Admin monitoring is only accessible to the project owner.</p>
-          <Link href="/robert">
-            <Button variant="outline" size="sm">
-              <ArrowLeft className="w-3 h-3 mr-1" /> Back to Dashboard
-            </Button>
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   const syncStats = data?.syncStats;
   const lastSync = data?.lastSync;
   const webhookStatus = data?.webhookStatus;
@@ -232,11 +199,10 @@ export default function AdminMonitor() {
   const assessmentHealth = data?.assessmentHealth;
   const calibration = data?.calibration;
   const assessmentReviewQueue = (data?.assessmentReviewQueue ?? []) as AssessmentReviewItem[];
+  const latestJobRuns = data?.latestJobRuns ?? [];
   const refreshMonitor = () => {
     void refetchReadiness();
-    if (adminQueriesEnabled) {
-      void refetch();
-    }
+    void refetch();
   };
 
   return (
@@ -244,24 +210,24 @@ export default function AdminMonitor() {
       {/* Header */}
       <div className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border">
         <div className="container py-3">
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div className="flex items-center gap-2">
-              <Link href="/robert">
-                <Button variant="ghost" size="sm" className="h-7 text-xs">
-                  <ArrowLeft className="w-3 h-3 mr-1" /> Back
-                </Button>
-              </Link>
+              <Button asChild variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+                <Link href="/robert" aria-label="Back to Robert's dashboard" title="Back to Robert's dashboard">
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                </Link>
+              </Button>
               <Shield className="w-4 h-4 text-muted-foreground" />
               <h1 className="text-sm font-semibold text-foreground">Admin Monitor</h1>
               {isFetching && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <Button
                 variant="outline"
                 size="sm"
                 className="h-7 text-xs"
                 onClick={() => runMaintenance.mutate()}
-                disabled={!adminQueriesEnabled || runMaintenance.isPending}
+                disabled={runMaintenance.isPending}
                 title="Run APTLSS maintenance now"
               >
                 {runMaintenance.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Zap className="w-3 h-3 mr-1" />}
@@ -354,29 +320,16 @@ export default function AdminMonitor() {
           </CardContent>
         </Card>
         {/* ── Sync Health Stats ─────────────────────────────────────────────── */}
-        {!adminQueriesEnabled && (
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-start gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-                <Shield className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-                <div>
-                  <p className="text-sm font-medium text-foreground">Owner monitor data is locked.</p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Production readiness is public, but sync logs, automation history, and approval details load only after an owner session is available.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
         <Card>
           <CardContent className="p-4">
             <SectionTitle icon={<BarChart2 className="h-3.5 w-3.5 text-blue-500" />} title="APTLSS Intelligence Health" />
-            <div className="grid grid-cols-2 divide-x divide-y divide-border border border-border sm:grid-cols-4 sm:divide-y-0">
+            <div className="grid grid-cols-2 divide-x divide-y divide-border border border-border sm:grid-cols-6 sm:divide-y-0">
               {[
                 ["Assessed", assessmentHealth?.assessedCards ?? 0, `${assessmentHealth?.unassessedCards ?? 0} unassessed`],
                 ["Fresh", assessmentHealth?.freshCards ?? 0, `${assessmentHealth?.dueForAssessment ?? 0} due now`],
                 ["Confidence", `${assessmentHealth?.averageConfidence ?? 0}%`, `${assessmentHealth?.lowConfidenceCards ?? 0} below 60%`],
+                ["Near certainty", assessmentHealth?.nearCertaintyCards ?? 0, `at least ${assessmentHealth?.nearCertaintyTarget ?? 99}%`],
+                ["Plan coverage", `${assessmentHealth?.planCoveragePct ?? 0}%`, `${assessmentHealth?.planCount ?? 0} plans`],
                 ["Engine", assessmentHealth?.engineVersion ?? "-", `${assessmentHealth?.outdatedEngineCards ?? 0} outdated`],
               ].map(([label, value, detail]) => (
                 <div key={label} className="min-w-0 px-3 py-3 first:pl-3">
@@ -399,13 +352,46 @@ export default function AdminMonitor() {
                 </div>
               ))}
             </div>
+            <div className="mt-3 border border-border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold text-foreground">Path to {assessmentHealth?.nearCertaintyTarget ?? 99}% validated confidence</p>
+                <Badge variant="outline">{assessmentHealth?.nearCertaintyCards ?? 0} cards qualified</Badge>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {assessmentHealth?.humanReviewsRemaining ?? 10} assessment review(s) and {assessmentHealth?.forecastSamplesRemaining ?? 2} fully timed completed card(s) remain before the engine can claim near-certainty. These gates use observed outcomes; they are not model self-ratings.
+              </p>
+            </div>
             <p className="mt-3 text-xs text-muted-foreground">
               Confidence combines Trello evidence, dependencies, tracked work, reply and decision age, schedule state, and forecast uncertainty. Validated accuracy is calculated only from human-reviewed snapshots.
             </p>
           </CardContent>
         </Card>
-        {adminQueriesEnabled && (
-          <Card>
+        <Card>
+          <CardContent className="p-4">
+            <SectionTitle icon={<Clock className="h-3.5 w-3.5 text-blue-500" />} title="Scheduled Job Freshness" />
+            {latestJobRuns.length === 0 ? (
+              <p className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                No durable job executions have been recorded yet. Apply migrations and let the scheduler complete its first cycle.
+              </p>
+            ) : (
+              <div className="divide-y divide-border border border-border">
+                {latestJobRuns.map((run) => (
+                  <div key={run.jobKey} className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium text-foreground">{run.jobKey.replaceAll("_", " ")}</p>
+                        <Badge variant="outline">{run.status}</Badge>
+                      </div>
+                      <p className="mt-1 truncate text-xs text-muted-foreground">{run.detail || run.errorMessage || `${run.recordsProcessed} records processed`}</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{new Date(run.startedAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
             <CardContent className="p-4">
               <SectionTitle icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />} title="Assessment Review Queue" />
               {assessmentReviewQueue.length === 0 ? (
@@ -464,8 +450,7 @@ export default function AdminMonitor() {
                 Reviews calibrate measured accuracy only. They do not modify Trello cards or rewrite historical snapshots.
               </p>
             </CardContent>
-          </Card>
-        )}
+        </Card>
         <Dialog open={Boolean(correctionItem)} onOpenChange={(open) => { if (!open) setCorrectionItem(null); }}>
           <DialogContent>
             <DialogHeader>

@@ -4,6 +4,24 @@ import { describe, expect, it, vi } from "vitest";
 import { WorkQueueDashboard } from "./WorkQueueDashboard";
 import type { WorkQueueSourceData } from "@/lib/workQueue";
 
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    aptlss: {
+      getWorkQueueContext: { useQuery: vi.fn(() => ({ data: undefined })) },
+      getCardAuditLog: { useQuery: vi.fn(() => ({ data: [] })) },
+      getDailyPlan: { useQuery: vi.fn(() => ({ data: undefined })) },
+      getDecisionQueue: { useQuery: vi.fn(() => ({ data: { items: [] } })) },
+    },
+    timer: {
+      getDailySummary: { useQuery: vi.fn(() => ({ data: [] })) },
+      getActive: { useQuery: vi.fn(() => ({ data: null })) },
+    },
+    system: {
+      readiness: { useQuery: vi.fn(() => ({ data: undefined })) },
+    },
+  },
+}));
+
 const sourceData: WorkQueueSourceData = {
   overdueCards: [
     {
@@ -49,6 +67,7 @@ function renderDashboard(overrides: Partial<React.ComponentProps<typeof WorkQueu
       activeTimerCardId: null,
       timerBusy: false,
       onNavigate: vi.fn(),
+      onOpenPlan: vi.fn(),
       onStartTimer: vi.fn(),
       ...overrides,
     }),
@@ -98,6 +117,9 @@ describe("WorkQueueDashboard", () => {
     });
 
     expect(loadingHtml).toContain("animate-pulse");
+    expect(loadingHtml).not.toContain("Next up (0)");
+    expect(loadingHtml).not.toContain("0 cards need attention");
+    expect(loadingHtml).not.toContain("No more queued items");
     expect(errorHtml).toContain("Work queue unavailable");
     expect(errorHtml).toContain("Trello request failed");
   });
@@ -120,5 +142,19 @@ describe("WorkQueueDashboard", () => {
     expect(html).toContain("Waiting on Sarah");
     expect(html).toContain("Waiting</button>");
     expect(html).not.toContain("Start timer");
+  });
+
+  it("keeps Sunday visible but requires an explicit emergency start", () => {
+    const html = renderDashboard({ protectedDay: true });
+
+    expect(html).toContain("protected day off");
+    expect(html).toContain("Start emergency timer");
+  });
+
+  it("makes an active timer switch explicit", () => {
+    const html = renderDashboard({ activeTimerCardId: "another-card", activeTimerCardName: "Existing work" });
+
+    expect(html).toContain("Switch timer");
+    expect(html).not.toContain(">Start timer</button>");
   });
 });

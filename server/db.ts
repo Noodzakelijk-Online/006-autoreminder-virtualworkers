@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import { complianceCardEvidence, InsertUser, users } from "../drizzle/schema";
+import { addDaysToDateKey, dateKeyInEat, eatDateRangeUtc, eatDateSpanUtc } from "../shared/eatTime";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -55,9 +55,6 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     if (user.role !== undefined) {
       values.role = user.role;
       updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
     }
 
     if (!values.lastSignedIn) {
@@ -89,12 +86,12 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
 
 // ─── Payment Cycles ───────────────────────────────────────────────────────────
 
 import { paymentCycles, weeklyPayLog, dailyTriageState } from "../drizzle/schema";
 import { desc, asc } from "drizzle-orm";
+const PAYMENT_CYCLE_LOCK_KEY = "payment_cycle_lock";
 
 export async function getAllPaymentCycles() {
   const db = await getDb();
@@ -114,49 +111,99 @@ export async function getCurrentPaymentCycle() {
   return all[0] ?? null;
 }
 
-export async function markCycleAsPaid(cycleId: number, paidByOpenId: string) {
+export function buildCurrentPaymentCycleRange(dateKey = dateKeyInEat()) {
+  const dayOfWeek = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
+  const cycleEnd = addDaysToDateKey(dateKey, (5 - dayOfWeek + 7) % 7);
+  return { cycleStart: addDaysToDateKey(cycleEnd, -13), cycleEnd };
+}
+
+export function buildNextPaymentCycleRange(currentCycleEnd: string) {
+  const cycleStart = addDaysToDateKey(currentCycleEnd, 1);
+  let cycleEnd = addDaysToDateKey(cycleStart, 13);
+  while (new Date(`${cycleEnd}T00:00:00Z`).getUTCDay() !== 5) {
+    cycleEnd = addDaysToDateKey(cycleEnd, 1);
+  }
+  return { cycleStart, cycleEnd };
+}
+
+/** Explicitly bootstrap the first unpaid cycle without creating duplicates. */
+export async function initializeCurrentPaymentCycle(baseAmount = "90.00") {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  const lockKey = PAYMENT_CYCLE_LOCK_KEY;
+  await db.insert(appSettings).values({ key: lockKey, value: "initialize_payment_cycle" }).onDuplicateKeyUpdate({
+    set: { value: sql`value` },
+  });
 
-  await db
-    .update(paymentCycles)
-    .set({ isPaid: true, paidAt: new Date(), paidBy: paidByOpenId })
-    .where(eq(paymentCycles.id, cycleId));
-
-  // Auto-create the next cycle (2 weeks after current cycleEnd, ending on a Friday)
-  const cycle = await db
-    .select()
-    .from(paymentCycles)
-    .where(eq(paymentCycles.id, cycleId))
-    .limit(1);
-
-  if (cycle[0]) {
-    const currentEnd = new Date(cycle[0].cycleEnd);
-    const nextStart = new Date(currentEnd);
-    nextStart.setDate(nextStart.getDate() + 1);
-    const nextEnd = new Date(nextStart);
-    nextEnd.setDate(nextEnd.getDate() + 13); // 14-day cycle
-
-    // Advance to next Friday
-    while (nextEnd.getDay() !== 5) {
-      nextEnd.setDate(nextEnd.getDate() + 1);
-    }
-
-    const existingUnpaid = await db
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM app_settings WHERE ${appSettings.key} = ${lockKey} FOR UPDATE`);
+    const [existing] = await tx
       .select()
       .from(paymentCycles)
       .where(eq(paymentCycles.isPaid, false))
+      .orderBy(asc(paymentCycles.cycleStart))
       .limit(1);
+    if (existing) return existing;
 
-    if (existingUnpaid.length === 0) {
-      await db.insert(paymentCycles).values([{
-        cycleStart: nextStart.toISOString().slice(0, 10) as unknown as Date,
-        cycleEnd: nextEnd.toISOString().slice(0, 10) as unknown as Date,
-        baseAmount: "90.00",
-        isPaid: false,
-      }]);
-    }
-  }
+    const range = buildCurrentPaymentCycleRange();
+    const [result] = await tx.insert(paymentCycles).values([{
+      cycleStart: range.cycleStart as unknown as Date,
+      cycleEnd: range.cycleEnd as unknown as Date,
+      baseAmount,
+      isPaid: false,
+    }]);
+    return {
+      id: (result as { insertId: number }).insertId,
+      cycleStart: range.cycleStart,
+      cycleEnd: range.cycleEnd,
+      baseAmount,
+      isPaid: false,
+      paidAt: null,
+      paidBy: null,
+      notes: null,
+    };
+  });
+}
+
+export async function markCycleAsPaid(cycleId: number, paidByOpenId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB not available");
+  const lockKey = PAYMENT_CYCLE_LOCK_KEY;
+  await db.insert(appSettings).values({ key: lockKey, value: "payment_cycle_transition" }).onDuplicateKeyUpdate({
+    set: { value: sql`value` },
+  });
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM app_settings WHERE ${appSettings.key} = ${lockKey} FOR UPDATE`);
+    const [cycle] = await tx.select().from(paymentCycles).where(eq(paymentCycles.id, cycleId)).limit(1);
+    if (!cycle) throw new Error("Payment cycle not found");
+    if (cycle.isPaid) throw new Error("Payment cycle is already marked paid");
+
+    await tx
+      .update(paymentCycles)
+      .set({ isPaid: true, paidAt: new Date(), paidBy: paidByOpenId })
+      .where(eq(paymentCycles.id, cycleId));
+
+    const [existingUnpaid] = await tx
+      .select()
+      .from(paymentCycles)
+      .where(eq(paymentCycles.isPaid, false))
+      .orderBy(asc(paymentCycles.cycleStart))
+      .limit(1);
+    if (existingUnpaid) return { success: true, nextCycleCreated: false };
+
+    const currentEnd = cycle.cycleEnd instanceof Date
+      ? cycle.cycleEnd.toISOString().slice(0, 10)
+      : String(cycle.cycleEnd).slice(0, 10);
+    const next = buildNextPaymentCycleRange(currentEnd);
+    await tx.insert(paymentCycles).values([{
+      cycleStart: next.cycleStart as unknown as Date,
+      cycleEnd: next.cycleEnd as unknown as Date,
+      baseAmount: "90.00",
+      isPaid: false,
+    }]);
+    return { success: true, nextCycleCreated: true };
+  });
 }
 
 // ─── Weekly Pay Log ───────────────────────────────────────────────────────────
@@ -209,8 +256,6 @@ export async function upsertWeeklyPayLog(data: {
     data.demeritD9 * 15 + data.demeritD10 * 15 + data.demeritD11 * 15;
   const projectedPay = Math.max(0, 90 - totalDemerits + totalMerits);
 
-  const existing = await getWeeklyPayLogByWeek(data.weekStart);
-
   const payload = {
     weekStart: data.weekStart as unknown as Date,
     weekEnd: data.weekEnd as unknown as Date,
@@ -237,13 +282,10 @@ export async function upsertWeeklyPayLog(data: {
     notes: data.notes ?? null,
   };
 
-  if (existing) {
-    await db.update(weeklyPayLog).set(payload).where(eq(weeklyPayLog.id, existing.id));
-    return { ...existing, ...payload, id: existing.id };
-  } else {
-    const [result] = await db.insert(weeklyPayLog).values([payload]);
-    return { id: (result as any).insertId, ...payload };
-  }
+  await db.insert(weeklyPayLog).values([payload]).onDuplicateKeyUpdate({ set: payload });
+  const saved = await getWeeklyPayLogByWeek(data.weekStart);
+  if (!saved) throw new Error("Weekly pay log was not saved");
+  return saved;
 }
 
 // ─── Daily Triage State ───────────────────────────────────────────────────────
@@ -344,148 +386,13 @@ export async function upsertSundayChecklist(
 // ─── Daily Action Alert Tracking ─────────────────────────────────────────────
 
 import {
-  dailyDueDateAssignments,
-  dailyCardUpdates,
   onHoldDailyChecks,
 } from "../drizzle/schema";
 import { and } from "drizzle-orm";
 
 // ── Due Date Assignments ──────────────────────────────────────────────────────
 
-/**
- * Get or create a due-date assignment record for a specific card on a specific date.
- * Returns the existing record if found, or a new (unsaved) default if not.
- */
-export async function getDueDateAssignment(cardId: string, date: string) {
-  const db = await getDb();
-  if (!db) return null;
-  const rows = await db
-    .select()
-    .from(dailyDueDateAssignments)
-    .where(
-      and(
-        eq(dailyDueDateAssignments.cardId, cardId),
-        sql`DATE_FORMAT(${dailyDueDateAssignments.date}, '%Y-%m-%d') = ${date}`
-      )
-    )
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-/**
- * Get all due-date assignment records for a specific date.
- */
-export async function getDueDateAssignmentsByDate(date: string) {
-  const db = await getDb();
-  if (!db) return [];
-  return db
-    .select()
-    .from(dailyDueDateAssignments)
-    .where(sql`DATE_FORMAT(${dailyDueDateAssignments.date}, '%Y-%m-%d') = ${date}`);
-}
-
-/**
- * Mark a card's due date as assigned for today (upsert).
- */
-export async function markDueDateAssigned(
-  cardId: string,
-  cardName: string,
-  cardUrl: string,
-  date: string,
-  completed: boolean
-) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-
-  const existing = await getDueDateAssignment(cardId, date);
-  const now = completed ? new Date() : null;
-
-  if (existing) {
-    await db
-      .update(dailyDueDateAssignments)
-      .set({ completed, completedAt: now })
-      .where(eq(dailyDueDateAssignments.id, existing.id));
-    return { ...existing, completed, completedAt: now };
-  } else {
-    const [result] = await db.insert(dailyDueDateAssignments).values([{
-      cardId,
-      cardName,
-      cardUrl,
-      date: date as unknown as Date,
-      completed,
-      completedAt: now,
-    }]);
-    return { id: (result as any).insertId, cardId, cardName, cardUrl, date, completed, completedAt: now };
-  }
-}
-
 // ── Daily Card Updates ────────────────────────────────────────────────────────
-
-/**
- * Get a daily card update record for a specific card on a specific date.
- */
-export async function getDailyCardUpdate(cardId: string, date: string) {
-  const db = await getDb();
-  if (!db) return null;
-  const rows = await db
-    .select()
-    .from(dailyCardUpdates)
-    .where(
-      and(
-        eq(dailyCardUpdates.cardId, cardId),
-        sql`DATE_FORMAT(${dailyCardUpdates.date}, '%Y-%m-%d') = ${date}`
-      )
-    )
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-/**
- * Get all daily card update records for a specific date.
- */
-export async function getDailyCardUpdatesByDate(date: string) {
-  const db = await getDb();
-  if (!db) return [];
-  return db
-    .select()
-    .from(dailyCardUpdates)
-    .where(sql`DATE_FORMAT(${dailyCardUpdates.date}, '%Y-%m-%d') = ${date}`);
-}
-
-/**
- * Mark a card as updated for today (upsert).
- */
-export async function markCardUpdated(
-  cardId: string,
-  cardName: string,
-  cardUrl: string,
-  date: string,
-  completed: boolean
-) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-
-  const existing = await getDailyCardUpdate(cardId, date);
-  const now = completed ? new Date() : null;
-
-  if (existing) {
-    await db
-      .update(dailyCardUpdates)
-      .set({ completed, completedAt: now })
-      .where(eq(dailyCardUpdates.id, existing.id));
-    return { ...existing, completed, completedAt: now };
-  } else {
-    const [result] = await db.insert(dailyCardUpdates).values([{
-      cardId,
-      cardName,
-      cardUrl,
-      date: date as unknown as Date,
-      completed,
-      completedAt: now,
-    }]);
-    return { id: (result as any).insertId, cardId, cardName, cardUrl, date, completed, completedAt: now };
-  }
-}
 
 // ── ON-HOLD Per-Card Daily Checks ─────────────────────────────────────────────
 
@@ -518,6 +425,19 @@ export async function getOnHoldChecksByDate(date: string) {
     .select()
     .from(onHoldDailyChecks)
     .where(sql`DATE_FORMAT(${onHoldDailyChecks.date}, '%Y-%m-%d') = ${date}`);
+}
+
+/** Get ON-HOLD check records for an inclusive date range in one query. */
+export async function getOnHoldChecksBetween(startDate: string, endDate: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(onHoldDailyChecks)
+    .where(and(
+      sql`DATE_FORMAT(${onHoldDailyChecks.date}, '%Y-%m-%d') >= ${startDate}`,
+      sql`DATE_FORMAT(${onHoldDailyChecks.date}, '%Y-%m-%d') <= ${endDate}`,
+    ));
 }
 
 /**
@@ -672,13 +592,10 @@ export async function getUpdateStreak(): Promise<{
 
 // ── Time Entries ──────────────────────────────────────────────────────────────
 
-import { timeEntries } from "../drizzle/schema";
-import { isNull, isNotNull, gte, lte, between } from "drizzle-orm";
+import { appSettings, timeEntries } from "../drizzle/schema";
+import { isNull, isNotNull, gte, lt, lte } from "drizzle-orm";
 
-/**
- * Start a new timer for a card. If a timer is already running for this card,
- * stop it first (safety guard) then create a new one.
- */
+/** Start a timer while enforcing one globally active Joyce timer. */
 export async function startTimer(
   cardId: string,
   cardName: string,
@@ -689,27 +606,45 @@ export async function startTimer(
   const db = await getDb();
   if (!db) throw new Error("DB not available");
 
-  // Stop any existing running timer for this card
-  await db
-    .update(timeEntries)
-    .set({
-      stoppedAt: new Date(),
-      durationSeconds: sql`TIMESTAMPDIFF(SECOND, startedAt, NOW())`,
-    })
-    .where(and(eq(timeEntries.cardId, cardId), isNull(timeEntries.stoppedAt)));
+  const lockKey = "timer_switch_lock";
+  await db.insert(appSettings).values({ key: lockKey, value: "single_active_timer" }).onDuplicateKeyUpdate({
+    set: { value: sql`value` },
+  });
 
-  // Insert new running entry
-  const [result] = await db.insert(timeEntries).values([{
-    cardId,
-    cardName,
-    cardUrl,
-    boardName,
-    listName,
-    startedAt: new Date(),
-    stoppedAt: null,
-    durationSeconds: null,
-  }]);
-  return { id: (result as any).insertId, cardId, cardName, startedAt: new Date() };
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM app_settings WHERE ${appSettings.key} = ${lockKey} FOR UPDATE`);
+    const running = await tx
+      .select({ cardId: timeEntries.cardId })
+      .from(timeEntries)
+      .where(isNull(timeEntries.stoppedAt));
+    const startedAt = new Date();
+
+    await tx
+      .update(timeEntries)
+      .set({
+        stoppedAt: startedAt,
+        durationSeconds: sql`TIMESTAMPDIFF(SECOND, startedAt, ${startedAt})`,
+      })
+      .where(isNull(timeEntries.stoppedAt));
+
+    const [result] = await tx.insert(timeEntries).values([{
+      cardId,
+      cardName,
+      cardUrl,
+      boardName,
+      listName,
+      startedAt,
+      stoppedAt: null,
+      durationSeconds: null,
+    }]);
+    return {
+      id: (result as any).insertId,
+      cardId,
+      cardName,
+      startedAt,
+      stoppedCardIds: Array.from(new Set(running.map((entry) => entry.cardId))),
+    };
+  });
 }
 
 /**
@@ -795,9 +730,7 @@ export async function getDailyTimeSummary(dateEAT: string): Promise<Array<{
   const db = await getDb();
   if (!db) return [];
 
-  // EAT is UTC+3, so dateEAT "2026-05-06" corresponds to UTC range [2026-05-05T21:00:00Z, 2026-05-06T21:00:00Z)
-  const startUTC = new Date(dateEAT + "T00:00:00+03:00");
-  const endUTC = new Date(dateEAT + "T23:59:59+03:00");
+  const { startUtc, endUtc } = eatDateRangeUtc(dateEAT);
 
   const rows = await db
     .select()
@@ -805,8 +738,8 @@ export async function getDailyTimeSummary(dateEAT: string): Promise<Array<{
     .where(
       and(
         isNotNull(timeEntries.stoppedAt),
-        gte(timeEntries.startedAt, startUTC),
-        lte(timeEntries.startedAt, endUTC)
+        gte(timeEntries.startedAt, startUtc),
+        lt(timeEntries.startedAt, endUtc)
       )
     )
     .orderBy(desc(timeEntries.startedAt));
@@ -848,8 +781,7 @@ export async function getTrackedSecondsInRange(startDate: string, endDate: strin
   const db = await getDb();
   if (!db) return 0;
 
-  const startUTC = new Date(startDate + "T00:00:00+03:00");
-  const endUTC = new Date(endDate + "T23:59:59+03:00");
+  const { startUtc, endUtc } = eatDateSpanUtc(startDate, endDate);
 
   const rows = await db
     .select({ durationSeconds: timeEntries.durationSeconds })
@@ -857,8 +789,8 @@ export async function getTrackedSecondsInRange(startDate: string, endDate: strin
     .where(
       and(
         isNotNull(timeEntries.stoppedAt),
-        gte(timeEntries.startedAt, startUTC),
-        lte(timeEntries.startedAt, endUTC)
+        gte(timeEntries.startedAt, startUtc),
+        lt(timeEntries.startedAt, endUtc)
       )
     );
 
@@ -871,8 +803,10 @@ export async function getTrackedSecondsInRange(startDate: string, endDate: strin
 export async function deleteTimeEntry(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
+  const [entry] = await db.select({ cardId: timeEntries.cardId }).from(timeEntries).where(eq(timeEntries.id, id)).limit(1);
+  if (!entry) throw new Error("Time entry not found");
   await db.delete(timeEntries).where(eq(timeEntries.id, id));
-  return { success: true };
+  return { success: true, id, cardId: entry.cardId };
 }
 
 /**
@@ -890,7 +824,7 @@ export async function updateTimeEntry(id: number, durationSeconds: number) {
     .update(timeEntries)
     .set({ durationSeconds, stoppedAt: newStoppedAt })
     .where(eq(timeEntries.id, id));
-  return { success: true, id, durationSeconds, stoppedAt: newStoppedAt };
+  return { success: true, id, cardId: entry.cardId, durationSeconds, stoppedAt: newStoppedAt };
 }
 
 /**
@@ -900,8 +834,7 @@ export async function updateTimeEntry(id: number, durationSeconds: number) {
 export async function getTimeEntriesForCardOnDate(cardId: string, dateEAT: string) {
   const db = await getDb();
   if (!db) return [];
-  const startUTC = new Date(dateEAT + "T00:00:00+03:00");
-  const endUTC = new Date(dateEAT + "T23:59:59+03:00");
+  const { startUtc, endUtc } = eatDateRangeUtc(dateEAT);
   return db
     .select()
     .from(timeEntries)
@@ -909,8 +842,8 @@ export async function getTimeEntriesForCardOnDate(cardId: string, dateEAT: strin
       and(
         eq(timeEntries.cardId, cardId),
         isNotNull(timeEntries.stoppedAt),
-        gte(timeEntries.startedAt, startUTC),
-        lte(timeEntries.startedAt, endUTC)
+        gte(timeEntries.startedAt, startUtc),
+        lt(timeEntries.startedAt, endUtc)
       )
     )
     .orderBy(desc(timeEntries.startedAt));
@@ -965,12 +898,11 @@ export async function getWeeklyBreakdown(startDate: string, endDate: string): Pr
 
   // Build the 7 day slots
   const days: { date: string; totalSeconds: number }[] = [];
-  const start = new Date(startDate + "T00:00:00Z");
   for (let i = 0; i < 7; i++) {
-    const d = new Date(start);
-    d.setUTCDate(start.getUTCDate() + i);
-    days.push({ date: d.toISOString().slice(0, 10), totalSeconds: 0 });
+    days.push({ date: addDaysToDateKey(startDate, i), totalSeconds: 0 });
   }
+
+  const { startUtc, endUtc } = eatDateSpanUtc(startDate, endDate);
 
   // Fetch all completed entries in the week
   const rows = await db
@@ -983,8 +915,8 @@ export async function getWeeklyBreakdown(startDate: string, endDate: string): Pr
       and(
         isNotNull(timeEntries.stoppedAt),
         isNotNull(timeEntries.durationSeconds),
-        gte(timeEntries.startedAt, new Date(startDate + "T00:00:00Z")),
-        lte(timeEntries.startedAt, new Date(endDate + "T23:59:59Z"))
+        gte(timeEntries.startedAt, startUtc),
+        lt(timeEntries.startedAt, endUtc)
       )
     );
 
@@ -1082,7 +1014,6 @@ export async function setTrelloCommentToken(token: string | null): Promise<void>
 }
 
 // ─── Compliance Snapshot helpers ─────────────────────────────────────────────
-import { dailyComplianceSnapshots } from "../drizzle/schema";
 
 export interface ComplianceSnapshotRow {
   id: number;
@@ -1097,9 +1028,52 @@ export interface ComplianceSnapshotRow {
   estimatedPenalty: number;
   source: string;
   weeklyPayLogId: number | null;
+  required: boolean;
+  verificationStatus: string;
+  verificationMethod: string | null;
+  verificationCutoffAt: Date | null;
+  verifiedAt: Date | null;
+  evidenceCount: number;
   compliancePct: number; // computed: (onHoldReviewed + doingUpdated) / (onHoldTotal + doingTotal) * 100
   createdAt: Date;
 }
+
+export type ComplianceSnapshotInput = {
+  snapshotDate: string;
+  onHoldTotal: number;
+  onHoldReviewed: number;
+  onHoldMissedCards: Array<{ id: string; name: string; url: string }>;
+  doingTotal: number;
+  doingUpdated: number;
+  doingMissedCards: Array<{ id: string; name: string; url: string }>;
+  d1Instances: number;
+  estimatedPenalty: number;
+  source?: string;
+  weeklyPayLogId?: number | null;
+  required?: boolean;
+  verificationStatus?: string;
+  verificationMethod?: string | null;
+  verificationCutoffAt?: Date | null;
+  verifiedAt?: Date | null;
+  evidenceCount?: number;
+};
+
+export type ComplianceCardEvidenceInput = {
+  snapshotDate: string;
+  cardId: string;
+  cardName: string;
+  cardUrl: string;
+  boardName: string;
+  listName: string;
+  category: "doing" | "on-hold";
+  assignedToJoyce: boolean;
+  compliant: boolean;
+  evidenceType: string;
+  evidenceActionId: string | null;
+  evidenceAt: Date | null;
+  evidenceJson: string;
+  verifiedAt: Date;
+};
 
 function parseCards(raw: string | null): Array<{ id: string; name: string; url: string }> {
   if (!raw) return [];
@@ -1115,34 +1089,27 @@ function calcPct(reviewed: number, updated: number, holdTotal: number, doingTota
 /**
  * Upsert a compliance snapshot for a given date.
  */
-export async function upsertComplianceSnapshot(data: {
-  snapshotDate: string;
-  onHoldTotal: number;
-  onHoldReviewed: number;
-  onHoldMissedCards: Array<{ id: string; name: string; url: string }>;
-  doingTotal: number;
-  doingUpdated: number;
-  doingMissedCards: Array<{ id: string; name: string; url: string }>;
-  d1Instances: number;
-  estimatedPenalty: number;
-  source?: string;
-  weeklyPayLogId?: number | null;
-}): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+function complianceSnapshotUpsertQuery(data: ComplianceSnapshotInput) {
   const holdJson = JSON.stringify(data.onHoldMissedCards);
   const doingJson = JSON.stringify(data.doingMissedCards);
   const src = data.source ?? "auto";
   const wplId = data.weeklyPayLogId ?? null;
-  await db.execute(
-    sql`INSERT INTO daily_compliance_snapshots
+  const required = data.required ?? true;
+  const verificationStatus = data.verificationStatus ?? "unverified";
+  const verificationMethod = data.verificationMethod ?? null;
+  const verificationCutoffAt = data.verificationCutoffAt ?? null;
+  const verifiedAt = data.verifiedAt ?? null;
+  const evidenceCount = data.evidenceCount ?? 0;
+  return sql`INSERT INTO daily_compliance_snapshots
       (snapshotDate, onHoldTotal, onHoldReviewed, onHoldMissedCards,
        doingTotal, doingUpdated, doingMissedCards,
-       d1Instances, estimatedPenalty, source, weeklyPayLogId)
+       d1Instances, estimatedPenalty, source, weeklyPayLogId,
+       required, verificationStatus, verificationMethod, verificationCutoffAt, verifiedAt, evidenceCount)
     VALUES
       (${data.snapshotDate}, ${data.onHoldTotal}, ${data.onHoldReviewed}, ${holdJson},
        ${data.doingTotal}, ${data.doingUpdated}, ${doingJson},
-       ${data.d1Instances}, ${data.estimatedPenalty}, ${src}, ${wplId})
+       ${data.d1Instances}, ${data.estimatedPenalty}, ${src}, ${wplId},
+       ${required}, ${verificationStatus}, ${verificationMethod}, ${verificationCutoffAt}, ${verifiedAt}, ${evidenceCount})
     ON DUPLICATE KEY UPDATE
       onHoldTotal = VALUES(onHoldTotal),
       onHoldReviewed = VALUES(onHoldReviewed),
@@ -1153,8 +1120,39 @@ export async function upsertComplianceSnapshot(data: {
       d1Instances = VALUES(d1Instances),
       estimatedPenalty = VALUES(estimatedPenalty),
       source = VALUES(source),
-      weeklyPayLogId = COALESCE(VALUES(weeklyPayLogId), weeklyPayLogId)`
-  );
+      weeklyPayLogId = COALESCE(VALUES(weeklyPayLogId), weeklyPayLogId),
+      required = VALUES(required),
+      verificationStatus = VALUES(verificationStatus),
+      verificationMethod = VALUES(verificationMethod),
+      verificationCutoffAt = VALUES(verificationCutoffAt),
+      verifiedAt = VALUES(verifiedAt),
+      evidenceCount = VALUES(evidenceCount)`;
+}
+
+export async function upsertComplianceSnapshot(data: ComplianceSnapshotInput): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.execute(complianceSnapshotUpsertQuery(data));
+}
+
+/** Persist a verified daily aggregate and its per-card evidence atomically. */
+export async function upsertVerifiedComplianceSnapshot(
+  data: ComplianceSnapshotInput,
+  evidence: ComplianceCardEvidenceInput[],
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.transaction(async (tx) => {
+    await tx.execute(complianceSnapshotUpsertQuery({ ...data, evidenceCount: evidence.length }));
+    await tx.delete(complianceCardEvidence)
+      .where(sql`DATE_FORMAT(${complianceCardEvidence.snapshotDate}, '%Y-%m-%d') = ${data.snapshotDate}`);
+    if (evidence.length > 0) {
+      await tx.insert(complianceCardEvidence).values(evidence.map((row) => ({
+        ...row,
+        snapshotDate: row.snapshotDate as unknown as Date,
+      })));
+    }
+  });
 }
 
 /**
@@ -1164,13 +1162,16 @@ export async function getComplianceHistory(limit = 30): Promise<ComplianceSnapsh
   const db = await getDb();
   if (!db) return [];
   try {
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 400));
     const rows: any[] = await (db as any).execute(
       `SELECT id, snapshotDate, onHoldTotal, onHoldReviewed, onHoldMissedCards,
               doingTotal, doingUpdated, doingMissedCards,
-              d1Instances, estimatedPenalty, source, weeklyPayLogId, createdAt
+              d1Instances, estimatedPenalty, source, weeklyPayLogId,
+              required, verificationStatus, verificationMethod, verificationCutoffAt,
+              verifiedAt, evidenceCount, createdAt
        FROM daily_compliance_snapshots
        ORDER BY snapshotDate DESC
-       LIMIT ${Number(limit)}`
+       LIMIT ${safeLimit}`
     ).then((r: any) => (Array.isArray(r[0]) ? r[0] : r));
     return rows.map((r: any) => ({
       id: Number(r.id),
@@ -1187,6 +1188,12 @@ export async function getComplianceHistory(limit = 30): Promise<ComplianceSnapsh
       estimatedPenalty: Number(r.estimatedPenalty),
       source: r.source ?? "auto",
       weeklyPayLogId: r.weeklyPayLogId != null ? Number(r.weeklyPayLogId) : null,
+      required: r.required == null ? true : Boolean(r.required),
+      verificationStatus: r.verificationStatus ?? "unverified",
+      verificationMethod: r.verificationMethod ?? null,
+      verificationCutoffAt: r.verificationCutoffAt ? new Date(r.verificationCutoffAt) : null,
+      verifiedAt: r.verifiedAt ? new Date(r.verifiedAt) : null,
+      evidenceCount: Number(r.evidenceCount ?? 0),
       compliancePct: calcPct(Number(r.onHoldReviewed), Number(r.doingUpdated), Number(r.onHoldTotal), Number(r.doingTotal)),
       createdAt: r.createdAt instanceof Date ? r.createdAt : new Date(r.createdAt),
     }));
@@ -1196,11 +1203,34 @@ export async function getComplianceHistory(limit = 30): Promise<ComplianceSnapsh
   }
 }
 
+/** Get the auditable card facts behind one verified daily snapshot. */
+export async function getComplianceEvidenceByDate(dateKey: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    cardId: complianceCardEvidence.cardId,
+    cardName: complianceCardEvidence.cardName,
+    cardUrl: complianceCardEvidence.cardUrl,
+    boardName: complianceCardEvidence.boardName,
+    listName: complianceCardEvidence.listName,
+    category: complianceCardEvidence.category,
+    assignedToJoyce: complianceCardEvidence.assignedToJoyce,
+    compliant: complianceCardEvidence.compliant,
+    evidenceType: complianceCardEvidence.evidenceType,
+    evidenceActionId: complianceCardEvidence.evidenceActionId,
+    evidenceAt: complianceCardEvidence.evidenceAt,
+    verifiedAt: complianceCardEvidence.verifiedAt,
+  }).from(complianceCardEvidence)
+    .where(sql`DATE_FORMAT(${complianceCardEvidence.snapshotDate}, '%Y-%m-%d') = ${dateKey}`)
+    .orderBy(asc(complianceCardEvidence.category), desc(complianceCardEvidence.compliant), asc(complianceCardEvidence.cardName));
+  return rows.map((row) => ({ ...row, assignedToJoyce: Boolean(row.assignedToJoyce), compliant: Boolean(row.compliant) }));
+}
+
 /**
  * Get 7-day rolling average compliance percentage.
  */
 export async function getComplianceRollingAvg(days = 7): Promise<number> {
-  const rows = await getComplianceHistory(days);
+  const rows = (await getComplianceHistory(Math.max(days * 2, days))).filter((row) => row.required).slice(0, days);
   if (rows.length === 0) return 100;
   const sum = rows.reduce((acc, r) => acc + r.compliancePct, 0);
   return Math.round(sum / rows.length);
@@ -1215,8 +1245,8 @@ export async function getComplianceAvgForWeek(weekStart: string): Promise<number
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   const weekEnd = sunday.toISOString().slice(0, 10);
-  const rows = await getComplianceHistory(100);
-  const weekRows = rows.filter(r => r.snapshotDate >= weekStart && r.snapshotDate <= weekEnd);
+  const rows = await getComplianceHistory(400);
+  const weekRows = rows.filter(r => r.required && r.snapshotDate >= weekStart && r.snapshotDate <= weekEnd);
   if (weekRows.length === 0) return null;
   const sum = weekRows.reduce((acc, r) => acc + r.compliancePct, 0);
   return Math.round(sum / weekRows.length);
@@ -1277,6 +1307,14 @@ export async function setScheduleSettings(settings: ScheduleSettings): Promise<v
   await db.execute(
     sql`INSERT INTO app_settings (\`key\`, value) VALUES ('scheduleSettings', ${val}) ON DUPLICATE KEY UPDATE value = ${val}`
   );
+  const { getOperatingProfile, upsertOperatingProfile } = await import("./operatingCalendar");
+  const current = await getOperatingProfile();
+  await upsertOperatingProfile({
+    ...current,
+    workStart: settings.startTime,
+    workEnd: settings.endTime,
+    breaks: settings.breaks.map(({ name, startTime, durationMinutes }) => ({ name, startTime, durationMinutes })),
+  });
 }
 
 
@@ -1353,6 +1391,68 @@ export async function setReplyMonitorBadgeEnabled(enabled: boolean): Promise<voi
 }
 
 // ─── Email Tasks ──────────────────────────────────────────────────────────────
+export type NavigationCounts = {
+  replyMonitorEnabled: boolean;
+  pendingThreads: number;
+  vagueFlags: number;
+  unsignedFlags: number;
+  emailCount: number;
+  followUpCount: number;
+  operationalCardCount: number;
+};
+
+const EMPTY_NAVIGATION_COUNTS: NavigationCounts = {
+  replyMonitorEnabled: true,
+  pendingThreads: 0,
+  vagueFlags: 0,
+  unsignedFlags: 0,
+  emailCount: 0,
+  followUpCount: 0,
+  operationalCardCount: 0,
+};
+
+/** One lightweight aggregate for the always-mounted navigation badges. */
+export async function getNavigationCounts(): Promise<NavigationCounts> {
+  const db = await getDb();
+  if (!db) return EMPTY_NAVIGATION_COUNTS;
+  try {
+    const result = await db.execute(sql`
+      SELECT
+        COALESCE((SELECT IF(value = 'false', 0, 1) FROM app_settings WHERE \`key\` = 'replyMonitorBadge' LIMIT 1), 1) AS replyMonitorEnabled,
+        (SELECT COUNT(*) FROM reply_threads WHERE status IN ('pending', 'overdue')) AS pendingThreads,
+        (SELECT COUNT(*) FROM vague_reply_flags WHERE resolvedAt IS NULL) AS vagueFlags,
+        (SELECT COUNT(*) FROM unsigned_message_flags WHERE resolvedAt IS NULL) AS unsignedFlags,
+        (SELECT COUNT(*) FROM email_tasks WHERE status <> 'archived') AS emailCount,
+        (SELECT COUNT(*) FROM auto_follow_up_drafts WHERE status = 'pending') AS followUpCount,
+        (SELECT COUNT(*) FROM card_states WHERE state IN (
+          'OVERDUE',
+          'WAITING_FOR_JOYCE',
+          'WAITING_FOR_ROBERT',
+          'WAITING_FOR_EXTERNAL_PARTY',
+          'BLOCKED_BY_OTHER_CARD',
+          'STALLED',
+          'NEEDS_RESTRUCTURING'
+        )) AS operationalCardCount
+    `);
+    const resultRows = Array.isArray(result) ? result[0] : result;
+    const row = (Array.isArray(resultRows) ? resultRows[0] : resultRows) as Record<string, unknown> | undefined;
+    if (!row) return EMPTY_NAVIGATION_COUNTS;
+    const count = (key: keyof NavigationCounts) => Math.max(0, Number(row[key] ?? 0) || 0);
+    return {
+      replyMonitorEnabled: Number(row.replyMonitorEnabled ?? 1) !== 0,
+      pendingThreads: count("pendingThreads"),
+      vagueFlags: count("vagueFlags"),
+      unsignedFlags: count("unsignedFlags"),
+      emailCount: count("emailCount"),
+      followUpCount: count("followUpCount"),
+      operationalCardCount: count("operationalCardCount"),
+    };
+  } catch (error) {
+    console.warn("[Database] Navigation counts unavailable:", error instanceof Error ? error.message : String(error));
+    return EMPTY_NAVIGATION_COUNTS;
+  }
+}
+
 import { emailTasks, cardSnoozes, InsertEmailTask, InsertCardSnooze } from "../drizzle/schema";
 import { ne } from "drizzle-orm";
 

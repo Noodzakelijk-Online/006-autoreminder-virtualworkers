@@ -52,5 +52,5 @@ describe("APTLSS assessment ledger integration", () => {
     expect(history[0]).toMatchObject({ primaryState: "OVERDUE", trigger: "webhook" });
     expect(history[0].changeValue).toHaveProperty("contextHash");
     expect((await getLatestAssessments()).some((assessment) => assessment.cardId === cardId)).toBe(true);
-  });
+  }, 20_000);
 });

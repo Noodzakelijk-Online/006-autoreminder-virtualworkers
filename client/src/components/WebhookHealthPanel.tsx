@@ -4,6 +4,8 @@
  * Designed to live inside the Settings tab.
  */
 import { trpc } from "@/lib/trpc";
+import type { DashboardReadiness } from "@/lib/readiness";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Webhook,
@@ -14,18 +16,15 @@ import {
   ExternalLink,
 } from "lucide-react";
 
-export default function WebhookHealthPanel() {
-  const {
-    data: readiness,
-    isLoading: readinessLoading,
-    error: readinessError,
-  } = trpc.system.readiness.useQuery(
-    { probeDatabase: false, probeTrello: false },
-    {
-      staleTime: 2 * 60_000,
-      retry: false,
-    },
-  );
+export default function WebhookHealthPanel({
+  readiness,
+  readinessError,
+}: {
+  readiness?: DashboardReadiness;
+  readinessError?: { message: string } | null;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const readinessLoading = !readiness && !readinessError;
 
   const trelloApiKey = readiness?.items.find((item) => item.id === "trello-api-key");
   const trelloApiToken = readiness?.items.find((item) => item.id === "trello-api-token");
@@ -51,6 +50,10 @@ export default function WebhookHealthPanel() {
   const activeCount = webhooks?.filter((w) => w.active).length ?? 0;
   const totalCount = webhooks?.length ?? 0;
   const hasFailures = webhooks?.some((w) => w.consecutiveFailures > 0) ?? false;
+  const orderedWebhooks = webhooks
+    ? [...webhooks].sort((left, right) => right.consecutiveFailures - left.consecutiveFailures)
+    : [];
+  const visibleWebhooks = showAll ? orderedWebhooks : orderedWebhooks.slice(0, 5);
 
   return (
     <div className="space-y-3">
@@ -69,7 +72,7 @@ export default function WebhookHealthPanel() {
                   : "bg-muted border-border text-muted-foreground"
               }`}
             >
-              {totalCount === 0 ? "No webhooks" : `${activeCount}/${totalCount} active`}
+              {totalCount === 0 ? "No webhooks" : hasFailures ? `${orderedWebhooks.filter((webhook) => webhook.consecutiveFailures > 0).length} failing` : `${activeCount}/${totalCount} active`}
             </span>
           )}
         </div>
@@ -147,7 +150,7 @@ export default function WebhookHealthPanel() {
         </div>
       ) : (
         <div className="space-y-2">
-          {webhooks.map((wh) => (
+          {visibleWebhooks.map((wh) => (
             <div
               key={wh.id}
               className={`rounded-lg border p-3 space-y-2 ${
@@ -221,6 +224,11 @@ export default function WebhookHealthPanel() {
               )}
             </div>
           ))}
+          {orderedWebhooks.length > 5 && (
+            <Button variant="ghost" size="sm" className="w-full" onClick={() => setShowAll((current) => !current)}>
+              {showAll ? "Show summary" : `Show all ${orderedWebhooks.length} webhooks`}
+            </Button>
+          )}
         </div>
       )}
     </div>

@@ -1,16 +1,24 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { useAuth } from "@/_core/hooks/useAuth";
 import {
   accentFor,
   buildEmptyPlan,
@@ -20,14 +28,10 @@ import {
   formatDate,
   formatDuration,
   formatGeneratedAt,
-  isPlannerAuthError,
   planAppliedAt,
   plannerErrorMessage,
   planViews,
   priorityTone,
-  statusTone,
-  timeRows,
-  todayInEat,
   toMinutes,
   type BlockStatus,
   type DailyPlanBlock,
@@ -38,7 +42,6 @@ import {
 import {
   Activity,
   AlertCircle,
-  Bell,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -46,34 +49,42 @@ import {
   Clock,
   ClipboardList,
   ExternalLink,
-  FileText,
   Loader2,
   Lock,
   MoreHorizontal,
   Play,
   RefreshCw,
-  RotateCcw,
   ShieldCheck,
   StopCircle,
   Target,
 } from "lucide-react";
+import { useEatClock } from "@/hooks/useEatClock";
 
 export default function PlanMyDay() {
-  const [dateKey] = useState(todayInEat);
+  const { dateKey, timeKey } = useEatClock();
   const [activeView, setActiveView] = useState<PlanView>("Day Plan");
   const [handoff, setHandoff] = useState<HandoffDraft | null>(null);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [localChecks, setLocalChecks] = useState<Record<string, boolean>>({});
   const [startingBlockId, setStartingBlockId] = useState<string | null>(null);
   const [stoppingBlockId, setStoppingBlockId] = useState<string | null>(null);
+  const [pendingStartBlock, setPendingStartBlock] = useState<DailyPlanBlock | null>(null);
   const [preparingPlans, setPreparingPlans] = useState(false);
   const utils = trpc.useUtils();
-  const auth = useAuth();
+
+  useEffect(() => {
+    setActiveView("Day Plan");
+    setHandoff(null);
+    setControlsOpen(false);
+    setLocalChecks({});
+    setPendingStartBlock(null);
+  }, [dateKey]);
 
   const planQuery = trpc.aptlss.getDailyPlan.useQuery({ dateKey }, { retry: false, staleTime: 30_000 });
   const activeTimer = trpc.timer.getActive.useQuery(undefined, { staleTime: 15_000 });
   const plan = planQuery.data?.plan as DailyPlanPayload | null | undefined;
-  const isPreview = !plan;
+  const isInitialLoading = planQuery.isLoading && planQuery.data === undefined;
+  const isPreview = !isInitialLoading && !plan;
   const displayPlan = useMemo(() => plan ?? buildEmptyPlan(dateKey), [dateKey, plan]);
   const appliedAt = useMemo(() => planAppliedAt(displayPlan), [displayPlan]);
 
@@ -115,7 +126,7 @@ export default function PlanMyDay() {
     onError: (err) => toast.error("Step update failed", { description: err.message }),
   });
 
-  const eatNowMinutes = toMinutes(new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(11, 16));
+  const eatNowMinutes = toMinutes(timeKey);
   const plannedCardBlocks = displayPlan.blocks
     .filter((block) => block.cardId && block.status === "planned")
     .sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime));
@@ -136,10 +147,6 @@ export default function PlanMyDay() {
   const runningCardId = activeTimer.data?.cardId ?? null;
 
   async function handlePrepareCardPlans() {
-    if (!auth.isAuthenticated) {
-      toast.error("Sign in required", { description: "Preparing card plans is locked to the signed-in owner." });
-      return;
-    }
     if (!planPreparationCandidates.length || preparingPlans) return;
     setPreparingPlans(true);
     try {
@@ -193,12 +200,6 @@ export default function PlanMyDay() {
       toast.info("Generate a plan before starting block timers");
       return;
     }
-    if (!auth.isAuthenticated) {
-      toast.error("Sign in required", {
-        description: "Starting timers is locked to the signed-in owner.",
-      });
-      return;
-    }
     if (startingBlockId || stoppingBlockId) return;
 
     setStartingBlockId(block.id);
@@ -224,12 +225,6 @@ export default function PlanMyDay() {
     if (!block.cardId) return;
     if (isPreview) {
       toast.info("Generate a plan before stopping block timers");
-      return;
-    }
-    if (!auth.isAuthenticated) {
-      toast.error("Sign in required", {
-        description: "Stopping timers is locked to the signed-in owner.",
-      });
       return;
     }
     if (startingBlockId || stoppingBlockId) return;
@@ -298,6 +293,10 @@ export default function PlanMyDay() {
   }
 
   function queueStartTimer(block: DailyPlanBlock) {
+    if (runningCardId && runningCardId !== block.cardId) {
+      setPendingStartBlock(block);
+      return;
+    }
     void handleStartTimer(block);
   }
 
@@ -327,14 +326,14 @@ export default function PlanMyDay() {
       />
 
       <div className="border-b border-border px-4 md:px-6">
-        <div className="flex min-h-14 items-end gap-6 overflow-x-auto">
+        <div className="grid grid-cols-2 sm:grid-cols-5">
           {planViews.map((tab) => (
             <button
               key={tab}
               type="button"
               aria-pressed={activeView === tab}
               onClick={() => setActiveView(tab)}
-              className={`h-14 shrink-0 border-b-2 px-1 text-sm font-medium ${activeView === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+              className={`min-h-11 border-b-2 px-2 py-2 text-sm font-medium leading-snug ${activeView === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
             >
               {tab}
             </button>
@@ -343,31 +342,23 @@ export default function PlanMyDay() {
       </div>
 
       <main className="mx-auto w-full max-w-6xl space-y-4 p-3 md:p-4">
-        <PlannerFocusPanel
+        {!isInitialLoading && <PlannerFocusPanel
           nowBlock={nowBlock}
           nextBlock={nextBlock}
+          isOffDay={displayPlan.constraints.dayType === "off_day" || displayPlan.constraints.isWorkday === false}
           runningCardId={runningCardId}
           timerBusyBlockId={startingBlockId ?? stoppingBlockId}
           onStart={queueStartTimer}
           onStop={queueStopTimer}
           onDone={queueMarkDone}
-        />
+        />}
         <section className="min-w-0">
-          {(planQuery.error || isPreview) && (
+          {!isInitialLoading && (planQuery.error || isPreview) && (
             <Alert className="mb-3 border-primary/30 bg-primary/10 text-foreground">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>{planQuery.error ? "Planner degraded" : "No saved plan yet"}</AlertTitle>
               <AlertDescription>
                 <p>{plannerErrorMessage(planQuery.error?.message)}</p>
-                {isPlannerAuthError(planQuery.error?.message) && (
-                  <LocalPlannerLogin
-                    onSuccess={() => {
-                      void auth.refresh();
-                      void utils.aptlss.getDailyPlan.invalidate({ dateKey });
-                      void utils.timer.getActive.invalidate();
-                    }}
-                  />
-                )}
               </AlertDescription>
             </Alert>
           )}
@@ -399,7 +390,7 @@ export default function PlanMyDay() {
             </Alert>
           )}
 
-          {planQuery.isLoading ? (
+          {isInitialLoading ? (
             <Card className="rounded-md border-border bg-card py-0 text-foreground shadow-none">
               <CardContent className="space-y-3 p-4">
                 {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="h-16 w-full" />)}
@@ -441,49 +432,26 @@ export default function PlanMyDay() {
           /></div>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={Boolean(pendingStartBlock)} onOpenChange={(open) => { if (!open) setPendingStartBlock(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Switch the active timer?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The running timer{activeTimer.data?.cardName ? ` for ${activeTimer.data.cardName}` : ""} will be stopped and saved before the selected plan block starts.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep current timer</AlertDialogCancel>
+            <AlertDialogAction onClick={() => {
+              const block = pendingStartBlock;
+              setPendingStartBlock(null);
+              if (block) void handleStartTimer(block);
+            }}>Switch timer</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
-  );
-}
-
-function LocalPlannerLogin({ onSuccess }: { onSuccess: () => void }) {
-  const [token, setToken] = useState("");
-  const utils = trpc.useUtils();
-  const localLogin = trpc.auth.localLogin.useMutation({
-    onSuccess: async () => {
-      toast.success("Planner access unlocked");
-      await utils.auth.me.invalidate();
-      onSuccess();
-    },
-    onError: (err) => {
-      toast.error("Local login failed", { description: err.message });
-    },
-  });
-
-  return (
-    <form
-      className="mt-2 flex w-full max-w-xl flex-col gap-2 rounded-md border border-primary/30 bg-card p-3 sm:flex-row"
-      onSubmit={(event) => {
-        event.preventDefault();
-        localLogin.mutate({ token });
-      }}
-    >
-      <Input
-        type="password"
-        value={token}
-        onChange={(event) => setToken(event.target.value)}
-        placeholder="Local access token"
-        className="h-9 border-primary/30 bg-card text-foreground"
-        autoComplete="current-password"
-      />
-      <Button
-        type="submit"
-        disabled={!token.trim() || localLogin.isPending}
-        className="h-9 shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
-      >
-        {localLogin.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}
-        Unlock planner
-      </Button>
-    </form>
   );
 }
 
@@ -514,28 +482,28 @@ function PlannerHeader({
       <div className="flex min-w-0 items-center gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold tracking-normal text-foreground">Plan My Day</h1>
-            {isPreview && <Badge variant="outline">Not generated</Badge>}
-            {!isPreview && !confidenceVerified && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">Unverified plan</Badge>}
+            <h2 className="text-xl font-bold tracking-normal text-foreground">Plan My Day</h2>
+            {isLoading ? <Badge variant="outline">Loading plan</Badge> : isPreview ? <Badge variant="outline">Not generated</Badge> : null}
+            {!isLoading && !isPreview && !confidenceVerified && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">Unverified plan</Badge>}
             {isOffDay && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">Off day</Badge>}
             {appliedAt && <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">Applied {formatGeneratedAt(appliedAt)} EAT</Badge>}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5" />{formatDate(dateKey)}</span>
-            <span>{isPreview ? "Waiting for a trusted plan" : `Generated: ${isLoading ? "loading" : formatGeneratedAt(plan.generatedAt)} EAT`}</span>
-            {!isPreview && confidenceVerified && <span className="inline-flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${plan.planHealth.confidence >= 80 ? "bg-emerald-500" : plan.planHealth.confidence >= 60 ? "bg-amber-500" : "bg-red-500"}`} />{isOffDay ? "Off-day" : plan.planHealth.confidence >= 80 ? "High" : plan.planHealth.confidence >= 60 ? "Medium" : "Low"} confidence</span>}
-            {!isPreview && confidenceVerified && <Badge className={`border-0 ${plan.planHealth.confidence >= 80 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : plan.planHealth.confidence >= 60 ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-red-500/10 text-red-700 dark:text-red-300"}`}>{plan.planHealth.confidence}%</Badge>}
-            {!isPreview && !confidenceVerified && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />Unverified confidence</span>}
-            <span>Focus work: {formatDuration(plan.planHealth.workloadMinutes)}</span>
-            <span>Full timeline: {formatDuration(timelineMinutes)}</span>
+            <span>{isLoading ? "Loading saved plan" : isPreview ? "Waiting for a trusted plan" : `Generated: ${formatGeneratedAt(plan.generatedAt)} EAT`}</span>
+            {!isLoading && !isPreview && confidenceVerified && <span className="inline-flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${plan.planHealth.confidence >= 80 ? "bg-emerald-500" : plan.planHealth.confidence >= 60 ? "bg-amber-500" : "bg-red-500"}`} />{isOffDay ? "Off-day" : plan.planHealth.confidence >= 80 ? "High" : plan.planHealth.confidence >= 60 ? "Medium" : "Low"} confidence</span>}
+            {!isLoading && !isPreview && confidenceVerified && <Badge className={`border-0 ${plan.planHealth.confidence >= 80 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : plan.planHealth.confidence >= 60 ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-red-500/10 text-red-700 dark:text-red-300"}`}>{plan.planHealth.confidence}%</Badge>}
+            {!isLoading && !isPreview && !confidenceVerified && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />Unverified confidence</span>}
+            {!isLoading && <span>Focus work: {formatDuration(plan.planHealth.workloadMinutes)}</span>}
+            {!isLoading && <span>{isOffDay ? "Protected window" : "Full timeline"}: {formatDuration(timelineMinutes)}</span>}
             {isOffDay && plan.constraints.offDayReason && <span>{plan.constraints.offDayReason}</span>}
           </div>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Button className="h-9 bg-primary text-white hover:bg-primary/90" onClick={onGenerate} disabled={isGenerating}>
+        <Button className="h-9 bg-primary text-white hover:bg-primary/90" onClick={onGenerate} disabled={isLoading || isGenerating || isOffDay} title={isOffDay ? "Sunday is protected; generate the next working plan on Monday" : undefined}>
           {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          {isPreview ? "Generate Plan" : "Regenerate Plan"}
+          {isOffDay ? "Protected day" : isPreview ? "Generate Plan" : "Regenerate Plan"}
         </Button>
         <Button variant="outline" className="h-9 border-border" onClick={onOpenControls}><MoreHorizontal className="mr-2 h-4 w-4" />Day controls</Button>
       </div>
@@ -546,6 +514,7 @@ function PlannerHeader({
 function PlannerFocusPanel({
   nowBlock,
   nextBlock,
+  isOffDay,
   runningCardId,
   timerBusyBlockId,
   onStart,
@@ -554,6 +523,7 @@ function PlannerFocusPanel({
 }: {
   nowBlock?: DailyPlanBlock;
   nextBlock?: DailyPlanBlock;
+  isOffDay: boolean;
   runningCardId: string | null;
   timerBusyBlockId: string | null;
   onStart: (block: DailyPlanBlock) => void;
@@ -562,6 +532,7 @@ function PlannerFocusPanel({
 }) {
   if (!nowBlock) return null;
   const running = runningCardId === nowBlock.cardId;
+  const switching = Boolean(runningCardId && !running);
   return (
     <section className="rounded-md border border-border bg-card shadow-sm">
       <div className="flex items-center gap-2 border-b border-border/60 px-4 py-3"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><p className="text-xs font-semibold uppercase tracking-wide text-primary">Now</p></div>
@@ -574,12 +545,16 @@ function PlannerFocusPanel({
           <div className="mt-4 border-l-2 border-primary pl-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Exactly next</p><p className="mt-1 text-sm font-medium text-foreground">{nowBlock.action}</p><p className="mt-1 text-xs text-muted-foreground">{nowBlock.notes}</p></div>
           {nextBlock && <p className="mt-4 text-xs text-muted-foreground"><span className="font-semibold text-foreground">Next:</span> {nextBlock.cardName} at {nextBlock.startTime}</p>}
         </div>
-        <div className="flex flex-col justify-end gap-2">
-          <Button className={running ? "bg-foreground text-white hover:bg-foreground/90" : "bg-primary text-white hover:bg-primary/90"} onClick={() => running ? onStop(nowBlock) : onStart(nowBlock)} disabled={!nowBlock.cardId || timerBusyBlockId === nowBlock.id}>
-            {running ? <StopCircle className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}{running ? "Stop timer" : "Start timer"}
-          </Button>
-          <Button variant="outline" onClick={() => onDone(nowBlock)} disabled={nowBlock.status === "done"}><Check className="mr-2 h-4 w-4" />{doneLabel(nowBlock)}</Button>
-        </div>
+        {isOffDay ? (
+          <div className="flex items-center rounded-md border border-border bg-muted/30 px-3 py-3 text-sm text-muted-foreground">No execution actions on protected time.</div>
+        ) : (
+          <div className="flex flex-col justify-end gap-2">
+            <Button className={running ? "bg-foreground text-white hover:bg-foreground/90" : "bg-primary text-white hover:bg-primary/90"} onClick={() => running ? onStop(nowBlock) : onStart(nowBlock)} disabled={!nowBlock.cardId || timerBusyBlockId === nowBlock.id}>
+              {running ? <StopCircle className="mr-2 h-4 w-4" /> : <Play className="mr-2 h-4 w-4" />}{running ? "Stop timer" : switching ? "Switch timer" : "Start timer"}
+            </Button>
+            <Button variant="outline" onClick={() => onDone(nowBlock)} disabled={nowBlock.status === "done"}><Check className="mr-2 h-4 w-4" />{doneLabel(nowBlock)}</Button>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -664,6 +639,7 @@ function BoardViewPanel({
               <div key={block.id} className="rounded-md border border-border bg-card p-3">
                 {(() => {
                   const running = runningCardId === block.cardId;
+                  const switching = Boolean(runningCardId && !running);
                   const busy = timerBusyBlockId === block.id;
                   return (
                     <>
@@ -684,7 +660,7 @@ function BoardViewPanel({
                     disabled={!block.cardId || busy}
                   >
                     {running ? <StopCircle className="mr-1.5 h-3.5 w-3.5" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
-                    {running ? "Stop" : "Timer"}
+                    {running ? "Stop" : switching ? "Switch" : "Timer"}
                   </Button>
                   <Button variant="outline" size="sm" className="h-8 border-border" onClick={() => onDone(block)} disabled={block.status === "done"}>
                     <Check className="mr-1.5 h-3.5 w-3.5" />{block.stepIds.length > 0 ? "Step" : "Block"}
@@ -841,6 +817,7 @@ function TimelineTable({
               index={index}
               isOffDay={isOffDay}
               running={runningCardId === block.cardId}
+              switching={Boolean(runningCardId && runningCardId !== block.cardId)}
               busy={timerBusyBlockId === block.id}
               onStart={onStart}
               onStop={onStop}
@@ -874,6 +851,7 @@ function TimelineRow({
   index,
   isOffDay,
   running,
+  switching,
   busy,
   onStart,
   onStop,
@@ -885,6 +863,7 @@ function TimelineRow({
   index: number;
   isOffDay: boolean;
   running: boolean;
+  switching: boolean;
   busy: boolean;
   onStart: (block: DailyPlanBlock) => void;
   onStop: (block: DailyPlanBlock) => void;
@@ -930,8 +909,8 @@ function TimelineRow({
           className={`h-8 w-8 rounded-full ${running ? "bg-foreground text-white hover:bg-foreground/90" : "border-border"}`}
           onClick={() => running ? onStop(block) : onStart(block)}
           disabled={!hasCard || busy}
-          title={running ? "Stop timer" : "Start timer"}
-          aria-label={running ? `Stop timer for ${block.cardName}` : `Start timer for ${block.cardName}`}
+          title={running ? "Stop timer" : switching ? "Switch timer" : "Start timer"}
+          aria-label={running ? `Stop timer for ${block.cardName}` : switching ? `Switch timer to ${block.cardName}` : `Start timer for ${block.cardName}`}
         >
           {running ? <StopCircle className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
         </Button>
@@ -1091,20 +1070,6 @@ function RailHeading({ icon, label, count }: { icon: React.ReactNode; label: str
       {icon}
       <span>{label}</span>
       {typeof count === "number" && count > 0 && <Badge className="h-5 border-0 bg-red-500/10 px-1.5 text-[10px] text-red-700 dark:text-red-300">{count}</Badge>}
-    </div>
-  );
-}
-
-function BlockSummary({ block, compact = false }: { block: DailyPlanBlock; compact?: boolean }) {
-  return (
-    <div className="min-w-0">
-      <div className="flex min-w-0 items-center gap-2">
-        <ClipboardList className="h-4 w-4 shrink-0 text-primary" />
-        <p className="truncate text-sm font-bold text-foreground">{block.action}</p>
-      </div>
-      <p className={`mt-1 ${compact ? "text-xs" : "text-sm"} font-medium text-foreground`}>Next action: <span className="font-normal">{block.notes || block.cardName}</span></p>
-      <p className="mt-1 text-xs text-muted-foreground">Board: {block.boardName} <span className="mx-1">List:</span> {block.listName}</p>
-      <Badge variant="outline" className={`mt-2 rounded-md ${statusTone(block.status)}`}>{block.status}</Badge>
     </div>
   );
 }

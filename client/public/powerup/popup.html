@@ -97,6 +97,7 @@
   var state = {
     card: null,
     isRunning: false,
+    otherActiveTimer: null,
     startedAt: null,
     elapsedSeconds: 0,
     todaySeconds: 0,
@@ -131,24 +132,33 @@
   }
 
   // ── API calls ─────────────────────────────────────────────────────────────────
-  function apiCall(path, method, body) {
-    return fetch(BASE_URL + '/api/trpc/' + path, {
-      method: method || 'GET',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify({ json: body }) : undefined,
+  function getPowerUpToken() {
+    return t.getRestApi().then(function(client) {
+      return client.getToken().then(function(existing) {
+        return existing || client.authorize({ expiration: 'never', scope: 'read,write' });
+      });
+    });
+  }
+
+  function apiCall(path, body) {
+    return getPowerUpToken().then(function(token) {
+      return fetch(BASE_URL + '/api/trpc/powerup.' + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: Object.assign({ token: token }, body || {}) }),
+      });
     }).then(function(r) { return r.json(); }).then(function(data) {
-      if (data.error) throw new Error(data.error.message || 'API error');
+      if (data.error) throw new Error(data.error.json && data.error.json.message || data.error.message || 'API error');
       return data.result ? data.result.data : data;
     });
   }
 
-  function getActiveTimer() {
-    return apiCall('timer.getActive');
+  function getTimerState(cardId, date) {
+    return apiCall('timerState', { cardId: cardId, date: date });
   }
 
   function startTimer(cardId, cardName, cardUrl, boardName, listName) {
-    return apiCall('timer.start', 'POST', {
+    return apiCall('startTimer', {
       cardId: cardId,
       cardName: cardName,
       cardUrl: cardUrl,
@@ -158,17 +168,17 @@
   }
 
   function stopTimer(cardId) {
-    return apiCall('timer.stop', 'POST', { cardId: cardId });
-  }
-
-  function getDailySummary(date) {
-    return apiCall('timer.getDailySummary?input=' + encodeURIComponent(JSON.stringify({ json: { date: date } })));
+    return apiCall('stopTimer', { cardId: cardId });
   }
 
   // ── date helper ───────────────────────────────────────────────────────────────
   function getEATDate() {
     var eatNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
     return eatNow.toISOString().slice(0, 10);
+  }
+
+  function isEATSunday() {
+    return new Date(Date.now() + 3 * 60 * 60 * 1000).getUTCDay() === 0;
   }
 
   // ── tick ──────────────────────────────────────────────────────────────────────
@@ -203,7 +213,14 @@
 
     var btnHtml = state.isRunning
       ? '<button class="btn btn-stop" id="action-btn" ' + (state.busy ? 'disabled' : '') + '>⏹ Stop Timer</button>'
-      : '<button class="btn btn-start" id="action-btn" ' + (state.busy ? 'disabled' : '') + '>⏱ Start Timer</button>';
+      : '<button class="btn btn-start" id="action-btn" ' + (state.busy ? 'disabled' : '') + '>' + (isEATSunday() ? '⏱ Start Emergency Timer' : state.otherActiveTimer ? '⏱ Switch Timer' : '⏱ Start Timer') + '</button>';
+
+    var protectedDayHtml = !state.isRunning && isEATSunday()
+      ? '<div class="error" style="color:#166534;background:#f0fdf4;border-color:#86efac">Sunday is protected. Start only for a genuine emergency.</div>'
+      : '';
+    var switchHtml = !state.isRunning && state.otherActiveTimer
+      ? '<div class="error" style="color:#92400e;background:#fffbeb;border-color:#fcd34d">Switching will stop and save the timer for ' + escHtml(state.otherActiveTimer.cardName || 'the current card') + '.</div>'
+      : '';
 
     var todayHtml = '';
     if (state.todaySeconds > 0) {
@@ -217,6 +234,8 @@
       '<div class="card-name">' + escHtml(cardName) + '</div>' +
       timerHtml +
       btnHtml +
+      protectedDayHtml +
+      switchHtml +
       todayHtml +
       errorHtml;
 
@@ -236,6 +255,10 @@
   // ── actions ───────────────────────────────────────────────────────────────────
   function handleStart() {
     if (!state.card) return;
+    var confirmations = [];
+    if (state.otherActiveTimer) confirmations.push('The timer for ' + (state.otherActiveTimer.cardName || 'the current card') + ' will be stopped and saved.');
+    if (isEATSunday()) confirmations.push('Sunday is Joyce\'s protected day off. Continue only for a genuine emergency.');
+    if (confirmations.length && !window.confirm(confirmations.join('\n\n') + '\n\nContinue?')) return;
     state.busy = true;
     state.error = null;
     render();
@@ -248,6 +271,7 @@
       state.listName || 'Unknown'
     ).then(function() {
       state.isRunning = true;
+      state.otherActiveTimer = null;
       state.startedAt = Date.now();
       state.elapsedSeconds = 0;
       state.busy = false;
@@ -295,18 +319,16 @@
     return Promise.all([
       t.board('name').then(function(b) { state.boardName = b.name; }).catch(function() {}),
       t.list('name').then(function(l) { state.listName = l.name; }).catch(function() {}),
-      getActiveTimer().then(function(active) {
+      getTimerState(card.id, getEATDate()).then(function(timerState) {
+        var active = timerState && timerState.active;
         if (active && active.cardId === card.id) {
           state.isRunning = true;
           state.startedAt = new Date(active.startedAt).getTime();
           state.elapsedSeconds = Math.floor((Date.now() - state.startedAt) / 1000);
+        } else if (active) {
+          state.otherActiveTimer = active;
         }
-      }).catch(function() {}),
-      getDailySummary(getEATDate()).then(function(summary) {
-        if (Array.isArray(summary)) {
-          var entry = summary.find(function(e) { return e.cardId === card.id; });
-          if (entry) state.todaySeconds = entry.totalSeconds;
-        }
+        if (timerState && timerState.cardSummary) state.todaySeconds = timerState.cardSummary.totalSeconds || 0;
       }).catch(function() {}),
     ]);
   }).then(function() {

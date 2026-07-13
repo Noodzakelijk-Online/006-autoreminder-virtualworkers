@@ -1,33 +1,19 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
-import { createTemporaryOwnerBypassUser, isOwnerLoginDisabled } from "./localAuthUser";
-import { sdk } from "./sdk";
+import { createJoyceSingleUser } from "./singleUser";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
-  user: User | null;
+  user: User;
 };
 
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
-  let user: User | null = null;
-
-  if (isOwnerLoginDisabled()) {
-    user = createTemporaryOwnerBypassUser();
-  } else {
-    try {
-      user = await sdk.authenticateRequest(opts.req);
-    } catch (error) {
-      // Authentication is optional for public procedures.
-      user = null;
-    }
-  }
-
   return {
     req: opts.req,
     res: opts.res,
-    user,
+    user: createJoyceSingleUser(),
   };
 }

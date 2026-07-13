@@ -1,4 +1,5 @@
 import type { TrelloCardContext } from "./aptlssEngine";
+import type { AptlssAssessment } from "./aptlssAssessment";
 
 type AptlssFallbackPlan = {
   action: string;
@@ -54,32 +55,28 @@ function urgencyFor(ctx: TrelloCardContext): AptlssFallbackPlan["urgencyLabel"] 
   return "MEDIUM";
 }
 
-function robertDecisionFor(ctx: TrelloCardContext) {
-  const haystack = `${ctx.name} ${ctx.desc} ${ctx.labels.map((label) => label.name).join(" ")}`;
-  if (containsAny(haystack, [/price/i, /pricing/i, /budget/i, /payment/i, /invoice/i, /money/i])) {
-    return "Confirm the pricing, budget, or payment decision before committing externally.";
-  }
-  if (containsAny(haystack, [/legal/i, /contract/i, /terms/i, /approval/i, /approve/i])) {
-    return "Confirm the approval or legal position before proceeding.";
-  }
-  if (!ctx.desc?.trim()) {
-    return "Confirm the success criteria because the card does not contain enough detail.";
-  }
-  return null;
+function robertDecisionFor(assessment?: AptlssAssessment) {
+  if (assessment?.actionability !== "decision" && !assessment?.waiting?.requiresRobert) return null;
+  return assessment.waiting?.requestedItem
+    ?? assessment.recommendations.find((item) => /robert|decision|approve|confirm|choose/i.test(item))
+    ?? "Confirm the bounded decision and the acceptable next action before Joyce commits externally.";
 }
 
 export function buildDeterministicAptlssPlan(
   ctx: TrelloCardContext,
   reason = "AI planner unavailable",
+  assessment?: AptlssAssessment,
 ): AptlssFallbackPlan {
   const cardName = ctx.name?.trim() || "this Trello card";
   const hasDescription = Boolean(ctx.desc?.trim());
-  const robertDecision = robertDecisionFor(ctx);
+  const robertDecision = robertDecisionFor(assessment);
   const urgencyLabel = urgencyFor(ctx);
-  const lowConfidence = !hasDescription || Boolean(robertDecision);
-  const firstAction = hasDescription
-    ? `Define the next concrete deliverable for "${cardName}" from the current Trello context.`
-    : `Ask for the missing success criteria for "${cardName}" before doing execution work.`;
+  const lowConfidence = !hasDescription || (assessment?.confidenceScore ?? 100) < 65;
+  const firstAction = assessment?.waiting?.nextAction
+    ?? assessment?.recommendations[0]
+    ?? (hasDescription
+      ? `Define the next concrete deliverable for "${cardName}" from the current Trello context.`
+      : `Extract or add the missing success criteria for "${cardName}" before doing execution work.`);
   const dueText = ctx.due ? ` Due: ${new Date(ctx.due).toISOString().slice(0, 10)}.` : "";
   const descriptionSource = hasDescription ? "description, comments, checklist, and attachments" : "card title, list, labels, comments, and attachments";
 
@@ -88,16 +85,16 @@ export function buildDeterministicAptlssPlan(
       number: 1,
       text: hasDescription
         ? `Extract acceptance criteria for "${cardName}" from Trello.`
-        : `Request clear acceptance criteria for "${cardName}".`,
+        : `Add clear acceptance criteria for "${cardName}" from available evidence.`,
       done: false,
       estimatedMinutes: hasDescription ? 15 : 10,
-      category: hasDescription ? "internal_work" : "robert_decision",
-      requiresRobert: !hasDescription,
+      category: "internal_work",
+      requiresRobert: false,
       blockedBy: null,
       dependsOnCards: [],
       completionCriteria: "A short success checklist exists before execution continues.",
       riskIfSkipped: "Joyce may spend time on work that does not match Robert's expected outcome.",
-      recommendedDecision: !hasDescription ? "Ask Robert for a one-sentence definition of done before starting." : null,
+      recommendedDecision: null,
     },
     {
       number: 2,
@@ -182,8 +179,8 @@ export function buildDeterministicAptlssPlan(
     urgencyLabel,
     nextCheckpoint: urgencyLabel === "CRITICAL" ? "Check again after the next work block." : "Check again before the end-of-day update.",
     robertDecision,
-    isBlocked: Boolean(robertDecision && !hasDescription),
-    blockedReason: robertDecision && !hasDescription ? "Card needs Robert clarification before execution." : null,
+    isBlocked: assessment?.actionability === "blocked" || assessment?.actionability === "waiting",
+    blockedReason: assessment?.actionability === "blocked" || assessment?.actionability === "waiting" ? assessment.stateReason : null,
     confidenceScore: lowConfidence ? 58 : 72,
     confidenceReason: lowConfidence
       ? "Generated without AI from limited Trello context; Robert review or clearer card detail is recommended."

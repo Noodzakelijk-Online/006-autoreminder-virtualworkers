@@ -24,10 +24,7 @@ function ensureValue(key, factory) {
 }
 
 ensureValue("JWT_SECRET", generatedSecret);
-ensureValue("LOCAL_AUTH_TOKEN", generatedSecret);
-ensureValue("LOCAL_AUTH_OPEN_ID", () => "joyce-local");
 ensureValue("SCHEDULED_TASK_SECRET", generatedSecret);
-ensureValue("JOYCE_DISABLE_OWNER_LOGIN", () => "false");
 
 fs.writeFileSync(envPath, `${lines.filter((line, index) => line || index < lines.length - 1).join("\n").replace(/\n*$/, "")}\n`, "utf8");
 console.log(generatedKeys.length ? `Provisioned local values for: ${generatedKeys.join(", ")}` : "Local security values are already provisioned.");

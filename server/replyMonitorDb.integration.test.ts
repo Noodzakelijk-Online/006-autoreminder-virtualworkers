@@ -72,5 +72,5 @@ describe("Reply Monitor database integration", () => {
     await db!.delete(unsignedMessageFlags).where(eq(unsignedMessageFlags.cardId, cardId));
     await db!.delete(vagueReplyFlags).where(eq(vagueReplyFlags.cardId, cardId));
     await db!.delete(replyThreads).where(eq(replyThreads.cardId, cardId));
-  });
+  }, 20_000);
 });

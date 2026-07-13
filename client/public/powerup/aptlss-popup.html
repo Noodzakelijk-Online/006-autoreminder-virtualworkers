@@ -274,6 +274,33 @@
     doneGateResult: null,
     checkingDoneGate: false,
   };
+  var tokenPromise = null;
+
+  function getPowerUpToken() {
+    if (tokenPromise) return tokenPromise;
+    tokenPromise = t.getRestApi().then(function(client) {
+      return client.getToken().then(function(existing) {
+        return existing || client.authorize({ expiration: 'never', scope: 'read,write' });
+      });
+    }).catch(function(error) {
+      tokenPromise = null;
+      throw error;
+    });
+    return tokenPromise;
+  }
+
+  function apiCall(path, body) {
+    return getPowerUpToken().then(function(token) {
+      return fetch(BASE_URL + '/api/trpc/powerup.' + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ json: Object.assign({ token: token }, body || {}) }),
+      });
+    }).then(function(response) { return response.json(); }).then(function(data) {
+      if (data.error) throw new Error(data.error.json && data.error.json.message || data.error.message || 'API error');
+      return data.result ? data.result.data : data;
+    });
+  }
 
   // ── Toast ─────────────────────────────────────────────────────────────────────
   function showToast(msg) {
@@ -317,31 +344,22 @@
     state.doneGateResult = null;
     render();
 
-    var body = JSON.stringify({
-      "0": {
-        json: {
-          cardId: state.card.id,
-          cardName: state.card.name,
-          cardUrl: state.card.url || ('https://trello.com/c/' + state.card.id),
-          boardName: state.boardName || '',
-          listName: state.listName || '',
-          forceRefresh: !!forceRefresh,
-        }
-      }
-    });
-
-    fetch(BASE_URL + '/api/trpc/aptlss.generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: body,
+    apiCall('generatePlan', {
+      cardId: state.card.id,
+      cardName: state.card.name,
+      cardUrl: state.card.url || ('https://trello.com/c/' + state.card.id),
+      boardName: state.boardName || '',
+      listName: state.listName || '',
+      forceRefresh: !!forceRefresh,
     })
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-      var result = data[0] && data[0].result && data[0].result.data;
+    .then(function(result) {
       if (!result) throw new Error('No plan returned');
       state.plan = result.plan;
       state.steps = result.steps || [];
+      state.stepsDone[state.card.id] = {};
+      state.steps.forEach(function(step) {
+        if (step.status === 'complete') state.stepsDone[state.card.id][step.stepNumber] = true;
+      });
       state.progress = result.progress || state.progress;
       state.cardState = result.cardState;
       state.priorityScore = result.priorityScore;
@@ -365,10 +383,20 @@
     if (!state.card) return;
     var key = 'aptlss_steps_' + state.card.id;
     var done = state.stepsDone[state.card.id] || {};
-    if (done[num]) { delete done[num]; } else { done[num] = true; }
-    state.stepsDone[state.card.id] = done;
-    t.set('card', 'shared', key, JSON.stringify(done)).catch(function() {});
-    render();
+    var complete = !done[num];
+    apiCall('syncStep', { cardId: state.card.id, stepNumber: num, complete: complete })
+      .then(function(result) {
+        if (complete) { done[num] = true; } else { delete done[num]; }
+        state.stepsDone[state.card.id] = done;
+        if (result && result.progress) state.progress = result.progress;
+        t.set('card', 'shared', key, JSON.stringify(done)).catch(function() {});
+        state.error = null;
+        render();
+      })
+      .catch(function(error) {
+        state.error = error.message || 'Could not update the APTLSS step';
+        render();
+      });
   }
 
   // ── Check Done Gate ───────────────────────────────────────────────────────────
@@ -378,13 +406,8 @@
     state.doneGateResult = null;
     render();
 
-    fetch(BASE_URL + '/api/trpc/aptlss.doneGateCheck?batch=1&input=' +
-      encodeURIComponent(JSON.stringify({ "0": { json: { cardId: state.card.id } } })), {
-      credentials: 'include',
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      var result = data[0] && data[0].result && data[0].result.data;
+    apiCall('doneGate', { cardId: state.card.id })
+    .then(function(result) {
       state.doneGateResult = result || { ready: false, missing: ['Could not check'] };
       state.checkingDoneGate = false;
       render();
@@ -753,16 +776,15 @@
     ]);
   }).then(function() {
     // Load cached plan first for instant display
-    fetch(BASE_URL + '/api/trpc/aptlss.getCached?batch=1&input=' +
-      encodeURIComponent(JSON.stringify({ "0": { json: { cardId: state.card.id } } })), {
-      credentials: 'include',
-    })
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-      var result = data[0] && data[0].result && data[0].result.data;
+    apiCall('getPlan', { cardId: state.card.id })
+    .then(function(result) {
       if (result && result.plan) {
         state.plan = result.plan;
         state.steps = result.steps || [];
+        state.stepsDone[state.card.id] = {};
+        state.steps.forEach(function(step) {
+          if (step.status === 'complete') state.stepsDone[state.card.id][step.stepNumber] = true;
+        });
         state.progress = result.progress || state.progress;
         state.cardState = result.cardState;
         state.priorityScore = result.priorityScore;
@@ -780,32 +802,6 @@
     })
     .catch(function() { fetchPlan(false); });
 
-    // Load plan history
-    fetch(BASE_URL + '/api/trpc/aptlss.getAll?batch=1&input=' +
-      encodeURIComponent(JSON.stringify({ "0": { json: {} } })), {
-      credentials: 'include',
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      var all = data[0] && data[0].result && data[0].result.data;
-      if (all && state.card) {
-        var cardId = state.card.id;
-        var cardHistory = all
-          .filter(function(h) { return h.cardId === cardId; })
-          .map(function(h) {
-            var plan = null;
-            try { plan = JSON.parse(h.planJson); } catch(e) {}
-            return { generatedAt: h.generatedAt, plan: plan };
-          })
-          .sort(function(a, b) { return new Date(b.generatedAt) - new Date(a.generatedAt); })
-          .slice(0, 5);
-        if (cardHistory.length > 1) {
-          state.history = cardHistory;
-          render();
-        }
-      }
-    })
-    .catch(function() {});
   }).catch(function(e) {
     state.error = 'Could not load card: ' + (e.message || 'Unknown error');
     state.loading = false;

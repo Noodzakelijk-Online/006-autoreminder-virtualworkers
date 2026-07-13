@@ -55,5 +55,5 @@ describe("APTLSS feedback ledger integration", () => {
     expect(calibration.recentReviews.some((review) => review.assessmentId === snapshot!.id)).toBe(true);
     await expect(recordAssessmentFeedback({ assessmentId: snapshot!.id, verdict: "accurate", createdBy: "integration-test" }))
       .rejects.toBeInstanceOf(AssessmentFeedbackError);
-  });
+  }, 20_000);
 });

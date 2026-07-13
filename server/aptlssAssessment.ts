@@ -3,10 +3,12 @@ import type { CardStateValue, PriorityTier, TrelloCardContext } from "./aptlssEn
 import type { AptlssPortfolioSignal } from "./aptlssPortfolio";
 import type { AptlssForecast, AptlssRuntimeSignal } from "./aptlssRuntime";
 import type { AptlssWaitingSignal } from "./aptlssWaitingReason";
+import type { AptlssExternalEvidenceSignal } from "./workspaceEvidence";
 
-export const APTLSS_ASSESSMENT_VERSION = "4.1.0";
+export const APTLSS_ASSESSMENT_VERSION = "4.3.0";
+export const APTLSS_NEAR_CERTAINTY_TARGET = 99;
 
-export type AssessmentTrigger = "generation" | "webhook" | "scheduled" | "manual";
+export type AssessmentTrigger = "generation" | "webhook" | "scheduled" | "manual" | "timer";
 
 export type AssessmentStep = {
   status: string;
@@ -21,7 +23,7 @@ export type AssessmentStep = {
 
 export type AssessmentEvidence = {
   key: string;
-  source: "trello" | "aptlss" | "derived" | "runtime" | "portfolio" | "schedule";
+  source: "trello" | "aptlss" | "derived" | "runtime" | "portfolio" | "schedule" | "workspace";
   value: string | number | boolean | null;
   quality: "strong" | "moderate" | "weak";
   detail: string;
@@ -34,6 +36,11 @@ export type AssessmentCalibrationContext = {
   byState: Record<string, { samples: number; accuracyScore: number; commonCorrection?: string | null }>;
 };
 
+export type AptlssAssessmentPolicy = {
+  stallThresholdDays: number;
+  confidenceFlagThreshold: number;
+};
+
 export type AppliedAssessmentCalibration = {
   applied: boolean;
   scope: "state" | "global" | "none";
@@ -41,6 +48,20 @@ export type AppliedAssessmentCalibration = {
   validatedAccuracy: number | null;
   confidenceBeforeCalibration: number;
   confidenceAfterCalibration: number;
+};
+
+export type AptlssConfidenceProfile = {
+  targetScore: number;
+  ceiling: number;
+  gapToTarget: number;
+  eligibleForNearCertainty: boolean;
+  dimensions: {
+    evidence: number;
+    forecast: number;
+    humanValidation: number;
+    consistency: number;
+  };
+  blockers: string[];
 };
 
 export type AptlssAssessment = {
@@ -57,11 +78,13 @@ export type AptlssAssessment = {
   confidenceScore: number;
   confidenceBand: "high" | "medium" | "low";
   confidenceReason: string;
+  confidenceProfile: AptlssConfidenceProfile;
   evidenceCoverage: Record<string, boolean>;
   evidence: AssessmentEvidence[];
   uncertainties: string[];
   recommendations: string[];
   waiting: AptlssWaitingSignal | null;
+  externalEvidence: AptlssExternalEvidenceSignal;
   portfolio: AptlssPortfolioSignal;
   runtime: AptlssRuntimeSignal;
   forecast: AptlssForecast;
@@ -72,6 +95,42 @@ export type AptlssAssessment = {
   assessedAt: string;
   trigger: AssessmentTrigger;
 };
+
+export type AssessmentRefreshCandidate = {
+  cardId?: string;
+  cardName?: string;
+  dateLastActivity?: string | null;
+};
+
+export type PreviousAssessmentSchedule = {
+  nextAssessmentAt: Date | string;
+  lastEvaluatedAt: Date | string;
+};
+
+function scheduleTimestamp(value: Date | string | null | undefined) {
+  if (!value) return Number.NaN;
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
+}
+
+/**
+ * Webhooks refresh changed cards immediately. Scheduled maintenance therefore
+ * only needs to revisit cards that are new, changed, or due for re-evaluation.
+ */
+export function assessmentNeedsRefresh(
+  candidate: AssessmentRefreshCandidate,
+  previous: PreviousAssessmentSchedule | null | undefined,
+  options: { force?: boolean; nowMs?: number } = {},
+) {
+  if (options.force || !previous) return true;
+  const nowMs = options.nowMs ?? Date.now();
+  const nextAssessmentMs = scheduleTimestamp(previous.nextAssessmentAt);
+  if (!Number.isFinite(nextAssessmentMs) || nextAssessmentMs <= nowMs) return true;
+
+  const activityMs = scheduleTimestamp(candidate.dateLastActivity);
+  if (!Number.isFinite(activityMs)) return false;
+  const lastEvaluatedMs = scheduleTimestamp(previous.lastEvaluatedAt);
+  return !Number.isFinite(lastEvaluatedMs) || activityMs > lastEvaluatedMs;
+}
 
 const EMPTY_PORTFOLIO: AptlssPortfolioSignal = {
   directDependentCount: 0,
@@ -132,7 +191,12 @@ function safeJson(value: unknown) {
   return JSON.stringify(stableValue(value));
 }
 
-export function buildAssessmentContextHash(ctx: TrelloCardContext, steps: AssessmentStep[], waiting: AptlssWaitingSignal | null = null) {
+export function buildAssessmentContextHash(
+  ctx: TrelloCardContext,
+  steps: AssessmentStep[],
+  waiting: AptlssWaitingSignal | null = null,
+  externalEvidence?: AptlssExternalEvidenceSignal,
+) {
   const normalized = {
     id: ctx.id,
     name: ctx.name.trim(),
@@ -153,6 +217,15 @@ export function buildAssessmentContextHash(ctx: TrelloCardContext, steps: Assess
     activity: (ctx.activity ?? []).slice(0, 40).map((event) => [event.type, event.date, event.memberName, event.detail]),
     steps: steps.map((step) => [step.status, step.category, step.requiresRobert, step.blockedBy, step.dependsOnCards, step.estimatedMinutes, step.completionCriteria, step.riskIfSkipped]),
     waiting: waiting ? [waiting.reasonId, waiting.rawReason, waiting.category, waiting.waitingOn, waiting.waitingOnName, waiting.requestedItem, waiting.nextAction, waiting.followUpAt, waiting.urgency, waiting.confidenceScore] : null,
+    externalEvidence: externalEvidence?.items.map((item) => [
+      item.source,
+      item.sourceId,
+      item.modifiedAt,
+      item.relevanceScore,
+      item.title,
+      item.summary,
+      item.contentSnippet,
+    ]) ?? [],
   };
   return createHash("sha256").update(safeJson(normalized)).digest("hex");
 }
@@ -252,10 +325,12 @@ export function assessAptlssCard({
   forecast,
   calibration,
   waiting = null,
+  externalEvidence,
   duplicateCardNames = [],
   planMissingNextAction = false,
   nowMs = Date.now(),
   trigger = "manual",
+  policy = { stallThresholdDays: 5, confidenceFlagThreshold: 65 },
 }: {
   ctx: TrelloCardContext;
   steps: AssessmentStep[];
@@ -265,10 +340,12 @@ export function assessAptlssCard({
   forecast?: AptlssForecast;
   calibration?: AssessmentCalibrationContext;
   waiting?: AptlssWaitingSignal | null;
+  externalEvidence?: AptlssExternalEvidenceSignal;
   duplicateCardNames?: string[];
   planMissingNextAction?: boolean;
   nowMs?: number;
   trigger?: AssessmentTrigger;
+  policy?: AptlssAssessmentPolicy;
 }): AptlssAssessment {
   const portfolioWasProvided = Boolean(portfolio);
   const runtimeWasProvided = Boolean(runtime);
@@ -278,6 +355,13 @@ export function assessAptlssCard({
     transitiveDependentCount: dependentCardCount,
   };
   const runtimeSignal = runtime ?? EMPTY_RUNTIME;
+  const externalEvidenceSignal: AptlssExternalEvidenceSignal = externalEvidence ?? {
+    total: 0,
+    sourceCounts: { gmail: 0, google_drive: 0, trello: 0, communication: 0 },
+    highConfidenceLinks: 0,
+    latestObservedAt: null,
+    items: [],
+  };
   const openSteps = steps.filter((step) => step.status === "open");
   const completedSteps = steps.filter((step) => step.status === "complete");
   const progress = checklistProgress(ctx);
@@ -312,7 +396,7 @@ export function assessAptlssCard({
 
   const secondarySignals: string[] = [];
   if (due.overdue) secondarySignals.push("overdue");
-  if (daysSinceProgress >= 5) secondarySignals.push("stale_progress");
+  if (daysSinceProgress >= policy.stallThresholdDays) secondarySignals.push("stale_progress");
   if (hasRobertStep) secondarySignals.push("robert_decision_open");
   if (hasBlockedStep) secondarySignals.push("dependency_blocked");
   if (hasExternalStep) secondarySignals.push("external_wait");
@@ -336,6 +420,16 @@ export function assessAptlssCard({
   if (waitingFollowUpDue) secondarySignals.push("waiting_follow_up_due");
   else if (waitingFollowUpSoon) secondarySignals.push("waiting_follow_up_soon");
   if (waiting && waiting.confidenceScore < 60) secondarySignals.push("waiting_reason_low_confidence");
+  if (externalEvidenceSignal.total > 0) secondarySignals.push("cross_source_context_linked");
+  if (externalEvidenceSignal.sourceCounts.gmail > 0) secondarySignals.push("gmail_context_linked");
+  if (externalEvidenceSignal.sourceCounts.google_drive > 0) secondarySignals.push("drive_context_linked");
+  if (externalEvidenceSignal.sourceCounts.communication > 0) secondarySignals.push("communication_context_linked");
+  const externalRiskText = externalEvidenceSignal.items
+    .filter((item) => item.relevanceScore >= 80)
+    .map((item) => `${item.title} ${item.summary ?? ""} ${item.contentSnippet ?? ""}`)
+    .join(" ");
+  const externalRiskScore = /\b(overdue|urgent|deadline|blocked|breach|payment due|approval required)\b/i.test(externalRiskText) ? 6 : 0;
+  if (externalRiskScore > 0) secondarySignals.push("cross_source_risk_signal");
 
   let primaryState: CardStateValue;
   let stateReason: string;
@@ -404,7 +498,7 @@ export function assessAptlssCard({
     primaryState = "OVERDUE";
     stateReason = `The due date passed ${Math.max(1, Math.ceil(Math.abs(due.daysUntilDue ?? 0)))} day(s) ago.`;
     actionability = "actionable";
-  } else if (daysSinceProgress >= 5 && (progress.completed > 0 || completedSteps.length > 0)) {
+  } else if (daysSinceProgress >= policy.stallThresholdDays && (progress.completed > 0 || completedSteps.length > 0)) {
     primaryState = "STALLED";
     stateReason = `No meaningful work evidence has been detected for ${daysSinceProgress} day(s).`;
     actionability = "repair";
@@ -467,6 +561,7 @@ export function assessAptlssCard({
     effortFit,
     stateModifier: stateModifier + (startsInFuture ? -8 : 0),
     duplicateReview: duplicateCardNames.length ? 4 : 0,
+    crossSourceRisk: externalRiskScore,
   };
   const priorityScore = clamp(Object.values(priorityBreakdown).reduce((sum, value) => sum + value, 0));
   const priorityTier: PriorityTier = actionability === "blocked"
@@ -492,6 +587,9 @@ export function assessAptlssCard({
     estimateCalibration: forecastSignal.calibrationSampleSize > 0,
     humanCalibration: (calibration?.byState?.[primaryState]?.samples ?? 0) >= 5 || (calibration?.sampleSize ?? 0) >= 10,
     waitingReason: Boolean(waiting),
+    gmailContext: externalEvidenceSignal.sourceCounts.gmail > 0,
+    driveContext: externalEvidenceSignal.sourceCounts.google_drive > 0,
+    crossSourceLinks: externalEvidenceSignal.highConfidenceLinks > 0,
   };
   const coverageWeights: Record<keyof typeof evidenceCoverage, number> = {
     description: 14,
@@ -512,6 +610,9 @@ export function assessAptlssCard({
     estimateCalibration: 5,
     humanCalibration: 4,
     waitingReason: 12,
+    gmailContext: 4,
+    driveContext: 5,
+    crossSourceLinks: 5,
   };
   let confidence = 10;
   for (const key of Object.keys(evidenceCoverage) as Array<keyof typeof evidenceCoverage>) {
@@ -523,6 +624,7 @@ export function assessAptlssCard({
   if (!evidenceCoverage.dueDate) uncertainties.push("No due date is available for urgency calibration.");
   if (!evidenceCoverage.activityHistory) uncertainties.push("Only a coarse last-activity timestamp is available; progress freshness is less reliable.");
   if (!steps.length) uncertainties.push("No persisted APTLSS steps are available.");
+  if (externalEvidenceSignal.total === 0) uncertainties.push("No Gmail, Drive, communication, or retained Trello evidence is linked to this card yet.");
   if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize === 0) {
     uncertainties.push("No completed-work sample is available to calibrate the remaining-time estimate.");
   }
@@ -554,15 +656,18 @@ export function assessAptlssCard({
     confidence -= 12;
   }
   if (lastProgressMs != null && nowMs - lastProgressMs > 30 * DAY_MS) confidence -= 8;
-  if (lacksStructure) confidence = Math.min(confidence, 35);
-  if (!steps.length) confidence = Math.min(confidence, 55);
-  if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize === 0) confidence = Math.min(confidence, 88);
-  else if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize < 2) confidence = Math.min(confidence, 92);
-  if (!evidenceCoverage.humanCalibration) confidence = Math.min(confidence, 95);
-  if (waiting && ["WAITING_FOR_ROBERT", "WAITING_FOR_EXTERNAL_PARTY", "WAITING_FOR_JOYCE", "BLOCKED_BY_OTHER_CARD"].includes(primaryState)) {
-    confidence = Math.min(confidence, Math.min(95, waiting.confidenceScore + 10));
-  }
-  confidence = clamp(confidence);
+  const evidenceDimension = clamp(confidence);
+  let confidenceCeiling = 100;
+  if (lacksStructure) confidenceCeiling = Math.min(confidenceCeiling, 35);
+  if (!steps.length) confidenceCeiling = Math.min(confidenceCeiling, 55);
+  if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize === 0) confidenceCeiling = Math.min(confidenceCeiling, 88);
+  else if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize < 2) confidenceCeiling = Math.min(confidenceCeiling, 92);
+  if (!evidenceCoverage.humanCalibration) confidenceCeiling = Math.min(confidenceCeiling, 95);
+  const waitingConfidenceCeiling = waiting && ["WAITING_FOR_ROBERT", "WAITING_FOR_EXTERNAL_PARTY", "WAITING_FOR_JOYCE", "BLOCKED_BY_OTHER_CARD"].includes(primaryState)
+    ? Math.min(95, waiting.confidenceScore + 10)
+    : 100;
+  confidenceCeiling = Math.min(confidenceCeiling, waitingConfidenceCeiling);
+  confidence = Math.min(confidenceCeiling, clamp(confidence));
   const confidenceBeforeCalibration = confidence;
   const stateCalibration = calibration?.byState?.[primaryState];
   const calibrationScope = stateCalibration && stateCalibration.samples >= 5
@@ -580,7 +685,7 @@ export function assessAptlssCard({
     const maximumWeight = calibrationScope === "state" ? 0.35 : 0.25;
     const fullWeightSamples = calibrationScope === "state" ? 30 : 60;
     const weight = maximumWeight * Math.min(1, calibrationSamples / fullWeightSamples);
-    confidence = clamp(confidence * (1 - weight) + validatedAccuracy * weight);
+    confidence = Math.min(confidenceCeiling, clamp(confidence * (1 - weight) + validatedAccuracy * weight));
   }
   const appliedCalibration: AppliedAssessmentCalibration = {
     applied: calibrationScope !== "none",
@@ -591,7 +696,43 @@ export function assessAptlssCard({
     confidenceAfterCalibration: confidence,
   };
   const confidenceBand = confidence >= 80 ? "high" : confidence >= 60 ? "medium" : "low";
-  const confidenceReason = `${Object.values(evidenceCoverage).filter(Boolean).length}/${Object.keys(evidenceCoverage).length} evidence categories available; ${uncertainties.length} material uncertaint${uncertainties.length === 1 ? "y" : "ies"}.${appliedCalibration.applied ? ` Human calibration adjusted ${confidenceBeforeCalibration}% to ${confidence}% from ${calibrationSamples} ${calibrationScope} review(s).` : " Human calibration is not yet applied because the review sample is too small."}`;
+  const confidenceBlockers: string[] = [];
+  if (lacksStructure) confidenceBlockers.push("Add a usable description, owner, and due date.");
+  if (!steps.length) confidenceBlockers.push("Generate and persist executable APTLSS steps.");
+  if (remainingMinutes > 0 && forecastSignal.calibrationSampleSize < 2) {
+    confidenceBlockers.push(`Complete ${2 - forecastSignal.calibrationSampleSize} more fully timed card${2 - forecastSignal.calibrationSampleSize === 1 ? "" : "s"} to calibrate forecasts.`);
+  }
+  if (!evidenceCoverage.humanCalibration) {
+    const stateSamples = calibration?.byState?.[primaryState]?.samples ?? 0;
+    confidenceBlockers.push(`Review ${Math.min(Math.max(0, 5 - stateSamples), Math.max(0, 10 - (calibration?.sampleSize ?? 0)))} more comparable assessment${Math.min(Math.max(0, 5 - stateSamples), Math.max(0, 10 - (calibration?.sampleSize ?? 0))) === 1 ? "" : "s"} for empirical validation.`);
+  }
+  if (waitingConfidenceCeiling < APTLSS_NEAR_CERTAINTY_TARGET) {
+    confidenceBlockers.push("Clarify the waiting party, requested item, and explicit follow-up time.");
+  }
+  const contradictionCount = [
+    forecastSignal.uncertainty === "high" && remainingMinutes > 0,
+    portfolioSignal.orphanReferences.length > 0,
+    duplicateCardNames.length > 0,
+    Boolean(planMissingNextAction),
+    ctx.dueComplete && !inDoneList && progress.ratio < 1,
+  ].filter(Boolean).length;
+  const confidenceProfile: AptlssConfidenceProfile = {
+    targetScore: APTLSS_NEAR_CERTAINTY_TARGET,
+    ceiling: confidenceCeiling,
+    gapToTarget: Math.max(0, APTLSS_NEAR_CERTAINTY_TARGET - confidence),
+    eligibleForNearCertainty: confidence >= APTLSS_NEAR_CERTAINTY_TARGET && confidenceBlockers.length === 0,
+    dimensions: {
+      evidence: evidenceDimension,
+      forecast: remainingMinutes === 0 ? 100
+        : forecastSignal.calibrationSampleSize >= 6 && forecastSignal.uncertainty === "low" ? 100
+          : forecastSignal.calibrationSampleSize >= 2 ? (forecastSignal.uncertainty === "high" ? 82 : 94)
+            : forecastSignal.calibrationSampleSize === 1 ? 70 : 40,
+      humanValidation: validatedAccuracy ?? 0,
+      consistency: clamp(100 - contradictionCount * 15),
+    },
+    blockers: Array.from(new Set(confidenceBlockers)),
+  };
+  const confidenceReason = `${Object.values(evidenceCoverage).filter(Boolean).length}/${Object.keys(evidenceCoverage).length} evidence categories available; ${uncertainties.length} material uncertaint${uncertainties.length === 1 ? "y" : "ies"}; verified ceiling ${confidenceCeiling}%.${appliedCalibration.applied ? ` Human calibration adjusted ${confidenceBeforeCalibration}% to ${confidence}% from ${calibrationSamples} ${calibrationScope} review(s).` : " Human calibration is not yet applied because the review sample is too small."}`;
 
   const recommendations: string[] = [];
   if (waiting) recommendations.push(waiting.nextAction);
@@ -599,6 +740,7 @@ export function assessAptlssCard({
   if (primaryState === "WAITING_FOR_ROBERT") recommendations.push("Present Robert with one bounded decision, a recommendation, and the cost of delay.");
   if (primaryState === "WAITING_FOR_EXTERNAL_PARTY") recommendations.push("Confirm the follow-up deadline and prepare a specific follow-up if it has passed.");
   if (primaryState === "BLOCKED_BY_OTHER_CARD") recommendations.push("Inspect the named blocker and reassess immediately when it changes.");
+  if (externalRiskScore > 0) recommendations.push("Review the recent linked Gmail or Drive evidence before committing the next action.");
   if (due.overdue) recommendations.push("Resolve or explicitly renegotiate the overdue commitment today.");
   if (missingOwner) recommendations.push("Assign a clear owner before relying on execution timing.");
   if (missingDue) recommendations.push("Add a due date or explicitly mark the work as undated maintenance.");
@@ -612,7 +754,7 @@ export function assessAptlssCard({
   if (runtimeSignal.decisionStale) recommendations.push("Escalate the open Robert decision with a recommendation and a clear cost-of-delay statement.");
   if (runtimeSignal.estimateOverrun) recommendations.push("Re-estimate the remaining steps from observed execution time before committing to a completion date.");
   if (runtimeSignal.activeTimer) recommendations.push("Continue the active timed block or stop it explicitly before changing focus.");
-  if (confidence < 60) recommendations.push("Improve the missing evidence before using this assessment for autonomous planning.");
+  if (confidence < policy.confidenceFlagThreshold) recommendations.push("Improve the missing evidence before using this assessment for autonomous planning.");
   if (!recommendations.length) recommendations.push("Execute the highest-priority open step and record completion evidence.");
 
   const reassessmentMinutes = runtimeSignal.activeTimer ? 15
@@ -632,7 +774,7 @@ export function assessAptlssCard({
   return {
     engineVersion: APTLSS_ASSESSMENT_VERSION,
     cardId: ctx.id,
-    contextHash: buildAssessmentContextHash(ctx, steps, waiting),
+    contextHash: buildAssessmentContextHash(ctx, steps, waiting, externalEvidenceSignal),
     primaryState,
     stateReason,
     secondarySignals,
@@ -643,6 +785,7 @@ export function assessAptlssCard({
     confidenceScore: confidence,
     confidenceBand,
     confidenceReason,
+    confidenceProfile,
     evidenceCoverage,
     evidence: [
       { key: "due", source: "trello", value: ctx.due, quality: ctx.due ? "strong" : "weak", detail: due.overdue ? "Due date has passed." : "Current Trello due-date signal." },
@@ -658,12 +801,16 @@ export function assessAptlssCard({
       { key: "reply_age_hours", source: "runtime", value: runtimeSignal.replyAgeHours, quality: runtimeSignal.replyStatus ? "strong" : "weak", detail: runtimeSignal.replyStatus ? `Reply monitor status: ${runtimeSignal.replyStatus}.` : "No linked reply-monitor thread." },
       { key: "decision_age_hours", source: "runtime", value: runtimeSignal.openDecisionAgeHours, quality: runtimeSignal.openDecisionAgeHours == null ? "weak" : "strong", detail: "Age of the oldest open Robert-required step." },
       { key: "scheduled_today", source: "schedule", value: runtimeSignal.scheduledToday, quality: runtimeWasProvided ? "strong" : "weak", detail: runtimeSignal.scheduledToday ? `${runtimeSignal.scheduledMinutes} minute(s) scheduled today.` : "No block in today's persisted plan." },
-      { key: "forecast_p50", source: "derived", value: forecastSignal.calibratedP50Minutes, quality: forecastSignal.calibrationSampleSize >= 6 ? "strong" : forecastSignal.calibrationSampleSize >= 2 ? "moderate" : "weak", detail: `P50 ${forecastSignal.calibratedP50Minutes}m; P90 ${forecastSignal.calibratedP90Minutes}m from ${forecastSignal.calibrationSampleSize} calibration sample(s).` },
+      { key: "forecast_p50", source: "derived", value: forecastSignal.calibratedP50Minutes, quality: forecastSignal.calibrationSampleSize >= 6 ? "strong" : forecastSignal.calibrationSampleSize >= 2 ? "moderate" : "weak", detail: `P50 ${forecastSignal.calibratedP50Minutes}m; P90 ${forecastSignal.calibratedP90Minutes}m from ${forecastSignal.calibrationSampleSize} calibration sample(s).` }, // gitleaks:allow - evidence key, not a credential
       { key: "validated_accuracy", source: "derived", value: validatedAccuracy, quality: calibrationScope === "state" ? "strong" : calibrationScope === "global" ? "moderate" : "weak", detail: appliedCalibration.applied ? `Confidence calibrated from ${calibrationSamples} human review(s).` : "Human review sample is below the calibration threshold." },
+      { key: "workspace_evidence", source: "workspace", value: externalEvidenceSignal.total, quality: externalEvidenceSignal.highConfidenceLinks > 0 ? "strong" : externalEvidenceSignal.total > 0 ? "moderate" : "weak", detail: `${externalEvidenceSignal.sourceCounts.gmail} Gmail, ${externalEvidenceSignal.sourceCounts.google_drive} Drive, ${externalEvidenceSignal.sourceCounts.communication} communication, and ${externalEvidenceSignal.sourceCounts.trello} Trello evidence item(s) linked.` },
+      { key: "workspace_high_confidence_links", source: "workspace", value: externalEvidenceSignal.highConfidenceLinks, quality: externalEvidenceSignal.highConfidenceLinks > 0 ? "strong" : "weak", detail: "Links backed by an explicit identifier or full card-name match." },
+      { key: "workspace_latest_observation", source: "workspace", value: externalEvidenceSignal.latestObservedAt, quality: externalEvidenceSignal.latestObservedAt ? "moderate" : "weak", detail: "Latest observation time across linked workspace sources.", observedAt: externalEvidenceSignal.latestObservedAt ?? undefined },
     ],
     uncertainties,
     recommendations: Array.from(new Set(recommendations)),
     waiting,
+    externalEvidence: externalEvidenceSignal,
     portfolio: portfolioSignal,
     runtime: runtimeSignal,
     forecast: forecastSignal,

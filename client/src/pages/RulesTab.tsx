@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { getOperationalExceptionCounts } from "@/lib/operationalContext";
+import { DEFAULT_PRIORITY_RESULT, PRIORITY_CLASSIFIER_QUESTIONS, type PriorityResult } from "@/lib/priorityPlaybook";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,7 +13,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertCircle, ArrowRight, Check, CheckCircle2, ChevronRight, CircleAlert, Clock, ExternalLink, ListFilter, RefreshCw, ShieldAlert } from "lucide-react";
 
-type PriorityResult = { label: string; description: string; tone: string };
 type DecisionItem = {
   cardId: string;
   cardName: string;
@@ -24,22 +23,6 @@ type DecisionItem = {
   stepTitle: string;
   tier: string;
   recommendedDecision: string | null;
-};
-
-const TRIAGE_QUESTIONS: Array<{ question: string; yes: PriorityResult }> = [
-  { question: "Is there legal, housing, court, police, insurance, or irreversible-loss risk?", yes: { label: "P0: Act immediately", description: "Preserve evidence first, then act and document the result.", tone: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300" } },
-  { question: "Is Robert blocked or waiting for an answer right now?", yes: { label: "P1: Resolve within one hour", description: "Prepare the recommendation, then ask Robert a focused question if needed.", tone: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300" } },
-  { question: "Is the task overdue or due today?", yes: { label: "P1: Stabilize today", description: "Confirm the commitment, correct the due date if needed, and record the next action.", tone: "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300" } },
-  { question: "Is a client, contractor, or other external party waiting?", yes: { label: "P2: Resolve today", description: "Reply or provide a useful status update before end of day.", tone: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300" } },
-  { question: "Is this blocking another task, person, or delivery?", yes: { label: "P2: Unblock the workflow", description: "Remove the dependency or record the exact escalation needed today.", tone: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300" } },
-  { question: "Is it a recurring scheduled task?", yes: { label: "P3: Use its scheduled window", description: "Keep the work in its daily or weekly block.", tone: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300" } },
-  { question: "Can it be completed safely in three minutes or less?", yes: { label: "P4: Do it now", description: "Finish the small task without deferring it.", tone: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" } },
-];
-
-const DEFAULT_RESULT: PriorityResult = {
-  label: "P5: Schedule or defer",
-  description: "Add it to the right Trello backlog or future work slot after current obligations are stable.",
-  tone: "border-border bg-muted/50 text-foreground",
 };
 
 function priorityTone(tier: string) {
@@ -56,10 +39,16 @@ function formatTimestamp(value: Date | string) {
 
 export default function DecisionsTab() {
   const utils = trpc.useUtils();
-  const decisionQuery = trpc.aptlss.getDecisionQueue.useQuery(undefined, { staleTime: 60_000, refetchInterval: 2 * 60_000 });
-  const commandQuery = trpc.aptlss.getCommandCenter.useQuery(undefined, { staleTime: 2 * 60_000 });
-  const liveExceptionsQuery = trpc.trello.actionAlerts.useQuery(undefined, { staleTime: 2 * 60_000 });
-  const historyQuery = trpc.aptlss.getDecisionHistory.useQuery(undefined, { staleTime: 60_000 });
+  const [activeView, setActiveView] = useState<"inbox" | "history">("inbox");
+  const inboxActive = activeView === "inbox";
+  const decisionQuery = trpc.aptlss.getDecisionQueue.useQuery(undefined, {
+    enabled: inboxActive,
+    staleTime: 60_000,
+    refetchInterval: inboxActive ? 15 * 60_000 : false,
+  });
+  const commandQuery = trpc.aptlss.getCommandCenter.useQuery(undefined, { enabled: inboxActive, staleTime: 2 * 60_000 });
+  const liveExceptionsQuery = trpc.trello.actionAlerts.useQuery(undefined, { enabled: inboxActive, staleTime: 2 * 60_000 });
+  const historyQuery = trpc.aptlss.getDecisionHistory.useQuery(undefined, { enabled: activeView === "history", staleTime: 60_000 });
   const [selectedStepId, setSelectedStepId] = useState<number | null>(null);
   const [outcome, setOutcome] = useState("");
   const [classifierOpen, setClassifierOpen] = useState(false);
@@ -89,13 +78,22 @@ export default function DecisionsTab() {
   const waitingCount = exceptionCounts.waiting;
   const blockedCount = exceptionCounts.blocked;
   const operationalContextLoading = commandQuery.isLoading || liveExceptionsQuery.isLoading;
-  const currentQuestion = TRIAGE_QUESTIONS[classifierStep];
+  const currentQuestion = PRIORITY_CLASSIFIER_QUESTIONS[classifierStep];
 
   const openInspector = (stepId: number) => { setOutcome(""); setSelectedStepId(stepId); };
   const resetClassifier = () => { setClassifierStep(0); setClassifierResult(null); };
+  const refreshActiveView = () => {
+    if (activeView === "history") {
+      void historyQuery.refetch();
+      return;
+    }
+    void decisionQuery.refetch();
+    void commandQuery.refetch();
+    void liveExceptionsQuery.refetch();
+  };
   const answerClassifier = (answer: "yes" | "no") => {
     if (answer === "yes") return setClassifierResult(currentQuestion.yes);
-    if (classifierStep === TRIAGE_QUESTIONS.length - 1) return setClassifierResult(DEFAULT_RESULT);
+    if (classifierStep === PRIORITY_CLASSIFIER_QUESTIONS.length - 1) return setClassifierResult(DEFAULT_PRIORITY_RESULT);
     setClassifierStep((step) => step + 1);
   };
 
@@ -105,11 +103,11 @@ export default function DecisionsTab() {
         <div><h1 className="text-xl font-semibold text-foreground">Decisions</h1><p className="mt-1 text-sm text-muted-foreground">Prepared decisions and exceptions requiring Joyce's attention.</p></div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setClassifierOpen(true)}><ListFilter className="h-4 w-4" />Classify task</Button>
-          <Button variant="outline" size="icon" aria-label="Refresh decisions" onClick={() => { void decisionQuery.refetch(); void commandQuery.refetch(); void liveExceptionsQuery.refetch(); void historyQuery.refetch(); }}><RefreshCw className={"h-4 w-4 " + (decisionQuery.isFetching || liveExceptionsQuery.isFetching ? "animate-spin" : "")} /></Button>
+          <Button variant="outline" size="icon" aria-label="Refresh decisions" onClick={refreshActiveView}><RefreshCw className={"h-4 w-4 " + (decisionQuery.isFetching || liveExceptionsQuery.isFetching || historyQuery.isFetching ? "animate-spin" : "")} /></Button>
         </div>
       </header>
 
-      <Tabs defaultValue="inbox" className="gap-5">
+      <Tabs value={activeView} onValueChange={(value) => setActiveView(value as "inbox" | "history")} className="gap-5">
         <div className="overflow-x-auto border-b border-border">
           <TabsList className="h-11 w-max rounded-none bg-transparent p-0">
             <TabsTrigger value="inbox" className="h-11 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Decision inbox{items.length > 0 && <Badge className="ml-1 border-0 bg-primary/10 text-primary">{items.length}</Badge>}</TabsTrigger>
@@ -129,9 +127,6 @@ export default function DecisionsTab() {
           </div>
           {!decisionQuery.isLoading && !operationalContextLoading && items.length === 0 && criticalCount + waitingCount + blockedCount > 0 && (
             <Alert><AlertCircle className="h-4 w-4" /><AlertTitle>Operational exceptions still need attention</AlertTitle><AlertDescription>No open Robert-decision steps were found, but the live Trello queue still contains overdue, update, or on-hold work. Use Today or Inbox to process those cards.</AlertDescription></Alert>
-          )}
-          {historyQuery.error && (
-            <Alert><CircleAlert className="h-4 w-4" /><AlertTitle>Decision history unavailable</AlertTitle><AlertDescription>Active decisions can still be reviewed, but recorded outcomes cannot be verified until history reconnects.</AlertDescription></Alert>
           )}
           {decisionQuery.error ? (
             <Alert variant="destructive"><CircleAlert className="h-4 w-4" /><AlertTitle>Decision inbox unavailable</AlertTitle><AlertDescription>{decisionQuery.error.message}</AlertDescription></Alert>
@@ -161,7 +156,7 @@ export default function DecisionsTab() {
       </Sheet>
 
       <Dialog open={classifierOpen} onOpenChange={(open) => { setClassifierOpen(open); if (!open) resetClassifier(); }}>
-        <DialogContent><DialogHeader><DialogTitle>Classify a task</DialogTitle><DialogDescription>Use the priority check for work not yet represented in the live inbox.</DialogDescription></DialogHeader>{classifierResult ? <div className={"rounded-md border p-4 " + classifierResult.tone}><p className="text-xs font-semibold uppercase tracking-wide">Priority result</p><h3 className="mt-1 text-lg font-semibold">{classifierResult.label}</h3><p className="mt-2 text-sm leading-relaxed">{classifierResult.description}</p></div> : <div><div className="mb-5 flex gap-1">{TRIAGE_QUESTIONS.map((_, index) => <span key={index} className={"h-1 flex-1 rounded-full " + (index === classifierStep ? "bg-primary" : index < classifierStep ? "bg-primary/40" : "bg-muted")} />)}</div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Question {classifierStep + 1} of {TRIAGE_QUESTIONS.length}</p><h3 className="mt-2 text-base font-semibold text-foreground">{currentQuestion.question}</h3><div className="mt-5 grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => answerClassifier("yes")}><Check className="h-4 w-4" />Yes</Button><Button variant="outline" onClick={() => answerClassifier("no")}><ArrowRight className="h-4 w-4" />No</Button></div></div>}<DialogFooter><Button variant="ghost" onClick={resetClassifier}>{classifierResult ? "Classify another" : "Start over"}</Button></DialogFooter></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>Classify a task</DialogTitle><DialogDescription>Use the priority check for work not yet represented in the live inbox.</DialogDescription></DialogHeader>{classifierResult ? <div className={"rounded-md border p-4 " + classifierResult.tone}><p className="text-xs font-semibold uppercase tracking-wide">Priority result</p><h3 className="mt-1 text-lg font-semibold">{classifierResult.label}</h3><p className="mt-2 text-sm leading-relaxed">{classifierResult.description}</p></div> : <div><div className="mb-5 flex gap-1">{PRIORITY_CLASSIFIER_QUESTIONS.map((_, index) => <span key={index} className={"h-1 flex-1 rounded-full " + (index === classifierStep ? "bg-primary" : index < classifierStep ? "bg-primary/40" : "bg-muted")} />)}</div><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Question {classifierStep + 1} of {PRIORITY_CLASSIFIER_QUESTIONS.length}</p><h3 className="mt-2 text-base font-semibold text-foreground">{currentQuestion.question}</h3><div className="mt-5 grid grid-cols-2 gap-2"><Button variant="outline" onClick={() => answerClassifier("yes")}><Check className="h-4 w-4" />Yes</Button><Button variant="outline" onClick={() => answerClassifier("no")}><ArrowRight className="h-4 w-4" />No</Button></div></div>}<DialogFooter><Button variant="ghost" onClick={resetClassifier}>{classifierResult ? "Classify another" : "Start over"}</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
   );

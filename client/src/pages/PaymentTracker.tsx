@@ -1,10 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Clock, DollarSign, Calendar, AlertTriangle, History } from "lucide-react";
+import { CheckCircle, Clock, DollarSign, AlertTriangle, History } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -17,40 +16,26 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { dateOnlyAtNoon, toDateOnlyKey } from "@/lib/dateOnly";
+import { differenceInDateKeys } from "@shared/eatTime";
+import { useEatClock } from "@/hooks/useEatClock";
 
 function formatDate(d: string | Date | null | undefined): string {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const date = dateOnlyAtNoon(d);
+  return date ? date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
 }
 
 /** Returns the number of whole calendar days between now and a target date.
  *  Positive = future, 0 = today, negative = overdue.
  */
-function calcDaysUntil(dateStr: string | Date | null | undefined): number {
-  if (!dateStr) return 0;
-  const target = new Date(dateStr);
-  const now = new Date();
-  target.setHours(0, 0, 0, 0);
-  now.setHours(0, 0, 0, 0);
-  return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-/** Returns a live-updating Date that re-renders the component every minute. */
-function useNow(intervalMs = 60_000): Date {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
+function calcDaysUntil(dateValue: string | Date | null | undefined, todayDate: string): number {
+  const targetDate = toDateOnlyKey(dateValue);
+  return targetDate ? differenceInDateKeys(targetDate, todayDate) : 0;
 }
 
 export default function PaymentTracker() {
-  const { user } = useAuth();
+  const { dateKey: todayDate } = useEatClock(60_000);
   const [showHistory, setShowHistory] = useState(false);
-
-  // Live clock — re-renders every minute so the countdown stays accurate
-  useNow();
 
   const utils = trpc.useUtils();
 
@@ -67,8 +52,16 @@ export default function PaymentTracker() {
       toast.error("Error", { description: err.message });
     },
   });
+  const initializeCurrent = trpc.payment.initializeCurrent.useMutation({
+    onSuccess: (cycle) => {
+      void utils.payment.getCurrentCycle.invalidate();
+      void utils.payment.getAllCycles.invalidate();
+      toast.success("Payment cycle ready", { description: `${formatDate(cycle.cycleStart)} through ${formatDate(cycle.cycleEnd)}` });
+    },
+    onError: (err) => toast.error("Cycle setup failed", { description: err.message }),
+  });
 
-  const daysUntil = calcDaysUntil(currentCycle?.cycleEnd);
+  const daysUntil = calcDaysUntil(currentCycle?.cycleEnd, todayDate);
   const isOverdue = daysUntil < 0;
   const isDueToday = daysUntil === 0;
   const isDueSoon = daysUntil > 0 && daysUntil <= 3;
@@ -98,8 +91,8 @@ export default function PaymentTracker() {
             )}
           </div>
 
-          {cycleLoading ? (
-            <div className="rounded-md border border-border bg-muted/30 p-4 text-center text-sm text-muted-foreground">Loading...</div>
+          {cycleLoading || historyLoading ? (
+            <div className="rounded-md border border-border bg-muted/30 p-4 text-center text-sm text-muted-foreground">Checking payment records...</div>
           ) : currentCycle ? (
             <div className="rounded-md border border-border bg-muted/30 p-4">
               <div className="grid grid-cols-2 gap-4 mb-3">
@@ -133,8 +126,7 @@ export default function PaymentTracker() {
                 <p className="mb-3 rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">{currentCycle.notes}</p>
               )}
 
-              {user ? (
-                <AlertDialog>
+              <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button
                       disabled={markPaid.isPending}
@@ -166,16 +158,17 @@ export default function PaymentTracker() {
                       </AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
-                </AlertDialog>
-              ) : (
-                <p className="text-xs opacity-70 text-center">Log in to mark payment</p>
-              )}
+              </AlertDialog>
             </div>
           ) : (
             <div className="rounded-md border border-border bg-muted/30 p-4 text-center">
-              <CheckCircle className="mx-auto mb-2 h-8 w-8 text-primary" />
-              <p className="font-semibold text-sm">All cycles are paid!</p>
-              <p className="mt-1 text-xs text-muted-foreground">No pending payment cycle.</p>
+              {allCycles?.length ? <CheckCircle className="mx-auto mb-2 h-8 w-8 text-emerald-500" /> : <DollarSign className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />}
+              <p className="font-semibold text-sm">{allCycles?.length ? "All recorded cycles are paid" : "No payment cycle configured"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{allCycles?.length ? "There is no unpaid cycle in the payment ledger." : "No payment records exist, so payment status cannot be confirmed here."}</p>
+              <Button className="mt-4 h-9" onClick={() => initializeCurrent.mutate()} disabled={initializeCurrent.isPending}>
+                <DollarSign className="mr-2 h-4 w-4" />
+                {initializeCurrent.isPending ? "Creating cycle..." : allCycles?.length ? "Open current cycle" : "Create current cycle"}
+              </Button>
             </div>
           )}
         </div>

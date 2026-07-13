@@ -4,15 +4,9 @@ import { trpc } from "@/lib/trpc";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { InfoTooltip } from "@/components/InfoTooltip";
-
-function getRelevantSunday() {
-  const today = new Date();
-  const day = today.getDay();
-  const diff = day === 0 ? 0 : 7 - day;
-  const sunday = new Date(today);
-  sunday.setDate(today.getDate() + diff);
-  return sunday.toISOString().slice(0, 10);
-}
+import { useEatClock } from "@/hooks/useEatClock";
+import { relevantSundayDateKey } from "@shared/eatTime";
+import { toast } from "sonner";
 
 type ChecklistKey =
   | "trelloArchived" | "trelloLabels" | "trelloDeadlines" | "trelloTimers"
@@ -63,37 +57,49 @@ const DEFAULT_STATE: ChecklistState = {
 };
 
 export default function SundayChecklist() {
-  const sundayDate = getRelevantSunday();
+  const { nowMs } = useEatClock(60_000);
+  const sundayDate = relevantSundayDateKey(nowMs);
   const [state, setState] = useState<ChecklistState>(DEFAULT_STATE);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateRef = useRef<ChecklistState>(DEFAULT_STATE);
+  const hydratedDateRef = useRef<string | null>(null);
+  const saveChainRef = useRef<Promise<unknown>>(Promise.resolve());
   const savedState = trpc.sunday.getByDate.useQuery({ date: sundayDate });
   const upsert = trpc.sunday.upsert.useMutation();
 
   useEffect(() => {
-    if (!savedState.data) return;
-    setState({
-      trelloArchived: savedState.data.trelloArchived ?? false,
-      trelloLabels: savedState.data.trelloLabels ?? false,
-      trelloDeadlines: savedState.data.trelloDeadlines ?? false,
-      trelloTimers: savedState.data.trelloTimers ?? false,
-      emailInbox: savedState.data.emailInbox ?? false,
-      whatsappCleared: savedState.data.whatsappCleared ?? false,
-      upworkArchived: savedState.data.upworkArchived ?? false,
-      downloadsCleared: savedState.data.downloadsCleared ?? false,
-      desktopCleared: savedState.data.desktopCleared ?? false,
-      browserTabsClosed: savedState.data.browserTabsClosed ?? false,
-      weekReviewed: savedState.data.weekReviewed ?? false,
-      nextWeekPlanned: savedState.data.nextWeekPlanned ?? false,
-    });
-  }, [savedState.data]);
+    if (savedState.isLoading || hydratedDateRef.current === sundayDate) return;
+    const saved = savedState.data;
+    const next: ChecklistState = saved ? {
+      trelloArchived: saved.trelloArchived ?? false,
+      trelloLabels: saved.trelloLabels ?? false,
+      trelloDeadlines: saved.trelloDeadlines ?? false,
+      trelloTimers: saved.trelloTimers ?? false,
+      emailInbox: saved.emailInbox ?? false,
+      whatsappCleared: saved.whatsappCleared ?? false,
+      upworkArchived: saved.upworkArchived ?? false,
+      downloadsCleared: saved.downloadsCleared ?? false,
+      desktopCleared: saved.desktopCleared ?? false,
+      browserTabsClosed: saved.browserTabsClosed ?? false,
+      weekReviewed: saved.weekReviewed ?? false,
+      nextWeekPlanned: saved.nextWeekPlanned ?? false,
+    } : DEFAULT_STATE;
+    hydratedDateRef.current = sundayDate;
+    stateRef.current = next;
+    setState(next);
+  }, [savedState.data, savedState.isLoading, sundayDate]);
 
   function toggle(key: ChecklistKey) {
-    setState((current) => {
-      const next = { ...current, [key]: !current[key] };
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => upsert.mutate({ sundayDate, ...next }), 800);
-      return next;
-    });
+    const next = { ...stateRef.current, [key]: !stateRef.current[key] };
+    stateRef.current = next;
+    setState(next);
+    saveChainRef.current = saveChainRef.current
+      .catch(() => undefined)
+      .then(() => upsert.mutateAsync({ sundayDate, ...next }))
+      .catch((error) => {
+        toast.error("Weekly reset was not saved", { description: error instanceof Error ? error.message : "Unknown save error" });
+        hydratedDateRef.current = null;
+        void savedState.refetch();
+      });
   }
 
   const completedCount = Object.values(state).filter(Boolean).length;
@@ -115,7 +121,7 @@ export default function SundayChecklist() {
               </p>
             </div>
           </div>
-          <Badge variant={allDone ? "default" : "secondary"}>{completedCount}/{ITEMS.length} complete</Badge>
+          <Badge variant={allDone ? "default" : "secondary"}>{upsert.isPending ? "Saving..." : `${completedCount}/${ITEMS.length} complete`}</Badge>
         </div>
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
           <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(completedCount / ITEMS.length) * 100}%` }} />
@@ -141,7 +147,7 @@ export default function SundayChecklist() {
                     const done = state[item.key];
                     const Icon = item.icon;
                     return (
-                      <button key={item.key} type="button" onClick={() => toggle(item.key)} className="flex w-full items-center gap-3 rounded-md border border-border bg-background p-3 text-left transition-colors hover:bg-accent">
+                      <button key={item.key} type="button" onClick={() => toggle(item.key)} disabled={savedState.isLoading} className="flex w-full items-center gap-3 rounded-md border border-border bg-background p-3 text-left transition-colors hover:bg-accent disabled:cursor-wait disabled:opacity-60">
                         {done ? <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" /> : <Circle className="h-5 w-5 shrink-0 text-muted-foreground" />}
                         <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className={`flex-1 text-sm font-medium ${done ? "text-muted-foreground line-through" : "text-foreground"}`}>{item.title}</span>

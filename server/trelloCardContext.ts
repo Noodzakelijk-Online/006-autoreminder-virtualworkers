@@ -19,6 +19,9 @@ import axios from "axios";
 const TRELLO_API_BASE = "https://api.trello.com/1";
 const customFieldCache = new Map<string, { expiresAt: number; fields: Array<{ id: string; name: string; type: string }> }>();
 const CUSTOM_FIELD_CACHE_MS = 10 * 60_000;
+const cardContextCache = new Map<string, { dateLastActivity: string; context: TrelloCardContext; cachedAt: number }>();
+const cardContextRequests = new Map<string, Promise<TrelloCardContext>>();
+const CARD_CONTEXT_CACHE_LIMIT = 500;
 
 async function getBoardCustomFields(boardId: string, apiKey: string, apiToken: string) {
   const cached = customFieldCache.get(boardId);
@@ -103,6 +106,49 @@ export interface TrelloCardContext {
  * Throws if the card cannot be fetched.
  */
 export async function fetchCardContext(
+  cardId: string,
+  apiKey: string,
+  apiToken: string,
+  knownNames: { boardName?: string; listName?: string; dateLastActivity?: string } = {},
+): Promise<TrelloCardContext> {
+  const cached = cardContextCache.get(cardId);
+  if (knownNames.dateLastActivity && cached?.dateLastActivity === knownNames.dateLastActivity) {
+    cached.cachedAt = Date.now();
+    return {
+      ...cached.context,
+      boardName: knownNames.boardName ?? cached.context.boardName,
+      listName: knownNames.listName ?? cached.context.listName,
+    };
+  }
+
+  const pending = cardContextRequests.get(cardId);
+  if (pending) return pending;
+
+  const request = fetchFreshCardContext(cardId, apiKey, apiToken, knownNames)
+    .then((context) => {
+      cardContextCache.set(cardId, {
+        dateLastActivity: context.dateLastActivity,
+        context,
+        cachedAt: Date.now(),
+      });
+      if (cardContextCache.size > CARD_CONTEXT_CACHE_LIMIT) {
+        const oldest = Array.from(cardContextCache.entries()).sort((a, b) => a[1].cachedAt - b[1].cachedAt)[0]?.[0];
+        if (oldest) cardContextCache.delete(oldest);
+      }
+      return context;
+    })
+    .finally(() => cardContextRequests.delete(cardId));
+  cardContextRequests.set(cardId, request);
+  return request;
+}
+
+export function clearCardContextCache(): void {
+  cardContextCache.clear();
+  cardContextRequests.clear();
+  customFieldCache.clear();
+}
+
+async function fetchFreshCardContext(
   cardId: string,
   apiKey: string,
   apiToken: string,

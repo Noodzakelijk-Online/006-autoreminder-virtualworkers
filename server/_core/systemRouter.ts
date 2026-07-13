@@ -1,11 +1,20 @@
 import { z } from "zod";
 import { sql } from "drizzle-orm";
 import axios from "axios";
-import { getDb } from "../db";
+import { getDb, getNavigationCounts } from "../db";
 import { getReplyMonitorStatus } from "../replyMonitorDb";
-import { DISABLE_OWNER_LOGIN_ENV, isOwnerLoginDisabled } from "./localAuthUser";
+import { getAptlssLlmConfigurationStatus } from "../aptlssLlmRouter";
 import { notifyOwner } from "./notification";
-import { adminProcedure, publicProcedure, router } from "./trpc";
+import { ownerProcedure, publicProcedure, router } from "./trpc";
+import { getLatestJobRuns } from "../scheduledJobsDb";
+import { runEodComplianceJob } from "../cronJobs";
+import { runWeeklyAnalysis } from "../weeklyAnalysisService";
+import {
+  getGmailIngestionSettings,
+  getGmailOauthClientCredentials,
+  getGmailOauthConnection,
+} from "../gmailIngestionSettings";
+import { hasGoogleDriveReadonlyScope } from "../googleDriveIngestion";
 
 type ReadinessStatus = "ready" | "warning" | "blocked";
 
@@ -55,8 +64,29 @@ async function probeTrelloAccess(apiKey: string, apiToken: string) {
   });
 }
 
+function parseWebhookCallback(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.username || url.password || url.pathname !== "/api/trello/webhook") {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+async function probeWebhookCallback(callbackUrl: string) {
+  await axios.head(callbackUrl, {
+    timeout: 10_000,
+    validateStatus: (status) => status >= 200 && status < 300,
+  });
+}
+
 export async function getSystemReadiness(options: { probeDatabase?: boolean; probeTrello?: boolean } = {}) {
   const items: ReadinessItem[] = [];
+  let gmailJobExpected = false;
+  let gmailJobMaxAgeMs = 6 * 60 * 60_000;
   const probeDatabase = options.probeDatabase ?? true;
   const probeTrello = options.probeTrello ?? true;
 
@@ -114,12 +144,6 @@ export async function getSystemReadiness(options: { probeDatabase?: boolean; pro
       env: "TrelloAPIToken",
       message: "TrelloAPIToken is required for board sync, planning, timers, and card actions.",
     },
-    {
-      id: "cookie-secret",
-      label: "Session secret",
-      env: "JWT_SECRET",
-      message: "JWT_SECRET is required for stable signed sessions.",
-    },
   ];
 
   for (const check of requiredSecrets) {
@@ -174,53 +198,17 @@ export async function getSystemReadiness(options: { probeDatabase?: boolean; pro
     }
   }
 
-  const aiPlannerConfigured = hasValue(process.env.BUILT_IN_FORGE_API_KEY);
+  const aiPlanner = await getAptlssLlmConfigurationStatus();
   items.push({
     id: "ai-planner-key",
-    label: "AI planner key",
-    status: aiPlannerConfigured ? "ready" : "warning",
-    message: aiPlannerConfigured
-      ? "BUILT_IN_FORGE_API_KEY is configured for APTLSS planning and generated drafts."
-      : "BUILT_IN_FORGE_API_KEY is missing; APTLSS card plans and daily planning use deterministic fallback, while AI-generated follow-up drafts are reduced.",
-    action: aiPlannerConfigured ? "No action needed." : "Set BUILT_IN_FORGE_API_KEY to restore full AI planning quality.",
-  });
-
-  const ownerLoginDisabled = isOwnerLoginDisabled();
-  const ownerConfigured = hasValue(process.env.OWNER_OPEN_ID) || ownerLoginDisabled;
-  items.push({
-    id: "owner-open-id",
-    label: "Owner access",
-    status: ownerLoginDisabled ? "warning" : ownerConfigured ? "ready" : "warning",
-    message: ownerLoginDisabled
-      ? `${DISABLE_OWNER_LOGIN_ENV} is enabled for local development; owner-only monitoring is temporarily unlocked.`
-      : ownerConfigured
-        ? "OWNER_OPEN_ID is configured for owner-only monitoring."
-      : "OWNER_OPEN_ID is missing, so owner-only monitoring, approvals, and audit views are locked closed.",
-    action: ownerLoginDisabled
-      ? `Unset ${DISABLE_OWNER_LOGIN_ENV} before production use.`
-      : ownerConfigured
-        ? "No action needed."
-        : "Set OWNER_OPEN_ID to Joyce or Robert's expected owner identity.",
-  });
-
-  const oauthConfigured = hasValue(process.env.OAUTH_SERVER_URL);
-  const localAuthConfigured = hasValue(process.env.LOCAL_AUTH_TOKEN) && hasValue(process.env.LOCAL_AUTH_OPEN_ID);
-  items.push({
-    id: "oauth-server",
-    label: "Authenticated access",
-    status: ownerLoginDisabled ? "warning" : oauthConfigured || localAuthConfigured ? "ready" : "warning",
-    message: ownerLoginDisabled
-      ? `${DISABLE_OWNER_LOGIN_ENV} is bypassing the owner login in local development.`
-      : oauthConfigured
-      ? "OAUTH_SERVER_URL is configured for hosted sign-in."
-      : localAuthConfigured
-        ? "Local owner login is configured for self-hosted access."
-        : "No sign-in method is configured; protected planner features require hosted OAuth or local owner login.",
-    action: ownerLoginDisabled
-      ? `Set ${DISABLE_OWNER_LOGIN_ENV}=false or remove it to restore login.`
-      : oauthConfigured || localAuthConfigured
-      ? "No action needed."
-      : "Set OAUTH_SERVER_URL for hosted OAuth, or set LOCAL_AUTH_TOKEN and LOCAL_AUTH_OPEN_ID for a self-hosted owner login.",
+    label: "OpenAI model provider",
+    status: aiPlanner.configured ? "ready" : "warning",
+    message: aiPlanner.configured
+      ? `OpenAI exposes ${aiPlanner.modelCount} compatible model(s) and ${aiPlanner.stageCount} ordered model/effort stage(s); APTLSS assigns them automatically.`
+      : "OPENAI_API_KEY is not configured; deterministic planning remains available.",
+    action: aiPlanner.configured
+      ? `Lowest stage: ${aiPlanner.lowestStage}. Highest stage: ${aiPlanner.highestStage}. Live discovery found ${aiPlanner.discovery.discoveredModelCount} model(s) and higher-stage review is ${aiPlanner.reviewEnabled ? "enabled" : "disabled"}.`
+      : "Set OPENAI_API_KEY. APTLSS will discover, rank, and assign compatible account-visible OpenAI models automatically.",
   });
 
   const scheduledTaskSecretConfigured = hasValue(process.env.SCHEDULED_TASK_SECRET);
@@ -236,6 +224,48 @@ export async function getSystemReadiness(options: { probeDatabase?: boolean; pro
       : "Set SCHEDULED_TASK_SECRET and send it as a Bearer token from scheduled jobs.",
   });
 
+  try {
+    const [gmailSettings, gmailClient, gmailConnection] = await Promise.all([
+      getGmailIngestionSettings(),
+      getGmailOauthClientCredentials(),
+      getGmailOauthConnection(),
+    ]);
+    gmailJobExpected = gmailSettings.enabled && Boolean(gmailClient && gmailConnection);
+    gmailJobMaxAgeMs = Math.max(15 * 60_000, gmailSettings.intervalMinutes * 2 * 60_000);
+    const status: ReadinessStatus = !gmailClient || !gmailConnection || !gmailSettings.enabled ? "warning" : "ready";
+    items.push({
+      id: "gmail-integration",
+      label: "Google Workspace ingestion",
+      status,
+      message: !gmailClient
+        ? "The internal Gmail scheduler needs a Google OAuth client."
+        : !gmailConnection
+          ? "The Google OAuth client is configured, but no Gmail account is connected."
+          : gmailSettings.enabled
+            ? `Gmail is connected and the workspace index runs inside this server every ${gmailSettings.intervalMinutes} minute(s).`
+            : "Google Workspace is connected, but automatic ingestion is disabled.",
+      action: status === "ready" ? "No action needed." : "Open Settings > Automation to configure Google Workspace and choose its interval.",
+    });
+    const driveReady = Boolean(gmailConnection && hasGoogleDriveReadonlyScope(gmailConnection.scopes));
+    items.push({
+      id: "google-drive-integration",
+      label: "Google Drive evidence",
+      status: driveReady ? "ready" : "warning",
+      message: driveReady
+        ? "Google Drive read-only access is granted for incremental evidence ingestion."
+        : "Reconnect Google Workspace once to grant the new Drive read-only scope.",
+      action: driveReady ? "No action needed." : "Open Settings > Automation and reconnect Google Workspace.",
+    });
+  } catch (error) {
+    items.push({
+      id: "gmail-integration",
+      label: "Gmail ingestion",
+      status: "warning",
+      message: error instanceof Error ? error.message : "Gmail configuration could not be read.",
+      action: "Open Settings > Automation and reconnect Gmail.",
+    });
+  }
+
   const powerUpConfigured = hasValue(process.env.TRELLO_POWERUP_API_KEY);
   items.push({
     id: "trello-powerup-api-key",
@@ -247,18 +277,63 @@ export async function getSystemReadiness(options: { probeDatabase?: boolean; pro
     action: powerUpConfigured ? "No action needed." : "Set TRELLO_POWERUP_API_KEY before publishing or using the Power-Up.",
   });
 
-  const webhookCallbackConfigured = hasValue(process.env.TRELLO_WEBHOOK_CALLBACK_URL);
-  items.push({
-    id: "trello-webhook-callback-url",
-    label: "Trello webhook callback",
-    status: webhookCallbackConfigured ? "ready" : "warning",
-    message: webhookCallbackConfigured
-      ? "TRELLO_WEBHOOK_CALLBACK_URL is configured for Trello push updates."
-      : "TRELLO_WEBHOOK_CALLBACK_URL is missing, so Trello updates fall back to polling instead of instant push sync.",
-    action: webhookCallbackConfigured
-      ? "No action needed."
-      : "Set TRELLO_WEBHOOK_CALLBACK_URL to the deployed /api/trello/webhook URL.",
-  });
+  const webhookCallbackValue = process.env.TRELLO_WEBHOOK_CALLBACK_URL?.trim() ?? "";
+  const webhookCallback = webhookCallbackValue ? parseWebhookCallback(webhookCallbackValue) : null;
+  const temporaryCallback = webhookCallback?.hostname.endsWith(".trycloudflare.com") ?? false;
+  if (!webhookCallbackValue) {
+    items.push({
+      id: "trello-webhook-callback-url",
+      label: "Trello webhook callback",
+      status: "warning",
+      message: "TRELLO_WEBHOOK_CALLBACK_URL is missing, so Trello updates fall back to polling instead of instant push sync.",
+      action: "Set TRELLO_WEBHOOK_CALLBACK_URL to the deployed /api/trello/webhook URL.",
+    });
+  } else if (!webhookCallback) {
+    items.push({
+      id: "trello-webhook-callback-url",
+      label: "Trello webhook callback",
+      status: "warning",
+      message: "TRELLO_WEBHOOK_CALLBACK_URL must be an HTTPS URL ending exactly in /api/trello/webhook.",
+      action: "Correct the callback URL before registering Trello webhooks.",
+    });
+  } else if (!probeTrello) {
+    items.push({
+      id: "trello-webhook-callback-url",
+      label: "Trello webhook callback",
+      status: temporaryCallback ? "warning" : "ready",
+      message: temporaryCallback
+        ? "A temporary Cloudflare quick-tunnel callback is configured; reachability was not probed."
+        : "TRELLO_WEBHOOK_CALLBACK_URL is configured; reachability was not probed.",
+      action: temporaryCallback
+        ? "Keep the local tunnel running and replace it with a stable deployment or named tunnel for unattended use."
+        : "Run a live readiness check before production use.",
+    });
+  } else {
+    try {
+      await probeWebhookCallback(webhookCallback.toString());
+      items.push({
+        id: "trello-webhook-callback-url",
+        label: "Trello webhook callback",
+        status: temporaryCallback ? "warning" : "ready",
+        message: temporaryCallback
+          ? "The Trello callback is reachable through a temporary Cloudflare quick tunnel."
+          : "The configured Trello webhook callback is reachable over HTTPS.",
+        action: temporaryCallback
+          ? "Keep the local tunnel running and replace it with a stable deployment or named tunnel for unattended use."
+          : "No action needed.",
+      });
+    } catch (error) {
+      items.push({
+        id: "trello-webhook-callback-url",
+        label: "Trello webhook callback",
+        status: "warning",
+        message: axios.isAxiosError(error) && error.response?.status
+          ? `The configured callback returned HTTP ${error.response.status}.`
+          : "The configured callback could not be reached over HTTPS.",
+        action: "Start the tunnel or deployment, then rerun readiness before relying on Trello push sync.",
+      });
+    }
+  }
 
   const webhookSecretConfigured = hasValue(process.env.TRELLO_WEBHOOK_SECRET);
   const webhookPowerUpSecretConfigured = hasValue(process.env.TRELLO_POWERUP_SECRET);
@@ -308,15 +383,25 @@ export async function getSystemReadiness(options: { probeDatabase?: boolean; pro
     try {
       const db = await getDb();
       if (!db) throw new Error("Database unavailable");
-      const result = await db.execute(sql`SELECT COUNT(*) AS count FROM aptlss_plans`);
+      const result = await db.execute(sql`
+        SELECT
+          (SELECT COUNT(*) FROM aptlss_plans) AS planCount,
+          (SELECT COUNT(DISTINCT cardId) FROM aptlss_assessments) AS assessedCount
+      `);
       const rows = Array.isArray(result) ? result[0] : result;
-      const count = Number(Array.isArray(rows) ? (rows[0] as { count?: number | string } | undefined)?.count ?? 0 : 0);
+      const row = Array.isArray(rows) ? rows[0] as { planCount?: number | string; assessedCount?: number | string } | undefined : undefined;
+      const planCount = Number(row?.planCount ?? 0);
+      const assessedCount = Number(row?.assessedCount ?? 0);
+      const coverage = assessedCount > 0 ? Math.round(planCount / assessedCount * 100) : 0;
+      const ready = assessedCount > 0 && coverage >= 80;
       items.push({
         id: "aptlss-plan-data",
         label: "APTLSS planning data",
-        status: count > 0 ? "ready" : "warning",
-        message: count > 0 ? `${count} APTLSS card plan${count === 1 ? " is" : "s are"} available.` : "No APTLSS card plans exist; Day Plan and Decisions must use reduced Trello fallback data.",
-        action: count > 0 ? "No action needed." : "Run APTLSS maintenance from Inbox before relying on generated plans or decision summaries.",
+        status: ready ? "ready" : "warning",
+        message: assessedCount > 0
+          ? `${planCount}/${assessedCount} assessed cards have plans (${coverage}% coverage).`
+          : "No assessed card coverage exists; planning cannot be trusted yet.",
+        action: ready ? "No action needed." : "Run APTLSS maintenance until plan coverage reaches at least 80%.",
       });
     } catch (error) {
       items.push({
@@ -325,6 +410,40 @@ export async function getSystemReadiness(options: { probeDatabase?: boolean; pro
         status: "warning",
         message: error instanceof Error ? error.message : "APTLSS plan availability could not be checked.",
         action: "Verify the aptlss_plans migration and maintenance job.",
+      });
+    }
+
+    try {
+      const latestRuns = await getLatestJobRuns();
+      const expected = [
+        { key: "aptlss_maintenance", label: "APTLSS maintenance", maxAgeMs: 90 * 60_000 },
+        { key: "reply_monitor", label: "Reply Monitor", maxAgeMs: 35 * 60_000 },
+        { key: "eod_compliance", label: "EOD compliance", maxAgeMs: 30 * 60 * 60_000 },
+        { key: "timer_auto_stop", label: "Timer auto-stop", maxAgeMs: 30 * 60 * 60_000 },
+        { key: "weekly_analysis", label: "Weekly analysis", maxAgeMs: 8 * 24 * 60 * 60_000 },
+        ...(gmailJobExpected ? [{ key: "workspace_ingestion", label: "Workspace ingestion", maxAgeMs: gmailJobMaxAgeMs }] : []),
+      ];
+      for (const job of expected) {
+        const run = latestRuns.find((candidate) => candidate.jobKey === job.key);
+        const stale = !run || Date.now() - new Date(run.startedAt).getTime() > job.maxAgeMs;
+        const failed = run?.status === "error";
+        items.push({
+          id: `job-${job.key}`,
+          label: job.label,
+          status: failed || stale ? "warning" : "ready",
+          message: !run
+            ? "No durable run has been recorded."
+            : `${run.status} at ${new Date(run.startedAt).toISOString()}${run.errorMessage ? `: ${run.errorMessage}` : ""}`,
+          action: failed || stale ? "Keep the server process running, then run this job manually from Settings." : "No action needed.",
+        });
+      }
+    } catch (error) {
+      items.push({
+        id: "scheduled-job-ledger",
+        label: "Scheduled job ledger",
+        status: "warning",
+        message: error instanceof Error ? error.message : "Scheduled job freshness could not be read.",
+        action: "Apply database migrations and restart the server.",
       });
     }
   }
@@ -368,16 +487,31 @@ export async function getSystemHealth(options: { probeDatabase?: boolean; probeT
   } as const;
 }
 
+/** Cheap process liveness for high-frequency deployment monitoring. */
+export function getSystemLiveness() {
+  return {
+    ok: true,
+    status: "ready",
+    summary: "Service process is running.",
+    checkedAt: new Date().toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    nodeEnv: process.env.NODE_ENV || "development",
+    counts: { ready: 1, warning: 0, blocked: 0 },
+  } as const;
+}
+
 export const systemRouter = router({
+  navigationCounts: ownerProcedure.query(() => getNavigationCounts()),
+
   health: publicProcedure
     .input(
       z.object({
         timestamp: z.number().min(0, "timestamp cannot be negative"),
       })
     )
-    .query(() => getSystemHealth({ probeDatabase: false, probeTrello: false })),
+    .query(() => getSystemLiveness()),
 
-  readiness: publicProcedure
+  readiness: ownerProcedure
     .input(
       z
         .object({
@@ -388,7 +522,17 @@ export const systemRouter = router({
     )
     .query(({ input }) => getSystemReadiness({ probeDatabase: input?.probeDatabase, probeTrello: input?.probeTrello })),
 
-  notifyOwner: adminProcedure
+  aptlssModelCatalog: ownerProcedure
+    .input(z.object({ refresh: z.boolean().optional() }).optional())
+    .query(({ input }) => getAptlssLlmConfigurationStatus({ forceRefresh: input?.refresh })),
+
+  scheduledJobFreshness: ownerProcedure.query(() => getLatestJobRuns()),
+
+  runEodCompliance: ownerProcedure.mutation(() => runEodComplianceJob("manual")),
+
+  runWeeklyAnalysis: ownerProcedure.mutation(() => runWeeklyAnalysis("manual", { force: true, notify: false })),
+
+  notifyOwner: ownerProcedure
     .input(
       z.object({
         title: z.string().min(1, "title is required"),

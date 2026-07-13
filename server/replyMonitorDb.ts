@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like } from "drizzle-orm";
 import {
   replyMonitorStatus,
   replyThreads,
@@ -231,6 +231,20 @@ export async function resolveUnsignedFlag(id: number, note?: string): Promise<vo
     resolutionNote: note?.trim() || null,
     updatedAt: new Date(),
   }).where(eq(unsignedMessageFlags.id, id));
+}
+
+/** Resolve historical flags created from internal APTLSS system notes. */
+export async function resolveSystemGeneratedUnsignedFlags(): Promise<void> {
+  const db = await requireDb();
+  await db.update(unsignedMessageFlags).set({
+    resolvedAt: new Date(),
+    resolvedBy: "system",
+    resolutionNote: "Internal APTLSS system comments do not require a Joyce signature.",
+    updatedAt: new Date(),
+  }).where(and(
+    isNull(unsignedMessageFlags.resolvedAt),
+    like(unsignedMessageFlags.messageText, "[APTLSS System]%"),
+  ));
 }
 
 export async function getAllUnsignedFlags(limit = 50): Promise<UnsignedFlagRow[]> {

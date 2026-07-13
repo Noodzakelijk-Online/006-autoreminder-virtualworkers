@@ -108,3 +108,4 @@ temp/
 *.sqlite3
 .project-config.json
 .manus/
+.playwright-cli/

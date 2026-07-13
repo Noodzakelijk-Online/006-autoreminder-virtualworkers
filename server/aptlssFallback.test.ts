@@ -24,7 +24,7 @@ function card(overrides: Partial<TrelloCardContext> = {}): TrelloCardContext {
 
 describe("deterministic APTLSS fallback", () => {
   it("builds a schema-compatible plan with actionable steps from Trello context", () => {
-    const plan = buildDeterministicAptlssPlan(card(), "BUILT_IN_FORGE_API_KEY is not configured");
+    const plan = buildDeterministicAptlssPlan(card(), "OPENAI_API_KEY is not configured");
 
     expect(plan.action).toContain("Landing page wireframes");
     expect(plan.steps.length).toBeGreaterThanOrEqual(5);
@@ -34,12 +34,22 @@ describe("deterministic APTLSS fallback", () => {
     expect(plan.links).toContain("https://trello.com/c/card123");
   });
 
-  it("flags vague cards as low-confidence Robert clarification work", () => {
+  it("flags vague cards as low-confidence repair work without inventing a Robert decision", () => {
     const plan = buildDeterministicAptlssPlan(card({ desc: "", name: "Website thing" }));
 
     expect(plan.confidenceScore).toBeLessThan(65);
     expect(plan.escalationCategory).toBe("low_confidence");
-    expect(plan.robertDecision).toContain("success criteria");
-    expect(plan.steps.some((step) => step.requiresRobert)).toBe(true);
+    expect(plan.robertDecision).toBeNull();
+    expect(plan.steps.some((step) => step.requiresRobert)).toBe(false);
+  });
+
+  it("does not infer an unresolved decision from a sensitive topic alone", () => {
+    const plan = buildDeterministicAptlssPlan(card({
+      name: "Budget and invoice administration",
+      desc: "Prepare a status overview from the current records.",
+    }));
+
+    expect(plan.robertDecision).toBeNull();
+    expect(plan.steps.some((step) => step.requiresRobert)).toBe(false);
   });
 });

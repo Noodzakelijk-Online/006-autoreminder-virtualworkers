@@ -30,7 +30,10 @@ function createContext(): TrpcContext {
 }
 
 describe("manual Reply Monitor scan", () => {
-  afterEach(() => vi.clearAllMocks());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+  });
 
   it("waits for scan completion and returns the persisted result", async () => {
     vi.mocked(getReplyMonitorStatus).mockResolvedValue({

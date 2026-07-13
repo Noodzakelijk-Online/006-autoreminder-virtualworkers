@@ -47,12 +47,6 @@ try {
   const response = await page.goto(baseUrl, { waitUntil: "networkidle2", timeout: 30_000 });
   if (!response?.ok()) throw new Error(`Dashboard returned HTTP ${response?.status() ?? "unknown"}.`);
 
-  if ((await page.$("#local-owner-token")) !== null) {
-    if (!process.env.LOCAL_AUTH_TOKEN) throw new Error("LOCAL_AUTH_TOKEN is required to exercise the secured login flow.");
-    await page.type("#local-owner-token", process.env.LOCAL_AUTH_TOKEN);
-    await clickButton("Unlock dashboard");
-  }
-
   await waitForText("Joyce Work Control");
   await waitForText("Today");
   await page.waitForFunction(() => !document.querySelector('[data-testid="status-setup"]')?.textContent?.includes("Checking"), { timeout: 30_000 });
@@ -181,7 +175,7 @@ try {
     ok: true,
     url: page.url(),
     screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "desktop-waiting-reason-dark.png", "desktop-aptlss-health-dark.png", "mobile-waiting-reason.png"].map((name) => path.join(outputDir, name)),
-    checks: ["secured login", "Today", "card inspector", "Day plan", "Inbox", "waiting reason inspector", "Decisions classifier 7/7", "Time & Pay", "Standards", "Settings", "APTLSS intelligence health", "assessment review gate", "dark mode", "desktop overflow", "mobile overflow", "console"],
+    checks: ["single-user access", "Today", "card inspector", "Day plan", "Inbox", "waiting reason inspector", "Decisions classifier 7/7", "Time & Pay", "Standards", "Settings", "APTLSS intelligence health", "assessment review gate", "dark mode", "desktop overflow", "mobile overflow", "console"],
   }, null, 2));
 } catch (error) {
   const failurePath = path.join(outputDir, "failure.png");
