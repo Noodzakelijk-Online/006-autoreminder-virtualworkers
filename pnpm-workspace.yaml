@@ -1,8 +1,8 @@
 packages:
   - "."
 
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  esbuild: true
 
 minimumReleaseAgeExclude:
   - postcss@8.5.17
