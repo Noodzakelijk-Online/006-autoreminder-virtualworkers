@@ -56,8 +56,12 @@ export function useAuth(options?: UseAuthOptions) {
   ]);
 
   useEffect(() => {
-    // No redirect — login form is shown by DashboardLayout when user is null
-  }, []);
+    if (meQuery.data) {
+      localStorage.setItem('manus-runtime-user-info', JSON.stringify(meQuery.data));
+    } else if (meQuery.data === null) {
+      localStorage.removeItem('manus-runtime-user-info');
+    }
+  }, [meQuery.data]);
 
   return {
     ...state,

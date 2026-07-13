@@ -327,29 +327,16 @@ export default function Home() {
           taskCache.set(CACHE_KEYS.TIMELINE_TASKS, cacheData);
           console.log('[TaskCache] Cached tasks for 5 minutes');
 
-          // Auto-analyze unanalyzed cards in the background (non-blocking)
-          const unanalyzedCount = atisTasks.filter(t => !t.hasUnderstanding).length;
-          if (unanalyzedCount > 0) {
-            console.log(`[AutoAnalysis] ${unanalyzedCount} cards need AI analysis — triggering background batch...`);
-            fetch('/api/atis/understanding/process', {
-              method: 'POST',
-              credentials: 'include',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ limit: 30 }),
-            })
-              .then(r => r.json())
-              .then(result => {
-                if (result.processed > 0) {
-                  console.log(`[AutoAnalysis] Analyzed ${result.processed} cards, refreshing...`);
-                  // Clear cache and refresh to show newly analyzed cards
-                  taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
-                  // Small delay to avoid race conditions
-                  setTimeout(() => { void fetchTasks(); }, 500);
-                }
-              })
-              .catch(err => {
-                console.warn('[AutoAnalysis] Background analysis failed:', err);
-              });
+          // Auto-refresh when background AI analysis completes for cards missing breakdowns
+          const pendingCount = atisData.pendingAnalysis || 0;
+          if (pendingCount > 0) {
+            console.log(`[AutoAnalysis] ${pendingCount} cards are being auto-analyzed in the background. Will refresh in 15s...`);
+            // The server auto-triggered analysis when it saw cards without breakdowns.
+            // We just need to wait a bit and refresh to show the new detailed steps.
+            setTimeout(() => {
+              taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+              void fetchTasks();
+            }, 15000); // Refresh after 15 seconds to pick up new breakdowns
           }
 
           try {

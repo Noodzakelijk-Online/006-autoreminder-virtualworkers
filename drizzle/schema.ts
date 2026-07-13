@@ -210,6 +210,7 @@ export const vaProfiles = mysqlTable('va_profiles', {
   dinnerTime: int('dinnerTime'), // Optional dinner break
   dinnerDuration: int('dinnerDuration').default(0), // In minutes
   status: mysqlEnum('status', ['active', 'inactive', 'on_leave']).default('active').notNull(),
+  trelloMemberId: varchar('trelloMemberId', { length: 64 }),
   createdAt: timestamp('createdAt').defaultNow().notNull(),
   updatedAt: timestamp('updatedAt').defaultNow().onUpdateNow().notNull(),
 });
@@ -531,10 +532,10 @@ export const replyThreads = mysqlTable("reply_threads", {
   cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
   boardName: varchar("boardName", { length: 256 }).notNull().default(""),
   listName: varchar("listName", { length: 256 }).notNull().default(""),
-  lastNonJoyceMsgAt: timestamp("lastNonJoyceMsgAt").notNull(),
-  lastNonJoyceAuthor: varchar("lastNonJoyceAuthor", { length: 256 }).notNull().default(""),
-  lastNonJoyceText: text("lastNonJoyceText"),
-  lastJoyceReplyAt: timestamp("lastJoyceReplyAt"),
+  lastNonWorkerMsgAt: timestamp("lastNonWorkerMsgAt").notNull(),
+  lastNonWorkerAuthor: varchar("lastNonWorkerAuthor", { length: 256 }).notNull().default(""),
+  lastNonWorkerText: text("lastNonWorkerText"),
+  lastWorkerReplyAt: timestamp("lastWorkerReplyAt"),
   status: mysqlEnum("status", ["pending", "replied", "overdue"]).notNull().default("pending"),
   demerited: boolean("demerited").notNull().default(false),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -556,6 +557,26 @@ export const vagueReplyFlags = mysqlTable("vague_reply_flags", {
   flaggedAt: timestamp("flaggedAt").notNull(),
   resolvedAt: timestamp("resolvedAt"),
   resolvedBy: mysqlEnum("resolvedBy", ["manual", "auto_demerit"]),
+  demeritIssued: boolean("demeritIssued").notNull().default(false),
+  demeritIssuedAt: timestamp("demeritIssuedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+// Tracks unsigned messages per worker
+export const unsignedMessageFlags = mysqlTable("unsigned_message_flags", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  source: mysqlEnum("source", ["trello", "upwork"]).notNull().default("trello"),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull(),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
+  actionId: varchar("actionId", { length: 64 }).notNull().unique(),
+  messageText: text("messageText").notNull(),
+  flaggedAt: timestamp("flaggedAt").notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+  resolvedBy: mysqlEnum("resolvedBy", ["manual", "auto_demerit"]),
+  resolutionNote: text("resolutionNote"),
   demeritIssued: boolean("demeritIssued").notNull().default(false),
   demeritIssuedAt: timestamp("demeritIssuedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1728,3 +1749,219 @@ export type AresValidationRule = typeof aresValidationRules.$inferSelect;
 export type InsertAresValidationRule = typeof aresValidationRules.$inferInsert;
 export type AresValidationHistoryRecord = typeof aresValidationHistory.$inferSelect;
 export type InsertAresValidationHistory = typeof aresValidationHistory.$inferInsert;
+
+// ─── APTLSS PLANS & STEPS (Merged from Manus Dashboard) ───
+
+export const aptlssPlans = mysqlTable("aptlss_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull(),
+  cardUrl: varchar("cardUrl", { length: 1024 }).notNull(),
+  boardName: varchar("boardName", { length: 256 }).notNull().default(""),
+  listName: varchar("listName", { length: 256 }).notNull().default(""),
+  planJson: text("planJson").notNull(),
+  contextSnapshot: text("contextSnapshot"),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_aptlss_plan_card_idx').on(table.vaId, table.cardId)
+]);
+
+export const aptlssSteps = mysqlTable("aptlss_steps", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  trelloChecklistId: varchar("trelloChecklistId", { length: 64 }),
+  trelloCheckItemId: varchar("trelloCheckItemId", { length: 64 }),
+  stepNumber: int("stepNumber").notNull(),
+  title: varchar("title", { length: 1024 }).notNull(),
+  estimatedMinutes: int("estimatedMinutes").notNull().default(15),
+  status: varchar("status", { length: 32 }).notNull().default("open"),
+  category: varchar("category", { length: 64 }).notNull().default("internal_work"),
+  requiresRobert: boolean("requiresRobert").notNull().default(false),
+  blockedBy: varchar("blockedBy", { length: 64 }),
+  dependsOnCards: text("dependsOnCards"),
+  completionCriteria: text("completionCriteria"),
+  riskIfSkipped: text("riskIfSkipped"),
+  recommendedDecision: text("recommendedDecision"),
+  isManual: boolean("isManual").notNull().default(false),
+  completedAt: timestamp("completedAt"),
+  lastSyncedAt: timestamp("lastSyncedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const cardStates = mysqlTable("card_states", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull().default(""),
+  boardName: varchar("boardName", { length: 256 }).notNull().default(""),
+  listName: varchar("listName", { length: 256 }).notNull().default(""),
+  state: varchar("state", { length: 64 }).notNull().default("NEW_UNTRIAGED"),
+  stateReason: text("stateReason"),
+  daysSinceProgress: int("daysSinceProgress").notNull().default(0),
+  hasUnansweredQuestion: boolean("hasUnansweredQuestion").notNull().default(false),
+  isOverdue: boolean("isOverdue").notNull().default(false),
+  checklistComplete: boolean("checklistComplete").notNull().default(false),
+  hasFinalSummary: boolean("hasFinalSummary").notNull().default(false),
+  calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_card_state_card_idx').on(table.vaId, table.cardId)
+]);
+
+export const priorityScores = mysqlTable("priority_scores", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull().default(""),
+  score: int("score").notNull().default(0),
+  breakdown: text("breakdown"),
+  tier: varchar("tier", { length: 16 }).notNull().default("MEDIUM"),
+  estimatedRemainingMinutes: int("estimatedRemainingMinutes").notNull().default(0),
+  openSteps: int("openSteps").notNull().default(0),
+  completedSteps: int("completedSteps").notNull().default(0),
+  calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_priority_score_card_idx').on(table.vaId, table.cardId)
+]);
+
+export const aptlssOperationalPolicies = mysqlTable("aptlss_operational_policies", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  ruleKey: varchar("ruleKey", { length: 128 }).notNull(),
+  label: varchar("label", { length: 256 }).notNull().default(""),
+  description: text("description"),
+  value: text("value").notNull().default("{}"),
+  category: varchar("category", { length: 64 }).notNull().default("general"),
+  enabled: int("enabled").notNull().default(1),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_operational_policy_idx').on(table.vaId, table.ruleKey)
+]);
+
+export const workerPerformanceSignals = mysqlTable("worker_performance_signals", {
+  id: int("id").autoincrement().primaryKey(),
+  workerId: varchar("workerId", { length: 128 }).notNull(),
+  workerName: varchar("workerName", { length: 256 }).notNull().default(""),
+  weekKey: varchar("weekKey", { length: 16 }).notNull(),
+  avgResponseTimeMinutes: int("avgResponseTimeMinutes").notNull().default(0),
+  checklistItemsCompleted: int("checklistItemsCompleted").notNull().default(0),
+  stalledCardsCount: int("stalledCardsCount").notNull().default(0),
+  missedDeadlines: int("missedDeadlines").notNull().default(0),
+  robertEscalationsCount: int("robertEscalationsCount").notNull().default(0),
+  reworkCount: int("reworkCount").notNull().default(0),
+  unclearHandovers: int("unclearHandovers").notNull().default(0),
+  notes: text("notes"),
+  calculatedAt: timestamp("calculatedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const weeklyAnalysisSnapshots = mysqlTable("weekly_analysis_snapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  weekKey: varchar("weekKey", { length: 16 }).notNull(),
+  noProgressCards: text("noProgressCards"),
+  recurringBlockers: text("recurringBlockers"),
+  estimateDrift: text("estimateDrift"),
+  underperformingWorkers: text("underperformingWorkers"),
+  listHoppers: text("listHoppers"),
+  unclearScopeProjects: text("unclearScopeProjects"),
+  processImprovements: text("processImprovements"),
+  summary: text("summary"),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_weekly_analysis_idx').on(table.vaId, table.weekKey)
+]);
+
+export const autoFollowUpDrafts = mysqlTable("auto_follow_up_drafts", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull().default(""),
+  draftMessage: text("draftMessage").notNull(),
+  reason: varchar("reason", { length: 512 }).notNull().default(""),
+  hoursSinceLastReply: int("hoursSinceLastReply").notNull().default(0),
+  urgencyType: varchar("urgencyType", { length: 32 }).notNull().default("routine"),
+  status: varchar("status", { length: 16 }).notNull().default("pending"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const dailyPlans = mysqlTable("daily_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  dateKey: varchar("dateKey", { length: 16 }).notNull(),
+  scheduleJson: text("scheduleJson").notNull(),
+  dailySummary: text("dailySummary"),
+  topPriority: varchar("topPriority", { length: 512 }),
+  totalScheduledMinutes: int("totalScheduledMinutes").notNull().default(0),
+  robertItemsCount: int("robertItemsCount").notNull().default(0),
+  autoGenerated: boolean("autoGenerated").notNull().default(true),
+  generatedAt: timestamp("generatedAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex('va_daily_plan_idx').on(table.vaId, table.dateKey)
+]);
+
+export const aptlssAuditLog = mysqlTable("aptlss_audit_log", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  cardId: varchar("cardId", { length: 64 }).notNull(),
+  cardName: varchar("cardName", { length: 512 }).notNull().default(""),
+  action: varchar("action", { length: 64 }).notNull(),
+  description: text("description").notNull(),
+  payload: text("payload"),
+  confidenceScore: int("confidenceScore"),
+  requiresApproval: boolean("requiresApproval").notNull().default(false),
+  approved: boolean("approved"),
+  source: varchar("source", { length: 32 }).notNull().default("maintenance_job"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const adminSyncLog = mysqlTable("admin_sync_log", {
+  id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
+  syncType: varchar("syncType", { length: 32 }).notNull(),
+  success: boolean("success").notNull(),
+  cardsProcessed: int("cardsProcessed").notNull().default(0),
+  actionsTaken: int("actionsTaken").notNull().default(0),
+  cardsSkippedLowConfidence: int("cardsSkippedLowConfidence").notNull().default(0),
+  errorMessage: text("errorMessage"),
+  durationMs: int("durationMs"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AptlssPlan = typeof aptlssPlans.$inferSelect;
+export type InsertAptlssPlan = typeof aptlssPlans.$inferInsert;
+export type AptlssStep = typeof aptlssSteps.$inferSelect;
+export type InsertAptlssStep = typeof aptlssSteps.$inferInsert;
+export type CardState = typeof cardStates.$inferSelect;
+export type InsertCardState = typeof cardStates.$inferInsert;
+export type PriorityScore = typeof priorityScores.$inferSelect;
+export type InsertPriorityScore = typeof priorityScores.$inferInsert;
+export type AptlssOperationalPolicy = typeof aptlssOperationalPolicies.$inferSelect;
+export type InsertAptlssOperationalPolicy = typeof aptlssOperationalPolicies.$inferInsert;
+export type WorkerPerformanceSignal = typeof workerPerformanceSignals.$inferSelect;
+export type InsertWorkerPerformanceSignal = typeof workerPerformanceSignals.$inferInsert;
+export type WeeklyAnalysisSnapshot = typeof weeklyAnalysisSnapshots.$inferSelect;
+export type InsertWeeklyAnalysisSnapshot = typeof weeklyAnalysisSnapshots.$inferInsert;
+export type AutoFollowUpDraft = typeof autoFollowUpDrafts.$inferSelect;
+export type InsertAutoFollowUpDraft = typeof autoFollowUpDrafts.$inferInsert;
+export type DailyPlan = typeof dailyPlans.$inferSelect;
+export type InsertDailyPlan = typeof dailyPlans.$inferInsert;
+export type AptlssAuditLog = typeof aptlssAuditLog.$inferSelect;
+export type InsertAptlssAuditLog = typeof aptlssAuditLog.$inferInsert;
+export type AdminSyncLog = typeof adminSyncLog.$inferSelect;
+export type InsertAdminSyncLog = typeof adminSyncLog.$inferInsert;
+export type UnsignedMessageFlag = typeof unsignedMessageFlags.$inferSelect;
+export type InsertUnsignedMessageFlag = typeof unsignedMessageFlags.$inferInsert;

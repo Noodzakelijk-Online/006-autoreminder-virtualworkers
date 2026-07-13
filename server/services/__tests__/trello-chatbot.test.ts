@@ -21,7 +21,7 @@ describe('Trello Chatbot', () => {
 
     it('should parse @bot remind command with worker mention', () => {
       const result = parseBotCommand(
-        '@bot remind @joyce Please update the task',
+        '@bot remind @worker Please update the task',
         'card123',
         'comment456',
         'author789',
@@ -30,7 +30,7 @@ describe('Trello Chatbot', () => {
 
       expect(result).not.toBeNull();
       expect(result?.command).toBe('remind');
-      expect(result?.args).toContain('@joyce');
+      expect(result?.args).toContain('@worker');
       expect(result?.rawArgs).toContain('Please update the task');
     });
 

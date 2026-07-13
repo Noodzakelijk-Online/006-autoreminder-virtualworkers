@@ -82,16 +82,16 @@ function ThreadCard({
     cardUrl: string;
     boardName: string;
     listName: string;
-    lastNonJoyceMsgAt: Date;
-    lastNonJoyceAuthor: string;
-    lastNonJoyceText: string | null;
-    lastJoyceReplyAt: Date | null;
+    lastNonWorkerMsgAt: Date;
+    lastNonWorkerAuthor: string;
+    lastNonWorkerText: string | null;
+    lastWorkerReplyAt: Date | null;
     status: string;
     demerited: boolean;
   };
 }) {
   const [expanded, setExpanded] = useState(false);
-  const deadline = new Date(thread.lastNonJoyceMsgAt).getTime() + 12 * 60 * 60 * 1000;
+  const deadline = new Date(thread.lastNonWorkerMsgAt).getTime() + 12 * 60 * 60 * 1000;
   const isOverdue = thread.status === "overdue";
 
   return (
@@ -129,9 +129,9 @@ function ThreadCard({
 
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
-        <span className="font-medium text-foreground">{thread.lastNonJoyceAuthor}</span>
+        <span className="font-medium text-foreground">{thread.lastNonWorkerAuthor}</span>
         <span>replied</span>
-        <span>{new Date(thread.lastNonJoyceMsgAt).toLocaleString()}</span>
+        <span>{new Date(thread.lastNonWorkerMsgAt).toLocaleString()}</span>
         <button
           onClick={() => setExpanded(!expanded)}
           className="ml-auto text-muted-foreground hover:text-foreground"
@@ -142,7 +142,7 @@ function ThreadCard({
 
       {expanded && (
         <div className="bg-muted/40 rounded p-2.5 text-xs text-muted-foreground italic leading-relaxed">
-          "{(thread.lastNonJoyceText ?? "").slice(0, 400)}{(thread.lastNonJoyceText ?? "").length > 400 ? "…" : ""}"
+          "{(thread.lastNonWorkerText ?? "").slice(0, 400)}{(thread.lastNonWorkerText ?? "").length > 400 ? "…" : ""}"
         </div>
       )}
     </div>
@@ -342,7 +342,7 @@ function UnsignedFlagCard({
                 id="resolve-note"
                 value={resolveNote}
                 onChange={(e) => setResolveNote(e.target.value)}
-                placeholder="e.g. Added '~ Joyce' as a follow-up comment on the card"
+                placeholder="e.g. Added '~ Worker' as a follow-up comment on the card"
                 className="text-xs min-h-[70px] resize-none"
                 autoFocus
                 onKeyDown={(e) => {
@@ -544,13 +544,13 @@ export default function ReplyMonitor() {
               {pendingThreads
                 .filter(t => t.status === "overdue")
                 .map(t => (
-                  <ThreadCard key={t.id} thread={{ ...t, lastNonJoyceMsgAt: t.lastNonJoyceMsgAt ? new Date(t.lastNonJoyceMsgAt) : new Date(), lastJoyceReplyAt: t.lastJoyceReplyAt ? new Date(t.lastJoyceReplyAt) : null }} />
+                  <ThreadCard key={t.id} thread={{ ...t, lastNonWorkerMsgAt: t.lastNonWorkerMsgAt ? new Date(t.lastNonWorkerMsgAt) : new Date(), lastWorkerReplyAt: t.lastWorkerReplyAt ? new Date(t.lastWorkerReplyAt) : null }} />
                 ))})
               {/* Then pending */}
               {pendingThreads
                 .filter(t => t.status === "pending")
                 .map(t => (
-                  <ThreadCard key={t.id} thread={{ ...t, lastNonJoyceMsgAt: t.lastNonJoyceMsgAt ? new Date(t.lastNonJoyceMsgAt) : new Date(), lastJoyceReplyAt: t.lastJoyceReplyAt ? new Date(t.lastJoyceReplyAt) : null }} />
+                  <ThreadCard key={t.id} thread={{ ...t, lastNonWorkerMsgAt: t.lastNonWorkerMsgAt ? new Date(t.lastNonWorkerMsgAt) : new Date(), lastWorkerReplyAt: t.lastWorkerReplyAt ? new Date(t.lastWorkerReplyAt) : null }} />
                 ))}
             </div>
           )}
@@ -575,7 +575,7 @@ export default function ReplyMonitor() {
           {activeUnsignedFlags.length > 0 && (
             <div className="mt-4 space-y-2">
               <p className="text-xs font-semibold text-purple-700 dark:text-purple-400 uppercase tracking-wide">
-                Unsigned Messages — Add ~ Angel or ~ Joyce within 1h or D1 demerit is auto-issued
+                Unsigned Messages — Add ~ Angel or ~ Worker within 1h or D1 demerit is auto-issued
               </p>
               {activeUnsignedFlags.map(f => (
                 <UnsignedFlagCard
@@ -624,7 +624,7 @@ export default function ReplyMonitor() {
                 <li>Any reply that defers without addressing the situation</li>
               </ul>
               <p className="text-xs text-muted-foreground mt-2">
-                Joyce has <strong>1 hour</strong> to replace a flagged reply with a proper response before a D1 demerit is auto-issued.
+                Worker has <strong>1 hour</strong> to replace a flagged reply with a proper response before a D1 demerit is auto-issued.
               </p>
             </CardContent>
           </Card>
@@ -640,7 +640,7 @@ export default function ReplyMonitor() {
                 <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
                 <p className="text-sm font-medium text-foreground">All messages are signed</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Every message ends with ~ Angel or ~ Joyce.
+                  Every message ends with ~ Angel or ~ Worker.
                 </p>
               </CardContent>
             </Card>
@@ -658,13 +658,13 @@ export default function ReplyMonitor() {
             <CardContent className="p-4">
               <p className="text-xs font-semibold text-foreground mb-2">Signature rule</p>
               <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                <li>Every message sent from the owner account must end with <strong>~ Angel</strong> or <strong>~ Joyce</strong></li>
-                <li><strong>~ Joyce</strong> = Joyce wrote it (regardless of whose voice it’s in)</li>
+                <li>Every message sent from the owner account must end with <strong>~ Angel</strong> or <strong>~ Worker</strong></li>
+                <li><strong>~ Worker</strong> = Worker wrote it (regardless of whose voice it’s in)</li>
                 <li><strong>~ Angel</strong> = Angel personally wrote it</li>
                 <li>Applies to both Trello card comments and Upwork messages</li>
               </ul>
               <p className="text-xs text-muted-foreground mt-2">
-                Joyce has <strong>1 hour</strong> to add a follow-up signed message before a D1 demerit is auto-issued.
+                Worker has <strong>1 hour</strong> to add a follow-up signed message before a D1 demerit is auto-issued.
               </p>
             </CardContent>
           </Card>
@@ -699,7 +699,7 @@ export default function ReplyMonitor() {
                         {t.cardName}
                       </a>
                       <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                        {t.lastNonJoyceMsgAt ? new Date(t.lastNonJoyceMsgAt).toLocaleDateString() : "—"}
+                        {t.lastNonWorkerMsgAt ? new Date(t.lastNonWorkerMsgAt).toLocaleDateString() : "—"}
                       </span>
                     </div>
                   );

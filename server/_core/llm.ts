@@ -1,5 +1,7 @@
 import { ENV } from "./env";
-
+import { getDb } from "../db";
+import { appSettings } from "../../drizzle/schema";
+import { inArray } from "drizzle-orm";
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
 export type TextContent = {
@@ -209,36 +211,74 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () => {
-  // Priority: Groq (free) → custom Forge URL → default Forge
-  if (process.env.GROQ_API_KEY) {
-    return 'https://api.groq.com/openai/v1/chat/completions';
-  }
-  if (process.env.OPENAI_API_KEY) {
-    return 'https://api.openai.com/v1/chat/completions';
-  }
-  return ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
-};
+interface ProviderConfig {
+  id: string;
+  url: string;
+  key: string;
+  model: string;
+}
 
-const resolveApiKey = () => {
-  if (process.env.GROQ_API_KEY) return process.env.GROQ_API_KEY;
-  if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
-  return ENV.forgeApiKey;
-};
-
-const resolveModel = () => {
-  if (process.env.GROQ_API_KEY) return 'llama-3.3-70b-versatile';
-  if (process.env.OPENAI_API_KEY) return 'gpt-4o-mini';
-  return 'gemini-2.5-flash';
-};
-
-const assertApiKey = () => {
-  const key = resolveApiKey();
-  if (!key) {
-    throw new Error("No LLM API key configured. Set GROQ_API_KEY (free) or OPENAI_API_KEY in your .env file.");
+const getProviders = async (): Promise<ProviderConfig[]> => {
+  const providers: ProviderConfig[] = [];
+  let dbSettings = new Map<string, string>();
+  
+  try {
+    const db = await getDb();
+    if (db) {
+      const keys = ['ai_provider', 'ai_model', 'ai_groq_key', 'ai_together_key', 'ai_openrouter_key', 'ai_ollama_url'];
+      const settings = await db.select().from(appSettings).where(inArray(appSettings.key, keys));
+      dbSettings = new Map(settings.map(s => [s.key, s.value]));
+    }
+  } catch (e) {
+    console.error("[LLM] Failed to read settings from DB, falling back to ENV", e);
   }
+
+  const selectedProvider = dbSettings.get('ai_provider');
+  const selectedModel = dbSettings.get('ai_model');
+  
+  if (selectedProvider && selectedModel) {
+    let key = '';
+    let url = '';
+    if (selectedProvider === 'groq') {
+      key = dbSettings.get('ai_groq_key') || process.env.GROQ_API_KEY || '';
+      url = 'https://api.groq.com/openai/v1/chat/completions';
+    } else if (selectedProvider === 'together') {
+      key = dbSettings.get('ai_together_key') || process.env.TOGETHER_API_KEY || '';
+      url = 'https://api.together.xyz/v1/chat/completions';
+    } else if (selectedProvider === 'openrouter') {
+      key = dbSettings.get('ai_openrouter_key') || process.env.OPENROUTER_API_KEY || '';
+      url = 'https://openrouter.ai/api/v1/chat/completions';
+    } else if (selectedProvider === 'ollama') {
+      key = 'ollama'; // No auth needed
+      url = `${(dbSettings.get('ai_ollama_url') || 'http://localhost:11434').replace(/\/$/, '')}/v1/chat/completions`;
+    }
+    
+    if (key) {
+      providers.push({ id: selectedProvider, url, key, model: selectedModel });
+    }
+  }
+
+  // Fallbacks
+  const groqEnv = process.env.GROQ_API_KEY;
+  if (groqEnv && !providers.find(p => p.id === 'groq')) {
+    providers.push({ id: 'groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: groqEnv, model: 'llama-3.3-70b-versatile' });
+  }
+
+  const forgeEnv = ENV.forgeApiKey;
+  if (forgeEnv && !providers.find(p => p.id === 'forge')) {
+    const forgeUrl = ENV.forgeApiUrl ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions` : "https://forge.manus.im/v1/chat/completions";
+    providers.push({ id: 'forge', url: forgeUrl, key: forgeEnv, model: 'gemini-2.5-flash' });
+  }
+  
+  const openaiEnv = process.env.OPENAI_API_KEY;
+  if (openaiEnv && !providers.find(p => p.id === 'openai')) {
+    providers.push({ id: 'openai', url: 'https://api.openai.com/v1/chat/completions', key: openaiEnv, model: 'gpt-4o-mini' });
+  }
+
+  if (providers.length === 0) {
+    throw new Error("No LLM API keys configured. Set GROQ_API_KEY, OPENAI_API_KEY, or use the Settings UI.");
+  }
+  return providers;
 };
 
 const normalizeResponseFormat = ({
@@ -287,76 +327,93 @@ const normalizeResponseFormat = ({
 };
 
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
+  const providers = await getProviders();
+  const errors: string[] = [];
 
-  const {
-    messages,
-    tools,
-    toolChoice,
-    tool_choice,
-    outputSchema,
-    output_schema,
-    responseFormat,
-    response_format,
-  } = params;
+  for (const provider of providers) {
+    try {
+      const {
+        messages,
+        tools,
+        toolChoice,
+        tool_choice,
+        outputSchema,
+        output_schema,
+        responseFormat,
+        response_format,
+      } = params;
 
-  const payload: Record<string, unknown> = {
-    model: resolveModel(),
-    messages: messages.map(normalizeMessage),
-  };
+      const payload: Record<string, unknown> = {
+        model: provider.model,
+        messages: messages.map(normalizeMessage),
+      };
 
-  if (tools && tools.length > 0) {
-    payload.tools = tools;
-  }
+      if (tools && tools.length > 0) {
+        payload.tools = tools;
+      }
 
-  const normalizedToolChoice = normalizeToolChoice(
-    toolChoice || tool_choice,
-    tools
-  );
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
+      const normalizedToolChoice = normalizeToolChoice(
+        toolChoice || tool_choice,
+        tools
+      );
+      if (normalizedToolChoice) {
+        payload.tool_choice = normalizedToolChoice;
+      }
 
-  // Groq free tier: 12k TPM (input + output combined).
-  // Cap output tokens to leave room for the input prompt.
-  // Other providers can use larger values.
-  const maxOut = params.maxTokens ?? params.max_tokens;
-  if (process.env.GROQ_API_KEY) {
-    payload.max_tokens = Math.min(maxOut ?? 2048, 2048);
-  } else {
-    payload.max_tokens = maxOut ?? 32768;
-    // thinking/budget_tokens is only supported by Gemini via Forge API
-    if (!process.env.OPENAI_API_KEY) {
-      (payload as any).thinking = { budget_tokens: 128 };
+      const maxOut = params.maxTokens ?? params.max_tokens;
+      if (provider.id === 'groq') {
+        payload.max_tokens = Math.min(maxOut ?? 2048, 2048);
+      } else {
+        payload.max_tokens = maxOut ?? 32768;
+        if (provider.id === 'forge') {
+          (payload as any).thinking = { budget_tokens: 128 };
+        }
+      }
+
+      const normalizedResponseFormat = normalizeResponseFormat({
+        responseFormat,
+        response_format,
+        outputSchema,
+        output_schema,
+      });
+
+      if (normalizedResponseFormat) {
+        payload.response_format = normalizedResponseFormat;
+      }
+
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+      };
+      
+      if (provider.key !== 'ollama') {
+        headers.authorization = `Bearer ${provider.key}`;
+      }
+
+      // OpenRouter specific headers
+      if (provider.id === 'openrouter') {
+        headers['HTTP-Referer'] = 'http://localhost:3000';
+        headers['X-Title'] = 'VA Dashboard';
+      }
+
+      const response = await fetch(provider.url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`${response.status} ${response.statusText} – ${errorText}`);
+      }
+
+      return (await response.json()) as InvokeResult;
+      
+    } catch (error: any) {
+      console.warn(`[LLM] Provider '${provider.id}' failed: ${error.message}`);
+      errors.push(`[${provider.id}] ${error.message}`);
+      // Continue loop to try fallback provider
     }
   }
 
-  const normalizedResponseFormat = normalizeResponseFormat({
-    responseFormat,
-    response_format,
-    outputSchema,
-    output_schema,
-  });
-
-  if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
-  }
-
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${resolveApiKey()}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
-  }
-
-  return (await response.json()) as InvokeResult;
+  throw new Error(`All LLM providers failed:\n${errors.join('\n')}`);
 }

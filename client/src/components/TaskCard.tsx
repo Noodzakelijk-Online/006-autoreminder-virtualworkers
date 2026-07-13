@@ -33,6 +33,50 @@ const aptlssTypeInfo: Record<string, { color: string; label: string; bgColor: st
   S: { color: "text-orange-700", label: "Support", bgColor: "bg-orange-100" },
 };
 
+// Batch loader for conversation counts to prevent 429 Rate Limiting errors
+let pendingCardIds: string[] = [];
+let batchTimeout: any = null;
+let batchCallbacks: ((counts: Record<string, number>) => void)[] = [];
+
+const fetchConversationCountsBatch = (cardId: string, callback: (count: number) => void) => {
+  pendingCardIds.push(cardId);
+  
+  const resolver = (counts: Record<string, number>) => {
+    callback(counts[cardId] || 0);
+  };
+  batchCallbacks.push(resolver);
+
+  if (!batchTimeout) {
+    batchTimeout = setTimeout(async () => {
+      const idsToFetch = [...pendingCardIds];
+      const callbacksToCall = [...batchCallbacks];
+      
+      // Reset batch state
+      pendingCardIds = [];
+      batchCallbacks = [];
+      batchTimeout = null;
+
+      try {
+        const response = await fetch('/api/trello-webhook/conversation-counts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cardIds: idsToFetch }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const counts = data.counts || {};
+          callbacksToCall.forEach(cb => cb(counts));
+        } else {
+          callbacksToCall.forEach(cb => cb({}));
+        }
+      } catch (error) {
+        console.error('Failed to fetch conversation counts batch:', error);
+        callbacksToCall.forEach(cb => cb({}));
+      }
+    }, 50); // Batch requests within the same 50ms render tick
+  }
+};
+
 export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartInterview, role = 'admin', onSaveHandoff, onAskFounder }: TaskCardProps) {
   const [cardExpanded, setCardExpanded] = useState(isExpanded ?? false);
   const [notes, setNotes] = useState(task.handoffNotes || '');
@@ -43,6 +87,10 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
   const [syncingStep, setSyncingStep] = useState<string | null>(null);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [conversationCount, setConversationCount] = useState<number | null>(null);
+
+  const [localChecklist, setLocalChecklist] = useState<any[]>(task.checklist || []);
+  const [localHasUnderstanding, setLocalHasUnderstanding] = useState(task.hasUnderstanding);
+
   const [stepCompletions, setStepCompletions] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     task.checklist?.forEach(item => {
@@ -50,6 +98,18 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
     });
     return initial;
   });
+
+  // Sync state with task prop changes
+  useEffect(() => {
+    setLocalChecklist(task.checklist || []);
+    setLocalHasUnderstanding(task.hasUnderstanding);
+    
+    const initial: Record<string, boolean> = {};
+    task.checklist?.forEach(item => {
+      initial[item.id] = item.completed || false;
+    });
+    setStepCompletions(initial);
+  }, [task]);
   
   // Inline editing state
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -63,22 +123,11 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
     }
   }, [task.cardId]);
 
-  const loadConversationCount = async () => {
+  const loadConversationCount = () => {
     if (!task.cardId) return;
-    try {
-      const response = await fetch('/api/trello-webhook/conversation-counts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ cardIds: [task.cardId] }),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setConversationCount(data.counts?.[task.cardId] || 0);
-      }
-    } catch (error) {
-      console.error('Failed to load conversation count:', error);
-    }
+    fetchConversationCountsBatch(task.cardId, (count) => {
+      setConversationCount(count);
+    });
   };
 
   // Sync with external isExpanded prop
@@ -88,23 +137,81 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
     }
   }, [isExpanded]);
 
-  // Load completion status from backend when card expands
+  // Load latest checklist and completion status from backend when card expands
   useEffect(() => {
     if (cardExpanded && task.atisCardId) {
-      loadCompletionStatus();
+      refreshCardData();
     }
   }, [cardExpanded, task.atisCardId]);
 
-  const loadCompletionStatus = async () => {
+  const refreshCardData = async () => {
     if (!task.atisCardId) return;
     
     try {
-      const response = await fetch(`/api/atis/checklist/status/${task.atisCardId}`);
-      if (response.ok) {
-        const data = await response.json();
+      // 1. Fetch latest understanding (checklist)
+      const uResponse = await fetch(`/api/atis/card/${task.atisCardId}/understanding`);
+      let currentChecklist = localChecklist;
+      if (uResponse.ok) {
+        const data = await uResponse.json();
+        if (data.aptlssChecklist) {
+          try {
+            const parsed = JSON.parse(data.aptlssChecklist);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              currentChecklist = parsed.map((item: any, index: number) => ({
+                id: `${task.atisCardId}-step-${index}`,
+                step: item.name || item.step || item.description || 'Step',
+                timeMinutes: item.estimatedMinutes || item.timeMinutes || item.time || 15,
+                aptlssType: item.priority || item.aptlssType || item.type || 'T',
+                completed: false,
+              }));
+              setLocalChecklist(currentChecklist);
+              setLocalHasUnderstanding(true);
+            }
+          } catch (e) {
+            console.error('Failed to parse checklist:', e);
+          }
+        }
+      }
+
+      // If no understanding, or it's a fallback 1-step checklist, trigger an immediate high-priority analysis
+      if (!uResponse.ok || currentChecklist.length <= 1) {
+        setLocalHasUnderstanding(false);
+        console.log(`[TaskCard] Card ${task.atisCardId} has no detailed checklist. Triggering immediate analysis...`);
+        const analyzeResponse = await fetch(`/api/atis/understanding/reprocess/${task.atisCardId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+        if (analyzeResponse.ok) {
+          const result = await analyzeResponse.json();
+          if (result.understanding?.aptlssChecklist) {
+            try {
+              const parsed = JSON.parse(result.understanding.aptlssChecklist);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                currentChecklist = parsed.map((item: any, index: number) => ({
+                  id: `${task.atisCardId}-step-${index}`,
+                  step: item.name || item.step || item.description || 'Step',
+                  timeMinutes: item.estimatedMinutes || item.timeMinutes || item.time || 15,
+                  aptlssType: item.priority || item.aptlssType || item.type || 'T',
+                  completed: false,
+                }));
+                setLocalChecklist(currentChecklist);
+                setLocalHasUnderstanding(true);
+              }
+            } catch (e) {
+              console.error('Failed to parse checklist after immediate analysis:', e);
+            }
+          }
+        }
+      }
+
+      // 2. Fetch completion status and apply to currentChecklist
+      const cResponse = await fetch(`/api/atis/checklist/status/${task.atisCardId}`);
+      if (cResponse.ok) {
+        const data = await cResponse.json();
         if (data.completedSteps && Array.isArray(data.completedSteps)) {
           const newCompletions: Record<string, boolean> = {};
-          task.checklist?.forEach((item, index) => {
+          currentChecklist.forEach((item, index) => {
             const isCompleted = data.completedSteps.some((c: any) => c.stepIndex === index);
             newCompletions[item.id] = isCompleted;
           });
@@ -112,7 +219,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
         }
       }
     } catch (error) {
-      console.error('Failed to load completion status:', error);
+      console.error('Failed to refresh card data:', error);
     }
   };
 
@@ -226,13 +333,44 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
 
         const result = await analyzeResponse.json();
         
+        let newChecklist = localChecklist;
+        if (result.understanding?.aptlssChecklist) {
+          try {
+            const parsed = JSON.parse(result.understanding.aptlssChecklist);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              newChecklist = parsed.map((item: any, index: number) => ({
+                id: `${task.atisCardId}-step-${index}`,
+                step: item.name || item.step || item.description || 'Step',
+                timeMinutes: item.estimatedMinutes || item.timeMinutes || item.time || 15,
+                aptlssType: item.priority || item.aptlssType || item.type || 'T',
+                completed: false,
+              }));
+              setLocalChecklist(newChecklist);
+              setLocalHasUnderstanding(true);
+            }
+          } catch (e) {
+            console.error('Failed to parse checklist:', e);
+          }
+        }
+
         toast.success('Card re-analyzed successfully', {
           id: 'reanalyze',
-          description: `Updated checklist with ${result.understanding?.aptlssChecklist?.length || 0} steps`,
+          description: `Updated checklist with ${newChecklist.length} steps`,
         });
 
-        // Reload completion status to reflect new checklist
-        await loadCompletionStatus();
+        // Also reload completion status to reflect new checklist
+        const cResponse = await fetch(`/api/atis/checklist/status/${task.atisCardId}`);
+        if (cResponse.ok) {
+          const statusData = await cResponse.json();
+          if (statusData.completedSteps && Array.isArray(statusData.completedSteps)) {
+            const newCompletions: Record<string, boolean> = {};
+            newChecklist.forEach((item, index) => {
+              const isCompleted = statusData.completedSteps.some((c: any) => c.stepIndex === index);
+              newCompletions[item.id] = isCompleted;
+            });
+            setStepCompletions(newCompletions);
+          }
+        }
       }
     } catch (error: any) {
       toast.error(error.message || 'Failed to re-analyze card', { id: 'reanalyze' });
@@ -386,11 +524,11 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
   };
 
   const completedSteps = Object.values(stepCompletions).filter(Boolean).length;
-  const totalSteps = task.checklist?.length || 0;
+  const totalSteps = localChecklist?.length || 0;
   const progress = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0;
 
   // Calculate total time from checklist
-  const totalMinutes = task.checklist?.reduce((sum, item) => sum + (item.timeMinutes || 0), 0) || Math.round(task.durationHours * 60);
+  const totalMinutes = localChecklist?.reduce((sum, item) => sum + (item.timeMinutes || 0), 0) || Math.round(task.durationHours * 60);
 
   return (
     <Card 
@@ -470,7 +608,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
                   </Badge>
                   
                   {/* AI Analysis status badge */}
-                  {!task.hasUnderstanding && (
+                  {!localHasUnderstanding && (
                     <Badge variant="outline" className="text-xs gap-1 text-amber-600 border-amber-300 bg-amber-50">
                       <Loader2 className="h-2.5 w-2.5 animate-spin" />
                       AI Analyzing...
@@ -584,7 +722,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
             )}
 
             {/* APTLSS Checklist Steps - Always visible when expanded */}
-            {task.checklist && task.checklist.length > 0 && (
+            {localChecklist && localChecklist.length > 0 && (
               <div className="ml-10 space-y-1">
                 <div className="flex items-center gap-2 mb-3 text-sm font-medium text-muted-foreground">
                   <ListChecks className="h-4 w-4" />
@@ -592,7 +730,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
                 </div>
                 
                 <div className="space-y-2">
-                  {task.checklist.map((item, index) => {
+                  {localChecklist.map((item, index) => {
                     const typeInfo = aptlssTypeInfo[item.aptlssType] || { color: "text-gray-700", label: item.aptlssType, bgColor: "bg-gray-100" };
                     const isCompleted = stepCompletions[item.id];
                     const isSyncing = syncingStep === item.id;
@@ -673,9 +811,9 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
             )}
 
             {/* No checklist - show description or analyzing state */}
-            {(!task.checklist || task.checklist.length === 0) && (
+            {(!localChecklist || localChecklist.length === 0) && (
               <div className="ml-10">
-                {!task.hasUnderstanding ? (
+                {!localHasUnderstanding ? (
                   <div className="flex items-center gap-2 py-4 text-amber-600">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     <div>
@@ -791,7 +929,7 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
               )}
 
               {/* Sync to Trello button */}
-              {task.checklist && task.checklist.length > 0 && task.atisCardId && (
+              {localChecklist && localChecklist.length > 0 && task.atisCardId && (
                 <Button
                   variant={synced ? "outline" : "default"}
                   size="sm"

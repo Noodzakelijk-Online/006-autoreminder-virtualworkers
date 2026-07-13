@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { useAuth } from '@/_core/hooks/useAuth';
 
 interface UseWebSocketOptions {
   onTaskCompleted?: (data: any) => void;
@@ -14,6 +15,7 @@ interface WebSocketStatus {
 }
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
+  const { user } = useAuth();
   const socketRef = useRef<Socket | null>(null);
   const [status, setStatus] = useState<WebSocketStatus>({
     connected: false,
@@ -28,23 +30,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   optionsRef.current = options;
 
   useEffect(() => {
-    // Get user from the key written by useAuth hook
-    const userStr = localStorage.getItem('manus-runtime-user-info');
-    if (!userStr || userStr === 'null' || userStr === 'undefined') {
-      console.warn('[WebSocket] No user found, skipping connection');
-      return;
-    }
-
-    let user: any;
-    try {
-      user = JSON.parse(userStr);
-    } catch {
-      console.warn('[WebSocket] Failed to parse user info, skipping connection');
-      return;
-    }
-
     if (!user?.id || !user?.openId) {
-      console.warn('[WebSocket] User missing id/openId, skipping connection');
       return;
     }
 
@@ -124,7 +110,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       console.log('[WebSocket] Disconnecting');
       socket.disconnect();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- empty deps intentional; callbacks are read via ref
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Helper functions to emit events
   const emitTaskComplete = (data: { taskId: string; isCompleted: boolean }) => {

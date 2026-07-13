@@ -1,15 +1,15 @@
 /**
- * RobertDashboard — Minimum-oversight view for Robert.
+ * AdminDashboard — Minimum-oversight view for Admin.
  *
- * Shows only what requires Robert's attention:
- *   1. Pending decisions (steps flagged requiresRobert)
+ * Shows only what requires Admin's attention:
+ *   1. Pending decisions (steps flagged requiresAdmin)
  *   2. Escalations (cards with escalationCategory set in their APTLSS plan)
  *   3. Stalled cards (no progress for 5+ days)
  *   4. Blocked cards (blocked by another card)
- *   5. Cards waiting for Joyce (unanswered question)
+ *   5. Cards waiting for Worker (unanswered question)
  *   6. Cards needing repair (vague / no checklist)
  *
- * Robert does NOT need to see the daily routine, compliance, or schedule tabs.
+ * Admin does NOT need to see the daily routine, compliance, or schedule tabs.
  * This page is intentionally minimal and action-oriented.
  */
 import { trpc } from "@/lib/trpc";
@@ -108,7 +108,7 @@ function AllClear({ label }: { label: string }) {
   );
 }
 
-export default function RobertDashboard() {
+export default function AdminDashboard() {
   const { data, isLoading, refetch, isFetching } = trpc.aptlss.getRisksAndExceptions.useQuery(undefined, {
     staleTime: 3 * 60_000,
   });
@@ -146,12 +146,12 @@ export default function RobertDashboard() {
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
-                Back to Joyce's Dashboard
+                Back to Worker's Dashboard
               </button>
             </Link>
             <div className="flex-1" />
             <div>
-              <h1 className="text-lg font-bold text-foreground">Robert's Oversight Dashboard</h1>
+              <h1 className="text-lg font-bold text-foreground">Admin Oversight Dashboard</h1>
               <p className="text-[11px] text-muted-foreground">Decisions, risks, and exceptions requiring your attention</p>
             </div>
             <div className="flex items-center gap-2">
@@ -203,7 +203,7 @@ export default function RobertDashboard() {
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                   <div>
                     <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">All clear — no issues require your attention</p>
-                    <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">Joyce is working autonomously. No decisions, escalations, or blockers.</p>
+                    <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5">Worker is working autonomously. No decisions, escalations, or blockers.</p>
                   </div>
                 </div>
               ) : (
@@ -211,7 +211,7 @@ export default function RobertDashboard() {
                   <div className="flex items-center gap-3 mb-3">
                     <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
                     <div>
-                      <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">Robert Attention Required</p>
+                      <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">Admin Attention Required</p>
                       <p className="text-[11px] text-amber-600/80 dark:text-amber-400/80 mt-0.5">Review each section below and take action where needed.</p>
                     </div>
                   </div>
@@ -258,7 +258,7 @@ export default function RobertDashboard() {
                   color="bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30"
                 />
                 {data.pendingDecisions.length === 0 ? (
-                  <AllClear label="No pending decisions — Joyce can proceed autonomously." />
+                  <AllClear label="No pending decisions — Worker can proceed autonomously." />
                 ) : (
                   <div className="space-y-2">
                     {data.pendingDecisions.map((item, i) => (
@@ -310,9 +310,9 @@ export default function RobertDashboard() {
                               </span>
                             )}
                           </div>
-                          {item.robertDecision && (
+                          {item.AdminDecision && (
                             <p className="text-[11px] text-red-700 dark:text-red-300 mt-1 font-medium">
-                              ❓ {item.robertDecision}
+                              ❓ {item.AdminDecision}
                             </p>
                           )}
                           {item.confidenceReason && (
@@ -389,7 +389,7 @@ export default function RobertDashboard() {
                 </CardContent>
               </Card>
             )}
-            {/* ── 2b. Ready for Done (needs Robert to move to Done list) ── */}
+            {/* ── 2b. Ready for Done (needs Admin to move to Done list) ── */}
             {(readyForDoneCards ?? []).length > 0 && (
               <Card className="border-border/60">
                 <CardContent className="p-4">
@@ -483,17 +483,17 @@ export default function RobertDashboard() {
               </CardContent>
             </Card>
 
-            {/* ── 5. Waiting for Joyce ── */}
+            {/* ── 5. Waiting for Worker ── */}
             <Card className="border-border/60">
               <CardContent className="p-4">
                 <SectionHeader
                   icon={<HelpCircle className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />}
-                  title="Waiting for Joyce (Unanswered Questions)"
+                  title="Waiting for Worker (Unanswered Questions)"
                   count={data.waitingCards.length}
                   color="bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30"
                 />
                 {data.waitingCards.length === 0 ? (
-                  <AllClear label="No cards waiting — Joyce has answered all questions." />
+                  <AllClear label="No cards waiting — Worker has answered all questions." />
                 ) : (
                   <div className="space-y-2">
                     {data.waitingCards.map((card, i) => (
@@ -522,7 +522,7 @@ export default function RobertDashboard() {
                   color="bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
                 />
                 <p className="text-[10px] text-muted-foreground mb-3">
-                  These cards are too vague, missing a description, or have no checklist. Joyce needs to re-generate their APTLSS plan, or you need to add more detail to the Trello card.
+                  These cards are too vague, missing a description, or have no checklist. Worker needs to re-generate their APTLSS plan, or you need to add more detail to the Trello card.
                 </p>
                 {data.repairCards.length === 0 ? (
                   <AllClear label="No cards need repair — all cards are well-structured." />

@@ -1,5 +1,5 @@
 /**
- * EmailInbox — Gmail inbox management page for Joyce.
+ * EmailInbox — Gmail inbox management page for Worker.
  *
  * Goals:
  *   - Show ALL emails (not just unread) — inbox-zero every day

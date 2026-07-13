@@ -15,6 +15,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -170,8 +171,18 @@ function QuickComment({
     },
   });
 
-  // Validate that the comment ends with ~ Joyce or ~ Angel (case-insensitive)
-  const SIGNATURE_RE = /~\s*(joyce|angel)\s*$/i;
+  const { user } = useAuth();
+  const workerName = user?.name || "Worker";
+  const firstWord = workerName.split(" ")[0].toLowerCase();
+
+  const cleanPattern = (str: string) => str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  const namePattern = [
+    cleanPattern(firstWord),
+    cleanPattern(workerName.toLowerCase()),
+    "joyce",
+    "angel"
+  ].filter(Boolean).join("|");
+  const SIGNATURE_RE = new RegExp(`~\\s*(${namePattern})\\s*$`, 'i');
   const hasSignature = SIGNATURE_RE.test(text.trim());
 
   const handleSubmit = () => {
@@ -179,7 +190,7 @@ function QuickComment({
     if (!trimmed) return;
     if (!hasSignature) {
       toast.error("Signature required", {
-        description: "End your comment with \"~ Joyce\" or \"~ Angel\" before posting.",
+        description: `End your comment with "~ ${workerName}" or "~ ${firstWord}" before posting.`,
       });
       return;
     }
@@ -204,14 +215,14 @@ function QuickComment({
           <span className="text-[10px] text-muted-foreground">Ctrl+Enter to send · Esc to cancel</span>
           {text.trim().length > 0 && !hasSignature && (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30">
-              Missing signature — end with \"~ Joyce\" or \"~ Angel\"
+              Missing signature — end with "~ {workerName}"
             </span>
           )}
           {/* Posted-as chip */}
           {tokenStatus?.isSet ? (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
-              Posting as Joyce
+              Posting as {workerName}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
@@ -221,7 +232,7 @@ function QuickComment({
                 href="#settings"
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); /* navigate to settings handled by parent */ }}
                 className="underline hover:no-underline ml-0.5"
-                title="Go to Settings to set Joyce's personal token"
+                title="Go to Settings to set your personal token"
               >
                 · Fix in Settings
               </a>
@@ -613,7 +624,7 @@ export default function ActionAlerts() {
     return () => { es.close(); };
   }, [refetch]);
 
-  const { data: streakData } = trpc.streak.get.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const { data: streakData } = trpc.streak.get.useQuery({}, { staleTime: 5 * 60_000 });
   const todayEAT = getTodayEAT();
   // APTLSS priority scores + card states (for urgency chips on card rows)
   const { data: aptlssScores } = trpc.aptlss.getAllPriorityScores.useQuery(undefined, { staleTime: 5 * 60_000 });
@@ -652,10 +663,7 @@ export default function ActionAlerts() {
       cardId: card.id,
       cardName: card.name,
       cardUrl: card.url,
-      boardName: card.boardName ?? "",
-      listName: card.listName ?? "",
       snoozedUntil: new Date(snoozeDate + "T00:00:00"),
-      note: snoozeNote || undefined,
     });
   };
   const { data: onHoldChecksData, refetch: refetchOnHoldChecks } = trpc.onHoldChecks.getByDate.useQuery(
@@ -686,7 +694,7 @@ export default function ActionAlerts() {
   });
 
   const doingCardsRaw = data?.doingCards ?? [];
-  const doingPendingCount = doingCardsRaw.filter((c) => !c.updatedToday).length;
+  const doingPendingCount = doingCardsRaw.filter((c: any) => !c.updatedToday).length;
   // Sort DOING: pending (not updated) first, then by due date ascending (soonest first), no-due last
   const doingCardsSorted = [...doingCardsRaw].sort((a, b) => {
     if (a.updatedToday !== b.updatedToday) return a.updatedToday ? 1 : -1;
@@ -698,7 +706,7 @@ export default function ActionAlerts() {
 
   // Filter DOING cards by search query
   const doingCards = cardSearch.trim()
-    ? doingCardsSorted.filter(c =>
+    ? doingCardsSorted.filter((c: any) =>
         c.name.toLowerCase().includes(cardSearch.toLowerCase()) ||
         (c.boardName ?? "").toLowerCase().includes(cardSearch.toLowerCase()) ||
         (c.listName ?? "").toLowerCase().includes(cardSearch.toLowerCase())
@@ -708,11 +716,11 @@ export default function ActionAlerts() {
   const onHoldCardsRaw = data?.onHoldCards ?? [];
   const onHoldCount = onHoldCardsRaw.length;
   const checkedOnHoldIds = new Set(
-    (onHoldChecksData ?? []).filter((r) => r.checked).map((r) => r.cardId)
+    (onHoldChecksData ?? []).filter((r: any) => r.checked).map((r: any) => r.cardId)
   );
   // Exclude snoozed cards from pending count and display
-  const visibleOnHoldCards = onHoldCardsRaw.filter(c => !snoozedCardIds.has(c.id));
-  const onHoldPendingCount = visibleOnHoldCards.filter((c) => !checkedOnHoldIds.has(c.id)).length;
+  const visibleOnHoldCards = onHoldCardsRaw.filter((c: any) => !snoozedCardIds.has(c.id));
+  const onHoldPendingCount = visibleOnHoldCards.filter((c: any) => !checkedOnHoldIds.has(c.id)).length;
   // Sort ON-HOLD: unchecked first, then by longest idle (oldest dateLastActivity first)
   const onHoldCards = [...visibleOnHoldCards].sort((a, b) => {
     const aChecked = checkedOnHoldIds.has(a.id);
@@ -1265,7 +1273,7 @@ export default function ActionAlerts() {
                     <>
                       <p className="text-[10px] font-semibold text-orange-600 dark:text-orange-400 -mt-1">Due Today</p>
                       <ScrollList>
-                        {dueTodayCardsRaw.map((card) => (
+                        {dueTodayCardsRaw.map((card: any) => (
                           <CardRow
                             key={card.id}
                             href={card.url}
@@ -1283,7 +1291,7 @@ export default function ActionAlerts() {
                     <>
                       <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 mt-1">Missing Due Date</p>
                       <ScrollList>
-                        {noDueDateCardsRaw.map((card) => (
+                        {noDueDateCardsRaw.map((card: any) => (
                           <CardRow
                             key={card.id}
                             href={card.url}

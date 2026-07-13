@@ -345,7 +345,7 @@ async function handleRemindCommand(cmd: BotCommand): Promise<BotResponse> {
   
   if (!workerName) {
     return {
-      text: `⚠️ **Usage:** @bot remind @workername [message]\n\nExample: @bot remind @joyce Please update the status on this task`,
+      text: `⚠️ **Usage:** @bot remind @workername [message]\n\nExample: @bot remind @worker Please update the status on this task`,
     };
   }
 

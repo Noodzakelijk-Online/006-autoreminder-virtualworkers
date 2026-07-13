@@ -99,7 +99,7 @@ function formatDuration(minutes: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-const CACHE_KEY = "joyce-plan-my-day-v2";
+const CACHE_KEY = "worker-plan-my-day-v2";
 
 function getCachedPlan(): DayPlan | null {
   try {

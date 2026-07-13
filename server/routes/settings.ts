@@ -1,6 +1,10 @@
 import { router, protectedProcedure } from '../_core/trpc';
 import { z } from 'zod';
 import * as settingsDb from '../db/settings';
+import { getDb } from '../db';
+import { appSettings } from '../../drizzle/schema';
+import { eq, and } from 'drizzle-orm';
+import { TRPCError } from '@trpc/server';
 
 // Validation schemas
 const conflictDetectionSettingsSchema = z.object({
@@ -50,6 +54,34 @@ const performanceMetricsSchema = z.object({
 });
 
 export const settingsRouter = router({
+  getReplyMonitorBadge: protectedProcedure.query(async ({ ctx }) => {
+    const vaId = Number(ctx.user.id);
+    const db = await getDb();
+    if (!db) return { enabled: true };
+    const rows = await db.select().from(appSettings)
+      .where(and(eq(appSettings.vaId, vaId), eq(appSettings.key, "reply_monitor_badge_enabled")))
+      .limit(1);
+    const val = rows[0]?.value;
+    return { enabled: val === undefined ? true : val === "true" };
+  }),
+
+  setReplyMonitorBadge: protectedProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const vaId = Number(ctx.user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      const value = String(input.enabled);
+      await db.insert(appSettings).values({
+        vaId,
+        key: "reply_monitor_badge_enabled",
+        value,
+      }).onDuplicateKeyUpdate({
+        set: { value }
+      });
+      return { success: true, enabled: input.enabled };
+    }),
+
   // ============================================
   // CONFLICT DETECTION SETTINGS
   // ============================================

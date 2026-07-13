@@ -14,6 +14,9 @@ import FounderDashboard from "./pages/FounderDashboard";
 import WorkerDashboard from "./pages/WorkerDashboard";
 import AdvancedScheduling from "./pages/AdvancedScheduling";
 import ATISPhasesAnalysisDashboard from "./pages/ATISPhasesAnalysisDashboard";
+import RobertDashboard from "./pages/manus/RobertDashboard";
+import PriorityCommandCenter from "./pages/manus/PriorityCommandCenter";
+import AdminMonitor from "./pages/manus/AdminMonitor";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
 
@@ -31,6 +34,9 @@ function Router() {
         <Route path={"/atis-phases"} component={() => <ProtectedRoute component={ATISPhasesAnalysisDashboard} allowedRoles={["admin"]} />} />
 
         <Route path={"/founder"} component={() => <ProtectedRoute component={FounderDashboard} allowedRoles={["admin"]} />} />
+        <Route path={"/robert"} component={() => <ProtectedRoute component={RobertDashboard} allowedRoles={["admin"]} />} />
+        <Route path={"/command-center"} component={() => <ProtectedRoute component={PriorityCommandCenter} allowedRoles={["admin"]} />} />
+        <Route path={"/admin"} component={() => <ProtectedRoute component={AdminMonitor} allowedRoles={["admin"]} />} />
         <Route path={"/worker"} component={() => <ProtectedRoute component={WorkerDashboard} allowedRoles={["worker"]} />} />
         <Route path={"/404"} component={NotFound} />
         {/* Final fallback route */}

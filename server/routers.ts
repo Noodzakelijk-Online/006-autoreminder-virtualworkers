@@ -19,6 +19,7 @@ import {
   emailInboxRouter,
   cardSnoozeRouter
 } from "./routes/manus";
+import { trelloRouter, aptlssRouter, replyMonitorRouter } from "./routes/manus-trello-aptlss";
 
 import { aggregateCardContext, formatContextForAI } from "./services/context-aggregator";
 import { websocketService } from "./services/websocket";
@@ -57,7 +58,16 @@ export const appRouter = router({
         note: 'APTLSS will regenerate schedules the next time tasks are loaded.',
       };
     }),
+    weeklyHours: trelloRouter.weeklyHours,
+    recentUpdates: trelloRouter.recentUpdates,
+    actionAlerts: trelloRouter.actionAlerts,
+    webhooks: trelloRouter.webhooks,
+    postComment: trelloRouter.postComment,
+    getCommentToken: trelloRouter.getCommentToken,
+    setCommentToken: trelloRouter.setCommentToken,
   }),
+  aptlss: aptlssRouter,
+  replyMonitor: replyMonitorRouter,
 
   interview: interviewRouter,
   settings: settingsRouter,

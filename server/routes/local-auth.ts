@@ -146,4 +146,90 @@ router.post('/login', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * POST /api/auth/trello/login-token
+ * Log in using a Trello client token.
+ * Body: { token }
+ */
+router.post('/trello/login-token', async (req: Request, res: Response) => {
+  try {
+    const { token } = req.body as { token?: string };
+    if (!token) {
+      return res.status(400).json({ error: 'Trello token is required' });
+    }
+
+    const apiKey = process.env.TRELLO_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'Trello API key not configured' });
+    }
+
+    // Verify token with Trello API
+    const response = await fetch(`https://api.trello.com/1/members/me?key=${apiKey}&token=${token}`);
+    if (!response.ok) {
+      return res.status(401).json({ error: 'Invalid Trello token' });
+    }
+
+    const member = await response.json() as { id: string; username: string; fullName: string };
+    const trelloId = member.id;
+
+    const dbInstance = await db.getDb();
+    if (!dbInstance) {
+      return res.status(503).json({ error: 'Database not available' });
+    }
+
+    const { vaProfiles, users } = await import('../../drizzle/schema.js');
+    const { eq } = await import('drizzle-orm');
+
+    // Look up VA profile by trelloMemberId
+    const matchingProfiles = await dbInstance.select().from(vaProfiles).where(eq(vaProfiles.trelloMemberId, trelloId)).limit(1);
+    if (matchingProfiles.length === 0) {
+      return res.status(401).json({ 
+        error: `Access Denied: Trello account @${member.username} (${member.fullName}) is not registered in this system.` 
+      });
+    }
+
+    const vaProfile = matchingProfiles[0];
+    
+    // Find the corresponding system user
+    const matchingUsers = await dbInstance.select().from(users).where(eq(users.id, vaProfile.userId)).limit(1);
+    if (matchingUsers.length === 0) {
+      return res.status(401).json({ error: 'Associated system user account not found.' });
+    }
+
+    const user = matchingUsers[0];
+
+    // Update last signed in
+    await db.upsertUser({
+      openId: String(user.openId),
+      lastSignedIn: new Date(),
+    });
+
+    // Create session
+    const sessionToken = await sdk.createSessionToken(String(user.openId), {
+      name: user.name || String(user.openId),
+      expiresInMs: ONE_YEAR_MS,
+    });
+
+    const cookieOptions = getSessionCookieOptions(req);
+    res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+    return res.json({ success: true, message: 'Logged in successfully via Trello' });
+  } catch (error) {
+    console.error('[LocalAuth] Trello login error:', error);
+    return res.status(500).json({ error: 'Trello login failed' });
+  }
+});
+
+/**
+ * GET /api/auth/trello/client-key
+ * Get Trello API key for client-side login.
+ */
+router.get('/trello/client-key', (req: Request, res: Response) => {
+  const apiKey = process.env.TRELLO_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'Trello API key not configured' });
+  }
+  return res.json({ apiKey });
+});
+
 export default router;

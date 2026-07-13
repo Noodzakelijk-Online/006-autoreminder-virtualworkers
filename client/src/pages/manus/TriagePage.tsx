@@ -6,7 +6,7 @@
  *   4. Plan My Day (AI-generated cross-card daily schedule)
  *
  * - Last active sub-tab is persisted to localStorage so returning to Triage
- *   always reopens the tab Joyce was last on.
+ *   always reopens the tab Worker was last on.
  * - Badge counts are shown inline on the sub-tab triggers.
  * - useTriageCounts() is exported so Home.tsx can show a combined badge on
  *   the Triage sidebar item.
@@ -21,7 +21,7 @@ import PlanMyDay from "./PlanMyDay";
 import { Mail, MessageSquare, Zap, CalendarDays, Send } from "lucide-react";
 import FollowUpDrafts from "./FollowUpDrafts";
 
-const TRIAGE_TAB_KEY = "joyce-triage-active-tab";
+const TRIAGE_TAB_KEY = "worker-triage-active-tab";
 type TriageSubTab = "day-structurer" | "reply-monitor" | "email-inbox" | "plan-my-day" | "follow-up-drafts";
 const VALID_TABS: TriageSubTab[] = ["day-structurer", "reply-monitor", "email-inbox", "plan-my-day", "follow-up-drafts"];
 

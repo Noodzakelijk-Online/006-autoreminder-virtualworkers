@@ -37,7 +37,7 @@ type UpdateItem = {
   boardName?: string | null;
 };
 
-const COLLAPSED_KEY = "joyce-recent-updates-collapsed";
+const COLLAPSED_KEY = "worker-recent-updates-collapsed";
 
 function getActionMeta(type: string, listAfter?: string | null) {
   const isComment = type === "commentCard";

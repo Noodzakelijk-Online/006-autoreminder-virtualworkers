@@ -1,5 +1,5 @@
 /**
- * PriorityCommandCenter — Full operations control panel for Robert.
+ * PriorityCommandCenter — Full operations control panel for Admin.
  *
  * Upgraded from the old risk list to a full operations control panel:
  *   1. Sticky top summary bar: Critical / Needs Decision / Auto-handled / Waiting External
@@ -69,9 +69,9 @@ type EnrichedCard = {
     reason: string;
   } | null;
   escalationCategory: string | null;
-  robertDecision: string | null;
+  AdminDecision: string | null;
   urgencyLabel: string | null;
-  openRobertSteps: number;
+  openAdminSteps: number;
   whyShown: string;
   onHoldClassification: string | null;
 };
@@ -96,7 +96,7 @@ const ON_HOLD_LABELS: Record<string, { label: string; color: string; desc: strin
   ready_to_resume:  { label: "Ready to Resume",    color: "text-green-600 dark:text-green-400",      desc: "New activity detected — can move to DOING" },
   needs_escalation: { label: "Needs Escalation",   color: "text-orange-600 dark:text-orange-400",    desc: "Too long idle or deadline approaching" },
   possibly_obsolete:{ label: "Possibly Obsolete",  color: "text-slate-400",                          desc: "Long idle, no deadline, may no longer be relevant" },
-  needs_robert:     { label: "Needs Robert",        color: "text-red-600 dark:text-red-400",          desc: "System cannot safely decide — Robert's input required" },
+  needs_Admin:     { label: "Needs Admin",        color: "text-red-600 dark:text-red-400",          desc: "System cannot safely decide — Admin's input required" },
 };
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -372,9 +372,9 @@ function CardRow({
               <Send className="w-3 h-3 mr-1" /> Ask VA to Follow Up
             </Button>
           )}
-          {card.onHoldClassification === 'needs_robert' && (
+          {card.onHoldClassification === 'needs_Admin' && (
             <span className="text-[10px] text-red-600 dark:text-red-400 font-medium flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" /> Needs Robert decision
+              <AlertCircle className="w-3 h-3" /> Needs Admin decision
             </span>
           )}
         </div>
@@ -625,7 +625,7 @@ export default function PriorityCommandCenter() {
         <div className="container py-3">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-2">
-              <Link href="/robert">
+              <Link href="/Admin">
                 <Button variant="ghost" size="sm" className="h-7 text-xs">← Back</Button>
               </Link>
               <h1 className="text-sm font-semibold text-foreground">Priority Command Center</h1>
@@ -809,7 +809,7 @@ export default function PriorityCommandCenter() {
         <BucketSection
           icon={<Zap className="w-4 h-4 text-green-400" />}
           title="Ready to Act"
-          description="Can move forward without Robert — Joyce can handle these now"
+          description="Can move forward without Admin — Worker can handle these now"
           count={data?.readyToAct.length ?? 0}
           cards={data?.readyToAct ?? []}
           colorClass="bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/20"
@@ -867,13 +867,13 @@ export default function PriorityCommandCenter() {
           }
         />
 
-        {/* ── Bucket 4: Needs Robert Decision ──────────────────────────────── */}
+        {/* ── Bucket 4: Needs Admin Decision ──────────────────────────────── */}
         <BucketSection
           icon={<AlertTriangle className="w-4 h-4 text-orange-400" />}
-          title="Needs Robert Decision"
+          title="Needs Admin Decision"
           description="Only items where your yes/no is truly required"
-          count={data?.needsRobertDecision.length ?? 0}
-          cards={data?.needsRobertDecision ?? []}
+          count={data?.needsAdminDecision.length ?? 0}
+          cards={data?.needsAdminDecision ?? []}
           colorClass="bg-orange-500/10 text-orange-700 dark:text-orange-300 border-orange-500/20"
           defaultOpen={true}
           selectedIds={selectedIds}
@@ -913,7 +913,7 @@ export default function PriorityCommandCenter() {
         <BucketSection
           icon={<Pause className="w-4 h-4 text-indigo-400" />}
           title="ON-HOLD Cards"
-          description="Smart classification: Still Waiting / Ready to Resume / Needs Escalation / Possibly Obsolete / Needs Robert"
+          description="Smart classification: Still Waiting / Ready to Resume / Needs Escalation / Possibly Obsolete / Needs Admin"
           count={data?.onHoldCards.length ?? 0}
           cards={data?.onHoldCards ?? []}
           colorClass="bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20"

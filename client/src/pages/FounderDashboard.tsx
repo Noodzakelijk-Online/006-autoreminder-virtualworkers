@@ -4,7 +4,8 @@ import {
   ArrowLeft, Plus, Users, Clock, CheckCircle, AlertTriangle, Loader2, 
   MoreVertical, Mail, Globe, DollarSign, Search, Flag, ExternalLink,
   Star, MessageSquare, Calendar, Send, RefreshCw, Filter, Briefcase,
-  Timer, AlertCircle, CheckSquare, XCircle, ArrowUpCircle
+  Timer, AlertCircle, CheckSquare, XCircle, ArrowUpCircle,
+  ChevronDown, ChevronRight, Sparkles, Target, ListChecks, Brain
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -27,8 +28,6 @@ import { LabelAutocompleteSearch } from '@/components/LabelAutocompleteSearch';
 import TIMEZONES from '@/data/timezones';
 import CURRENCIES from '@/data/currencies';
 import WeeklyPayCalculator from './manus/WeeklyPayCalculator';
-import RobertDashboard from './manus/RobertDashboard';
-import RulesTab from './manus/RulesTab';
 
 interface VirtualWorker {
   id: number;
@@ -50,6 +49,7 @@ interface VirtualWorker {
   status: 'active' | 'inactive' | 'on_leave';
   userId: number | null;
   linkedUserEmail: string | null;
+  trelloMemberId: string | null;
 }
 
 interface SystemUser {
@@ -89,6 +89,10 @@ interface TaskAssignment {
   clientName?: string;
   clientPriority?: 'standard' | 'priority' | 'vip';
   labels: string[];
+  description?: string | null;
+  goal?: string | null;
+  deliverable?: string | null;
+  checklist?: Array<{ step: string; timeMinutes: number; aptlssType: string }> | null;
 }
 
 
@@ -116,6 +120,19 @@ export default function FounderDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [workload, setWorkload] = useState<WorkloadItem[]>([]);
   const [assignments, setAssignments] = useState<TaskAssignment[]>([]);
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set());
+
+  const toggleTaskExpanded = (taskId: string) => {
+    setExpandedTasks(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) {
+        next.delete(taskId);
+      } else {
+        next.add(taskId);
+      }
+      return next;
+    });
+  };
 
   const [communications, setCommunications] = useState<CommunicationEntry[]>([]);
   const [timezoneOverlaps, setTimezoneOverlaps] = useState<TimezoneOverlap[]>([]);
@@ -137,6 +154,7 @@ export default function FounderDashboard() {
     lunchDuration: '60',
     dinnerTime: '19',
     dinnerDuration: '45',
+    trelloMemberId: '',
   });
   const [showEditWorker, setShowEditWorker] = useState(false);
   const [editingWorker, setEditingWorker] = useState<VirtualWorker | null>(null);
@@ -301,13 +319,14 @@ export default function FounderDashboard() {
           lunchDuration: parseInt(newWorker.lunchDuration),
           dinnerTime: parseInt(newWorker.dinnerTime),
           dinnerDuration: parseInt(newWorker.dinnerDuration),
+          trelloMemberId: newWorker.trelloMemberId || null,
         }),
       });
 
       if (res.ok) {
         toast.success('Worker added successfully');
         setShowAddWorker(false);
-        setNewWorker({ name: '', email: '', password: '', timezone: 'Asia/Manila', hourlyRate: '', currency: 'USD', workStartHour: '9', workEndHour: '18', workingDays: '1,2,3,4,5', breakfastTime: '7', breakfastDuration: '30', lunchTime: '12', lunchDuration: '60', dinnerTime: '19', dinnerDuration: '45' });
+        setNewWorker({ name: '', email: '', password: '', timezone: 'Asia/Manila', hourlyRate: '', currency: 'USD', workStartHour: '9', workEndHour: '18', workingDays: '1,2,3,4,5', breakfastTime: '7', breakfastDuration: '30', lunchTime: '12', lunchDuration: '60', dinnerTime: '19', dinnerDuration: '45', trelloMemberId: '' });
         fetchWorkload();
       } else {
         const err = await res.json();
@@ -444,6 +463,7 @@ export default function FounderDashboard() {
           lunchDuration: editingWorker.lunchDuration,
           dinnerTime: editingWorker.dinnerTime,
           dinnerDuration: editingWorker.dinnerDuration,
+          trelloMemberId: editingWorker.trelloMemberId || null,
         }),
       });
 
@@ -636,7 +656,7 @@ export default function FounderDashboard() {
                     <Input
                       value={newWorker.name}
                       onChange={(e) => setNewWorker({ ...newWorker, name: e.target.value })}
-                      placeholder="e.g., Joyce"
+                      placeholder="e.g., Worker"
                     />
                   </div>
                   <div className="space-y-2">
@@ -655,6 +675,14 @@ export default function FounderDashboard() {
                       value={newWorker.password}
                       onChange={(e) => setNewWorker({ ...newWorker, password: e.target.value })}
                       placeholder="Min 6 characters"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Trello Member ID</Label>
+                    <Input
+                      value={newWorker.trelloMemberId || ''}
+                      onChange={(e) => setNewWorker({ ...newWorker, trelloMemberId: e.target.value })}
+                      placeholder="e.g., 664ed797b37eb4605ed64bc1"
                     />
                   </div>
                   <div className="space-y-2">
@@ -882,16 +910,14 @@ export default function FounderDashboard() {
 
       <main className="container py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 md:grid-cols-9 lg:w-auto lg:inline-grid">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-7 lg:w-auto lg:inline-grid">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="assignments">Assignments</TabsTrigger>
             <TabsTrigger value="dependencies">Dependencies</TabsTrigger>
             <TabsTrigger value="communications">Communications</TabsTrigger>
             <TabsTrigger value="timezones">Timezones</TabsTrigger>
             <TabsTrigger value="briefings">Briefings</TabsTrigger>
-            <TabsTrigger value="robert">Robert's Desk</TabsTrigger>
             <TabsTrigger value="paylogs">Pay Logs</TabsTrigger>
-            <TabsTrigger value="rules">Rules</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -1184,136 +1210,251 @@ export default function FounderDashboard() {
                   </CardContent>
                 </Card>
               ) : (
-                filteredAssignments.map(task => (
-                  <Card key={task.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="py-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <Badge className={getPriorityColor(task.priority)}>
-                              {task.priority.toUpperCase()}
-                            </Badge>
-                            {task.isPriorityOverride && (
-                              <Badge variant="outline" className="text-xs">
-                                <ArrowUpCircle className="h-3 w-3 mr-1" />
-                                Override
-                              </Badge>
-                            )}
-                            {getTaskStatusBadge(task.status)}
-                          </div>
-                          <h3 className="font-medium">{task.taskTitle}</h3>
-                          <p className="text-sm text-muted-foreground flex items-center gap-2">
-                            <Briefcase className="h-3 w-3" />
-                            {task.cardName}
-                            {(task.clientProject || task.clientName) && (
-                              <>
-                                <span>•</span>
-                                {task.clientName || task.clientProject}
-                                {task.clientPriority && task.clientPriority !== 'standard' && (
-                                  <Badge 
-                                    variant="outline" 
-                                    className={`text-xs ml-1 ${task.clientPriority === 'vip' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-blue-100 text-blue-800 border-blue-300'}`}
-                                  >
-                                    {task.clientPriority.toUpperCase()}
+                filteredAssignments.map(task => {
+                  const isExpanded = expandedTasks.has(task.taskId);
+                  const totalSteps = task.checklist?.length || 0;
+                  const totalMinutes = task.checklist?.reduce((sum: number, item: any) => sum + (item.timeMinutes || 0), 0) || task.estimatedMinutes || 60;
+
+                  return (
+                    <Card key={task.id} className="hover:shadow-md transition-shadow">
+                      <CardContent className="py-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3 flex-1 min-w-0">
+                            <button 
+                              className="mt-1 flex-shrink-0 focus:outline-none"
+                              onClick={() => toggleTaskExpanded(task.taskId)}
+                            >
+                              {isExpanded ? (
+                                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                              ) : (
+                                <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                              )}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap cursor-pointer" onClick={() => toggleTaskExpanded(task.taskId)}>
+                                <Badge className={getPriorityColor(task.priority)}>
+                                  {task.priority.toUpperCase()}
+                                </Badge>
+                                {task.isPriorityOverride && (
+                                  <Badge variant="outline" className="text-xs">
+                                    <ArrowUpCircle className="h-3 w-3 mr-1" />
+                                    Override
                                   </Badge>
                                 )}
-                              </>
-                            )}
-                          </p>
-                          {task.blockedBy && task.blockedBy.length > 0 && (
-                            <p className="text-sm text-red-500 flex items-center gap-1 mt-1">
-                              <AlertCircle className="h-3 w-3" />
-                              Blocked by: {task.blockedBy.join(', ')}
-                            </p>
-                          )}
-                          {task.labels && task.labels.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {task.labels.map((label: string) => (
-                                <Badge key={label} variant="secondary" className="text-xs">
-                                  {label}
-                                </Badge>
-                              ))}
+                                {getTaskStatusBadge(task.status)}
+                              </div>
+                              <h3 
+                                className="font-medium cursor-pointer hover:underline text-base" 
+                                onClick={() => toggleTaskExpanded(task.taskId)}
+                              >
+                                {task.taskTitle}
+                              </h3>
+                              <p className="text-sm text-muted-foreground flex items-center gap-2 mt-0.5">
+                                <Briefcase className="h-3 w-3" />
+                                {task.cardName}
+                                {(task.clientProject || task.clientName) && (
+                                  <>
+                                    <span>•</span>
+                                    {task.clientName || task.clientProject}
+                                    {task.clientPriority && task.clientPriority !== 'standard' && (
+                                      <Badge 
+                                        variant="outline" 
+                                        className={`text-xs ml-1 ${task.clientPriority === 'vip' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-blue-100 text-blue-800 border-blue-300'}`}
+                                      >
+                                        {task.clientPriority.toUpperCase()}
+                                      </Badge>
+                                    )}
+                                  </>
+                                )}
+                              </p>
+                              {task.blockedBy && task.blockedBy.length > 0 && (
+                                <p className="text-sm text-red-500 flex items-center gap-1 mt-1">
+                                  <AlertCircle className="h-3 w-3" />
+                                  Blocked by: {task.blockedBy.join(', ')}
+                                </p>
+                              )}
+                              {task.labels && task.labels.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {task.labels.map((label: string) => (
+                                    <Badge key={label} variant="secondary" className="text-xs">
+                                      {label}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
+                                <span className="flex items-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  {totalMinutes >= 60 ? `${(totalMinutes / 60).toFixed(1)}h` : `${totalMinutes}m`}
+                                </span>
+                                {totalSteps > 0 && (
+                                  <span className="flex items-center gap-1">
+                                    <ListChecks className="h-3.5 w-3.5" />
+                                    {totalSteps} steps
+                                  </span>
+                                )}
+                                {task.scheduledStart && (
+                                  <span className="flex items-center gap-1">
+                                    <Calendar className="h-3 w-3" />
+                                    {task.scheduledStart} - {task.scheduledEnd}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          )}
-                          <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {Math.round(task.estimatedMinutes / 60 * 10) / 10}h
-                            </span>
-                            {task.scheduledStart && (
-                              <span className="flex items-center gap-1">
-                                <Calendar className="h-3 w-3" />
-                                {task.scheduledStart} - {task.scheduledEnd}
-                              </span>
-                            )}
+                          </div>
+                          <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                            {/* VA Assignment */}
+                            <Select
+                              value={task.workerId?.toString() || 'unassigned'}
+                              onValueChange={(v) => v !== 'unassigned' && handleAssignTask(task.taskId, parseInt(v))}
+                            >
+                              <SelectTrigger className="w-[160px]">
+                                <SelectValue placeholder="Assign Worker" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="unassigned">Unassigned</SelectItem>
+                                {workload.map(w => (
+                                  <SelectItem key={w.worker.id} value={w.worker.id.toString()}>
+                                    <span className="flex items-center gap-2">
+                                      <span className={`h-2 w-2 rounded-full ${w.worker.status === 'active' ? 'bg-green-500' : w.worker.status === 'on_leave' ? 'bg-yellow-500' : 'bg-gray-400'}`} />
+                                      {w.worker.name}
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            
+                            {/* Priority Override */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm">
+                                  <Flag className="h-4 w-4 mr-2" />
+                                  Priority
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>Set Priority</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'critical')}>
+                                  <span className="h-2 w-2 rounded-full bg-red-500 mr-2" />
+                                  Critical - Do This First!
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'urgent')}>
+                                  <span className="h-2 w-2 rounded-full bg-orange-500 mr-2" />
+                                  Urgent
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'high')}>
+                                  <span className="h-2 w-2 rounded-full bg-yellow-500 mr-2" />
+                                  High
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'normal')}>
+                                  <span className="h-2 w-2 rounded-full bg-gray-400 mr-2" />
+                                  Normal
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            
+                            {/* Open in Trello */}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => window.open(`https://trello.com/c/${task.cardId}`, '_blank')}
+                            >
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              Trello
+                            </Button>
                           </div>
                         </div>
-                        <div className="flex flex-col items-end gap-2">
-                          {/* VA Assignment */}
-                          <Select
-                            value={task.workerId?.toString() || 'unassigned'}
-                            onValueChange={(v) => v !== 'unassigned' && handleAssignTask(task.taskId, parseInt(v))}
-                          >
-                            <SelectTrigger className="w-[160px]">
-                              <SelectValue placeholder="Assign Worker" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="unassigned">Unassigned</SelectItem>
-                              {workload.map(w => (
-                                <SelectItem key={w.worker.id} value={w.worker.id.toString()}>
-                                  <span className="flex items-center gap-2">
-                                    <span className={`h-2 w-2 rounded-full ${w.worker.status === 'active' ? 'bg-green-500' : w.worker.status === 'on_leave' ? 'bg-yellow-500' : 'bg-gray-400'}`} />
-                                    {w.worker.name}
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          
-                          {/* Priority Override */}
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="outline" size="sm">
-                                <Flag className="h-4 w-4 mr-2" />
-                                Priority
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuLabel>Set Priority</DropdownMenuLabel>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'critical')}>
-                                <span className="h-2 w-2 rounded-full bg-red-500 mr-2" />
-                                Critical - Do This First!
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'urgent')}>
-                                <span className="h-2 w-2 rounded-full bg-orange-500 mr-2" />
-                                Urgent
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'high')}>
-                                <span className="h-2 w-2 rounded-full bg-yellow-500 mr-2" />
-                                High
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handlePriorityOverride(task.taskId, 'normal')}>
-                                <span className="h-2 w-2 rounded-full bg-gray-400 mr-2" />
-                                Normal
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                          
-                          {/* Open in Trello */}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => window.open(`https://trello.com/c/${task.cardId}`, '_blank')}
-                          >
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            Trello
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
+
+                        {/* Expanded details container */}
+                        {isExpanded && (
+                          <div className="mt-4 pt-4 border-t space-y-4 pl-8">
+                            {/* Card Description */}
+                            {task.description && (
+                              <div className="space-y-1">
+                                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Description</h4>
+                                <p className="text-sm text-foreground bg-muted/20 p-3 rounded-lg border leading-relaxed whitespace-pre-wrap">
+                                  {task.description}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* AI Goal & AI Deliverable */}
+                            {(task.goal || task.deliverable) && (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {task.goal && (
+                                  <div className="bg-purple-50/50 p-3 rounded-lg border border-purple-100">
+                                    <h4 className="text-xs font-semibold text-purple-800 flex items-center gap-1 mb-1">
+                                      <Target className="h-3.5 w-3.5" />
+                                      AI Goal
+                                    </h4>
+                                    <p className="text-xs text-purple-700 leading-relaxed">{task.goal}</p>
+                                  </div>
+                                )}
+                                {task.deliverable && (
+                                  <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100">
+                                    <h4 className="text-xs font-semibold text-blue-800 flex items-center gap-1 mb-1">
+                                      <Sparkles className="h-3.5 w-3.5" />
+                                      AI Deliverable
+                                    </h4>
+                                    <p className="text-xs text-blue-700 leading-relaxed">{task.deliverable}</p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* AI Checklist Steps */}
+                            {task.checklist && task.checklist.length > 0 ? (
+                              <div className="space-y-2">
+                                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                                  <ListChecks className="h-3.5 w-3.5" />
+                                  AI Checklist Breakdown
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-1">
+                                  {task.checklist.map((step: any, index: number) => {
+                                    const stepColors: Record<string, string> = {
+                                      P: 'bg-purple-100 text-purple-700 border-purple-200',
+                                      T: 'bg-green-100 text-green-700 border-green-200',
+                                      A: 'bg-blue-100 text-blue-700 border-blue-200',
+                                      L: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+                                      S: 'bg-orange-100 text-orange-700 border-orange-200',
+                                    };
+                                    const colorClass = stepColors[step.aptlssType] || 'bg-gray-100 text-gray-700';
+
+                                    return (
+                                      <div key={step.id} className="flex items-start gap-2.5 p-2.5 rounded-lg border bg-card text-xs hover:bg-muted/10 transition-colors shadow-sm">
+                                        <div className="flex flex-col items-center gap-0.5">
+                                          <span className="text-[10px] text-muted-foreground font-semibold">#{index + 1}</span>
+                                          <Badge variant="outline" className={`px-1 py-0 text-[10px] border-none scale-90 ${colorClass}`}>
+                                            {step.aptlssType}
+                                          </Badge>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="font-medium text-foreground leading-snug" title={step.step}>
+                                            {step.step}
+                                          </p>
+                                          <span className="text-[10px] text-muted-foreground flex items-center gap-1 mt-1">
+                                            <Clock className="h-2.5 w-2.5" />
+                                            {step.timeMinutes}m
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-xs text-muted-foreground flex items-center gap-1.5 py-1">
+                                <Brain className="h-4 w-4 animate-pulse text-purple-400" />
+                                <span>No detailed checklist available for this card yet.</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })
               )}
             </div>
           </TabsContent>
@@ -1653,10 +1794,6 @@ export default function FounderDashboard() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="robert" className="space-y-6">
-            <RobertDashboard />
-          </TabsContent>
-
           <TabsContent value="paylogs" className="space-y-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 flex-wrap gap-4">
@@ -1687,10 +1824,6 @@ export default function FounderDashboard() {
             {selectedWorkerId && (
               <WeeklyPayCalculator vaId={selectedWorkerId} />
             )}
-          </TabsContent>
-
-          <TabsContent value="rules" className="space-y-6">
-            <RulesTab />
           </TabsContent>
         </Tabs>
       </main>
@@ -1725,6 +1858,14 @@ export default function FounderDashboard() {
                   value={editWorkerPassword}
                   onChange={(e) => setEditWorkerPassword(e.target.value)}
                   placeholder="Leave blank to keep current password"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Trello Member ID</Label>
+                <Input
+                  value={editingWorker.trelloMemberId || ''}
+                  onChange={(e) => setEditingWorker({ ...editingWorker, trelloMemberId: e.target.value })}
+                  placeholder="e.g., 664ed797b37eb4605ed64bc1"
                 />
               </div>
               <div className="space-y-2">

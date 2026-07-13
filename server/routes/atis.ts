@@ -1006,13 +1006,13 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
     const boardMap = new Map(allowedAtisBoards.map((b: any) => [b.id, b.name]));
 
     // Process and filter results
+    const cardsNeedingAnalysis: number[] = [];
     let tasks = cards
       .filter((card: any) => !isInactiveListName(card.listName))
       .map((card: any) => {
       // Parse checklist JSON from stored aptlssChecklist or generate fallback
       let checklist: any[] = [];
       
-      // First try to parse stored aptlssChecklist from AI understanding
       // First try to parse stored aptlssChecklist from AI understanding
       if (card.aptlssChecklist) {
         try {
@@ -1032,6 +1032,11 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       // Fallback: generate simple checklist from goal if no stored checklist
       if (checklist.length === 0 && card.goal) {
         checklist = [{ step: card.goal, timeMinutes: card.estimatedMinutes || 30, aptlssType: 'T' }];
+      }
+
+      // Track cards that need AI analysis (no stored checklist or only 1 fallback step)
+      if (!card.aptlssChecklist || checklist.length <= 1) {
+        cardsNeedingAnalysis.push(card.id);
       }
 
       // Parse entities JSON
@@ -1097,6 +1102,36 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
       };
     });
 
+    // Auto-trigger AI analysis for cards missing detailed breakdowns (fire-and-forget)
+    if (cardsNeedingAnalysis.length > 0) {
+      console.log(`[ATIS] Auto-analyzing ${cardsNeedingAnalysis.length} cards missing AI breakdowns in parallel (5 workers)...`);
+      // Process in background - don't block the response
+      setTimeout(() => {
+        const analyzeParallel = async () => {
+          const concurrency = 5;
+          const queue = [...cardsNeedingAnalysis];
+          
+          const worker = async () => {
+            while (queue.length > 0) {
+              const cardId = queue.shift();
+              if (cardId === undefined) break;
+              try {
+                await processCardUnderstanding(cardId);
+              } catch (err: any) {
+                console.warn(`[ATIS Auto-analyze] Card ${cardId} failed: ${err.message}`);
+              }
+            }
+          };
+
+          // Start workers in parallel
+          const workers = Array.from({ length: Math.min(concurrency, queue.length) }, worker);
+          await Promise.all(workers);
+          console.log(`[ATIS] Background auto-analysis complete for ${cardsNeedingAnalysis.length} cards`);
+        };
+        analyzeParallel().catch(console.error);
+      }, 100);
+    }
+
     // Deduplicate by card name - keep only one card per unique name
     // This handles cases where the same card exists in multiple boards (e.g., template copies)
     const seenCardNames = new Map<string, typeof tasks[0]>();
@@ -1149,6 +1184,7 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
     res.json({
       scheduled,
       overflow,
+      pendingAnalysis: cardsNeedingAnalysis.length, // Number of cards being auto-analyzed in background
       metrics: {
         totalScheduled: scheduled.length,
         totalOverflow: overflow.length,
@@ -1731,6 +1767,13 @@ router.post('/understanding/reanalyze-all', atisRateLimiter, async (req: Request
     // Get cards to reprocess based on filters
     let cardsToProcess: Array<{ id: number; cardName?: string }>;
     
+    const excludeInactiveSql = sql`LOWER(${atisCards.listName}) NOT LIKE '%done%' 
+      AND LOWER(${atisCards.listName}) NOT LIKE '%completed%' 
+      AND LOWER(${atisCards.listName}) NOT LIKE '%complete%' 
+      AND LOWER(${atisCards.listName}) NOT LIKE '%archive%' 
+      AND LOWER(${atisCards.listName}) NOT LIKE '%archived%' 
+      AND LOWER(${atisCards.listName}) NOT LIKE '%info%'`;
+
     if (cardIds && Array.isArray(cardIds) && cardIds.length > 0) {
       // Specific cards requested
       cardsToProcess = await db.select({
@@ -1739,7 +1782,8 @@ router.post('/understanding/reanalyze-all', atisRateLimiter, async (req: Request
         .from(atisCards)
         .where(and(
           eq(atisCards.isArchived, 0),
-          sql`${atisCards.id} IN (${sql.join(cardIds.map(id => sql`${id}`), sql`, `)})`
+          excludeInactiveSql,
+          sql`${atisCards.id} IN (${sql.join(cardIds.map((id: number) => sql`${id}`), sql`, `)})`
         ))
         .limit(limit);
     } else if (boardId) {
@@ -1750,6 +1794,7 @@ router.post('/understanding/reanalyze-all', atisRateLimiter, async (req: Request
         .from(atisCards)
         .where(and(
           eq(atisCards.isArchived, 0),
+          excludeInactiveSql,
           eq(atisCards.boardId, parseInt(boardId))
         ))
         .limit(limit);
@@ -1759,7 +1804,10 @@ router.post('/understanding/reanalyze-all', atisRateLimiter, async (req: Request
         id: atisCards.id,
       })
         .from(atisCards)
-        .where(eq(atisCards.isArchived, 0))
+        .where(and(
+          eq(atisCards.isArchived, 0),
+          excludeInactiveSql
+        ))
         .limit(limit);
     } else {
       // Get cards with low confidence, no checklist, or no understanding record at all
@@ -1770,6 +1818,7 @@ router.post('/understanding/reanalyze-all', atisRateLimiter, async (req: Request
         .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
         .where(and(
           eq(atisCards.isArchived, 0),
+          excludeInactiveSql,
           sql`${atisCardUnderstanding.id} IS NULL OR ${atisCardUnderstanding.confidenceScore} <= ${minConfidence} OR ${atisCardUnderstanding.aptlssChecklist} IS NULL`
         ))
         .limit(limit);

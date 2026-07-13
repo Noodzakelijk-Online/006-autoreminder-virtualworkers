@@ -109,7 +109,8 @@ router.post('/vas', async (req: any, res) => {
       workStartHour, workEndHour, workingDays,
       breakfastTime, breakfastDuration,
       lunchTime, lunchDuration,
-      dinnerTime, dinnerDuration
+      dinnerTime, dinnerDuration,
+      trelloMemberId
     } = req.body;
 
     if (!email || !password) {
@@ -164,6 +165,7 @@ router.post('/vas', async (req: any, res) => {
       lunchDuration: lunchDuration ?? 60,
       dinnerTime: dinnerTime ?? null,
       dinnerDuration: dinnerDuration ?? 0,
+      trelloMemberId: trelloMemberId || null,
     });
 
     res.json({ success: true, id: result[0].insertId });
@@ -880,6 +882,60 @@ router.get('/handoff/:taskId', async (req: any, res) => {
 // ============================================
 
 // Get all assignments with task details
+async function fetchUserWorkspaceBoardIds(apiKey: string, token: string): Promise<string[]> {
+  const workspacesResponse = await fetchWithRetry(
+    `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`,
+    undefined,
+    {
+      maxRetries: 3,
+      initialDelayMs: 1000,
+      maxDelayMs: 10000,
+    }
+  );
+
+  if (!workspacesResponse.ok) {
+    const errorText = await workspacesResponse.text();
+    throw new Error(`Failed to fetch Trello workspaces: ${errorText}`);
+  }
+
+  const workspaces = await workspacesResponse.json();
+  if (!Array.isArray(workspaces)) {
+    throw new Error('Invalid Trello workspaces response');
+  }
+
+  const boardIds = new Set<string>();
+
+  for (const workspace of workspaces) {
+    const boardsResponse = await fetchWithRetry(
+      `https://api.trello.com/1/organizations/${workspace.id}/boards?filter=open&key=${apiKey}&token=${token}`,
+      undefined,
+      {
+        maxRetries: 2,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+      }
+    );
+
+    if (!boardsResponse.ok) {
+      continue;
+    }
+
+    const boards = await boardsResponse.json();
+    if (!Array.isArray(boards)) {
+      continue;
+    }
+
+    for (const board of boards) {
+      // Skip template boards — they contain no real work cards
+      if (board?.id && board.prefs?.isTemplate !== true) {
+        boardIds.add(board.id);
+      }
+    }
+  }
+
+  return Array.from(boardIds);
+}
+
 router.get('/assignments', async (req: any, res) => {
   try {
     const user = req.user;
@@ -891,16 +947,20 @@ router.get('/assignments', async (req: any, res) => {
     if (!db) {
       return res.status(503).json({ error: 'Database not available' });
     }
-    
-    // Get all cached boards to find active board IDs
-    const boards = await db.select({ id: atisBoards.id }).from(atisBoards);
-    const boardIds = boards.map((b: any) => b.id);
-    
-    if (boardIds.length === 0) {
-      return res.json([]);
+
+    const apiKey = process.env.TRELLO_API_KEY;
+    const token = process.env.TRELLO_TOKEN;
+    if (!apiKey || !token) {
+      return res.status(500).json({ error: 'Trello credentials not configured' });
     }
 
-    // Get all cards left joined with taskAssignments for this founder
+    // Get allowed boards for this user
+    const allowedTrelloBoardIds = await fetchUserWorkspaceBoardIds(apiKey, token);
+    if (allowedTrelloBoardIds.length === 0) {
+      return res.json([]);
+    }
+    
+    // Get all cards left joined with taskAssignments for this founder, filtered by user's Trello boards
     const cards = await db.select({
       id: atisCards.id,
       trelloId: atisCards.trelloId,
@@ -910,6 +970,15 @@ router.get('/assignments', async (req: any, res) => {
       listName: atisCards.listName,
       boardId: atisCards.boardId,
       boardName: atisBoards.name,
+      description: atisCards.description,
+      
+      // AI Understanding info
+      goal: atisCardUnderstanding.goal,
+      deliverable: atisCardUnderstanding.deliverable,
+      taskType: atisCardUnderstanding.taskType,
+      complexity: atisCardUnderstanding.complexity,
+      aptlssChecklist: atisCardUnderstanding.aptlssChecklist,
+      estimatedMinutes: atisCardUnderstanding.estimatedMinutes,
       
       // Assignment info (if exists)
       assignmentId: taskAssignments.id,
@@ -919,14 +988,17 @@ router.get('/assignments', async (req: any, res) => {
     })
       .from(atisCards)
       .innerJoin(atisBoards, eq(atisCards.boardId, atisBoards.id))
+      .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
       .leftJoin(taskAssignments, and(
         eq(atisCards.trelloId, taskAssignments.taskId),
         eq(taskAssignments.founderId, user.id)
       ))
       .where(and(
         eq(atisCards.isArchived, 0),
-        inArray(atisCards.boardId, boardIds)
-      ));
+        inArray(atisBoards.trelloId, allowedTrelloBoardIds)
+      ))
+      .orderBy(atisCards.dueDate)
+      .limit(50);
     
     // Get VA names
     const vas = await db.select().from(vaProfiles).where(eq(vaProfiles.founderId, user.id));
@@ -951,8 +1023,17 @@ router.get('/assignments', async (req: any, res) => {
       }
     }
     
-    const result = cards.map((c: any) => {
-      const cardId = c.trelloId;
+    const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived', 'info'];
+    const isInactiveListName = (listName?: string | null) => {
+      if (!listName) return false;
+      const normalized = listName.toLowerCase().trim();
+      return INACTIVE_LIST_KEYWORDS.some((keyword) => normalized === keyword || normalized.includes(keyword));
+    };
+
+    const result = cards
+      .filter((c: any) => !isInactiveListName(c.listName))
+      .map((c: any) => {
+        const cardId = c.trelloId;
       
       // Parse labels
       let parsedLabels: string[] = [];
@@ -977,6 +1058,24 @@ router.get('/assignments', async (req: any, res) => {
         priority = 'high';
       }
 
+      // Parse checklist
+      let checklist: any[] = [];
+      if (c.aptlssChecklist) {
+        try {
+          const parsed = JSON.parse(c.aptlssChecklist);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            checklist = parsed.map((item: any, index: number) => ({
+              id: `${c.id}-step-${index}`,
+              step: item.name || item.step || item.description || 'Step',
+              timeMinutes: item.estimatedMinutes || item.timeMinutes || item.time || 15,
+              aptlssType: item.priority || item.aptlssType || item.type || 'T',
+            }));
+          }
+        } catch (e) {
+          console.warn('[ATIS] Failed to parse checklist in assignments view:', e);
+        }
+      }
+
       return {
         id: c.assignmentId || c.trelloId, // Fallback to trelloId if unassigned so key is unique
         taskId: c.trelloId,
@@ -990,7 +1089,7 @@ router.get('/assignments', async (req: any, res) => {
         priority: priority,
         isPriorityOverride: overrideMap.has(c.trelloId),
         status: c.status || 'unassigned',
-        estimatedMinutes: 60,
+        estimatedMinutes: c.estimatedMinutes || 60,
         scheduledStart: null,
         scheduledEnd: null,
         blockedBy: [],
@@ -999,6 +1098,12 @@ router.get('/assignments', async (req: any, res) => {
         clientPriority: boardToClientMap.get(c.boardId)?.priority || 'standard',
         dueDate: c.dueDate ? new Date(c.dueDate).toISOString() : null,
         labels: parsedLabels,
+        description: c.description || '',
+        goal: c.goal || '',
+        deliverable: c.deliverable || '',
+        complexity: c.complexity || 'medium',
+        taskType: c.taskType || 'admin',
+        checklist: checklist,
       };
     });
 
@@ -1548,72 +1653,171 @@ router.get('/worker/tasks', async (req: any, res) => {
     }
     
     const vaId = profile[0].id;
-    
-    // Get all assignments for this worker
-    const assignments = await db.select().from(taskAssignments).where(eq(taskAssignments.vaId, vaId));
+    const trelloMemberId = profile[0].trelloMemberId;
 
-    const tasks = await Promise.all(assignments.map(async (a: typeof assignments[0]) => {
-      const cardTrelloId = a.taskId.split(':')[0] || a.taskId.split('_')[0];
-      
-      // Fetch card and understanding from local DB
-      const card = await db.select().from(atisCards).where(eq(atisCards.trelloId, cardTrelloId)).limit(1);
-      const understanding = await db.select().from(atisCardUnderstanding).where(eq(atisCardUnderstanding.cardTrelloId, cardTrelloId)).limit(1);
-      
-      let boardName = '';
-      if (card.length > 0 && card[0].boardId) {
-        const board = await db.select().from(atisBoards).where(eq(atisBoards.id, card[0].boardId)).limit(1);
-        if (board.length > 0) boardName = board[0].name;
-      }
+    let tasks: any[] = [];
 
-      // Parse labels and priority
-      const labels = card.length > 0 && card[0].labels ? JSON.parse(card[0].labels) : [];
-      const priorityLevel = labels.some((l: string) => /critical/i.test(l)) ? 'CRITICAL' :
-                            labels.some((l: string) => /urgent/i.test(l)) ? 'URGENT' :
-                            labels.some((l: string) => /high/i.test(l)) ? 'HIGH' : 'NORMAL';
+    // Helper to map list names to workflow status
+    const getStatusFromListName = (listName?: string | null) => {
+      if (!listName) return 'assigned';
+      const name = listName.toLowerCase();
+      if (name.includes('doing') || name.includes('progress') || name.includes('active')) return 'in_progress';
+      if (name.includes('done') || name.includes('completed') || name.includes('complete') || name.includes('finished')) return 'completed';
+      if (name.includes('block') || name.includes('hold') || name.includes('wait')) return 'blocked';
+      return 'assigned';
+    };
 
-      // Parse checklist
-      let checklist: any[] = [];
-      if (understanding.length > 0 && understanding[0].aptlssChecklist) {
-        try {
-          const parsed = JSON.parse(understanding[0].aptlssChecklist);
-          checklist = parsed.map((item: any, index: number) => ({
-            id: `${card.length > 0 ? card[0].id : cardTrelloId}-step-${index}`,
-            step: item.step || item.name || 'Step',
-            timeMinutes: item.timeMinutes || item.estimatedMinutes || 15,
-            aptlssType: item.aptlssType || item.priority || 'T',
-            completed: false
-          }));
-        } catch (e) {}
-      }
+    if (trelloMemberId) {
+      // Trello-native Flow: Fetch non-archived cards assigned to this Trello ID
+      const cardRows = await db.select({
+        card: atisCards,
+        understanding: atisCardUnderstanding,
+        assignment: taskAssignments
+      })
+      .from(atisCards)
+      .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
+      .leftJoin(taskAssignments, and(
+        eq(atisCards.trelloId, taskAssignments.taskId),
+        eq(taskAssignments.vaId, vaId)
+      ))
+      .where(
+        and(
+          eq(atisCards.isArchived, 0),
+          sql`JSON_CONTAINS(${atisCards.memberIds}, JSON_QUOTE(${trelloMemberId}))`
+        )
+      );
 
-      return {
-        id: a.taskId,
-        cardId: cardTrelloId,
-        cardName: card.length > 0 ? card[0].name : 'Trello Card',
-        boardName,
-        listName: card.length > 0 ? card[0].listName : '',
-        url: card.length > 0 ? card[0].url : '',
-        durationHours: understanding.length > 0 && understanding[0].estimatedMinutes ? understanding[0].estimatedMinutes / 60 : 1,
-        startTime: 'TBD',
-        endTime: 'TBD',
-        isCompleted: a.status === 'completed',
-        priorityLevel,
-        date: card.length > 0 && card[0].dueDate ? new Date(card[0].dueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        status: a.status,
-        description: card.length > 0 ? card[0].description : '',
-        labels,
-        checklist,
-        goal: understanding.length > 0 ? understanding[0].goal : '',
-        deliverable: understanding.length > 0 ? understanding[0].deliverable : '',
-        taskType: understanding.length > 0 ? understanding[0].taskType : '',
-        complexity: understanding.length > 0 ? understanding[0].complexity : 'medium',
-        confidenceScore: understanding.length > 0 ? understanding[0].confidenceScore : 100,
-        atisCardId: card.length > 0 ? card[0].id : undefined,
-        hasUnderstanding: understanding.length > 0,
-        synced: true,
-        handoffNotes: a.handoffNotes || ''
-      };
-    }));
+      tasks = await Promise.all(cardRows.map(async (row: any) => {
+        const card = row.card;
+        const understanding = row.understanding;
+        const assignment = row.assignment;
+        const cardTrelloId = card.trelloId;
+
+        let boardName = '';
+        if (card.boardId) {
+          const board = await db.select().from(atisBoards).where(eq(atisBoards.id, card.boardId)).limit(1);
+          if (board.length > 0) boardName = board[0].name;
+        }
+
+        // Parse labels and priority
+        const labels = card.labels ? JSON.parse(card.labels) : [];
+        const priorityLevel = labels.some((l: string) => /critical/i.test(l)) ? 'CRITICAL' :
+                              labels.some((l: string) => /urgent/i.test(l)) ? 'URGENT' :
+                              labels.some((l: string) => /high/i.test(l)) ? 'HIGH' : 'NORMAL';
+
+        // Parse checklist
+        let checklist: any[] = [];
+        if (understanding && understanding.aptlssChecklist) {
+          try {
+            const parsed = JSON.parse(understanding.aptlssChecklist);
+            checklist = parsed.map((item: any, index: number) => ({
+              id: `${card.id}-step-${index}`,
+              step: item.step || item.name || 'Step',
+              timeMinutes: item.timeMinutes || item.estimatedMinutes || 15,
+              aptlssType: item.aptlssType || item.priority || 'T',
+              completed: false
+            }));
+          } catch (e) {}
+        }
+
+        const trelloStatus = getStatusFromListName(card.listName);
+        const status = trelloStatus !== 'assigned' ? trelloStatus : (assignment?.status || 'assigned');
+
+        return {
+          id: cardTrelloId,
+          cardId: cardTrelloId,
+          cardName: card.name,
+          boardName,
+          listName: card.listName || '',
+          url: card.url || '',
+          durationHours: understanding?.estimatedMinutes ? understanding.estimatedMinutes / 60 : 1,
+          startTime: 'TBD',
+          endTime: 'TBD',
+          isCompleted: status === 'completed',
+          priorityLevel,
+          date: card.dueDate ? new Date(card.dueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          status,
+          description: card.description || '',
+          labels,
+          checklist,
+          goal: understanding?.goal || '',
+          deliverable: understanding?.deliverable || '',
+          taskType: understanding?.taskType || '',
+          complexity: understanding?.complexity || 'medium',
+          confidenceScore: understanding?.confidenceScore || 100,
+          atisCardId: card.id,
+          hasUnderstanding: !!understanding,
+          synced: true,
+          handoffNotes: assignment?.handoffNotes || ''
+        };
+      }));
+    } else {
+      // Fallback: Legacy Table-driven Flow
+      const assignments = await db.select().from(taskAssignments).where(eq(taskAssignments.vaId, vaId));
+
+      tasks = await Promise.all(assignments.map(async (a: typeof assignments[0]) => {
+        const cardTrelloId = a.taskId.split(':')[0] || a.taskId.split('_')[0];
+        
+        // Fetch card and understanding from local DB
+        const card = await db.select().from(atisCards).where(eq(atisCards.trelloId, cardTrelloId)).limit(1);
+        const understanding = await db.select().from(atisCardUnderstanding).where(eq(atisCardUnderstanding.cardTrelloId, cardTrelloId)).limit(1);
+        
+        let boardName = '';
+        if (card.length > 0 && card[0].boardId) {
+          const board = await db.select().from(atisBoards).where(eq(atisBoards.id, card[0].boardId)).limit(1);
+          if (board.length > 0) boardName = board[0].name;
+        }
+
+        // Parse labels and priority
+        const labels = card.length > 0 && card[0].labels ? JSON.parse(card[0].labels) : [];
+        const priorityLevel = labels.some((l: string) => /critical/i.test(l)) ? 'CRITICAL' :
+                              labels.some((l: string) => /urgent/i.test(l)) ? 'URGENT' :
+                              labels.some((l: string) => /high/i.test(l)) ? 'HIGH' : 'NORMAL';
+
+        // Parse checklist
+        let checklist: any[] = [];
+        if (understanding.length > 0 && understanding[0].aptlssChecklist) {
+          try {
+            const parsed = JSON.parse(understanding[0].aptlssChecklist);
+            checklist = parsed.map((item: any, index: number) => ({
+              id: `${card.length > 0 ? card[0].id : cardTrelloId}-step-${index}`,
+              step: item.step || item.name || 'Step',
+              timeMinutes: item.timeMinutes || item.estimatedMinutes || 15,
+              aptlssType: item.aptlssType || item.priority || 'T',
+              completed: false
+            }));
+          } catch (e) {}
+        }
+
+        return {
+          id: a.taskId,
+          cardId: cardTrelloId,
+          cardName: card.length > 0 ? card[0].name : 'Trello Card',
+          boardName,
+          listName: card.length > 0 ? card[0].listName : '',
+          url: card.length > 0 ? card[0].url : '',
+          durationHours: understanding.length > 0 && understanding[0].estimatedMinutes ? understanding[0].estimatedMinutes / 60 : 1,
+          startTime: 'TBD',
+          endTime: 'TBD',
+          isCompleted: a.status === 'completed',
+          priorityLevel,
+          date: card.length > 0 && card[0].dueDate ? new Date(card[0].dueDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          status: a.status,
+          description: card.length > 0 ? card[0].description : '',
+          labels,
+          checklist,
+          goal: understanding.length > 0 ? understanding[0].goal : '',
+          deliverable: understanding.length > 0 ? understanding[0].deliverable : '',
+          taskType: understanding.length > 0 ? understanding[0].taskType : '',
+          complexity: understanding.length > 0 ? understanding[0].complexity : 'medium',
+          confidenceScore: understanding.length > 0 ? understanding[0].confidenceScore : 100,
+          atisCardId: card.length > 0 ? card[0].id : undefined,
+          hasUnderstanding: understanding.length > 0,
+          synced: true,
+          handoffNotes: a.handoffNotes || ''
+        };
+      }));
+    }
 
     res.json({ tasks });
   } catch (error) {

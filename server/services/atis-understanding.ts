@@ -246,21 +246,27 @@ Analyze the provided card information and return a JSON object with the followin
   "missingInfo": ["Information that would help complete this task but is not provided"],
   "confidenceScore": 85,
   "aptlssChecklist": [
-    {"name": "Step 1 description", "estimatedMinutes": 10, "priority": "A"},
-    {"name": "Step 2 description", "estimatedMinutes": 15, "priority": "P"},
-    {"name": "Step 3 description", "estimatedMinutes": 5, "priority": "T"}
-  ]
+    {"name": "[L] Learn - Review attached documents and context to understand the scope", "estimatedMinutes": 15, "priority": "L"},
+    {"name": "[P] Process - Draft the initial response or plan based on findings", "estimatedMinutes": 20, "priority": "P"},
+    {"name": "[T] Task - Execute the technical configuration or main work", "estimatedMinutes": 45, "priority": "T"},
+    {"name": "[A] Action - Notify the Founder or client for review", "estimatedMinutes": 5, "priority": "A"}
+  ],
+  "suggestedTags": ["tag1", "tag2"],
+  "isActionable": true,
+  "reasonNotActionable": "If false, why?"
 }
 
-APTLSS Priority Guide:
-- A (Afspraken/Appointments): Scheduled meetings, calls, appointments
-- P (Projecten/Projects): Multi-step work requiring planning
-- T (Taken/Tasks): Single actionable items
-- L (Leesvoer/Reading): Documents to review, emails to read
-- S (Someday/Maybe): Low priority items for later
+APTLSS Categorization Guide (CRITICAL - YOU MUST PREFIX EVERY STEP NAME EXACTLY LIKE THIS):
+- [P] Process (Priority P): Drafting, reading, processing information, analyzing, structuring, planning.
+- [T] Task (Priority T): Executing concrete work, uploading, configuring, building, fixing, doing.
+- [A] Action (Priority A): Communication, notifying a team member, sending an email, requesting approval, meetings.
+- [L] Learn (Priority L): Reviewing attachments, researching, learning new context, gathering data, reading documentation.
 
-CHECKLIST GENERATION - CRITICAL RULES:
-Generate steps based on WHAT IS ACTUALLY NEEDED to complete the task properly, NOT arbitrary counts.
+CHECKLIST GENERATION - CRITICAL RULES (TO MATCH MANUS AI V2 QUALITY):
+1. GRANULARITY IS MANDATORY: You MUST generate between 15 to 20 highly detailed, granular steps. Never return just 3 or 4 broad steps.
+2. CATEGORY PREFIX: Every single step "name" MUST begin with its exact category prefix (e.g., "[P] Process - ", "[T] Task - ", "[A] Action - ", or "[L] Learn - ").
+3. TIME ESTIMATES: Break down large chunks of work into 10-30 minute increments. Do not create single steps taking 180m without breaking them down.
+4. ACTUALLY NEEDED: Generate steps based on WHAT IS ACTUALLY NEEDED to complete the task properly.
 
 You MUST include steps for:
 1. COMMUNICATION THREADS: Every person/party mentioned in comments or attachments who needs to be:
@@ -314,6 +320,7 @@ Return ONLY valid JSON, no markdown formatting or explanation.`;
         { role: 'user', content: `Analyze this Trello card and generate a structured task understanding:\n\n${contextText}` },
       ],
       maxTokens: 4000, // Increased from 1500 — checklist with 5-10 steps needs ~2000-3500 tokens
+      responseFormat: { type: 'json_object' },
     });
 
     const content = result.choices?.[0]?.message?.content;
@@ -506,6 +513,14 @@ export async function processAllCardsUnderstanding(
   const db = await getDb();
   if (!db) throw new Error('Database not available');
 
+  const INACTIVE_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived', 'info'];
+  const excludeInactiveSql = sql`LOWER(${atisCards.listName}) NOT LIKE '%done%' 
+    AND LOWER(${atisCards.listName}) NOT LIKE '%completed%' 
+    AND LOWER(${atisCards.listName}) NOT LIKE '%complete%' 
+    AND LOWER(${atisCards.listName}) NOT LIKE '%archive%' 
+    AND LOWER(${atisCards.listName}) NOT LIKE '%archived%' 
+    AND LOWER(${atisCards.listName}) NOT LIKE '%info%'`;
+
   // Get cards WITHOUT understanding (non-archived only)
   const cardsWithoutUnderstanding = await db.select({
     id: atisCards.id,
@@ -516,7 +531,8 @@ export async function processAllCardsUnderstanding(
     .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
     .where(and(
       isNull(atisCardUnderstanding.id),
-      eq(atisCards.isArchived, 0)
+      eq(atisCards.isArchived, 0),
+      excludeInactiveSql
     ))
     .limit(limit || 1000);
 
@@ -531,7 +547,8 @@ export async function processAllCardsUnderstanding(
     .leftJoin(atisCardUnderstanding, eq(atisCards.id, atisCardUnderstanding.cardId))
     .where(and(
       eq(atisCards.isArchived, 0),
-      sql`${atisCardUnderstanding.confidenceScore} < 30`
+      sql`${atisCardUnderstanding.confidenceScore} < 30`,
+      excludeInactiveSql
     ))
     .limit(Math.floor((limit || 1000) / 2)); // Allow up to half the limit for re-processing
 

@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { getDb } from '../db';
-import { taskAssignments } from '../../drizzle/schema';
+import { taskAssignments, vaProfiles } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
-import { sendEmail } from '../services/email'; // assuming it exists
+import { sendEmail } from '../services/email';
+import { postTrelloComment } from '../services/trello-chatbot';
+import { storeConversation } from '../services/chatbot-history';
 
 const router = Router();
 
@@ -13,13 +15,38 @@ router.post('/ask-founder', async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
-  // Record the communication in the DB (for now we can just log or send an email)
-  console.log(`Worker ${workerId} asked about task ${taskId}: ${question}`);
-  
-  // Ideally, notify founder via email or WebSocket
-  // await sendEmail(founderEmail, 'Question from Worker', ...);
+  const db = await getDb();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
 
-  res.json({ success: true });
+  try {
+    // 1. Get worker profile name
+    const worker = await db.select().from(vaProfiles).where(eq(vaProfiles.id, Number(workerId))).limit(1);
+    const workerName = worker[0]?.name || 'Worker';
+
+    // 2. Post comment to Trello card
+    const commentText = `❓ **[Worker Question]**\n${workerName} asked:\n"${question}"`;
+    const posted = await postTrelloComment(taskId, commentText);
+
+    if (!posted) {
+      console.warn(`[Communication] Failed to post worker question to Trello card ${taskId}`);
+    }
+
+    // 3. Save to chatbot_conversations table
+    await storeConversation({
+      cardTrelloId: taskId,
+      command: 'ask_founder',
+      responseText: question,
+      authorName: workerName,
+      responseStatus: posted ? 'success' : 'failed',
+      receivedAt: new Date(),
+      respondedAt: new Date(),
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('[Communication] Error processing ask-founder:', error);
+    res.status(500).json({ error: 'Failed to process question' });
+  }
 });
 
 // POST /api/communication/decision-log

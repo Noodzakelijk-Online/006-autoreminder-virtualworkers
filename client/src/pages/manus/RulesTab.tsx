@@ -50,8 +50,8 @@ const DECISION_TREE = [
     no: "next",
   },
   {
-    q: "Is Robert waiting for this right now, or is it blocking his work?",
-    yes: { label: "P1 — Do Within 1 Hour", color: "bg-orange-500", desc: "Robert is blocked. Stop what you're doing and address this first. Send Trello link on WhatsApp if urgent." },
+    q: "Is the Founder waiting for this right now, or is it blocking his work?",
+    yes: { label: "P1 — Do Within 1 Hour", color: "bg-orange-500", desc: "the Founder is blocked. Stop what you're doing and address this first. Send Trello link on WhatsApp if urgent." },
     no: "next",
   },
   {
@@ -79,7 +79,7 @@ const DECISION_TREE = [
 const TASK_TYPE_MATRIX = [
   { type: "Legal / Housing / Court", priority: "P0", pace: "Immediate", note: "Written + traceable always", color: "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800/50" },
   { type: "Irreversible-loss risk", priority: "P0", pace: "Immediate", note: "Preserve evidence first", color: "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800/50" },
-  { type: "Robert blocked / waiting", priority: "P1", pace: "< 1 hour", note: "Send Trello link on WhatsApp", color: "bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800/50" },
+  { type: "the Founder blocked / waiting", priority: "P1", pace: "< 1 hour", note: "Send Trello link on WhatsApp", color: "bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800/50" },
   { type: "External party waiting", priority: "P2", pace: "Before EOD", note: "Document all responses", color: "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50" },
   { type: "Scheduled routine task", priority: "P3", pace: "Scheduled window", note: "Consistency is measured", color: "bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800/50" },
   { type: "< 3-minute task", priority: "P4", pace: "Right now", note: "Do it, don't defer it", color: "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/50" },
@@ -88,7 +88,7 @@ const TASK_TYPE_MATRIX = [
 
 const DAILY_EXECUTION_ORDER = [
   { step: "1", label: "Morning Ritual", desc: "Email → WhatsApp → Upwork → Trello Notifications → Major Tasks", icon: Sun, color: "from-amber-400 to-orange-500" },
-  { step: "2", label: "Execute P0/P1 First", desc: "Address any immediate or Robert-blocking tasks before anything else", icon: AlertTriangle, color: "from-red-500 to-orange-500" },
+  { step: "2", label: "Execute P0/P1 First", desc: "Address any immediate or the Founder-blocking tasks before anything else", icon: AlertTriangle, color: "from-red-500 to-orange-500" },
   { step: "3", label: "Work APTLSS Tasks", desc: "Assigned, Planned, Tracked, Linked, Summarised, Submitted tasks in Trello", icon: Target, color: "from-violet-500 to-purple-600" },
   { step: "4", label: "3-Minute Rule Throughout", desc: "If it takes < 3 min, do it immediately. Never defer small tasks.", icon: Zap, color: "from-emerald-500 to-teal-600" },
   { step: "5", label: "Evening Documentation", desc: "All work must be in Trello before EOD. No loose info in WhatsApp/Email.", icon: FileText, color: "from-indigo-500 to-blue-600" },
@@ -105,28 +105,28 @@ export const RULE_CATEGORIES = [
     summary: "The foundational mindset rules that define what success actually means in this working relationship.",
     whyItMatters: "Without these principles, task completion becomes the goal instead of burden reduction. These rules define the difference between doing work and doing work that actually helps.",
     rules: [
-      "1. The goal is not only task completion; the goal is burden reduction for Robert.",
+      "1. The goal is not only task completion; the goal is burden reduction for the Founder.",
       "2. Reliability is good, but visible, timely, autonomous follow-through is what creates relief.",
-      "3. If Robert still has to chase, reconstruct, clarify, or micromanage, the system has not succeeded yet.",
+      "3. If the Founder still has to chase, reconstruct, clarify, or micromanage, the system has not succeeded yet.",
       "4. A task is not truly done until the result is visible, documented, linked, and usable later.",
-      "5. Robert's preferred system is bottom-up: collect facts first, organize them, connect them, identify gaps, then decide.",
+      "5. the Founder's preferred system is bottom-up: collect facts first, organize them, connect them, identify gaps, then decide.",
       "6. Do not treat progress as sufficient if deadlines are missed or evidence remains scattered.",
       "7. Work should reduce future work, not create more work later.",
       "8. Small repeated inefficiencies are serious problems when they happen daily.",
       "9. Tools, systems, and workflows should be treated like breathing: if they add friction every time, they are broken or unfinished.",
       "10. High-risk matters require prevention, not reaction.",
-      "11. When Robert is overloaded, Joyce must reduce cognitive load, not add to it.",
-      "12. If Robert is unclear, inconsistent, or gives conflicting instructions, Joyce should use AI to extract the conflict and ask focused clarification questions.",
-      "13. When in doubt, do not silently assume. Verify, investigate, or ask Robert in yes/no format.",
+      "11. When the Founder is overloaded, the worker must reduce cognitive load, not add to it.",
+      "12. If the Founder is unclear, inconsistent, or gives conflicting instructions, the worker should use AI to extract the conflict and ask focused clarification questions.",
+      "13. When in doubt, do not silently assume. Verify, investigate, or ask the Founder in yes/no format.",
       "14. Do not wait for perfect information if useful partial action can safely move the matter forward.",
       "15. If a matter affects housing, court, police, insurance, legal deadlines, evidence, or client relationships, raise its priority.",
     ],
   },
   {
     id: "B",
-    label: "B. Communication Rules Between Robert and Joyce",
-    summary: "Rules for how and when Joyce communicates with Robert — covering responsiveness, updates, and avoiding silence.",
-    whyItMatters: "Silence creates uncertainty and forces Robert to interrupt his own work to chase status. These rules ensure communication is proactive, clear, and never leaves Robert guessing.",
+    label: "B. Communication Rules Between the Founder and the worker",
+    summary: "Rules for how and when the worker communicates with the Founder — covering responsiveness, updates, and avoiding silence.",
+    whyItMatters: "Silence creates uncertainty and forces the Founder to interrupt his own work to chase status. These rules ensure communication is proactive, clear, and never leaves the Founder guessing.",
     icon: MessageSquare,
     color: "border-blue-400 bg-blue-50/30 dark:bg-blue-950/10",
     iconColor: "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400",
@@ -134,51 +134,51 @@ export const RULE_CATEGORIES = [
       "16. Somebody says something = reply.",
       "17. A short acknowledgement is better than silence.",
       "18. If a WhatsApp message is read, acknowledge it with a reply or reaction.",
-      "19. Because read receipts are off, Joyce must manually signal that she has seen and processed important messages.",
-      "20. Silence creates uncertainty and causes Robert to interrupt later.",
-      "21. If Joyce sees a message late, she should still respond and explain what she will do next.",
-      "22. If Joyce has a counter-suggestion, she must state it clearly instead of silently following a different plan.",
-      "23. If Joyce cannot respond fully, she should send a short holding message with a time for follow-up.",
-      "24. If Joyce is blocked, she must say what blocks her, what she can still do, and when she will update.",
-      "25. If Joyce gives a deadline or ETA, she must update before or at that deadline.",
-      "26. If Joyce misses a deadline, she must proactively explain the miss and give a recovery plan.",
-      "27. Robert should not have to ask twice for the status of the same task.",
+      "19. Because read receipts are off, the worker must manually signal that she has seen and processed important messages.",
+      "20. Silence creates uncertainty and causes the Founder to interrupt later.",
+      "21. If the worker sees a message late, she should still respond and explain what she will do next.",
+      "22. If the worker has a counter-suggestion, she must state it clearly instead of silently following a different plan.",
+      "23. If the worker cannot respond fully, she should send a short holding message with a time for follow-up.",
+      "24. If the worker is blocked, she must say what blocks her, what she can still do, and when she will update.",
+      "25. If the worker gives a deadline or ETA, she must update before or at that deadline.",
+      "26. If the worker misses a deadline, she must proactively explain the miss and give a recovery plan.",
+      "27. the Founder should not have to ask twice for the status of the same task.",
       "28. Less output with strong responsiveness is better than more output combined with silence.",
-      "29. Joyce should not wait until Robert asks before sharing relevant thoughts, concerns, or feedback.",
-      "30. If something affects Joyce's performance, availability, or output, Robert should be informed early.",
-      "31. If Joyce's personal circumstances reduce output, she must tell Robert what can still be done and what must be postponed.",
+      "29. the worker should not wait until the Founder asks before sharing relevant thoughts, concerns, or feedback.",
+      "30. If something affects the worker's performance, availability, or output, the Founder should be informed early.",
+      "31. If the worker's personal circumstances reduce output, she must tell the Founder what can still be done and what must be postponed.",
       "32. Daily communication should be clear, concise, and actionable.",
       "33. Avoid wall-of-text updates for complex matters. Use sections, numbering, and status labels.",
-      "34. When Robert asks for a brief update, give the operational facts first.",
+      "34. When the Founder asks for a brief update, give the operational facts first.",
       "35. Personal warmth is appreciated, but active tasks must still return to operational clarity.",
     ],
   },
   {
     id: "C",
     label: "C. Yes/No Decision Rules",
-    summary: "How to frame decisions and requests so Robert can respond quickly with a simple yes or no.",
-    whyItMatters: "Open-ended questions drain Robert's cognitive energy. A well-framed yes/no request with a recommendation lets him decide in seconds instead of minutes.",
+    summary: "How to frame decisions and requests so the Founder can respond quickly with a simple yes or no.",
+    whyItMatters: "Open-ended questions drain the Founder's cognitive energy. A well-framed yes/no request with a recommendation lets him decide in seconds instead of minutes.",
     icon: GitBranch,
     color: "border-violet-400 bg-violet-50/30 dark:bg-violet-950/10",
     iconColor: "bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400",
     rules: [
-      "36. When Robert's input is needed, Joyce should frame the issue as a yes/no decision whenever possible.",
+      "36. When the Founder's input is needed, the worker should frame the issue as a yes/no decision whenever possible.",
       "37. The default format should be: recommendation + yes/no approval.",
       "38. A yes/no request may contain multiple questions if the matter is complex.",
       "39. High-risk documents do not need to be reduced to one yes/no question; they can be broken into several yes/no decisions.",
-      "40. Joyce should use AI to convert unclear issues into yes/no questions for Robert.",
-      "41. If Robert must decide during the workday, the question must be suitable for a quick WhatsApp answer or voice clip.",
-      "42. Do not ask Robert open-ended questions when he is overloaded.",
-      "43. Do not ask 'What should I do?' if Joyce can form a recommendation first.",
-      "44. When Robert's approval is required, Joyce should explain the consequence of yes and no.",
-      "45. If Robert does not respond, Joyce should follow up within 24 hours, or sooner if urgent.",
+      "40. the worker should use AI to convert unclear issues into yes/no questions for the Founder.",
+      "41. If the Founder must decide during the workday, the question must be suitable for a quick WhatsApp answer or voice clip.",
+      "42. Do not ask the Founder open-ended questions when he is overloaded.",
+      "43. Do not ask 'What should I do?' if the worker can form a recommendation first.",
+      "44. When the Founder's approval is required, the worker should explain the consequence of yes and no.",
+      "45. If the Founder does not respond, the worker should follow up within 24 hours, or sooner if urgent.",
     ],
   },
   {
     id: "D",
     label: "D. Trello Rules",
     summary: "How to use Trello as the single source of truth — covering card updates, structure, and what belongs where.",
-    whyItMatters: "If Trello is incomplete or stale, Robert cannot trust it. These rules ensure every active task is visible, traceable, and usable without needing to ask Joyce for a status.",
+    whyItMatters: "If Trello is incomplete or stale, the Founder cannot trust it. These rules ensure every active task is visible, traceable, and usable without needing to ask the worker for a status.",
     icon: FileText,
     color: "border-indigo-400 bg-indigo-50/30 dark:bg-indigo-950/10",
     iconColor: "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400",
@@ -189,9 +189,9 @@ export const RULE_CATEGORIES = [
       "49. Daily Trello updates are mandatory because they make progress visible.",
       "50. A Trello update may be short, but it must be useful.",
       "51. A good Trello update states: what was done, what is next, who owns it, and what is blocked.",
-      "52. If Robert's urgent attention is needed, Joyce should update the Trello card first, then send Robert the card link on WhatsApp.",
+      "52. If the Founder's urgent attention is needed, the worker should update the Trello card first, then send the Founder the card link on WhatsApp.",
       "53. WhatsApp should point to Trello; it should not replace Trello.",
-      "54. If a task is given on WhatsApp, Joyce must either act immediately or convert it into Trello.",
+      "54. If a task is given on WhatsApp, the worker must either act immediately or convert it into Trello.",
       "55. Every active legal, client, software, or freelancer matter should have a clear Trello card or board.",
       "56. Every Trello card involving a freelancer must show the freelancer name, role, Upwork link, current task, deadline, latest update, and blocker.",
       "57. Trello descriptions should contain the important context, not only scattered comments.",
@@ -200,9 +200,9 @@ export const RULE_CATEGORIES = [
       "60. Done cards should receive a short completion summary.",
       "61. Large tasks should be broken into checklist items inside the card, not automatically into separate cards.",
       "62. APTLSS plans are generated by AI — click the '🎯 APTLSS Plan' button on any Trello card in the Power-Up. Do NOT add APTLSS as a checklist, description, or comment.",
-      "63. If a Trello card has stale information, update the card before asking Robert to decide.",
-      "64. If Robert cannot see the status in Trello, the status is not sufficiently visible.",
-      "65. Cards should include waiting status: waiting on Robert, waiting on freelancer, waiting on third party, or blocked.",
+      "63. If a Trello card has stale information, update the card before asking the Founder to decide.",
+      "64. If the Founder cannot see the status in Trello, the status is not sufficiently visible.",
+      "65. Cards should include waiting status: waiting on the Founder, waiting on freelancer, waiting on third party, or blocked.",
       "66. Trello should show the latest follow-up date and next deadline.",
       "67. Old or scattered Trello cards should be consolidated when they refer to the same matter.",
     ],
@@ -211,60 +211,60 @@ export const RULE_CATEGORIES = [
     id: "E",
     label: "E. Daily and Weekly Workflow Rules",
     summary: "The recurring daily and weekly routines that keep work visible, consistent, and on track.",
-    whyItMatters: "Consistency in daily routines prevents tasks from falling through the cracks. A close-out summary makes progress visible without Robert having to ask.",
+    whyItMatters: "Consistency in daily routines prevents tasks from falling through the cracks. A close-out summary makes progress visible without the Founder having to ask.",
     icon: Clock,
     color: "border-teal-400 bg-teal-50/30 dark:bg-teal-950/10",
     iconColor: "bg-teal-100 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400",
     rules: [
-      "68. Joyce should send a daily close-out summary on workdays.",
-      "69. Daily close-out should include completed, open, blocked, waiting on Robert, waiting on others, and urgent tomorrow.",
-      "70. If no visible progress was made, Joyce should still report why and what the recovery plan is.",
+      "68. the worker should send a daily close-out summary on workdays.",
+      "69. Daily close-out should include completed, open, blocked, waiting on the Founder, waiting on others, and urgent tomorrow.",
+      "70. If no visible progress was made, the worker should still report why and what the recovery plan is.",
       "71. A daily Trello update block should be scheduled, not left to chance.",
-      "72. A 24-hour follow-up list should be maintained for Robert, freelancers, lawyers, clients, and third parties.",
+      "72. A 24-hour follow-up list should be maintained for the Founder, freelancers, lawyers, clients, and third parties.",
       "73. If something was promised yesterday and not done, it must be named and recovered today.",
-      "74. If Joyce works at night after her own obligations, the priorities must be clear before starting.",
-      "75. When Joyce has many tasks, she should use a daily cross-card schedule, not only individual APTLSS plans.",
+      "74. If the worker works at night after her own obligations, the priorities must be clear before starting.",
+      "75. When the worker has many tasks, she should use a daily cross-card schedule, not only individual APTLSS plans.",
       "76. If one task is blocked, switch to the next useful task instead of idling.",
       "77. If waiting for an email code, response, upload, or AI output, use the waiting time for another task.",
-      "78. If Robert needs the PC and Joyce is blocked, hand over the PC until Joyce can continue.",
+      "78. If the Founder needs the PC and the worker is blocked, hand over the PC until the worker can continue.",
       "79. When there are too many moving parts, make the first task an overview/status map.",
-      "80. If Joyce works long hours or crunch periods, clear handovers are required before sleeping or stepping away.",
+      "80. If the worker works long hours or crunch periods, clear handovers are required before sleeping or stepping away.",
     ],
   },
   {
     id: "F",
     label: "F. Deadline and Follow-Up Rules",
     summary: "Rules for managing deadlines, following up on commitments, and converting vague timelines into concrete dates.",
-    whyItMatters: "A stated timeline creates an obligation. These rules ensure that deadlines are tracked, followed up, and never silently missed — whether by Joyce, freelancers, or third parties.",
+    whyItMatters: "A stated timeline creates an obligation. These rules ensure that deadlines are tracked, followed up, and never silently missed — whether by the worker, freelancers, or third parties.",
     icon: AlertTriangle,
     color: "border-orange-400 bg-orange-50/30 dark:bg-orange-950/10",
     iconColor: "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400",
     rules: [
       "81. A stated timeline creates an obligation to report back.",
-      "82. If Joyce says 'consider it done,' it must either be done or followed up before the deadline.",
+      "82. If the worker says 'consider it done,' it must either be done or followed up before the deadline.",
       "83. If a freelancer promises an update, record the exact expected time.",
       "84. Vague deadlines must be converted into concrete dates or checkpoints.",
       "85. 'Third week of May' in the Dutch context should be interpreted as the third full week, not partial starting days.",
       "86. If a task is urgent/legal/client-facing, follow up sooner than 24 hours.",
-      "87. If a freelancer misses a promised update, Joyce should escalate rather than wait passively.",
+      "87. If a freelancer misses a promised update, the worker should escalate rather than wait passively.",
       "88. If an external party gives a date range, record the final day as the latest follow-up point.",
-      "89. If no ETA is given, Joyce should ask for a checkpoint.",
+      "89. If no ETA is given, the worker should ask for a checkpoint.",
       "90. Do not accept 'it can take some time' as a useful ETA.",
       "91. If something must be done today, same-day tracking is required.",
-      "92. When Robert says 'hard deadline,' avoid words like 'I believe' or 'should.' Use confirmed deadline and escalation action.",
+      "92. When the Founder says 'hard deadline,' avoid words like 'I believe' or 'should.' Use confirmed deadline and escalation action.",
     ],
   },
   {
     id: "G",
     label: "G. Freelancer-Management Rules",
-    summary: "How to hire, manage, track, and hold accountable the freelancers working on Robert's projects.",
-    whyItMatters: "Freelancers are external and unpredictable. These rules ensure Joyce maintains control, documents everything, and escalates problems before they become costly delays.",
+    summary: "How to hire, manage, track, and hold accountable the freelancers working on the Founder's projects.",
+    whyItMatters: "Freelancers are external and unpredictable. These rules ensure the worker maintains control, documents everything, and escalates problems before they become costly delays.",
     icon: Users,
     color: "border-amber-400 bg-amber-50/30 dark:bg-amber-950/10",
     iconColor: "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400",
     rules: [
       "93. Do not accept 'done' without testing the actual workflow.",
-      "94. A freelancer delivery must be tested against Robert's real use case, not only a demo.",
+      "94. A freelancer delivery must be tested against the Founder's real use case, not only a demo.",
       "95. If a freelancer says requirements are unclear, stop and create a written feature checklist.",
       "96. If a freelancer cannot run/debug the system, request a structured diagnostic report.",
       "97. A diagnostic report should include OS, repo/branch, command run, exact error, screenshots/video, .env variables, and what was tried.",
@@ -277,19 +277,19 @@ export const RULE_CATEGORIES = [
       "104. Use precise wording with difficult freelancers to avoid scope arguments.",
       "105. If a freelancer misses one meeting, issue a warning or clear follow-up.",
       "106. If a freelancer misses two meetings, escalate and set a final appointment.",
-      "107. If a freelancer misses three meetings, replacement/termination becomes the default unless Robert decides otherwise.",
-      "108. If a freelancer is unavailable, update Robert immediately instead of letting the meeting silently fail.",
+      "107. If a freelancer misses three meetings, replacement/termination becomes the default unless the Founder decides otherwise.",
+      "108. If a freelancer is unavailable, update the Founder immediately instead of letting the meeting silently fail.",
       "109. If a freelancer is likely to become hostile or risky, remove access before notifying them.",
       "110. Before ending a risky freelancer relationship, open all access-management pages first, then remove access rapidly.",
       "111. Remove freelancer access from GitHub, Google Drive, Trello, deployment tools, Manus, shared accounts, and any other relevant platform.",
       "112. After access removal, preserve evidence and screenshots for Upwork or dispute escalation.",
       "113. Freelancers responsible for document collation may receive temporary Drive view access if needed.",
       "114. Temporary freelancer access must be tracked and removed after the task.",
-      "115. If a freelancer requires Robert's input, Joyce should filter the issue into yes/no questions first.",
-      "116. Joyce should protect Robert from unnecessary freelancer back-and-forth.",
-      "117. If work can be delegated without risk, Joyce should consider delegating it.",
+      "115. If a freelancer requires the Founder's input, the worker should filter the issue into yes/no questions first.",
+      "116. the worker should protect the Founder from unnecessary freelancer back-and-forth.",
+      "117. If work can be delegated without risk, the worker should consider delegating it.",
       "118. Bulk downloads, transcriptions, uploads, renaming, and simple sorting can often be delegated.",
-      "119. Legal triage, sensitive access, high-risk decisions, and Robert's decision preparation should stay closer to Joyce.",
+      "119. Legal triage, sensitive access, high-risk decisions, and the Founder's decision preparation should stay closer to the worker.",
     ],
   },
   {
@@ -308,7 +308,7 @@ export const RULE_CATEGORIES = [
       "124. Do not assume a Manus thread does not exist just because the name does not match.",
       "125. Every new Manus thread should be named correctly immediately.",
       "126. Before creating new threads, inspect existing threads briefly to avoid duplicates.",
-      "127. Local Docker on Robert's Windows PC is the preferred deployment target for internal tools.",
+      "127. Local Docker on the Founder's Windows PC is the preferred deployment target for internal tools.",
       "128. Tools should be resource-light unless a critical path truly requires speed.",
       "129. Non-urgent background actions do not need expensive or high-speed processing.",
       "130. Persistent memory/storage is required for tools that will be reused.",
@@ -317,11 +317,11 @@ export const RULE_CATEGORIES = [
       "133. A tool must be tested after logout, restart, and reopening.",
       "134. A tool must be tested with real data, not only dummy/demo data.",
       "135. Every custom tool must have step-by-step usage instructions.",
-      "136. Every tool must be checked against Robert's development standards.",
+      "136. Every tool must be checked against the Founder's development standards.",
       "137. If a tool requires an API token, .env variable, or credential, that dependency must be documented.",
       "138. If credentials are missing, the freelancer must list exact missing credential names.",
       "139. Random workarounds should not replace proper setup.",
-      "140. A tool is not acceptable if it only works when Robert or Joyce performs repeated manual repair.",
+      "140. A tool is not acceptable if it only works when the Founder or the worker performs repeated manual repair.",
     ],
   },
   {
@@ -335,7 +335,7 @@ export const RULE_CATEGORIES = [
     rules: [
       "141. ShareT's core purpose is to let external freelancers interact with a Trello card without needing a Trello account.",
       "142. External users should be able to comment and attach files through a shared card link.",
-      "143. Board selection must show workspaces because Robert has duplicate board names across workspaces.",
+      "143. Board selection must show workspaces because the Founder has duplicate board names across workspaces.",
       "144. Generated links must persist after logout, app close, PC restart, and tool updates.",
       "145. Generated links may be temporarily deactivated during development, but they must not be permanently lost.",
       "146. The tool must import and display all Trello checklists, including multiple checklists.",
@@ -350,7 +350,7 @@ export const RULE_CATEGORIES = [
       "155. The success notification after link generation should not block clicking the link.",
       "156. Auto-copying generated links is nice-to-have, not necessarily core scope.",
       "157. The tool should auto-refresh periodically so freelancers do not work from stale card data.",
-      "158. The tool should not introduce an extra credit/payment system unless Robert approves it.",
+      "158. The tool should not introduce an extra credit/payment system unless the Founder approves it.",
       "159. The tool should show external commenter names clearly without forcing Trello account creation.",
     ],
   },
@@ -358,16 +358,16 @@ export const RULE_CATEGORIES = [
     id: "J",
     label: "J. AI / Manus / Prompt-Work Rules",
     summary: "How to use AI tools effectively — covering prompt strategy, session management, and when to use AI vs. when to escalate.",
-    whyItMatters: "AI tools are powerful but require structured prompting to produce reliable results. These rules ensure Joyce uses AI to reduce Robert's load, not to generate more work for him to review.",
+    whyItMatters: "AI tools are powerful but require structured prompting to produce reliable results. These rules ensure the worker uses AI to reduce the Founder's load, not to generate more work for him to review.",
     icon: Zap,
     color: "border-purple-400 bg-purple-50/30 dark:bg-purple-950/10",
     iconColor: "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400",
     rules: [
       "160. Before asking AI to build, first ask AI what it needs to know.",
       "161. Project scoping should precede project generation.",
-      "162. Joyce should answer the AI questions she can answer and send Robert only the questions that require his judgment.",
-      "163. Questions for Robert should be converted into numbered yes/no format where possible.",
-      "164. If a question is about Robert's taste, strategic preference, or unknown history, Joyce should mark it for Robert.",
+      "162. the worker should answer the AI questions she can answer and send the Founder only the questions that require his judgment.",
+      "163. Questions for the Founder should be converted into numbered yes/no format where possible.",
+      "164. If a question is about the Founder's taste, strategic preference, or unknown history, the worker should mark it for the Founder.",
       "165. If a question is not needed for MVP, mark it as not needed now.",
       "166. When one Manus thread is busy, move to another thread. Do not watch AI work.",
       "167. For credit-burn sessions, use large prompts and multiple active threads.",
@@ -375,39 +375,39 @@ export const RULE_CATEGORIES = [
       "169. Manus Max should be used for heavy coding, complex multi-step work, and large enhancements.",
       "170. Manus regular/1.6 should be used for lighter text, letters, analysis, and lower-credit work.",
       "171. Free or low-cost Manus credits should be preserved for urgent legal, lawyer, government, or obligation-related work.",
-      "172. Robert's ideas can wait; legal obligations cannot.",
-      "173. Metered AI tools require Robert's permission for personal use.",
-      "174. Unmetered AI tools may be used more freely if Robert has allowed it and usage limits are not an issue.",
+      "172. the Founder's ideas can wait; legal obligations cannot.",
+      "173. Metered AI tools require the Founder's permission for personal use.",
+      "174. Unmetered AI tools may be used more freely if the Founder has allowed it and usage limits are not an issue.",
       "175. If using AI for personal work, do not consume metered credits without permission.",
       "176. Use AI to understand unfamiliar legal, technical, or system contexts before briefing a freelancer.",
       "177. Use AI to resolve conflicting instructions into clarification questions.",
       "178. Use AI to turn broad goals into APTLSS plans (via the '🎯 APTLSS Plan' Power-Up button), checklists, and yes/no decision points.",
       "179. Temporary chats can be used for quick processing, but anything important must be saved before closing.",
-      "180. AI output is not final unless Joyce verifies it against Robert's actual context.",
+      "180. AI output is not final unless the worker verifies it against the Founder's actual context.",
     ],
   },
   {
     id: "K",
     label: "K. APTLSS and Planning Rules",
     summary: "Rules for using the APTLSS planning framework — Action Plans, Timelines, and Step Sequences — for complex tasks.",
-    whyItMatters: "Complex tasks without a plan create chaos. APTLSS gives Joyce a structured way to break down large work into visible, trackable steps that Robert can review at a glance.",
+    whyItMatters: "Complex tasks without a plan create chaos. APTLSS gives the worker a structured way to break down large work into visible, trackable steps that the Founder can review at a glance.",
     icon: Target,
     color: "border-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/10",
     iconColor: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400",
     rules: [
-      "181. Joyce works better with Action Plans, Timelines, and Step Sequences.",
+      "181. the worker works better with Action Plans, Timelines, and Step Sequences.",
       "182. APTLSS should be used for large, unclear, or multi-step tasks.",
       "183. APTLSS lives as an AI-generated plan — click '🎯 APTLSS Plan' on any Trello card in the Power-Up to open it. Do NOT write APTLSS as a checklist, in the card description, or as a comment.",
-      "184. The APTLSS panel defines: Action (single next step), Plan (strategy), Timeline, Links, Steps (ordered, checkable), Summary, urgency level, next checkpoint, and any Robert decision needed.",
-      "185. APTLSS per task is not enough; Joyce also needs a daily cross-task schedule.",
-      "186. If several APTLSS tasks are active, Joyce should create a daily time-block plan.",
-      "187. For each task, Joyce should know whether it is urgent, important, blocked, waiting, or delegable.",
+      "184. The APTLSS panel defines: Action (single next step), Plan (strategy), Timeline, Links, Steps (ordered, checkable), Summary, urgency level, next checkpoint, and any the Founder decision needed.",
+      "185. APTLSS per task is not enough; the worker also needs a daily cross-task schedule.",
+      "186. If several APTLSS tasks are active, the worker should create a daily time-block plan.",
+      "187. For each task, the worker should know whether it is urgent, important, blocked, waiting, or delegable.",
       "188. For small tasks under three minutes, do them immediately.",
       "189. If a task takes longer, place it in the right Trello card/checklist with a next action.",
       "190. When a task becomes large, break it into subtasks inside the card.",
       "191a. The APTLSS plan can be refreshed at any time by clicking '↻ Refresh' inside the panel. Plans are cached for 4 hours.",
       "191b. Completed steps inside the APTLSS panel can be ticked off directly — progress is saved per card.",
-      "191c. The '📋 Copy' button in the APTLSS panel formats the full plan as a Trello comment for sharing with Robert.",
+      "191c. The '📋 Copy' button in the APTLSS panel formats the full plan as a Trello comment for sharing with the Founder.",
     ],
   },
   {
@@ -421,10 +421,10 @@ export const RULE_CATEGORIES = [
     rules: [
       "191. Legal, housing, police, court, and insurance matters require preventive urgency.",
       "192. For these matters, waiting can be dangerous because once procedures pass certain steps, damage may become irreversible.",
-      "193. Vivare/housing matters are high priority because losing housing stability threatens both Robert's life and Joyce's work.",
+      "193. Vivare/housing matters are high priority because losing housing stability threatens both the Founder's life and the worker's work.",
       "194. Police/court matters are high priority because they can cause severe consequences with little effort from the institution.",
       "195. A legal reply on Trello must not sit without acknowledgement.",
-      "196. If Robert shares legal replies, Joyce must triage, summarize, and identify next actions.",
+      "196. If the Founder shares legal replies, the worker must triage, summarize, and identify next actions.",
       "197. Legal matters should have their own Trello board or clearly structured card system.",
       "198. Each legal case should have one central hub containing parties, documents, deadlines, correspondence, evidence, and next actions.",
       "199. Legal case information must not remain scattered across WhatsApp, Gmail, Drive, Upwork, Manus, and Trello.",
@@ -432,10 +432,10 @@ export const RULE_CATEGORIES = [
       "201. The first selected lawyer should receive full details and be engaged properly.",
       "202. Backup lawyers should receive polite queue-status emails.",
       "203. If lawyers require phone calls or physical visits, ask whether written/email communication is mandatory or negotiable.",
-      "204. If a lawyer refuses written communication and that does not fit Robert's needs, politely decline and record it.",
-      "205. Record lawyer responses so Jawad and Robert do not contact unsuitable lawyers again.",
-      "206. Do not brief legal freelancers unless Joyce understands the matter well enough.",
-      "207. If Joyce does not understand a legal issue, she and Robert must go through it before she instructs a freelancer.",
+      "204. If a lawyer refuses written communication and that does not fit the Founder's needs, politely decline and record it.",
+      "205. Record lawyer responses so Jawad and the Founder do not contact unsuitable lawyers again.",
+      "206. Do not brief legal freelancers unless the worker understands the matter well enough.",
+      "207. If the worker does not understand a legal issue, she and the Founder must go through it before she instructs a freelancer.",
       "208. For legal matters, written communication is preferred because it creates evidence.",
       "209. If a phone call happens, summarize it in writing afterward.",
       "210. Important legal/admin emails should be copied, linked, or summarized in Trello.",
@@ -484,7 +484,7 @@ export const RULE_CATEGORIES = [
       "231. Wrong folder placement is not a minor issue if the document must be found later.",
       "232. Receipts and invoices should be split and stored per receipt/invoice where appropriate.",
       "233. Drive folders should match Trello/legal/project structures where possible.",
-      "234. Documents should be named so that Robert or Joyce can identify them later without opening each file.",
+      "234. Documents should be named so that the Founder or the worker can identify them later without opening each file.",
       "235. If a freelancer is sorting Drive, they need enough access to work, but not unnecessary access.",
       "236. Drive access should be temporary for freelancers.",
       "237. Files provided by email should be downloaded/saved to Drive if relevant to an ongoing matter.",
@@ -495,13 +495,13 @@ export const RULE_CATEGORIES = [
   {
     id: "O",
     label: "O. Account Access, LastPass, and Security Rules",
-    summary: "How to manage account access, LastPass entries, and security so Joyce is never blocked by a missing login.",
+    summary: "How to manage account access, LastPass entries, and security so the worker is never blocked by a missing login.",
     whyItMatters: "Missing account access is one of the most common causes of task delays. These rules ensure every recurring account is documented, accessible, and secure.",
     icon: Shield,
     color: "border-slate-400 bg-slate-50/30 dark:bg-slate-950/10",
     iconColor: "bg-slate-100 dark:bg-slate-900/30 text-slate-600 dark:text-slate-400",
     rules: [
-      "240. Joyce needs LastPass access to recurring work accounts, otherwise tasks become blocked.",
+      "240. the worker needs LastPass access to recurring work accounts, otherwise tasks become blocked.",
       "241. Recurring accounts must have complete LastPass entries.",
       "242. Each account entry should include login URL, username/email, password, MFA method, recovery route, and notes.",
       "243. If a verification code is delayed, verify the email route, check spam if possible, then switch tasks while waiting.",
@@ -530,9 +530,9 @@ export const RULE_CATEGORIES = [
       "255. If a client has waited too long, asking for more money becomes risky.",
       "256. For Dutch clients, delivery and task completion often matter more than personal relationship.",
       "257. If failure could cost a major project, the task becomes high priority.",
-      "258. Robert should not promise client-facing quality unless the underlying work is accurate.",
-      "259. Joyce should understand the commercial consequences of client-facing delays.",
-      "260. Recurring work helps fund Joyce, tools, freelancers, and Robert's broader goals.",
+      "258. the Founder should not promise client-facing quality unless the underlying work is accurate.",
+      "259. the worker should understand the commercial consequences of client-facing delays.",
+      "260. Recurring work helps fund the worker, tools, freelancers, and the Founder's broader goals.",
     ],
   },
   {
@@ -558,28 +558,28 @@ export const RULE_CATEGORIES = [
       "272. If a house model is only a placeholder, the designer should still search for a better Dutch-style model within a fixed time window.",
       "273. Tool limitations are not valid excuses if the tool cannot produce accurate dimensions.",
       "274. If the software cannot do accurate technical work, the software is unsuitable.",
-      "275. Before the designer edits, Joyce must verify that he understands the correction document.",
-      "276. If the designer repeatedly misunderstands, Joyce should sit down with him and confirm point-by-point.",
+      "275. Before the designer edits, the worker must verify that he understands the correction document.",
+      "276. If the designer repeatedly misunderstands, the worker should sit down with him and confirm point-by-point.",
       "277. If corrections affect the 3D model, the blueprint measurements must also be updated.",
-      "278. If the project reaches Robert's final boundary, the next version should be treated as client-facing, not another draft for Robert to fix.",
+      "278. If the project reaches the Founder's final boundary, the next version should be treated as client-facing, not another draft for the Founder to fix.",
     ],
   },
   {
     id: "R",
     label: "R. Work Infrastructure Rules",
-    summary: "Rules for maintaining the physical and digital infrastructure Joyce needs to work reliably — power, internet, equipment.",
-    whyItMatters: "Infrastructure failures are operational problems, not personal inconveniences. A power outage that blocks communication affects Robert's work too.",
+    summary: "Rules for maintaining the physical and digital infrastructure the worker needs to work reliably — power, internet, equipment.",
+    whyItMatters: "Infrastructure failures are operational problems, not personal inconveniences. A power outage that blocks communication affects the Founder's work too.",
     icon: Laptop,
     color: "border-cyan-400 bg-cyan-50/30 dark:bg-cyan-950/10",
     iconColor: "bg-cyan-100 dark:bg-cyan-900/30 text-cyan-600 dark:text-cyan-400",
     rules: [
       "279. Infrastructure limitations are operational problems, not merely personal inconveniences.",
       "280. UPS was priority because power outages blocked communication and work.",
-      "281. During power outages, the UPS should be used first to notify Robert and preserve communication.",
+      "281. During power outages, the UPS should be used first to notify the Founder and preserve communication.",
       "282. Do not fully drain the UPS; keep enough power for phone communication.",
       "283. Dual screens are expected to improve context handling and productivity.",
-      "284. If a tool or hardware investment improves reliability, Joyce should report the effect.",
-      "285. If hardware limitations are slowing output, Joyce should raise it as an operational issue.",
+      "284. If a tool or hardware investment improves reliability, the worker should report the effect.",
+      "285. If hardware limitations are slowing output, the worker should raise it as an operational issue.",
       "286. A dedicated work WhatsApp account or setup is useful only if it is monitored consistently.",
       "287. Workspace setup should support focus, clarity, and quick switching between tasks.",
     ],
@@ -587,44 +587,44 @@ export const RULE_CATEGORIES = [
   {
     id: "S",
     label: "S. Personal Performance and Accountability Rules",
-    summary: "How Joyce measures, reports, and improves her own performance — covering accountability, growth, and self-assessment.",
-    whyItMatters: "Trustworthiness is Joyce's biggest strength. These rules define how that trust is maintained and grown through measurable, visible improvement rather than vague promises.",
+    summary: "How the worker measures, reports, and improves her own performance — covering accountability, growth, and self-assessment.",
+    whyItMatters: "Trustworthiness is the worker's biggest strength. These rules define how that trust is maintained and grown through measurable, visible improvement rather than vague promises.",
     icon: Target,
     color: "border-pink-400 bg-pink-50/30 dark:bg-pink-950/10",
     iconColor: "bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400",
     rules: [
-      "288. Joyce's biggest strength is trustworthiness; the next development area is autonomous effectiveness.",
-      "289. Joyce should make progress visible enough that Robert can notice it without asking.",
+      "288. the worker's biggest strength is trustworthiness; the next development area is autonomous effectiveness.",
+      "289. the worker should make progress visible enough that the Founder can notice it without asking.",
       "290. Growth must be measurable, not only promised.",
       "291. 'I will improve communication' is too vague; 'I will update 2-5 Trello cards daily for 4 weeks' is measurable.",
-      "292. Joyce should define indicators for her own improvement and consistency.",
-      "293. If Joyce experiences a dip, she should inform Robert before it becomes operational damage.",
+      "292. the worker should define indicators for her own improvement and consistency.",
+      "293. If the worker experiences a dip, she should inform the Founder before it becomes operational damage.",
       "294. Relapses in responsiveness must be treated as a system problem to solve, not only a personal intention to improve.",
-      "295. Joyce should consult a trusted person or use AI to build consistency systems if needed.",
-      "296. Robert may develop a baseline, merit, and demerit system.",
+      "295. the worker should consult a trusted person or use AI to build consistency systems if needed.",
+      "296. the Founder may develop a baseline, merit, and demerit system.",
       "297. Baseline means no recurring preventable failures.",
       "298. Above-baseline work should be tied to measurable burden reduction, not merely doing more.",
       "299. Below-baseline work may eventually affect pay if agreed and formalized.",
-      "300. Bonus/increase discussions should consider accuracy, speed, independence, progress, and reduced Robert workload.",
-      "301. The key question is: does Robert have to do more or less work than before?",
-      "302. Joyce should not wait for Robert to define the whole performance system alone; she should contribute thoughts.",
+      "300. Bonus/increase discussions should consider accuracy, speed, independence, progress, and reduced the Founder workload.",
+      "301. The key question is: does the Founder have to do more or less work than before?",
+      "302. the worker should not wait for the Founder to define the whole performance system alone; she should contribute thoughts.",
     ],
   },
   {
     id: "T",
     label: "T. Crunch-Time Rules",
     summary: "How to handle rare high-pressure periods when multiple deadlines collide and normal routines must be suspended.",
-    whyItMatters: "Crunch time without structure becomes chaos. These rules ensure that even under extreme pressure, work is prioritized correctly and Robert is never left without a status update.",
+    whyItMatters: "Crunch time without structure becomes chaos. These rules ensure that even under extreme pressure, work is prioritized correctly and the Founder is never left without a status update.",
     icon: Clock,
     color: "border-red-400 bg-red-50/30 dark:bg-red-950/10",
     iconColor: "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400",
     rules: [
       "303. Rare 20–24 hour crunch periods may happen when many deadlines collide.",
       "304. Crunch work should be structured, not chaotic.",
-      "305. If Joyce needs sleep during crunch time, she must hand over status before leaving.",
+      "305. If the worker needs sleep during crunch time, she must hand over status before leaving.",
       "306. A suggested crunch rhythm is 20 hours work, 4 hours sleep, then continue if necessary.",
       "307. During crunch, legal obligations and irreversible-loss items outrank idea development.",
-      "308. If Robert expects Joyce to stay available for a long session, clarify availability and handoff points.",
+      "308. If the Founder expects the worker to stay available for a long session, clarify availability and handoff points.",
       "309. Do not disappear during a crunch without a status note.",
       "310. If multiple AI threads are running, organize tabs and workspaces so the session remains manageable.",
     ],
@@ -633,7 +633,7 @@ export const RULE_CATEGORIES = [
     id: "U",
     label: "U. Browser/Tab/Project-Organization Rules",
     summary: "How to organize browser tabs and desktops by project to prevent context-switching and project mixing.",
-    whyItMatters: "Tab chaos leads to missed updates and project mixing. Grouping tabs by project ensures Joyce can switch context cleanly without losing track of what belongs where.",
+    whyItMatters: "Tab chaos leads to missed updates and project mixing. Grouping tabs by project ensures the worker can switch context cleanly without losing track of what belongs where.",
     icon: Search,
     color: "border-indigo-400 bg-indigo-50/30 dark:bg-indigo-950/10",
     iconColor: "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400",
@@ -642,32 +642,32 @@ export const RULE_CATEGORIES = [
       "312. Each project tab group should contain the intranet page, Manus thread, GitHub repo, Trello card, Drive folder, and relevant notes.",
       "313. Use separate desktops if tab groups are not enough.",
       "314. Do not let tab spam cause project mixing.",
-      "315. If multiple projects are active, clearly define ownership: Robert handles X, Joyce handles Y.",
-      "316. If Joyce cannot track multiple projects, she should work one product at a time or group them strictly.",
+      "315. If multiple projects are active, clearly define ownership: the Founder handles X, the worker handles Y.",
+      "316. If the worker cannot track multiple projects, she should work one product at a time or group them strictly.",
       "317. When creating many Manus threads, maintain a tracking list so work is not duplicated.",
     ],
   },
   {
     id: "V",
     label: "V. Payment and Finance-Administration Rules",
-    summary: "Rules for recording payment changes, equipment costs, and financial agreements between Robert and Joyce.",
+    summary: "Rules for recording payment changes, equipment costs, and financial agreements between the Founder and the worker.",
     whyItMatters: "Financial agreements that are not documented in writing create disputes. These rules ensure every payment change, deduction, and cost-sharing arrangement is recorded clearly.",
     icon: DollarSign,
     color: "border-green-400 bg-green-50/30 dark:bg-green-950/10",
     iconColor: "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400",
     rules: [
       "318. Payment changes should be recorded clearly.",
-      "319. If Robert sends early payment, note the next regular payment date.",
-      "320. If Joyce buys work equipment with Robert's support, clarify total cost, Joyce contribution, Robert contribution, and purpose.",
-      "321. If Joyce incurs travel cost due to a freelancer failing to deliver, Robert may deduct that from the freelancer's compensation if agreed.",
+      "319. If the Founder sends early payment, note the next regular payment date.",
+      "320. If the worker buys work equipment with the Founder's support, clarify total cost, the worker contribution, the Founder contribution, and purpose.",
+      "321. If the worker incurs travel cost due to a freelancer failing to deliver, the Founder may deduct that from the freelancer's compensation if agreed.",
       "322. Do not mix personal and project funds without clarity.",
-      "323. If a tool has metered costs, permission is required before using it for non-Robert work.",
+      "323. If a tool has metered costs, permission is required before using it for non-the Founder work.",
     ],
   },
   {
     id: "W",
     label: "W. Medical / Diagnosis / Dutch-System Research Rules",
-    summary: "How to navigate the Dutch healthcare system when researching medical or diagnosis matters on Robert's behalf.",
+    summary: "How to navigate the Dutch healthcare system when researching medical or diagnosis matters on the Founder's behalf.",
     whyItMatters: "The Dutch referral system has specific rules that, if ignored, lead to wasted calls and dead ends. Understanding the process first saves significant time and avoids frustrating providers.",
     icon: Heart,
     color: "border-rose-400 bg-rose-50/30 dark:bg-rose-950/10",
@@ -685,7 +685,7 @@ export const RULE_CATEGORIES = [
     id: "X",
     label: "X. Written-Communication and Paper-Trail Rules",
     summary: "Why written communication is always preferred over calls, and how to create a traceable paper trail for every important interaction.",
-    whyItMatters: "Calls are hard to prove. Written records protect Robert in legal, insurance, and dispute situations. These rules ensure that every important communication leaves a trace.",
+    whyItMatters: "Calls are hard to prove. Written records protect the Founder in legal, insurance, and dispute situations. These rules ensure that every important communication leaves a trace.",
     icon: Mail,
     color: "border-slate-400 bg-slate-50/30 dark:bg-slate-950/10",
     iconColor: "bg-slate-100 dark:bg-slate-900/30 text-slate-600 dark:text-slate-400",
@@ -693,8 +693,8 @@ export const RULE_CATEGORIES = [
       "330. Written communication is preferred over calls for legal, government, insurance, client, and dispute matters.",
       "331. Calls are harder to prove; emails and texts create traceability.",
       "332. If a call is unavoidable, summarize the result in writing.",
-      "333. Important communications should CC Robert/Joyce where appropriate.",
-      "334. If a freelancer communicates externally, Robert/Joyce should remain in the loop.",
+      "333. Important communications should CC the Founder/the worker where appropriate.",
+      "334. If a freelancer communicates externally, the Founder/the worker should remain in the loop.",
       "335. Sensitive or high-risk emails should be approved before sending unless authority was already given.",
       "336. A paper trail should exist before escalating disputes.",
       "337. Screenshots should be taken before a hostile party deletes or edits information.",
@@ -704,20 +704,20 @@ export const RULE_CATEGORIES = [
     id: "Y",
     label: "Y. Work-Quality Mindset Rules",
     summary: "The mindset standards that define what 'good enough' actually means — and why 'still fine' is not the same as 'done'.",
-    whyItMatters: "Work that requires Robert to inspect and correct is not finished work. These rules define the quality bar: would this make Robert feel relieved, or would he still need to check it?",
+    whyItMatters: "Work that requires the Founder to inspect and correct is not finished work. These rules define the quality bar: would this make the Founder feel relieved, or would he still need to check it?",
     icon: CheckCircle,
     color: "border-violet-400 bg-violet-50/30 dark:bg-violet-950/10",
     iconColor: "bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-400",
     rules: [
-      "338. Do not accept 'this is still fine' if it does not meet Robert's actual standard.",
-      "339. Ask: would this make Robert feel relieved, or would he still need to inspect and correct it?",
-      "340. If the answer is that Robert still needs to inspect heavily, the handover is not yet good enough.",
-      "341. Joyce should develop a sharp eye for shortcomings.",
+      "338. Do not accept 'this is still fine' if it does not meet the Founder's actual standard.",
+      "339. Ask: would this make the Founder feel relieved, or would he still need to inspect and correct it?",
+      "340. If the answer is that the Founder still needs to inspect heavily, the handover is not yet good enough.",
+      "341. the worker should develop a sharp eye for shortcomings.",
       "342. Use AI to increase understanding, not to avoid responsibility.",
-      "343. If Joyce knows only 1%, she should use AI to get to enough understanding to act responsibly.",
+      "343. If the worker knows only 1%, she should use AI to get to enough understanding to act responsibly.",
       "344. Respect opens doors; coherent, complete, informed communication creates respect.",
       "345. Do not treat high standards as optional.",
-      "346. If Robert exports a standard into writing, use it as the operating standard.",
+      "346. If the Founder exports a standard into writing, use it as the operating standard.",
       "347. If a written standard exists, test against it.",
       "348. If a standard is unclear, ask for clarification or use AI to create a checklist.",
     ],
@@ -734,7 +734,7 @@ export const RULE_CATEGORIES = [
       "349. What can be done in 3 minutes, do it now.",
       "350. Say what you do, do what you say.",
       "351. Do not assume silently.",
-      "352. If you need Robert, frame the question for yes/no.",
+      "352. If you need the Founder, frame the question for yes/no.",
       "353. Make progress visible.",
       "354. If blocked, move another task forward.",
       "355. If it matters, put it in Trello.",
@@ -742,7 +742,7 @@ export const RULE_CATEGORIES = [
       "357. If evidence can be lost, preserve it first.",
       "358. If a freelancer becomes risky, remove access first.",
       "359. If the task affects legal/housing/court/police/insurance, treat it as preventive defense.",
-      "360. If Robert feels burdened, the system needs improvement, not only more effort.",
+      "360. If the Founder feels burdened, the system needs improvement, not only more effort.",
     ],
   },
 ];
@@ -761,67 +761,67 @@ const QUICK_REFERENCE = [
 
 // ─── Full Guide Data ─────────────────────────────────────────────────────────
 const PRIORITY_LEVELS = [
-  { p: "P0", type: "Emergency / irreversible loss", examples: "Legal ultimatum, housing threat, police/court deadline, evidence expiring today, hostile freelancer with access, account security risk", pace: "Immediate (0–15 min)", update: "WhatsApp Robert if needed + Trello update as soon as safe", color: "bg-red-600" },
-  { p: "P1", type: "Same-day urgent", examples: "Client-facing deadline, insurance submission, lawyer needs documents, freelancer blocked today, bike-shed final version, ASR/IND evidence", pace: "Same day — before routine work", update: "Trello update today. WhatsApp if Robert must decide", color: "bg-orange-500" },
-  { p: "P2", type: "Dependency unblocker", examples: "Freelancer needs answer, Robert decision needed, Drive access required, missing file, Trello card unclear", pace: "Within 2–4 working hours", update: "Short status and next checkpoint", color: "bg-amber-500" },
+  { p: "P0", type: "Emergency / irreversible loss", examples: "Legal ultimatum, housing threat, police/court deadline, evidence expiring today, hostile freelancer with access, account security risk", pace: "Immediate (0–15 min)", update: "WhatsApp the Founder if needed + Trello update as soon as safe", color: "bg-red-600" },
+  { p: "P1", type: "Same-day urgent", examples: "Client-facing deadline, insurance submission, lawyer needs documents, freelancer blocked today, bike-shed final version, ASR/IND evidence", pace: "Same day — before routine work", update: "Trello update today. WhatsApp if the Founder must decide", color: "bg-orange-500" },
+  { p: "P2", type: "Dependency unblocker", examples: "Freelancer needs answer, the Founder decision needed, Drive access required, missing file, Trello card unclear", pace: "Within 2–4 working hours", update: "Short status and next checkpoint", color: "bg-amber-500" },
   { p: "P3", type: "Normal scheduled work", examples: "Trello cleanup, Drive sorting, Loom/ScreenPal batches without same-day expiry, routine inbox work", pace: "Within 24–48 hours or scheduled block", update: "Daily card update if touched", color: "bg-blue-500" },
   { p: "P4", type: "Improvement / maintenance", examples: "Better templates, process cleanup, tool polish, training notes, non-urgent website treatment", pace: "Schedule weekly or after P0–P3", update: "Weekly or completion update", color: "bg-emerald-500" },
   { p: "P5", type: "Ideas / optional / personal growth", examples: "Future concepts, exploratory research, optional AI experiments, personal websites using approved tools", pace: "Only after obligations are stable", update: "No urgent update unless it affects work", color: "bg-slate-500" },
 ];
 
 const TASK_TYPE_FULL = [
-  { type: "Housing / Vivare", priority: "P0–P1", action: "Prevent harm before procedure advances. Keep lawyer, documents, Trello, and Drive current.", robert: "Yes/no decisions only; urgent WhatsApp with card link" },
-  { type: "Court / police / legal deadline", priority: "P0–P1", action: "Triage immediately. Identify deadline, document set, party, and next legal action.", robert: "Ask for approval only after preparing recommendation" },
-  { type: "Insurance / claim / stolen property", priority: "P1", action: "Confirm receipt, preserve evidence, attach receipts/photos/bank proof, track missing items.", robert: "Ask specific yes/no questions on evidence inclusion" },
-  { type: "Expiring evidence", priority: "P0–P1", action: "Download, back up, upload, and track counts before anything routine.", robert: "Notify only if deadline/risk requires decision" },
-  { type: "Client-facing deliverable", priority: "P1", action: "Verify quality, completeness, and acceptance criteria before sending.", robert: "Only ask Robert for final yes/no or missing preference" },
-  { type: "Freelancer blocked", priority: "P1–P2", action: "Unblock with files, access, clarification, or yes/no from Robert.", robert: "Only if Joyce cannot decide safely" },
-  { type: "Problematic freelancer / access risk", priority: "P0", action: "Remove access first, preserve evidence, then notify/escalate.", robert: "Notify Robert before or immediately after if risk is active" },
-  { type: "Software/tool testing", priority: "P2–P3", action: "Test against real workflow, not demo. List fixes vs recommendations.", robert: "Bring only decision points or scope/payment questions" },
-  { type: "Trello/Drive cleanup", priority: "P2–P3", action: "Make work visible and findable. Update links and status.", robert: "No unless Robert must decide structure" },
-  { type: "Inbox / notification cleanup", priority: "P3", action: "Archive clutter, save relevant emails to Trello/Drive.", robert: "No unless legal/client message requires decision" },
-  { type: "Ideas / product development", priority: "P4–P5", action: "Use Manus/AI only after urgent obligations. Scope first, build later.", robert: "Ask before metered credits or major direction choices" },
+  { type: "Housing / Vivare", priority: "P0–P1", action: "Prevent harm before procedure advances. Keep lawyer, documents, Trello, and Drive current.", "the Founder": "Yes/no decisions only; urgent WhatsApp with card link" },
+  { type: "Court / police / legal deadline", priority: "P0–P1", action: "Triage immediately. Identify deadline, document set, party, and next legal action.", "the Founder": "Ask for approval only after preparing recommendation" },
+  { type: "Insurance / claim / stolen property", priority: "P1", action: "Confirm receipt, preserve evidence, attach receipts/photos/bank proof, track missing items.", "the Founder": "Ask specific yes/no questions on evidence inclusion" },
+  { type: "Expiring evidence", priority: "P0–P1", action: "Download, back up, upload, and track counts before anything routine.", "the Founder": "Notify only if deadline/risk requires decision" },
+  { type: "Client-facing deliverable", priority: "P1", action: "Verify quality, completeness, and acceptance criteria before sending.", "the Founder": "Only ask the Founder for final yes/no or missing preference" },
+  { type: "Freelancer blocked", priority: "P1–P2", action: "Unblock with files, access, clarification, or yes/no from the Founder.", "the Founder": "Only if the worker cannot decide safely" },
+  { type: "Problematic freelancer / access risk", priority: "P0", action: "Remove access first, preserve evidence, then notify/escalate.", "the Founder": "Notify the Founder before or immediately after if risk is active" },
+  { type: "Software/tool testing", priority: "P2–P3", action: "Test against real workflow, not demo. List fixes vs recommendations.", "the Founder": "Bring only decision points or scope/payment questions" },
+  { type: "Trello/Drive cleanup", priority: "P2–P3", action: "Make work visible and findable. Update links and status.", "the Founder": "No unless the Founder must decide structure" },
+  { type: "Inbox / notification cleanup", priority: "P3", action: "Archive clutter, save relevant emails to Trello/Drive.", "the Founder": "No unless legal/client message requires decision" },
+  { type: "Ideas / product development", priority: "P4–P5", action: "Use Manus/AI only after urgent obligations. Scope first, build later.", "the Founder": "Ask before metered credits or major direction choices" },
 ];
 
 const PACE_RULES = [
   "Immediate means now, not later today. Stop lower-priority work and stabilize the risk.",
-  "Same day means Joyce must either complete the action or provide a clear recovery update before the day ends.",
+  "Same day means the worker must either complete the action or provide a clear recovery update before the day ends.",
   "Within 24 hours means no message, Trello update, freelancer reply, or third-party dependency should silently pass one full day.",
   "If a task takes less than three minutes and is safe to do, do it immediately.",
   "If a task cannot be done now, put the next action and follow-up time in Trello.",
   "If blocked by waiting, move to another task and leave a visible status.",
-  "If Robert needs to decide, send the card link and yes/no question instead of a broad request to review everything.",
+  "If the Founder needs to decide, send the card link and yes/no question instead of a broad request to review everything.",
   "If a deadline is unclear, convert it into a concrete date, time, or checkpoint.",
 ];
 
-const ROBERT_BRANCH = [
-  { step: "1", q: "Can Joyce decide safely from existing rules?", action: "If yes, decide and update Trello. If no, continue." },
-  { step: "2", q: "Is the issue urgent today?", action: "If yes, WhatsApp Robert with the Trello link. If no, place in daily close-out." },
+const FOUNDER_BRANCH = [
+  { step: "1", q: "Can the worker decide safely from existing rules?", action: "If yes, decide and update Trello. If no, continue." },
+  { step: "2", q: "Is the issue urgent today?", action: "If yes, WhatsApp the Founder with the Trello link. If no, place in daily close-out." },
   { step: "3", q: "Can the question be yes/no?", action: "Convert it into yes/no. If complex, ask several yes/no questions." },
-  { step: "4", q: "Is Robert being asked to review too much?", action: "Summarize the issue, give recommendation, ask for approval." },
-  { step: "5", q: "No reply from Robert?", action: "Follow up within 24h, sooner if legal/client/urgent." },
+  { step: "4", q: "Is the Founder being asked to review too much?", action: "Summarize the issue, give recommendation, ask for approval." },
+  { step: "5", q: "No reply from the Founder?", action: "Follow up within 24h, sooner if legal/client/urgent." },
 ];
 
-const ROBERT_TEMPLATES = [
-  "Robert, decision needed on [card link]. I recommend [action]. Approve? Yes / No.",
-  "Robert, I found two options. My recommendation is Option A because [reason]. Approve A? Yes / No.",
-  "Robert, I reviewed the document. I need 5 decisions: 1) include X? Yes/No. 2) attach Y? Yes/No. 3) send today? Yes/No.",
+const FOUNDER_TEMPLATES = [
+  "the Founder, decision needed on [card link]. I recommend [action]. Approve? Yes / No.",
+  "the Founder, I found two options. My recommendation is Option A because [reason]. Approve A? Yes / No.",
+  "the Founder, I reviewed the document. I need 5 decisions: 1) include X? Yes/No. 2) attach Y? Yes/No. 3) send today? Yes/No.",
 ];
 
 const FREELANCER_STANDARD = [
-  { situation: "Freelancer needs a file, access, or clarification", priority: "P1–P2", action: "Provide it or ask Robert in yes/no format", escalation: "If blocked longer than 24h, escalate" },
+  { situation: "Freelancer needs a file, access, or clarification", priority: "P1–P2", action: "Provide it or ask the Founder in yes/no format", escalation: "If blocked longer than 24h, escalate" },
   { situation: "Freelancer misses update once", priority: "P2", action: "Send warning/follow-up and set a new exact deadline", escalation: "Record in Trello" },
-  { situation: "Freelancer misses twice", priority: "P1–P2", action: "Escalate. Set final appointment or replacement path", escalation: "Notify Robert with recommendation" },
-  { situation: "Freelancer misses three times", priority: "P1", action: "Default is termination/replacement unless Robert says otherwise", escalation: "Prepare paper trail" },
-  { situation: "Freelancer becomes hostile or access-risky", priority: "P0", action: "Remove access first, preserve evidence, then notify/escalate", escalation: "Tell Robert immediately" },
+  { situation: "Freelancer misses twice", priority: "P1–P2", action: "Escalate. Set final appointment or replacement path", escalation: "Notify the Founder with recommendation" },
+  { situation: "Freelancer misses three times", priority: "P1", action: "Default is termination/replacement unless the Founder says otherwise", escalation: "Prepare paper trail" },
+  { situation: "Freelancer becomes hostile or access-risky", priority: "P0", action: "Remove access first, preserve evidence, then notify/escalate", escalation: "Tell the Founder immediately" },
   { situation: "Freelancer says task is done", priority: "P2–P3", action: "Test against actual workflow and acceptance criteria", escalation: "List fixes, not recommendations, if scope is incomplete" },
 ];
 
 const FREELANCER_ONE_CHANCE = [
-  { situation: "Freelancer needs a file, access, or clarification", priority: "P1–P2", action: "Provide it or ask Robert in yes/no format", escalation: "If blocked longer than 24h, escalate" },
-  { situation: "Freelancer misses an update, meeting, or agreed checkpoint once", priority: "P1–P2", action: "Treat this as the one and only chance: send a final warning/recovery checkpoint with exact deadline and record it in Trello", escalation: "Notify Robert with recommendation if the miss affects legal, client, money, or timeline risk" },
-  { situation: "Freelancer misses the final recovery checkpoint or repeats the failure", priority: "P1", action: "Prepare contract termination/replacement. Do not keep giving extra chances unless Robert explicitly overrides", escalation: "Preserve paper trail. Remove access first if there is any account, code, Drive, Trello, or security risk" },
-  { situation: "Freelancer becomes hostile or access-risky", priority: "P0", action: "Remove access first, preserve evidence, then notify/escalate", escalation: "Tell Robert immediately" },
+  { situation: "Freelancer needs a file, access, or clarification", priority: "P1–P2", action: "Provide it or ask the Founder in yes/no format", escalation: "If blocked longer than 24h, escalate" },
+  { situation: "Freelancer misses an update, meeting, or agreed checkpoint once", priority: "P1–P2", action: "Treat this as the one and only chance: send a final warning/recovery checkpoint with exact deadline and record it in Trello", escalation: "Notify the Founder with recommendation if the miss affects legal, client, money, or timeline risk" },
+  { situation: "Freelancer misses the final recovery checkpoint or repeats the failure", priority: "P1", action: "Prepare contract termination/replacement. Do not keep giving extra chances unless the Founder explicitly overrides", escalation: "Preserve paper trail. Remove access first if there is any account, code, Drive, Trello, or security risk" },
+  { situation: "Freelancer becomes hostile or access-risky", priority: "P0", action: "Remove access first, preserve evidence, then notify/escalate", escalation: "Tell the Founder immediately" },
   { situation: "Freelancer says task is done", priority: "P2–P3", action: "Test against actual workflow and acceptance criteria", escalation: "List fixes, not recommendations, if scope is incomplete" },
 ];
 
@@ -830,15 +830,15 @@ const TRELLO_DRIVE_RULES = [
   "Every active freelancer card must show freelancer, role, Upwork link, deadline, latest update, and blocker.",
   "Every important file must be in the correct Drive folder and linked in Trello.",
   "If a task exists only in WhatsApp, convert it to Trello or attach it to an existing card.",
-  "If Robert needs urgent attention, update Trello first, then WhatsApp the card link.",
+  "If the Founder needs urgent attention, update Trello first, then WhatsApp the card link.",
   "If Drive and Trello disagree, fix the mismatch or state clearly which is source of truth.",
 ];
 
 const DAILY_ORDER_FULL = [
   { order: "1", check: "Any P0 emergency?", action: "Handle immediately" },
   { order: "2", check: "Any P1 due today/overdue?", action: "Work before routine tasks" },
-  { order: "3", check: "Anyone blocked by Joyce?", action: "Unblock or send status" },
-  { order: "4", check: "Any Robert decision needed?", action: "Prepare yes/no WhatsApp + Trello link" },
+  { order: "3", check: "Anyone blocked by the worker?", action: "Unblock or send status" },
+  { order: "4", check: "Any the Founder decision needed?", action: "Prepare yes/no WhatsApp + Trello link" },
   { order: "5", check: "Any 24h follow-ups due?", action: "Follow up with freelancers/third parties" },
   { order: "6", check: "Any expiring evidence or access issue?", action: "Preserve/remove/secure before normal work" },
   { order: "7", check: "Scheduled Trello/Drive/admin work?", action: "Proceed in time blocks" },
@@ -846,12 +846,12 @@ const DAILY_ORDER_FULL = [
 ];
 
 const EXAMPLES = [
-  { scenario: "Vivare lawyer deadline already passed", priority: "P0", pace: "Immediate", action: "Stop normal work. Send Honore lawyer all required documents. WhatsApp Robert only if a yes/no decision is needed." },
+  { scenario: "Vivare lawyer deadline already passed", priority: "P0", pace: "Immediate", action: "Stop normal work. Send Honore lawyer all required documents. WhatsApp the Founder only if a yes/no decision is needed." },
   { scenario: "ScreenPal videos may be deleted by deadline", priority: "P0/P1", pace: "Immediate/same day", action: "Download, back up, track counts, delegate if possible, update Trello." },
-  { scenario: "Bike shed client-ready version due tomorrow", priority: "P1", pace: "Same day", action: "Verify final corrections, confirm designer understands, update Robert before deadline." },
-  { scenario: "Freelancer asks for missing Drive access", priority: "P2", pace: "Within hours", action: "Grant correct temporary access or ask Robert yes/no if sensitive." },
-  { scenario: "Robert sends WhatsApp task during workday", priority: "P2/P3", pace: "Acknowledge quickly", action: "React/reply, then convert to Trello if it cannot be done immediately." },
-  { scenario: "Waiting for verification code", priority: "P3 unless urgent", pace: "Do not idle", action: "Notify Robert, switch task or let Robert use PC until code arrives." },
+  { scenario: "Bike shed client-ready version due tomorrow", priority: "P1", pace: "Same day", action: "Verify final corrections, confirm designer understands, update the Founder before deadline." },
+  { scenario: "Freelancer asks for missing Drive access", priority: "P2", pace: "Within hours", action: "Grant correct temporary access or ask the Founder yes/no if sensitive." },
+  { scenario: "the Founder sends WhatsApp task during workday", priority: "P2/P3", pace: "Acknowledge quickly", action: "React/reply, then convert to Trello if it cannot be done immediately." },
+  { scenario: "Waiting for verification code", priority: "P3 unless urgent", pace: "Do not idle", action: "Notify the Founder, switch task or let the Founder use PC until code arrives." },
   { scenario: "Routine inbox notifications", priority: "P3", pace: "Scheduled block", action: "Archive clutter, save relevant emails to Trello/Drive." },
   { scenario: "New product idea website treatment", priority: "P4/P5", pace: "After obligations", action: "Scope first. Use unmetered tools freely; ask before metered credits." },
 ];
@@ -859,7 +859,7 @@ const EXAMPLES = [
 const QUICK_REFERENCE_FULL = [
   { condition: "Permanent loss is possible", action: "Stop and act now" },
   { condition: "Legal/housing/police/court/insurance/client risk exists", action: "Treat as P0/P1 and prevent escalation" },
-  { condition: "Robert is needed", action: "Send recommendation + yes/no question + Trello link" },
+  { condition: "the Founder is needed", action: "Send recommendation + yes/no question + Trello link" },
   { condition: "Freelancer is waiting", action: "Unblock within hours or explain blocker" },
   { condition: "No reply for 24 hours", action: "Follow up" },
   { condition: "Freelancer is risky", action: "Remove access before confrontation" },
@@ -868,7 +868,7 @@ const QUICK_REFERENCE_FULL = [
   { condition: "AI/thread/tool is busy", action: "Move to another useful task" },
   { condition: "Task takes under 3 minutes", action: "Do it now, if safe" },
   { condition: "The issue is broken agreed functionality", action: "Call it a fix, not a recommendation" },
-  { condition: "Joyce is overloaded or personally affected", action: "Tell Robert early with a reduced-output plan" },
+  { condition: "the worker is overloaded or personally affected", action: "Tell the Founder early with a reduced-output plan" },
 ];
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -1044,7 +1044,7 @@ export default function DecisionsTab() {
                 <div>
                   <h3 className="font-semibold text-sm text-foreground mb-1">The One-Chance Rule (Freelancers)</h3>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Freelancers receive <strong className="text-foreground">one clear, complete brief</strong>. If they misunderstand a brief that was unambiguous, do not repeat the same explanation. Escalate to Robert or replace the freelancer. Repeated misunderstanding after a clear brief is a signal — not a one-time mistake.
+                    Freelancers receive <strong className="text-foreground">one clear, complete brief</strong>. If they misunderstand a brief that was unambiguous, do not repeat the same explanation. Escalate to the Founder or replace the freelancer. Repeated misunderstanding after a clear brief is a signal — not a one-time mistake.
                   </p>
                   <div className="mt-2 space-y-1">
                     <p className="text-xs text-foreground font-medium">Before applying the One-Chance Rule, verify:</p>
@@ -1111,7 +1111,7 @@ export default function DecisionsTab() {
                 </div>
               </div>
               <p className="text-slate-300 text-xs leading-relaxed mt-2">
-                Purpose: convert the rules from Robert and Joyce's conversations into a day-to-day decision tree. The goal is not only to finish tasks, but to reduce Robert's burden, protect against legal/client loss, and make progress visible.
+                Purpose: convert the rules from the Founder and the worker's conversations into a day-to-day decision tree. The goal is not only to finish tasks, but to reduce the Founder's burden, protect against legal/client loss, and make progress visible.
               </p>
             </div>
           </Card>
@@ -1123,14 +1123,14 @@ export default function DecisionsTab() {
                 <span className="w-5 h-5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-[10px] font-bold flex items-center justify-center flex-shrink-0">1</span>
                 The Master Rule
               </h3>
-              <p className="text-xs text-muted-foreground mb-3 italic">At any moment Joyce should ask: Which action prevents the greatest loss, unblocks the most people, or gives Robert the clearest visible relief?</p>
+              <p className="text-xs text-muted-foreground mb-3 italic">At any moment the worker should ask: Which action prevents the greatest loss, unblocks the most people, or gives the Founder the clearest visible relief?</p>
               <div className="space-y-1.5">
                 {[
                   "If failure could cause permanent loss, legal harm, evidence loss, housing risk, police/court escalation, client loss, or account/security damage: act immediately.",
-                  "If someone is blocked by Joyce, unblock them before starting lower-risk work.",
-                  "If Robert must decide, convert the issue into a recommendation plus yes/no questions.",
+                  "If someone is blocked by the worker, unblock them before starting lower-risk work.",
+                  "If the Founder must decide, convert the issue into a recommendation plus yes/no questions.",
                   "If a task was touched today, update the Trello card today.",
-                  "If waiting, do not idle. Switch task, prepare a fallback, or hand the PC back to Robert.",
+                  "If waiting, do not idle. Switch task, prepare a fallback, or hand the PC back to the Founder.",
                 ].map((rule, i) => (
                   <div key={i} className="flex items-start gap-2 p-2 bg-red-50 dark:bg-red-950/20 rounded-lg">
                     <AlertTriangle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
@@ -1188,7 +1188,7 @@ export default function DecisionsTab() {
                       <p className="font-semibold text-xs text-foreground">{row.type}</p>
                     </div>
                     <p className="text-xs text-muted-foreground mb-1"><span className="font-medium text-foreground">Action:</span> {row.action}</p>
-                    <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Robert:</span> {row.robert}</p>
+                    <p className="text-xs text-muted-foreground"><span className="font-medium text-foreground">"the Founder":</span> {row["the Founder"]}</p>
                   </div>
                 ))}
               </div>
@@ -1213,16 +1213,16 @@ export default function DecisionsTab() {
             </CardContent>
           </Card>
 
-          {/* 6. Robert Decision Branch */}
+          {/* 6. the Founder Decision Branch */}
           <Card className="border-0 shadow-sm">
             <CardContent className="p-4">
               <h3 className="font-bold text-sm text-foreground mb-3 flex items-center gap-2">
                 <span className="w-5 h-5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 text-[10px] font-bold flex items-center justify-center flex-shrink-0">6</span>
-                Robert-Decision Branch
+                the Founder-Decision Branch
               </h3>
-              <p className="text-xs text-muted-foreground mb-3">Use this branch whenever Joyce thinks she needs Robert.</p>
+              <p className="text-xs text-muted-foreground mb-3">Use this branch whenever the worker thinks she needs the Founder.</p>
               <div className="space-y-2 mb-4">
-                {ROBERT_BRANCH.map((item) => (
+                {FOUNDER_BRANCH.map((item) => (
                   <div key={item.step} className="flex items-start gap-3 p-3 bg-muted/30 rounded-xl">
                     <span className="w-6 h-6 rounded-full bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 text-xs font-bold flex items-center justify-center flex-shrink-0">{item.step}</span>
                     <div>
@@ -1235,7 +1235,7 @@ export default function DecisionsTab() {
               <div className="bg-slate-50 dark:bg-slate-900/40 rounded-xl p-3">
                 <p className="text-xs font-semibold text-foreground mb-2">Standard message formats:</p>
                 <div className="space-y-1.5">
-                  {ROBERT_TEMPLATES.map((tmpl, i) => (
+                  {FOUNDER_TEMPLATES.map((tmpl, i) => (
                     <div key={i} className="flex items-start gap-2">
                       <MessageSquare className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
                       <p className="text-xs text-muted-foreground font-mono">{tmpl}</p>
@@ -1281,7 +1281,7 @@ export default function DecisionsTab() {
                   <div className="flex items-start gap-2">
                     <Info className="w-3.5 h-3.5 text-rose-600 flex-shrink-0 mt-0.5" />
                     <p className="text-xs text-rose-700 dark:text-rose-300 leading-relaxed">
-                      <strong>One-chance rule:</strong> A freelancer does not receive three chances. One missed update, meeting, or agreed checkpoint becomes the final recovery chance. If the freelancer misses that recovery checkpoint or repeats the failure, Joyce prepares termination/replacement unless Robert explicitly overrides.
+                      <strong>One-chance rule:</strong> A freelancer does not receive three chances. One missed update, meeting, or agreed checkpoint becomes the final recovery chance. If the freelancer misses that recovery checkpoint or repeats the failure, the worker prepares termination/replacement unless the Founder explicitly overrides.
                     </p>
                   </div>
                 </div>
@@ -1358,7 +1358,7 @@ export default function DecisionsTab() {
                   "Completed today:",
                   "Still open:",
                   "Blocked:",
-                  "Waiting on Robert:",
+                  "Waiting on the Founder:",
                   "Waiting on freelancer / third party:",
                   "Urgent tomorrow:",
                   "Cards updated today:",
@@ -1431,7 +1431,7 @@ export default function DecisionsTab() {
                 <div>
                   <h3 className="font-bold text-sm text-foreground mb-1">13. Final Practical Rule</h3>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    When uncertain, Joyce should choose the action that most clearly <strong className="text-foreground">prevents loss</strong>, <strong className="text-foreground">unblocks another person</strong>, or <strong className="text-foreground">gives Robert visible relief</strong>. Then document the action in Trello.
+                    When uncertain, the worker should choose the action that most clearly <strong className="text-foreground">prevents loss</strong>, <strong className="text-foreground">unblocks another person</strong>, or <strong className="text-foreground">gives the Founder visible relief</strong>. Then document the action in Trello.
                   </p>
                 </div>
               </div>
@@ -1475,7 +1475,7 @@ export default function DecisionsTab() {
                   "What can be done in 3 minutes, do it now.",
                   "Say what you do, do what you say.",
                   "Do not assume silently.",
-                  "If you need Robert, frame the question for yes/no.",
+                  "If you need the Founder, frame the question for yes/no.",
                   "Make progress visible.",
                   "If blocked, move another task forward.",
                   "If it matters, put it in Trello.",
@@ -1483,7 +1483,7 @@ export default function DecisionsTab() {
                   "If evidence can be lost, preserve it first.",
                   "If a freelancer becomes risky, remove access first.",
                   "If the task affects legal/housing/court/police/insurance, treat it as preventive defense.",
-                  "If Robert feels burdened, the system needs improvement, not only more effort.",
+                  "If the Founder feels burdened, the system needs improvement, not only more effort.",
                 ].map((rule, idx) => (
                   <div key={idx} className="flex items-start gap-2 p-2.5 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg">
                     <CheckCircle className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0 mt-0.5" />

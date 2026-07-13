@@ -3,9 +3,11 @@ import RecentUpdatesWidget from "@/components/manus/RecentUpdatesWidget";
 import { InfoTooltip } from "@/components/manus/InfoTooltip";
 import ActionAlerts from "@/components/manus/ActionAlerts";
 import RobertDecisionQueue from "@/components/manus/RobertDecisionQueue";
+import { ConversationDialog } from "@/components/ConversationDialog";
 import TimeTracker from "@/components/manus/TimeTracker";
 import WebhookHealthPanel from "@/components/manus/WebhookHealthPanel";
 import TriagePage, { useTriageCounts } from "./TriagePage";
+import TasksTab from "./TasksTab";
 import DecisionsTab from "./RulesTab";
 import StandardsTab from "./StandardsTab";
 import PaymentTracker from "./PaymentTracker";
@@ -18,6 +20,12 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { TaskCard } from "@/components/TaskCard";
+import { Task } from "@/types";
+import { useAuth } from "@/_core/hooks/useAuth";
 import {
   Sidebar,
   SidebarContent,
@@ -57,6 +65,9 @@ import {
   Settings,
   BookOpen,
   Battery,
+  ListTodo,
+  RefreshCw,
+  Calendar,
   Target,
   Heart,
   ChevronDown,
@@ -253,7 +264,7 @@ function TrelloCommentTokenSettings() {
   });
   const setTokenMutation = trpc.trello.setCommentToken.useMutation({
     onSuccess: () => {
-      toast.success(tokenInput.trim() ? "Comment token saved — comments will now post as Joyce" : "Comment token cleared — using default board token");
+      toast.success(tokenInput.trim() ? "Comment token saved — comments will now post as Worker" : "Comment token cleared — using default board token");
       setTokenInput("");
       setIsEditing(false);
       refetch();
@@ -296,12 +307,12 @@ function TrelloCommentTokenSettings() {
         <div className="mb-3 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
           <strong>Comments are currently posting as the board owner.</strong> This means comment detection
           relies on the <code className="font-mono text-[10px] bg-amber-500/20 px-1 rounded">@joyjemimajj1</code> mention workaround.
-          Set Joyce's personal token below so comments post directly under her account — this is the most reliable setup.
+          Set Worker's personal token below so comments post directly under her account — this is the most reliable setup.
         </div>
       )}
 
       <p className="text-xs text-muted-foreground mb-4">
-        To get Joyce's token: go to{" "}
+        To get Worker's token: go to{" "}
         <a
           href={`https://trello.com/1/authorize?expiration=never&scope=read,write&response_type=token&key=080b27d4a815fa368e0a5f004dca9718`}
           target="_blank"
@@ -310,14 +321,14 @@ function TrelloCommentTokenSettings() {
         >
           this Trello authorization page
         </a>
-        {" "}while logged in as Joyce, click <strong>Allow</strong>, and paste the token below.
+        {" "}while logged in as Worker, click <strong>Allow</strong>, and paste the token below.
       </p>
       <div className="flex items-center gap-3 mb-4">
         {tokenData?.isSet ? (
           <>
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
               <CheckCircle className="w-3.5 h-3.5" />
-              Joyce's personal token active — comments post as Joyce
+              Worker's personal token active — comments post as Worker
             </span>
             <code className="text-xs text-muted-foreground bg-muted/50 px-2 py-0.5 rounded font-mono">
               {tokenData.preview}
@@ -334,7 +345,7 @@ function TrelloCommentTokenSettings() {
         <div className="space-y-3">
           <input
             type="password"
-            placeholder="Paste Joyce's Trello token here…"
+            placeholder="Paste Worker's Trello token here…"
             value={tokenInput}
             onChange={(e) => setTokenInput(e.target.value)}
             className="w-full h-9 text-sm border border-border rounded-md bg-background text-foreground px-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono"
@@ -420,7 +431,7 @@ function DailyGoalSettings() {
         Daily Hour Goal
       </h3>
       <p className="text-xs text-muted-foreground mb-4">
-        Set Joyce's daily target hours. The Time Tracker progress ring, bar chart dashed line, and "goal met" colouring all update automatically. Recommended range: 9–10 hours/day. Overtime is still tracked if she goes past 10h.
+        Set Worker's daily target hours. The Time Tracker progress ring, bar chart dashed line, and "goal met" colouring all update automatically. Recommended range: 9–10 hours/day. Overtime is still tracked if she goes past 10h.
       </p>
       <div className="flex items-center gap-4">
         <div className="flex-1">
@@ -521,7 +532,7 @@ function DailyScheduleSettings({ onGoToSchedule }: { onGoToSchedule?: () => void
         )}
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        Configure Joyce's work start/end time and break slots. The Day Timeline updates automatically.
+        Configure Worker's work start/end time and break slots. The Day Timeline updates automatically.
       </p>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
@@ -751,7 +762,7 @@ function OperationalPoliciesSettings() {
 
 // ─── Default Action Rules Settings (GAP E) ─────────────────────────────────
 const APTLSS_STATES = [
-  "NEW_UNTRIAGED", "READY_TO_START", "IN_PROGRESS", "WAITING_FOR_JOYCE",
+  "NEW_UNTRIAGED", "READY_TO_START", "IN_PROGRESS", "WAITING_FOR_WORKER",
   "WAITING_FOR_ROBERT", "WAITING_FOR_EXTERNAL_PARTY", "BLOCKED_BY_OTHER_CARD",
   "STALLED", "OVERDUE", "READY_FOR_REVIEW", "READY_FOR_DONE",
   "DONE_CONFIRMED", "NEEDS_RESTRUCTURING", "NEEDS_ARCHIVE",
@@ -761,7 +772,7 @@ const BUILT_IN_DEFAULT_ACTIONS: Record<string, string> = {
   NEW_UNTRIAGED: "Generate an APTLSS plan to break this card into actionable steps.",
   READY_TO_START: "Pick the highest-priority open step and start working on it.",
   IN_PROGRESS: "Continue the current open step. Update checklist when done.",
-  WAITING_FOR_JOYCE: "Answer the pending question in the card comments.",
+  WAITING_FOR_WORKER: "Answer the pending question in the card comments.",
   WAITING_FOR_ROBERT: "Notify Robert that a decision is needed on this card.",
   WAITING_FOR_EXTERNAL_PARTY: "Check if the follow-up deadline has passed. If yes, send a follow-up message.",
   BLOCKED_BY_OTHER_CARD: "Check the blocking card. If resolved, unblock and resume.",
@@ -1298,10 +1309,11 @@ function RoutineSection() {
 }
 
 // ─── Section definitions ───────────────────────────────────────────────────
-type Section = "overview" | "triage" | "decisions" | "routine" | "performance" | "standards" | "sunday" | "settings";
+type Section = "overview" | "tasks" | "triage" | "decisions" | "routine" | "performance" | "standards" | "sunday" | "settings";
 
 const NAV_ITEMS: { id: Section; label: string; icon: React.ElementType; badge?: "compliance" }[] = [
   { id: "overview",    label: "Overview",       icon: Activity },
+  { id: "tasks",       label: "Tasks",          icon: ListTodo },
   { id: "triage",      label: "Triage",         icon: Zap },
   { id: "decisions",   label: "Decisions",      icon: GitBranch },
   { id: "routine",     label: "Daily Schedule", icon: Clock },
@@ -1311,11 +1323,11 @@ const NAV_ITEMS: { id: Section; label: string; icon: React.ElementType; badge?: 
   { id: "settings",    label: "Settings",       icon: Settings },
 ];
 
-const SIDEBAR_WIDTH_KEY = "joyce-sidebar-width";
+const SIDEBAR_WIDTH_KEY = "worker-sidebar-width";
 const DEFAULT_WIDTH = 220;
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 320;
-const ACTIVE_SECTION_KEY = "joyce-active-section";
+const ACTIVE_SECTION_KEY = "worker-active-section";
 
 // ─── Today's logged hours chip for the sidebar ─────────────────────────────
 function TodayHoursChip() {
@@ -1337,23 +1349,34 @@ function TodayHoursChip() {
 
 // ─── Inner layout (needs useSidebar) ────────────────────────────────────────
 function HomeInner() {
+  const { logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
 
   const [activeSection, setActiveSection] = useState<Section>(() => {
     const saved = localStorage.getItem(ACTIVE_SECTION_KEY) as Section | null;
-    const validSections: Section[] = ["overview", "triage", "decisions", "routine", "performance", "standards", "sunday", "settings"];
+    const validSections: Section[] = ["overview", "tasks", "triage", "decisions", "routine", "performance", "standards", "sunday", "settings"];
     return (saved && validSections.includes(saved)) ? saved : "overview";
   });
   const [isHeroExpanded, setIsHeroExpanded] = useState(() => {
     const saved = localStorage.getItem('heroExpanded');
     return saved === null ? false : saved === 'true';
   });
+  const [conversationCard, setConversationCard] = useState<{ cardId: string; cardName: string } | null>(null);
+
+  // Listen for conversation dialog events from TaskCard
+  useEffect(() => {
+    const handleOpenConversations = (e: CustomEvent<{ cardId: string; cardName: string }>) => {
+      setConversationCard(e.detail);
+    };
+    window.addEventListener('openConversations', handleOpenConversations as EventListener);
+    return () => window.removeEventListener('openConversations', handleOpenConversations as EventListener);
+  }, []);
 
   const { data: weeklyHours, isLoading: hoursLoading } = trpc.trello.weeklyHours.useQuery();
   const { data: recentUpdates, isLoading: updatesLoading } = trpc.trello.recentUpdates.useQuery();
-  const { data: streakData } = trpc.streak.get.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const { data: streakData } = trpc.streak.get.useQuery({}, { staleTime: 5 * 60_000 });
 
   const progressColor = useMemo(() => {
     if (!weeklyHours) return getProgressColor(0);
@@ -1389,7 +1412,7 @@ function HomeInner() {
               <span className="text-white font-bold text-sm">J</span>
             </div>
             {!isCollapsed && (
-              <span className="font-semibold text-sm tracking-tight truncate text-foreground">Joyce's Dashboard</span>
+              <span className="font-semibold text-sm tracking-tight truncate text-foreground">Worker's Dashboard</span>
             )}
           </div>
         </SidebarHeader>
@@ -1448,15 +1471,7 @@ function HomeInner() {
               <ProjectedPayChip />
             </div>
           )}
-          {!isCollapsed && (
-            <a
-              href="/robert"
-              className="flex items-center gap-1.5 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-lg px-3 py-2 transition-colors"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-orange-500 shrink-0"></span>
-              <span className="text-xs font-medium text-orange-700 dark:text-orange-400">Robert's Dashboard</span>
-            </a>
-          )}
+
         </SidebarFooter>
       </Sidebar>
 
@@ -1468,7 +1483,7 @@ function HomeInner() {
             <div className="flex items-center gap-3">
               <SidebarTrigger className="h-8 w-8 rounded-lg" />
               <div>
-                <h1 className="text-base font-bold text-foreground tracking-tight leading-none">Joyce's Work Dashboard</h1>
+                <h1 className="text-base font-bold text-foreground tracking-tight leading-none">Worker's Work Dashboard</h1>
                 <p className="text-[11px] text-muted-foreground mt-0.5">Performance &amp; Schedule Hub</p>
               </div>
             </div>
@@ -1487,6 +1502,14 @@ function HomeInner() {
                 className="h-8 w-8 rounded-lg"
               >
                 {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => logout()}
+                className="h-8 w-8 rounded-lg text-muted-foreground hover:text-destructive"
+              >
+                <LogOut className="h-4 w-4" />
               </Button>
             </div>
           </div>
@@ -1526,7 +1549,7 @@ function HomeInner() {
                     </Button>
                   </div>
                   <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-                    Joyce, your role is not just a job — it's the key to my growth beyond the limits I've reached alone.
+                    Worker, your role is not just a job — it's the key to my growth beyond the limits I've reached alone.
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {[
@@ -1559,6 +1582,8 @@ function HomeInner() {
           </>)}
 
           {/* ═══ SECTION CONTENT ═══ */}
+          {activeSection === "tasks" && <TasksTab />}
+
           {activeSection === "triage" && <TriagePage />}
 
           {activeSection === "decisions" && <DecisionsTab />}
@@ -1696,6 +1721,14 @@ function HomeInner() {
         <span className="font-medium text-sm">Open Trello</span>
         <ExternalLink className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100" />
       </a>
+
+      {/* Conversation Dialog */}
+      <ConversationDialog
+        open={!!conversationCard}
+        onOpenChange={(open) => !open && setConversationCard(null)}
+        cardId={conversationCard?.cardId || null}
+        cardName={conversationCard?.cardName || null}
+      />
     </>
   );
 }

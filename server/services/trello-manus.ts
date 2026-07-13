@@ -351,6 +351,31 @@ export async function getWorkerBoards(apiKey: string, apiToken: string): Promise
   }
 }
 
+export async function getWeeklyHours(apiKey: string, apiToken: string, trelloMemberId?: string): Promise<{
+  totalHours: number;
+  targetMin: number;
+  targetMax: number;
+  weekStart: string;
+  weekEnd: string;
+}> {
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - now.getDay()); // Start of week (Sunday)
+
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 6); // End of week (Saturday)
+
+  return {
+    totalHours: 0, // Placeholder
+    targetMin: 50,
+    targetMax: 55,
+    weekStart: weekStart.toISOString(),
+    weekEnd: weekEnd.toISOString(),
+  };
+}
+
+
+
 export interface TrelloWebhook {
   id: string;
   description: string;

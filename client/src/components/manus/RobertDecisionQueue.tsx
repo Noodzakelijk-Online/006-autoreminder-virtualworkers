@@ -23,13 +23,13 @@ export default function RobertDecisionQueue() {
   const { data, isLoading } = trpc.aptlss.getDecisionQueue.useQuery(undefined, {
     staleTime: 5 * 60_000,
   });
-  const resolveMutation = trpc.aptlss.resolveRobertStep.useMutation({
+  const resolveMutation = trpc.aptlss.resolveFounderStep.useMutation({
     onSuccess: () => {
       utils.aptlss.getDecisionQueue.invalidate();
       utils.aptlss.getRisksAndExceptions.invalidate();
       toast.success("Decision marked as resolved");
     },
-    onError: (e) => toast.error(`Failed to resolve: ${e.message}`),
+    onError: (e: any) => toast.error(`Failed to resolve: ${e.message}`),
   });
   const [resolving, setResolving] = useState<number | null>(null);
 
@@ -51,7 +51,7 @@ export default function RobertDecisionQueue() {
             </div>
             <div>
               <h3 className="text-sm font-semibold text-foreground">Robert Decision Queue</h3>
-              <p className="text-[10px] text-muted-foreground">Steps awaiting Robert's input before Joyce can proceed</p>
+              <p className="text-[10px] text-muted-foreground">Steps awaiting Robert's input before the worker can proceed</p>
             </div>
           </div>
           {items.length > 0 && (
@@ -114,7 +114,7 @@ export default function RobertDecisionQueue() {
                         className="h-6 px-2 text-[10px] text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-600"
                         disabled={isResolvingThis}
                         onClick={() => handleResolve(item.stepId!)}
-                        title="Mark this decision as resolved — Joyce can now proceed"
+                        title="Mark this decision as resolved — the worker can now proceed"
                       >
                         {isResolvingThis ? (
                           <Loader2 className="w-3 h-3 animate-spin" />

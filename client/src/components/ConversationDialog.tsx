@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -53,6 +53,20 @@ export function ConversationDialog({
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+
+  useEffect(() => {
+    if (conversations.length > 0) {
+      scrollToBottom();
+    }
+  }, [conversations]);
 
   const loadConversations = async () => {
     if (!cardId) return;
@@ -184,20 +198,22 @@ export function ConversationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <MessageSquare className="h-5 w-5" />
+      <DialogContent className="max-w-2xl max-h-[90vh] !flex !flex-col p-4 sm:p-6">
+        <DialogHeader className="space-y-1">
+          <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <MessageSquare className="h-5 w-5 text-primary" />
             Conversations
           </DialogTitle>
-          <DialogDescription className="flex items-center justify-between">
-            <span className="truncate">{cardName || 'Card conversations'}</span>
+          <DialogDescription className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs sm:text-sm">
+            <span className="truncate max-w-[280px] sm:max-w-[400px] font-medium text-foreground/80">
+              {cardName || 'Card conversations'}
+            </span>
             {cardId && (
               <a
                 href={`https://trello.com/c/${cardId}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-primary hover:underline flex items-center gap-1"
+                className="text-xs text-primary hover:underline flex items-center gap-1 shrink-0"
               >
                 <ExternalLink className="h-3 w-3" />
                 View in Trello
@@ -228,7 +244,7 @@ export function ConversationDialog({
         </div>
 
         {/* Conversations List */}
-        <ScrollArea className="flex-1 min-h-[300px]">
+        <ScrollArea className="flex-1 min-h-0 h-0 pr-2">
           {loading ? (
             <div className="space-y-4 p-4">
               {[1, 2, 3].map((i) => (
@@ -291,6 +307,7 @@ export function ConversationDialog({
                   </div>
                 </div>
               ))}
+              <div ref={messagesEndRef} />
             </div>
           )}
         </ScrollArea>
