@@ -6,7 +6,7 @@ export function useTriageCounts(queriesEnabled = true) {
     staleTime: 5 * 60_000,
   });
   const replyCount = data?.replyMonitorEnabled
-    ? data.pendingThreads + data.vagueFlags + data.unsignedFlags
+    ? data.pendingThreads + data.vagueFlags + data.unsignedFlags + data.clarificationCount
     : 0;
   const emailCount = data?.emailCount ?? 0;
   const followUpCount = data?.followUpCount ?? 0;

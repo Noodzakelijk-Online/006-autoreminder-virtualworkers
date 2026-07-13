@@ -42,22 +42,38 @@ describe("compliance history ranges", () => {
   });
 
   it("builds reconciled performance signals from verified daily facts", () => {
+    const communication = {
+      messageTotal: 0,
+      messageReplied: 0,
+      messageNeedsClarification: 0,
+      emailTotal: 0,
+      emailCompleted: 0,
+      emailNeedsClarification: 0,
+      clarificationOpen: 0,
+    };
     const summary = summarizeComplianceRange([
-      { ...row("2026-07-13", 75), onHoldTotal: 2, onHoldReviewed: 1, doingTotal: 2, doingUpdated: 2, evidenceCount: 4, verificationStatus: "verified" },
-      { ...row("2026-07-12", 100, false), onHoldTotal: 0, onHoldReviewed: 0, doingTotal: 0, doingUpdated: 0, evidenceCount: 0, verificationStatus: "verified_protected" },
-      { ...row("2026-07-11", 100), onHoldTotal: 1, onHoldReviewed: 1, doingTotal: 1, doingUpdated: 1, evidenceCount: 2, verificationStatus: "verified" },
+      { ...row("2026-07-13", 75), ...communication, messageTotal: 2, messageReplied: 1, messageNeedsClarification: 1, clarificationOpen: 1, onHoldTotal: 2, onHoldReviewed: 1, doingTotal: 2, doingUpdated: 2, evidenceCount: 6, verificationStatus: "needs_clarification" },
+      { ...row("2026-07-12", 100, false), ...communication, onHoldTotal: 0, onHoldReviewed: 0, doingTotal: 0, doingUpdated: 0, evidenceCount: 0, verificationStatus: "verified_protected" },
+      { ...row("2026-07-11", 100), ...communication, emailTotal: 1, emailCompleted: 1, onHoldTotal: 1, onHoldReviewed: 1, doingTotal: 1, doingUpdated: 1, evidenceCount: 3, verificationStatus: "verified" },
     ]);
 
     expect(summary).toEqual({
       average: 88,
-      verifiedDays: 3,
+      verifiedDays: 2,
       requiredDays: 2,
       protectedDays: 1,
       fullyCompliantDays: 1,
-      expectedChecks: 6,
-      passedChecks: 5,
+      expectedChecks: 8,
+      passedChecks: 7,
       missingEvidence: 1,
-      evidenceRecords: 6,
+      evidenceRecords: 9,
+      openClarifications: 1,
+      messageResponseRate: 100,
+      messagesReplied: 1,
+      messagesExpected: 1,
+      emailCompletionRate: 100,
+      emailsCompleted: 1,
+      emailsExpected: 1,
     });
   });
 });

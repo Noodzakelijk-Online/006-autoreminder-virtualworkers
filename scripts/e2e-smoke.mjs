@@ -42,6 +42,24 @@ async function clickButton(text) {
   if (!clicked) throw new Error(`Button not found: ${text}`);
 }
 
+async function clickTab(text) {
+  const tabs = await page.$$('[role="tab"]');
+  let target = null;
+  for (const tab of tabs) {
+    if ((await tab.evaluate((item) => item.textContent?.trim())) === text) {
+      target = tab;
+      break;
+    }
+  }
+  if (!target) throw new Error(`Tab not found: ${text}`);
+  await target.click();
+  await page.waitForFunction(
+    (label) => [...document.querySelectorAll('[role="tab"]')].some((item) => item.textContent?.trim() === label && item.getAttribute("data-state") === "active"),
+    { timeout: 5_000 },
+    text,
+  );
+}
+
 try {
   await page.setViewport({ width: 1440, height: 1000, deviceScaleFactor: 1 });
   const response = await page.goto(baseUrl, { waitUntil: "networkidle2", timeout: 30_000 });
@@ -110,9 +128,10 @@ try {
   await page.screenshot({ path: path.join(outputDir, "desktop-waiting-reason-dark.png"), fullPage: false });
   await page.keyboard.press("Escape");
   await page.waitForSelector('[data-testid="waiting-reason-inspector"]', { hidden: true, timeout: 5_000 });
+  await page.click('[data-testid="reply-monitor-tab"]');
+  await waitForText("Reply Monitor");
+  await page.screenshot({ path: path.join(outputDir, "desktop-reply-accountability-dark.png"), fullPage: true });
   if (process.env.E2E_RUN_REPLY_SCAN === "1") {
-    await page.click('[data-testid="reply-monitor-tab"]');
-    await waitForText("Reply Monitor");
     await page.click('[data-testid="reply-monitor-scan"]');
     await page.waitForFunction(
       () => document.querySelector('[data-testid="reply-monitor-status"]')?.textContent?.includes("Last successful scan"),
@@ -121,6 +140,10 @@ try {
   }
   await clickButton("Time & Pay");
   await waitForText("Keep daily time, payment administration");
+  await clickTab("Quality history");
+  await waitForText("Source-backed cards, response rates, and email processing");
+  await page.waitForFunction(() => !document.body?.innerText.includes("Loading compliance history"), { timeout: 30_000 });
+  await page.screenshot({ path: path.join(outputDir, "desktop-compliance-history-dark.png"), fullPage: true });
   await clickButton("Standards");
   await waitForText("Priority Playbook");
   await clickButton("Settings");
@@ -156,6 +179,7 @@ try {
   await clickButton("Toggle Sidebar");
   await clickButton("Inbox");
   await waitForText("Process one intake source at a time");
+  await clickTab("Work Intake");
   const mobileOnHoldToggle = await page.$('button[aria-label$="Review ON-HOLD Cards"]');
   if (!mobileOnHoldToggle) throw new Error("Mobile ON-HOLD review toggle was not found.");
   if ((await mobileOnHoldToggle.evaluate((element) => element.getAttribute("aria-expanded"))) !== "true") await mobileOnHoldToggle.click();
@@ -174,8 +198,8 @@ try {
   console.log(JSON.stringify({
     ok: true,
     url: page.url(),
-    screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "desktop-waiting-reason-dark.png", "desktop-aptlss-health-dark.png", "mobile-waiting-reason.png"].map((name) => path.join(outputDir, name)),
-    checks: ["single-user access", "Today", "card inspector", "Day plan", "Inbox", "waiting reason inspector", "Decisions classifier 7/7", "Time & Pay", "Standards", "Settings", "APTLSS intelligence health", "assessment review gate", "dark mode", "desktop overflow", "mobile overflow", "console"],
+    screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "desktop-waiting-reason-dark.png", "desktop-reply-accountability-dark.png", "desktop-compliance-history-dark.png", "desktop-aptlss-health-dark.png", "mobile-waiting-reason.png"].map((name) => path.join(outputDir, name)),
+    checks: ["single-user access", "Today", "card inspector", "Day plan", "Inbox", "waiting reason inspector", "Reply accountability", "Decisions classifier 7/7", "Time & Pay", "communication compliance history", "Standards", "Settings", "APTLSS intelligence health", "assessment review gate", "dark mode", "desktop overflow", "mobile overflow", "console"],
   }, null, 2));
 } catch (error) {
   const failurePath = path.join(outputDir, "failure.png");

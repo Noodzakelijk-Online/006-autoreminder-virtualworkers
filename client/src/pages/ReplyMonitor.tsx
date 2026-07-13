@@ -403,6 +403,8 @@ export default function ReplyMonitor() {
   const [visibleThreadHistoryCount, setVisibleThreadHistoryCount] = useState(PAGE_SIZE);
   const [visibleVagueHistoryCount, setVisibleVagueHistoryCount] = useState(PAGE_SIZE);
   const [visibleUnsignedHistoryCount, setVisibleUnsignedHistoryCount] = useState(PAGE_SIZE);
+  const [clarificationResponse, setClarificationResponse] = useState("");
+  const [clarificationResolution, setClarificationResolution] = useState<"completed" | "not_completed" | "not_required">("completed");
 
   // The server scans every 15 minutes and pushes completion over SSE. This
   // 30-minute poll is only a fallback for a missed push event.
@@ -426,6 +428,10 @@ export default function ReplyMonitor() {
   const { data: allThreads = [] } = trpc.replyMonitor.getAllThreads.useQuery({ limit: 50 });
   const { data: allVagueFlags = [] } = trpc.replyMonitor.getAllVagueFlags.useQuery({ limit: 50 });
   const { data: allUnsignedFlags = [] } = trpc.replyMonitor.getAllUnsignedFlags.useQuery({ limit: 50 });
+  const { data: clarifications = [], error: clarificationError } = trpc.compliance.getClarifications.useQuery(
+    { status: "open", limit: 100 },
+    { refetchInterval: 5 * 60_000 },
+  );
   const activeDataError = threadsError ?? flagsError ?? unsignedError ?? statusError;
   const lastSuccessfulAt = scanStatus?.lastSuccessfulAt ? new Date(scanStatus.lastSuccessfulAt) : null;
   const scanAgeMs = lastSuccessfulAt ? Date.now() - lastSuccessfulAt.getTime() : Number.POSITIVE_INFINITY;
@@ -469,10 +475,25 @@ export default function ReplyMonitor() {
     onError: (error) => toast.error("Reply scan failed", { description: error.message }),
   });
 
+  const resolveClarification = trpc.compliance.resolveClarification.useMutation({
+    onSuccess: async () => {
+      setClarificationResponse("");
+      setClarificationResolution("completed");
+      await Promise.all([
+        utils.compliance.getClarifications.invalidate(),
+        utils.compliance.getHistory.invalidate(),
+        utils.compliance.getCommunicationEvidence.invalidate(),
+      ]);
+      toast.success("Compliance update recorded.");
+    },
+    onError: (error) => toast.error("Could not record the update", { description: error.message }),
+  });
+
   const overdueCount = pendingThreads.filter(t => t.status === "overdue").length;
   const pendingCount = pendingThreads.filter(t => t.status === "pending").length;
   const activeFlagCount = activeVagueFlags.length;
   const activeUnsignedCount = activeUnsignedFlags.length;
+  const activeClarification = clarifications[0];
 
   return (
     <div className="space-y-5">
@@ -504,6 +525,68 @@ export default function ReplyMonitor() {
           {triggerScan.isPending ? "Scanning..." : "Scan Now"}
         </Button>
       </div>
+
+      {activeClarification && (
+        <Card className="border-amber-500/50 bg-amber-500/5" data-testid="compliance-clarification">
+          <CardContent className="space-y-4 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+                  <p className="text-sm font-semibold text-foreground">Joyce update required now</p>
+                  <Badge variant="outline" className="border-amber-500/40 text-amber-700 dark:text-amber-400">
+                    {clarifications.length} open
+                  </Badge>
+                </div>
+                <p className="mt-2 text-sm font-medium text-foreground">{activeClarification.title}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{activeClarification.question}</p>
+              </div>
+              <Badge variant="secondary" className="shrink-0 capitalize">{activeClarification.channel}</Badge>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3" role="group" aria-label="Clarification outcome">
+              {([
+                ["completed", "Completed"],
+                ["not_completed", "Not completed"],
+                ["not_required", "Not required"],
+              ] as const).map(([value, label]) => (
+                <Button key={value} type="button" size="sm" variant={clarificationResolution === value ? "default" : "outline"} onClick={() => setClarificationResolution(value)}>
+                  {label}
+                </Button>
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="compliance-update">What exactly happened?</Label>
+              <Textarea
+                id="compliance-update"
+                value={clarificationResponse}
+                onChange={(event) => setClarificationResponse(event.target.value)}
+                placeholder="State what you did, when you did it, and where the evidence can be found."
+                className="min-h-20"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] text-muted-foreground">This update becomes part of the permanent compliance evidence.</p>
+              <Button
+                type="button"
+                size="sm"
+                disabled={clarificationResponse.trim().length < 10 || resolveClarification.isPending}
+                onClick={() => resolveClarification.mutate({ id: activeClarification.id, resolution: clarificationResolution, response: clarificationResponse })}
+              >
+                {resolveClarification.isPending ? "Recording..." : "Record update"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {clarificationError && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="flex items-start gap-3 p-4">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <div><p className="text-sm font-semibold text-foreground">Compliance questions unavailable</p><p className="mt-1 text-xs text-muted-foreground">The queue could not verify whether Joyce has outstanding evidence requests.</p></div>
+          </CardContent>
+        </Card>
+      )}
 
       {activeDataError && (
         <Card className="border-destructive/40 bg-destructive/5">

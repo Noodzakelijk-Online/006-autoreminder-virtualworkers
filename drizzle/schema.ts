@@ -249,6 +249,15 @@ export const dailyComplianceSnapshots = mysqlTable("daily_compliance_snapshots",
   doingTotal: int("doingTotal").notNull().default(0),
   doingUpdated: int("doingUpdated").notNull().default(0),
   doingMissedCards: text("doingMissedCards"),              // JSON array of {id,name,url}
+  messageTotal: int("messageTotal").notNull().default(0),
+  messageReplied: int("messageReplied").notNull().default(0),
+  messageMissed: int("messageMissed").notNull().default(0),
+  messageNeedsClarification: int("messageNeedsClarification").notNull().default(0),
+  emailTotal: int("emailTotal").notNull().default(0),
+  emailCompleted: int("emailCompleted").notNull().default(0),
+  emailMissed: int("emailMissed").notNull().default(0),
+  emailNeedsClarification: int("emailNeedsClarification").notNull().default(0),
+  clarificationOpen: int("clarificationOpen").notNull().default(0),
   d1Instances: int("d1Instances").notNull().default(0),   // number of D1 demerits added
   estimatedPenalty: decimal("estimatedPenalty", { precision: 8, scale: 2 }).notNull().default("0.00"),
   source: varchar("source", { length: 16 }).notNull().default("auto"), // 'auto' | 'manual'
@@ -295,6 +304,60 @@ export const complianceCardEvidence = mysqlTable("compliance_card_evidence", {
 
 export type ComplianceCardEvidence = typeof complianceCardEvidence.$inferSelect;
 export type InsertComplianceCardEvidence = typeof complianceCardEvidence.$inferInsert;
+
+/** Per-message and per-email facts included in one daily compliance snapshot. */
+export const complianceCommunicationEvidence = mysqlTable("compliance_communication_evidence", {
+  id: int("id").autoincrement().primaryKey(),
+  snapshotDate: date("snapshotDate").notNull(),
+  evidenceKey: varchar("evidenceKey", { length: 256 }).notNull(),
+  kind: mysqlEnum("kind", ["message_response", "email_processing"]).notNull(),
+  channel: varchar("channel", { length: 64 }).notNull(),
+  externalId: varchar("externalId", { length: 256 }).notNull(),
+  title: varchar("title", { length: 1024 }).notNull(),
+  sourceUrl: varchar("sourceUrl", { length: 1024 }),
+  occurredAt: timestamp("occurredAt").notNull(),
+  dueAt: timestamp("dueAt"),
+  outcome: mysqlEnum("outcome", ["verified", "missed", "needs_clarification", "excluded"]).notNull(),
+  evidenceType: varchar("evidenceType", { length: 64 }).notNull(),
+  evidenceAt: timestamp("evidenceAt"),
+  evidenceJson: text("evidenceJson").notNull(),
+  verifiedAt: timestamp("verifiedAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("compliance_comm_date_key_unique").on(table.snapshotDate, table.evidenceKey),
+  index("compliance_comm_date_kind_outcome_idx").on(table.snapshotDate, table.kind, table.outcome),
+  index("compliance_comm_external_idx").on(table.channel, table.externalId),
+]);
+
+export type ComplianceCommunicationEvidence = typeof complianceCommunicationEvidence.$inferSelect;
+export type InsertComplianceCommunicationEvidence = typeof complianceCommunicationEvidence.$inferInsert;
+
+/** Immediate accountability questions created when source evidence cannot prove an outcome. */
+export const complianceClarificationRequests = mysqlTable("compliance_clarification_requests", {
+  id: int("id").autoincrement().primaryKey(),
+  snapshotDate: date("snapshotDate").notNull(),
+  evidenceKey: varchar("evidenceKey", { length: 256 }).notNull(),
+  kind: mysqlEnum("kind", ["message_response", "email_processing"]).notNull(),
+  channel: varchar("channel", { length: 64 }).notNull(),
+  externalId: varchar("externalId", { length: 256 }).notNull(),
+  title: varchar("title", { length: 1024 }).notNull(),
+  question: text("question").notNull(),
+  status: mysqlEnum("status", ["open", "resolved", "superseded"]).notNull().default("open"),
+  resolution: mysqlEnum("resolution", ["completed", "not_completed", "not_required"]),
+  response: text("response"),
+  requestedAt: timestamp("requestedAt").defaultNow().notNull(),
+  respondedAt: timestamp("respondedAt"),
+  resolvedAt: timestamp("resolvedAt"),
+  sourceJson: text("sourceJson").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  uniqueIndex("compliance_clarification_date_key_unique").on(table.snapshotDate, table.evidenceKey),
+  index("compliance_clarification_status_requested_idx").on(table.status, table.requestedAt),
+]);
+
+export type ComplianceClarificationRequest = typeof complianceClarificationRequests.$inferSelect;
 
 /**
  * Tracks Trello card comment threads where someone else commented last.

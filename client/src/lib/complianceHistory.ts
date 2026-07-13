@@ -22,6 +22,13 @@ export interface ComplianceSummaryDatum extends ComplianceHistoryDatum {
   onHoldReviewed: number;
   doingTotal: number;
   doingUpdated: number;
+  messageTotal: number;
+  messageReplied: number;
+  messageNeedsClarification: number;
+  emailTotal: number;
+  emailCompleted: number;
+  emailNeedsClarification: number;
+  clarificationOpen: number;
   evidenceCount: number;
   verificationStatus: string;
 }
@@ -36,6 +43,13 @@ export interface ComplianceRangeSummary {
   passedChecks: number;
   missingEvidence: number;
   evidenceRecords: number;
+  openClarifications: number;
+  messageResponseRate: number;
+  messagesReplied: number;
+  messagesExpected: number;
+  emailCompletionRate: number;
+  emailsCompleted: number;
+  emailsExpected: number;
 }
 
 export interface ComplianceChartBucket {
@@ -85,8 +99,16 @@ export function complianceRangeAverage(rows: ComplianceHistoryDatum[]) {
 
 export function summarizeComplianceRange(rows: ComplianceSummaryDatum[]): ComplianceRangeSummary {
   const requiredRows = rows.filter((row) => row.required);
-  const expectedChecks = requiredRows.reduce((sum, row) => sum + row.onHoldTotal + row.doingTotal, 0);
-  const passedChecks = requiredRows.reduce((sum, row) => sum + row.onHoldReviewed + row.doingUpdated, 0);
+  const expectedChecks = requiredRows.reduce((sum, row) => sum
+    + row.onHoldTotal + row.doingTotal
+    + Math.max(0, row.messageTotal - row.messageNeedsClarification)
+    + Math.max(0, row.emailTotal - row.emailNeedsClarification), 0);
+  const passedChecks = requiredRows.reduce((sum, row) => sum
+    + row.onHoldReviewed + row.doingUpdated + row.messageReplied + row.emailCompleted, 0);
+  const messagesExpected = requiredRows.reduce((sum, row) => sum + Math.max(0, row.messageTotal - row.messageNeedsClarification), 0);
+  const messagesReplied = requiredRows.reduce((sum, row) => sum + row.messageReplied, 0);
+  const emailsExpected = requiredRows.reduce((sum, row) => sum + Math.max(0, row.emailTotal - row.emailNeedsClarification), 0);
+  const emailsCompleted = requiredRows.reduce((sum, row) => sum + row.emailCompleted, 0);
   return {
     average: average(rows),
     verifiedDays: rows.filter((row) => row.verificationStatus.startsWith("verified")).length,
@@ -97,6 +119,13 @@ export function summarizeComplianceRange(rows: ComplianceSummaryDatum[]): Compli
     passedChecks,
     missingEvidence: Math.max(0, expectedChecks - passedChecks),
     evidenceRecords: rows.reduce((sum, row) => sum + row.evidenceCount, 0),
+    openClarifications: rows.reduce((sum, row) => sum + row.clarificationOpen, 0),
+    messageResponseRate: messagesExpected === 0 ? 100 : Math.round((messagesReplied / messagesExpected) * 100),
+    messagesReplied,
+    messagesExpected,
+    emailCompletionRate: emailsExpected === 0 ? 100 : Math.round((emailsCompleted / emailsExpected) * 100),
+    emailsCompleted,
+    emailsExpected,
   };
 }
 

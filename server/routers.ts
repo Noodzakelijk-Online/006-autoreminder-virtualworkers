@@ -5,6 +5,12 @@ import { ownerProcedure as protectedProcedure, router } from "./_core/trpc";
 import { runAptlssMaintenance } from "./scheduledAptlssMaintenance";
 import { runTrackedJob } from "./scheduledJobsDb";
 import { factCheckComplianceHistory } from "./complianceHistoryFactCheck";
+import {
+  ComplianceClarificationError,
+  getComplianceClarifications,
+  getComplianceCommunicationEvidenceByDate,
+  resolveComplianceClarification,
+} from "./complianceCommunicationDb";
 import { replyMonitorRouter } from "./replyMonitorRouter";
 import { powerUpRouter } from "./powerUpRouter";
 import { APTLSS_ASSESSMENT_VERSION, APTLSS_NEAR_CERTAINTY_TARGET } from "./aptlssAssessment";
@@ -756,6 +762,38 @@ export const appRouter = router({
     getEvidence: protectedProcedure
       .input(z.object({ dateKey: dateKeySchema }))
       .query(async ({ input }) => getComplianceEvidenceByDate(input.dateKey)),
+
+    /** Get the message and email facts behind one daily score. */
+    getCommunicationEvidence: protectedProcedure
+      .input(z.object({ dateKey: dateKeySchema }))
+      .query(async ({ input }) => getComplianceCommunicationEvidenceByDate(input.dateKey)),
+
+    /** Immediate Joyce updates required because source evidence was inconclusive. */
+    getClarifications: protectedProcedure
+      .input(z.object({ status: z.enum(["open", "resolved", "all"]).default("open"), limit: z.number().int().min(1).max(500).default(100) }).optional())
+      .query(async ({ input }) => getComplianceClarifications(input?.status ?? "open", input?.limit ?? 100)),
+
+    resolveClarification: protectedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        resolution: z.enum(["completed", "not_completed", "not_required"]),
+        response: z.string().trim().min(10).max(4_000),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          const result = await resolveComplianceClarification(input);
+          broadcast("compliance-invalidate");
+          return result;
+        } catch (error) {
+          if (error instanceof ComplianceClarificationError) {
+            throw new TRPCError({
+              code: error.code === "NOT_FOUND" ? "NOT_FOUND" : error.code === "ALREADY_RESOLVED" ? "CONFLICT" : "BAD_REQUEST",
+              message: error.message,
+            });
+          }
+          throw error;
+        }
+      }),
 
     /** Get average compliance % for a specific week. */
     getWeekAvg: protectedProcedure

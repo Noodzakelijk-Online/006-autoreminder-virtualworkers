@@ -51,6 +51,11 @@ export function useOperationalEvents() {
       void utils.emailInbox.getAll.invalidate();
       void utils.settings.getGmailIngestion.invalidate();
     };
+    const onComplianceChange = () => {
+      void utils.compliance.getHistory.invalidate();
+      void utils.compliance.getClarifications.invalidate();
+      void utils.compliance.getCommunicationEvidence.invalidate();
+    };
     const onJobsChange = () => {
       void utils.system.scheduledJobFreshness.invalidate();
     };
@@ -61,6 +66,7 @@ export function useOperationalEvents() {
     events.addEventListener("scan-complete", onReplyScan);
     events.addEventListener("aptlss-invalidate", onAptlssChange);
     events.addEventListener("gmail-invalidate", onGmailChange);
+    events.addEventListener("compliance-invalidate", onComplianceChange);
     events.addEventListener("jobs-invalidate", onJobsChange);
     return () => events.close();
   }, [utils]);

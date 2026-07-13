@@ -1,6 +1,12 @@
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { complianceCardEvidence, InsertUser, users } from "../drizzle/schema";
+import {
+  complianceCardEvidence,
+  complianceClarificationRequests,
+  complianceCommunicationEvidence,
+  InsertUser,
+  users,
+} from "../drizzle/schema";
 import { addDaysToDateKey, dateKeyInEat, eatDateRangeUtc, eatDateSpanUtc } from "../shared/eatTime";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1024,6 +1030,15 @@ export interface ComplianceSnapshotRow {
   doingTotal: number;
   doingUpdated: number;
   doingMissedCards: Array<{ id: string; name: string; url: string }>;
+  messageTotal: number;
+  messageReplied: number;
+  messageMissed: number;
+  messageNeedsClarification: number;
+  emailTotal: number;
+  emailCompleted: number;
+  emailMissed: number;
+  emailNeedsClarification: number;
+  clarificationOpen: number;
   d1Instances: number;
   estimatedPenalty: number;
   source: string;
@@ -1046,6 +1061,15 @@ export type ComplianceSnapshotInput = {
   doingTotal: number;
   doingUpdated: number;
   doingMissedCards: Array<{ id: string; name: string; url: string }>;
+  messageTotal?: number;
+  messageReplied?: number;
+  messageMissed?: number;
+  messageNeedsClarification?: number;
+  emailTotal?: number;
+  emailCompleted?: number;
+  emailMissed?: number;
+  emailNeedsClarification?: number;
+  clarificationOpen?: number;
   d1Instances: number;
   estimatedPenalty: number;
   source?: string;
@@ -1075,15 +1099,45 @@ export type ComplianceCardEvidenceInput = {
   verifiedAt: Date;
 };
 
+export type ComplianceCommunicationEvidenceInput = {
+  snapshotDate: string;
+  evidenceKey: string;
+  kind: "message_response" | "email_processing";
+  channel: string;
+  externalId: string;
+  title: string;
+  sourceUrl: string | null;
+  occurredAt: Date;
+  dueAt: Date | null;
+  outcome: "verified" | "missed" | "needs_clarification" | "excluded";
+  evidenceType: string;
+  evidenceAt: Date | null;
+  evidenceJson: string;
+  verifiedAt: Date;
+};
+
 function parseCards(raw: string | null): Array<{ id: string; name: string; url: string }> {
   if (!raw) return [];
   try { return JSON.parse(raw); } catch { return []; }
 }
 
-function calcPct(reviewed: number, updated: number, holdTotal: number, doingTotal: number): number {
-  const total = holdTotal + doingTotal;
+function calcPct(
+  reviewed: number,
+  updated: number,
+  holdTotal: number,
+  doingTotal: number,
+  messageReplied = 0,
+  messageTotal = 0,
+  messageNeedsClarification = 0,
+  emailCompleted = 0,
+  emailTotal = 0,
+  emailNeedsClarification = 0,
+): number {
+  const total = holdTotal + doingTotal
+    + Math.max(0, messageTotal - messageNeedsClarification)
+    + Math.max(0, emailTotal - emailNeedsClarification);
   if (total === 0) return 100;
-  return Math.round(((reviewed + updated) / total) * 100);
+  return Math.round(((reviewed + updated + messageReplied + emailCompleted) / total) * 100);
 }
 
 /**
@@ -1100,14 +1154,27 @@ function complianceSnapshotUpsertQuery(data: ComplianceSnapshotInput) {
   const verificationCutoffAt = data.verificationCutoffAt ?? null;
   const verifiedAt = data.verifiedAt ?? null;
   const evidenceCount = data.evidenceCount ?? 0;
+  const messageTotal = data.messageTotal ?? 0;
+  const messageReplied = data.messageReplied ?? 0;
+  const messageMissed = data.messageMissed ?? 0;
+  const messageNeedsClarification = data.messageNeedsClarification ?? 0;
+  const emailTotal = data.emailTotal ?? 0;
+  const emailCompleted = data.emailCompleted ?? 0;
+  const emailMissed = data.emailMissed ?? 0;
+  const emailNeedsClarification = data.emailNeedsClarification ?? 0;
+  const clarificationOpen = data.clarificationOpen ?? 0;
   return sql`INSERT INTO daily_compliance_snapshots
       (snapshotDate, onHoldTotal, onHoldReviewed, onHoldMissedCards,
        doingTotal, doingUpdated, doingMissedCards,
+       messageTotal, messageReplied, messageMissed, messageNeedsClarification,
+       emailTotal, emailCompleted, emailMissed, emailNeedsClarification, clarificationOpen,
        d1Instances, estimatedPenalty, source, weeklyPayLogId,
        required, verificationStatus, verificationMethod, verificationCutoffAt, verifiedAt, evidenceCount)
     VALUES
       (${data.snapshotDate}, ${data.onHoldTotal}, ${data.onHoldReviewed}, ${holdJson},
        ${data.doingTotal}, ${data.doingUpdated}, ${doingJson},
+       ${messageTotal}, ${messageReplied}, ${messageMissed}, ${messageNeedsClarification},
+       ${emailTotal}, ${emailCompleted}, ${emailMissed}, ${emailNeedsClarification}, ${clarificationOpen},
        ${data.d1Instances}, ${data.estimatedPenalty}, ${src}, ${wplId},
        ${required}, ${verificationStatus}, ${verificationMethod}, ${verificationCutoffAt}, ${verifiedAt}, ${evidenceCount})
     ON DUPLICATE KEY UPDATE
@@ -1117,6 +1184,15 @@ function complianceSnapshotUpsertQuery(data: ComplianceSnapshotInput) {
       doingTotal = VALUES(doingTotal),
       doingUpdated = VALUES(doingUpdated),
       doingMissedCards = VALUES(doingMissedCards),
+      messageTotal = VALUES(messageTotal),
+      messageReplied = VALUES(messageReplied),
+      messageMissed = VALUES(messageMissed),
+      messageNeedsClarification = VALUES(messageNeedsClarification),
+      emailTotal = VALUES(emailTotal),
+      emailCompleted = VALUES(emailCompleted),
+      emailMissed = VALUES(emailMissed),
+      emailNeedsClarification = VALUES(emailNeedsClarification),
+      clarificationOpen = VALUES(clarificationOpen),
       d1Instances = VALUES(d1Instances),
       estimatedPenalty = VALUES(estimatedPenalty),
       source = VALUES(source),
@@ -1139,11 +1215,12 @@ export async function upsertComplianceSnapshot(data: ComplianceSnapshotInput): P
 export async function upsertVerifiedComplianceSnapshot(
   data: ComplianceSnapshotInput,
   evidence: ComplianceCardEvidenceInput[],
+  communication: ComplianceCommunicationEvidenceInput[] = [],
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.transaction(async (tx) => {
-    await tx.execute(complianceSnapshotUpsertQuery({ ...data, evidenceCount: evidence.length }));
+    await tx.execute(complianceSnapshotUpsertQuery({ ...data, evidenceCount: evidence.length + communication.length }));
     await tx.delete(complianceCardEvidence)
       .where(sql`DATE_FORMAT(${complianceCardEvidence.snapshotDate}, '%Y-%m-%d') = ${data.snapshotDate}`);
     if (evidence.length > 0) {
@@ -1151,6 +1228,41 @@ export async function upsertVerifiedComplianceSnapshot(
         ...row,
         snapshotDate: row.snapshotDate as unknown as Date,
       })));
+    }
+    await tx.delete(complianceCommunicationEvidence)
+      .where(sql`DATE_FORMAT(${complianceCommunicationEvidence.snapshotDate}, '%Y-%m-%d') = ${data.snapshotDate}`);
+    if (communication.length > 0) {
+      await tx.insert(complianceCommunicationEvidence).values(communication.map((row) => ({
+        ...row,
+        snapshotDate: row.snapshotDate as unknown as Date,
+      })));
+    }
+
+    await tx.update(complianceClarificationRequests).set({ status: "superseded", updatedAt: new Date() })
+      .where(sql`DATE_FORMAT(${complianceClarificationRequests.snapshotDate}, '%Y-%m-%d') = ${data.snapshotDate} AND ${complianceClarificationRequests.status} = 'open'`);
+    for (const row of communication.filter((item) => item.outcome === "needs_clarification")) {
+      const question = row.kind === "message_response"
+        ? `The system cannot verify whether you replied to ${row.title}. What happened?`
+        : `The system cannot verify whether ${row.title} was replied to or processed and archived. What happened?`;
+      await tx.insert(complianceClarificationRequests).values({
+        snapshotDate: row.snapshotDate as unknown as Date,
+        evidenceKey: row.evidenceKey,
+        kind: row.kind,
+        channel: row.channel,
+        externalId: row.externalId,
+        title: row.title,
+        question,
+        status: "open",
+        sourceJson: row.evidenceJson,
+      }).onDuplicateKeyUpdate({
+        set: {
+          title: row.title,
+          question,
+          sourceJson: row.evidenceJson,
+          status: sql`IF(${complianceClarificationRequests.status} = 'resolved', 'resolved', 'open')`,
+          updatedAt: new Date(),
+        },
+      });
     }
   });
 }
@@ -1166,6 +1278,8 @@ export async function getComplianceHistory(limit = 30): Promise<ComplianceSnapsh
     const rows: any[] = await (db as any).execute(
       `SELECT id, snapshotDate, onHoldTotal, onHoldReviewed, onHoldMissedCards,
               doingTotal, doingUpdated, doingMissedCards,
+              messageTotal, messageReplied, messageMissed, messageNeedsClarification,
+              emailTotal, emailCompleted, emailMissed, emailNeedsClarification, clarificationOpen,
               d1Instances, estimatedPenalty, source, weeklyPayLogId,
               required, verificationStatus, verificationMethod, verificationCutoffAt,
               verifiedAt, evidenceCount, createdAt
@@ -1184,6 +1298,15 @@ export async function getComplianceHistory(limit = 30): Promise<ComplianceSnapsh
       doingTotal: Number(r.doingTotal),
       doingUpdated: Number(r.doingUpdated),
       doingMissedCards: parseCards(r.doingMissedCards),
+      messageTotal: Number(r.messageTotal ?? 0),
+      messageReplied: Number(r.messageReplied ?? 0),
+      messageMissed: Number(r.messageMissed ?? 0),
+      messageNeedsClarification: Number(r.messageNeedsClarification ?? 0),
+      emailTotal: Number(r.emailTotal ?? 0),
+      emailCompleted: Number(r.emailCompleted ?? 0),
+      emailMissed: Number(r.emailMissed ?? 0),
+      emailNeedsClarification: Number(r.emailNeedsClarification ?? 0),
+      clarificationOpen: Number(r.clarificationOpen ?? 0),
       d1Instances: Number(r.d1Instances),
       estimatedPenalty: Number(r.estimatedPenalty),
       source: r.source ?? "auto",
@@ -1194,7 +1317,11 @@ export async function getComplianceHistory(limit = 30): Promise<ComplianceSnapsh
       verificationCutoffAt: r.verificationCutoffAt ? new Date(r.verificationCutoffAt) : null,
       verifiedAt: r.verifiedAt ? new Date(r.verifiedAt) : null,
       evidenceCount: Number(r.evidenceCount ?? 0),
-      compliancePct: calcPct(Number(r.onHoldReviewed), Number(r.doingUpdated), Number(r.onHoldTotal), Number(r.doingTotal)),
+      compliancePct: calcPct(
+        Number(r.onHoldReviewed), Number(r.doingUpdated), Number(r.onHoldTotal), Number(r.doingTotal),
+        Number(r.messageReplied ?? 0), Number(r.messageTotal ?? 0), Number(r.messageNeedsClarification ?? 0),
+        Number(r.emailCompleted ?? 0), Number(r.emailTotal ?? 0), Number(r.emailNeedsClarification ?? 0),
+      ),
       createdAt: r.createdAt instanceof Date ? r.createdAt : new Date(r.createdAt),
     }));
   } catch (e) {
@@ -1396,6 +1523,7 @@ export type NavigationCounts = {
   pendingThreads: number;
   vagueFlags: number;
   unsignedFlags: number;
+  clarificationCount: number;
   emailCount: number;
   followUpCount: number;
   operationalCardCount: number;
@@ -1406,6 +1534,7 @@ const EMPTY_NAVIGATION_COUNTS: NavigationCounts = {
   pendingThreads: 0,
   vagueFlags: 0,
   unsignedFlags: 0,
+  clarificationCount: 0,
   emailCount: 0,
   followUpCount: 0,
   operationalCardCount: 0,
@@ -1422,6 +1551,7 @@ export async function getNavigationCounts(): Promise<NavigationCounts> {
         (SELECT COUNT(*) FROM reply_threads WHERE status IN ('pending', 'overdue')) AS pendingThreads,
         (SELECT COUNT(*) FROM vague_reply_flags WHERE resolvedAt IS NULL) AS vagueFlags,
         (SELECT COUNT(*) FROM unsigned_message_flags WHERE resolvedAt IS NULL) AS unsignedFlags,
+        (SELECT COUNT(*) FROM compliance_clarification_requests WHERE status = 'open') AS clarificationCount,
         (SELECT COUNT(*) FROM email_tasks WHERE status <> 'archived') AS emailCount,
         (SELECT COUNT(*) FROM auto_follow_up_drafts WHERE status = 'pending') AS followUpCount,
         (SELECT COUNT(*) FROM card_states WHERE state IN (
@@ -1443,6 +1573,7 @@ export async function getNavigationCounts(): Promise<NavigationCounts> {
       pendingThreads: count("pendingThreads"),
       vagueFlags: count("vagueFlags"),
       unsignedFlags: count("unsignedFlags"),
+      clarificationCount: count("clarificationCount"),
       emailCount: count("emailCount"),
       followUpCount: count("followUpCount"),
       operationalCardCount: count("operationalCardCount"),
@@ -1509,6 +1640,12 @@ export async function updateEmailTaskStatus(
 ): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const [current] = await db.select({ status: emailTasks.status, processedAt: emailTasks.processedAt })
+    .from(emailTasks).where(eq(emailTasks.id, id)).limit(1);
+  if (!current) throw new Error("Email task not found");
+  if (status === "archived" && current.status !== "processed" && !current.processedAt) {
+    throw new Error("Mark the email as processed before archiving it");
+  }
   const now = new Date();
   await db.update(emailTasks).set({
     status,
@@ -1518,13 +1655,13 @@ export async function updateEmailTaskStatus(
   }).where(eq(emailTasks.id, id));
 }
 
-/** Archive all non-archived email tasks (inbox zero). Returns count. */
+/** Archive every processed email task. Pending work is never skipped. */
 export async function archiveAllEmailTasks(): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const now = new Date();
   const result = await db.update(emailTasks).set({ status: "archived", archivedAt: now })
-    .where(ne(emailTasks.status, "archived"));
+    .where(eq(emailTasks.status, "processed"));
   return (result as any)[0]?.affectedRows ?? 0;
 }
 

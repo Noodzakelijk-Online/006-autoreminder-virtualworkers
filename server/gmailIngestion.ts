@@ -29,10 +29,24 @@ interface GmailMessage {
   threadId: string;
   snippet?: string;
   internalDate?: string;
+  labelIds?: string[];
   payload?: {
     headers?: Array<{ name: string; value: string }>;
   };
 }
+
+interface GmailThread {
+  id: string;
+  messages?: GmailMessage[];
+}
+
+export type GmailComplianceObservation = {
+  available: boolean;
+  archived: boolean | null;
+  sentReplyAt: Date | null;
+  checkedAt: Date;
+  error: string | null;
+};
 
 interface GmailListResponse {
   messages?: GmailMessageReference[];
@@ -202,6 +216,69 @@ async function gmailFetch<T>(accessToken: string, path: string): Promise<T> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Read-only Gmail proof used by compliance fact-checking. */
+export async function verifyGmailTaskOutcomes(
+  tasks: Array<{ gmailMessageId: string; gmailThreadId: string; receivedAt: Date }>,
+): Promise<Map<string, GmailComplianceObservation>> {
+  const checkedAt = new Date();
+  const observations = new Map<string, GmailComplianceObservation>();
+  if (tasks.length === 0) return observations;
+
+  let accessToken: string;
+  try {
+    ({ accessToken } = await refreshGmailAccessToken());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    for (const task of tasks) {
+      observations.set(task.gmailMessageId, { available: false, archived: null, sentReplyAt: null, checkedAt, error: message });
+    }
+    return observations;
+  }
+
+  const tasksByThread = new Map<string, typeof tasks>();
+  for (const task of tasks) tasksByThread.set(task.gmailThreadId, [...(tasksByThread.get(task.gmailThreadId) ?? []), task]);
+  const threadBatches = Array.from(tasksByThread.entries());
+
+  for (let index = 0; index < threadBatches.length; index += GMAIL_FETCH_CONCURRENCY) {
+    const batch = threadBatches.slice(index, index + GMAIL_FETCH_CONCURRENCY);
+    const results = await Promise.allSettled(batch.map(async ([threadId, threadTasks]) => {
+      const params = new URLSearchParams({ format: "metadata" });
+      params.append("metadataHeaders", "From");
+      const thread = await gmailFetch<GmailThread>(accessToken, `/threads/${encodeURIComponent(threadId)}?${params.toString()}`);
+      return { threadTasks, messages: thread.messages ?? [] };
+    }));
+    results.forEach((result, resultIndex) => {
+      const [, threadTasks] = batch[resultIndex];
+      if (result.status === "fulfilled") {
+        for (const task of result.value.threadTasks) {
+          const original = result.value.messages.find((message) => message.id === task.gmailMessageId);
+          const sentReplyAt = result.value.messages
+            .filter((message) => message.labelIds?.includes("SENT"))
+            .map((message) => Number(message.internalDate))
+            .filter((timestamp) => Number.isFinite(timestamp) && timestamp > task.receivedAt.getTime())
+            .sort((a, b) => a - b)[0];
+          observations.set(task.gmailMessageId, {
+          available: true,
+          archived: original ? !original.labelIds?.includes("INBOX") : null,
+          sentReplyAt: sentReplyAt ? new Date(sentReplyAt) : null,
+          checkedAt,
+          error: original ? null : "Original Gmail message was not present in its thread",
+          });
+        }
+      } else {
+        for (const task of threadTasks) observations.set(task.gmailMessageId, {
+          available: false,
+          archived: null,
+          sentReplyAt: null,
+          checkedAt,
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+        });
+      }
+    });
+  }
+  return observations;
 }
 
 async function listGmailMessageReferences(accessToken: string, lookbackHours: number, maxMessages: number): Promise<GmailMessageReference[]> {

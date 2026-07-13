@@ -15,6 +15,9 @@ import {
   type ComplianceSnapshotInput,
 } from "./db";
 import { getListCategory } from "./trello";
+import { buildCommunicationComplianceDay } from "./complianceCommunication";
+import { getComplianceSourceData } from "./complianceCommunicationDb";
+import { verifyGmailTaskOutcomes } from "./gmailIngestion";
 
 const TRELLO_API_BASE = "https://api.trello.com/1";
 const JOYCE_USERNAME = "joyjemimajj1";
@@ -451,6 +454,15 @@ export async function factCheckComplianceHistory(options: FactCheckOptions = {})
   const dateKeys = explicitDates?.length ? Array.from(new Set(explicitDates)).sort() : rangeDateKeys(startDate, endDate);
   if (dateKeys.length > MAX_BACKFILL_DAYS) throw new Error(`Compliance fact-check is limited to ${MAX_BACKFILL_DAYS} days per run`);
 
+  const sourceStart = eatDateRangeUtc(dateKeys[0]).startUtc;
+  const sourceEnd = eatDateRangeUtc(dateKeys.at(-1)!).endUtc;
+  const complianceSources = await getComplianceSourceData(sourceStart, sourceEnd);
+  const gmailObservations = await verifyGmailTaskOutcomes(complianceSources.emails.map((email) => ({
+    gmailMessageId: email.gmailMessageId,
+    gmailThreadId: email.gmailThreadId,
+    receivedAt: email.receivedAt,
+  })));
+
   const knownCardIds = new Set<string>();
   for (const row of history) {
     row.doingMissedCards.forEach((card) => knownCardIds.add(card.id));
@@ -485,7 +497,36 @@ export async function factCheckComplianceHistory(options: FactCheckOptions = {})
       source,
       cutoffOverride,
     });
-    await upsertVerifiedComplianceSnapshot(result.snapshot, result.evidence);
+    const cutoff = result.snapshot.verificationCutoffAt ?? new Date(`${dateKey}T23:00:00+03:00`);
+    const communication = result.snapshot.required === false
+      ? { facts: [], aggregate: {
+        messageTotal: 0, messageReplied: 0, messageMissed: 0, messageNeedsClarification: 0,
+        emailTotal: 0, emailCompleted: 0, emailMissed: 0, emailNeedsClarification: 0, clarificationOpen: 0,
+      } }
+      : buildCommunicationComplianceDay({
+        dateKey,
+        messages: complianceSources.messages,
+        emails: complianceSources.emails,
+        gmailObservations,
+        resolutions: complianceSources.resolutions,
+        cutoff,
+        verifiedAt,
+      });
+    Object.assign(result.snapshot, communication.aggregate, {
+      verificationStatus: communication.aggregate.clarificationOpen > 0 ? "needs_clarification" : result.snapshot.verificationStatus,
+      verificationMethod: `${METHOD_VERSION}+communication-compliance-v1`,
+      evidenceCount: result.evidence.length + communication.facts.length,
+    });
+    const scoredCommunicationTotal = communication.aggregate.messageTotal
+      - communication.aggregate.messageNeedsClarification
+      + communication.aggregate.emailTotal
+      - communication.aggregate.emailNeedsClarification;
+    const scoredTotal = result.evidence.length + scoredCommunicationTotal;
+    const passed = result.evidence.filter((row) => row.compliant).length
+      + communication.aggregate.messageReplied
+      + communication.aggregate.emailCompleted;
+    result.compliancePct = scoredTotal === 0 ? 100 : Math.round((passed / scoredTotal) * 100);
+    await upsertVerifiedComplianceSnapshot(result.snapshot, result.evidence, communication.facts);
     results.push(result);
   }
 
@@ -505,7 +546,7 @@ export async function factCheckComplianceHistory(options: FactCheckOptions = {})
     changedDays,
     protectedDays: results.filter((result) => !result.snapshot.required).length,
     cardsExamined: loaded.cards.length,
-    evidenceRows: results.reduce((sum, result) => sum + result.evidence.length, 0),
+    evidenceRows: results.reduce((sum, result) => sum + (result.snapshot.evidenceCount ?? result.evidence.length), 0),
     results: results.map((result) => ({
       dateKey: result.snapshot.snapshotDate,
       required: result.snapshot.required ?? true,
@@ -514,7 +555,14 @@ export async function factCheckComplianceHistory(options: FactCheckOptions = {})
       doingUpdated: result.snapshot.doingUpdated,
       onHoldTotal: result.snapshot.onHoldTotal,
       onHoldReviewed: result.snapshot.onHoldReviewed,
-      evidenceCount: result.evidence.length,
+      evidenceCount: result.snapshot.evidenceCount ?? result.evidence.length,
+      messageTotal: result.snapshot.messageTotal ?? 0,
+      messageReplied: result.snapshot.messageReplied ?? 0,
+      messageMissed: result.snapshot.messageMissed ?? 0,
+      emailTotal: result.snapshot.emailTotal ?? 0,
+      emailCompleted: result.snapshot.emailCompleted ?? 0,
+      emailMissed: result.snapshot.emailMissed ?? 0,
+      clarificationOpen: result.snapshot.clarificationOpen ?? 0,
       doingMissedCards: result.snapshot.doingMissedCards,
       onHoldMissedCards: result.snapshot.onHoldMissedCards,
     })),

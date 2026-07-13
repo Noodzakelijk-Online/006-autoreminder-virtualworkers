@@ -6,6 +6,7 @@ import {
   vagueReplyFlags,
 } from "../drizzle/schema";
 import { getDb } from "./db";
+import { upsertCommunicationEvidence } from "./communicationEvidenceDb";
 
 async function requireDb() {
   const db = await getDb();
@@ -71,6 +72,28 @@ export async function upsertReplyThread(data: {
   } as const;
   await db.insert(replyThreads).values(values).onDuplicateKeyUpdate({
     set: { ...values, updatedAt: new Date() },
+  });
+  const validReplyAt = data.lastJoyceReplyAt && data.lastJoyceReplyAt.getTime() > data.lastNonJoyceMsgAt.getTime()
+    ? data.lastJoyceReplyAt
+    : null;
+  await upsertCommunicationEvidence({
+    channel: data.source,
+    externalId: `${data.cardId}:${data.lastNonJoyceMsgAt.toISOString()}`,
+    threadId: data.cardId,
+    direction: "inbound",
+    sender: data.lastNonJoyceAuthor,
+    subject: data.cardName,
+    summary: data.lastNonJoyceText,
+    occurredAt: data.lastNonJoyceMsgAt,
+    responseRequired: true,
+    respondedAt: validReplyAt,
+    linkedCardId: data.cardId,
+    metadata: {
+      cardUrl: data.cardUrl,
+      boardName: data.boardName,
+      listName: data.listName,
+      responseWindowHours: 12,
+    },
   });
 }
 

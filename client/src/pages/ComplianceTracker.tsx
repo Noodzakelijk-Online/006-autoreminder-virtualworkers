@@ -15,6 +15,8 @@ import {
   ClipboardList,
   DollarSign,
   ExternalLink,
+  Mail,
+  MessageSquare,
   RefreshCw,
   ShieldCheck,
   TrendingUp,
@@ -92,13 +94,14 @@ const evidenceLabels: Record<string, string> = {
 
 function ComplianceEvidenceDetails({ dateKey }: { dateKey: string }) {
   const { data: rows = [], isLoading } = trpc.compliance.getEvidence.useQuery({ dateKey });
-  if (isLoading) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">Loading verified card facts...</p>;
-  if (rows.length === 0) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">No card review was required for this date.</p>;
+  const { data: communication = [], isLoading: communicationLoading } = trpc.compliance.getCommunicationEvidence.useQuery({ dateKey });
+  if (isLoading || communicationLoading) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">Loading verified compliance facts...</p>;
+  if (rows.length === 0 && communication.length === 0) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">No compliance check was required for this date.</p>;
 
   return (
     <div className="mt-3 border-t border-border/60 pt-3">
-      <p className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">Verified card facts</p>
-      <div className="divide-y divide-border/50 rounded-md border border-border/60">
+      {rows.length > 0 && <p className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">Card maintenance</p>}
+      {rows.length > 0 && <div className="divide-y divide-border/50 rounded-md border border-border/60">
         {rows.map((row) => (
           <div key={row.cardId} className="grid min-w-0 gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div className="flex min-w-0 items-start gap-2">
@@ -124,7 +127,36 @@ function ComplianceEvidenceDetails({ dateKey }: { dateKey: string }) {
             </div>
           </div>
         ))}
-      </div>
+      </div>}
+      {communication.length > 0 && (
+        <>
+          <p className="mb-2 mt-3 text-[11px] font-semibold uppercase text-muted-foreground">Messages and email</p>
+          <div className="divide-y divide-border/50 rounded-md border border-border/60">
+            {communication.map((fact) => {
+              const passed = fact.outcome === "verified";
+              const pending = fact.outcome === "needs_clarification";
+              const Icon = fact.kind === "email_processing" ? Mail : MessageSquare;
+              return (
+                <div key={fact.evidenceKey} className="grid min-w-0 gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${passed ? "text-emerald-500" : pending ? "text-amber-500" : "text-red-500"}`} />
+                    <div className="min-w-0">
+                      {fact.sourceUrl ? <a href={fact.sourceUrl} target="_blank" rel="noopener noreferrer" className="block truncate text-xs font-medium text-foreground hover:underline">{fact.title}</a> : <p className="truncate text-xs font-medium text-foreground">{fact.title}</p>}
+                      <p className="text-[10px] capitalize text-muted-foreground">{fact.channel} | {fact.kind.replaceAll("_", " ")}</p>
+                    </div>
+                  </div>
+                  <div className="sm:text-right">
+                    <p className={`text-[11px] font-medium ${passed ? "text-emerald-600 dark:text-emerald-400" : pending ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"}`}>
+                      {pending ? "Joyce update required" : passed ? "Verified complete" : "Deadline missed"}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">{fact.evidenceType.replaceAll("_", " ")}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -166,8 +198,8 @@ function DailyEvidenceRow({
   onToggle: () => void;
   onToggleEvidence: () => void;
 }) {
-  const total = row.onHoldTotal + row.doingTotal;
-  const done = row.onHoldReviewed + row.doingUpdated;
+  const total = row.onHoldTotal + row.doingTotal + row.messageTotal + row.emailTotal;
+  const done = row.onHoldReviewed + row.doingUpdated + row.messageReplied + row.emailCompleted;
   const weekStart = getWeekStart(row.snapshotDate);
   const statusClass = !row.required
     ? "border-sky-500/20 bg-sky-500/5"
@@ -188,12 +220,12 @@ function DailyEvidenceRow({
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-foreground">{formatDate(row.snapshotDate)}</p>
             <p className="truncate text-[11px] text-muted-foreground">
-              {row.required ? `${done}/${total} cards evidenced | ON-HOLD ${row.onHoldReviewed}/${row.onHoldTotal} | DOING ${row.doingUpdated}/${row.doingTotal}` : "Protected day | excluded from averages"}
+              {row.required ? `${done}/${total} checks passed | Cards ${row.onHoldReviewed + row.doingUpdated}/${row.onHoldTotal + row.doingTotal} | Replies ${row.messageReplied}/${row.messageTotal} | Email ${row.emailCompleted}/${row.emailTotal}` : "Protected day | excluded from averages"}
             </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {row.verificationStatus.startsWith("verified") && (
+          {row.evidenceCount > 0 && (
             <Badge variant="outline" className="hidden border-emerald-500/30 px-1.5 py-0 text-[10px] text-emerald-600 sm:inline-flex dark:text-emerald-400">
               {row.evidenceCount} facts
             </Badge>
@@ -217,6 +249,9 @@ function DailyEvidenceRow({
               <>
                 <span>ON-HOLD reviewed: {row.onHoldReviewed}/{row.onHoldTotal}</span>
                 <span>DOING updated: {row.doingUpdated}/{row.doingTotal}</span>
+                <span>Messages replied: {row.messageReplied}/{row.messageTotal}</span>
+                <span>Emails completed: {row.emailCompleted}/{row.emailTotal}</span>
+                {row.clarificationOpen > 0 && <span className="font-medium text-amber-600 dark:text-amber-400">Joyce updates required: {row.clarificationOpen}</span>}
                 <span>Verification: {row.verificationStatus.replaceAll("_", " ")}</span>
                 {row.verifiedAt && <span>Checked: {new Date(row.verifiedAt).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })} EAT</span>}
               </>
@@ -240,10 +275,10 @@ function DailyEvidenceRow({
 
           <MissedCards row={row} />
 
-          {row.verificationStatus.startsWith("verified") && row.required && (
+          {row.evidenceCount > 0 && row.required && (
             <Button type="button" variant="outline" size="sm" className="mt-3 h-7 gap-1.5 px-2 text-[11px]" aria-expanded={evidenceOpen} onClick={onToggleEvidence}>
               <ShieldCheck className="h-3 w-3" />
-              {evidenceOpen ? "Hide card facts" : `Inspect all ${row.evidenceCount} card facts`}
+              {evidenceOpen ? "Hide evidence" : `Inspect all ${row.evidenceCount} facts`}
               {evidenceOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
             </Button>
           )}
@@ -309,7 +344,7 @@ export default function ComplianceTracker() {
             </div>
             <div>
               <p className="text-sm font-semibold text-foreground">Compliance History</p>
-              <p className="text-xs text-muted-foreground">Source-backed daily ON-HOLD and DOING evidence</p>
+              <p className="text-xs text-muted-foreground">Source-backed cards, response rates, and email processing</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -346,7 +381,7 @@ export default function ComplianceTracker() {
                 <div className="flex flex-wrap items-end justify-between gap-2 border-b border-border/60 bg-muted/20 px-4 py-3">
                   <div>
                     <p className="text-sm font-semibold text-foreground">Worker Performance Signals</p>
-                    <p className="text-[11px] text-muted-foreground">Compliance metrics and trend calculated from verified daily Trello evidence.</p>
+                    <p className="text-[11px] text-muted-foreground">Daily card, message, and Gmail evidence. Unclear outcomes stay provisional until Joyce responds.</p>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
                     {formatDate(rangeRows.at(-1)!.snapshotDate)} to {formatDate(rangeRows[0].snapshotDate)}
@@ -356,10 +391,10 @@ export default function ComplianceTracker() {
                   {[
                     { label: "Compliance", value: `${performance.average}%`, detail: `${range.label} average`, tone: pctColor(performance.average) },
                     { label: "Verified days", value: `${performance.verifiedDays}/${rangeRows.length}`, detail: "source checked", tone: "text-emerald-600 dark:text-emerald-400" },
-                    { label: "Full-score days", value: `${performance.fullyCompliantDays}/${performance.requiredDays}`, detail: "required days", tone: performance.fullyCompliantDays === performance.requiredDays ? "text-emerald-600 dark:text-emerald-400" : "text-foreground" },
-                    { label: "Checks passed", value: `${performance.passedChecks}/${performance.expectedChecks}`, detail: "card-day checks", tone: performance.missingEvidence === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground" },
-                    { label: "Missing evidence", value: performance.missingEvidence.toLocaleString(), detail: "card-day misses", tone: performance.missingEvidence === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400" },
-                    { label: "Evidence records", value: performance.evidenceRecords.toLocaleString(), detail: `${performance.protectedDays} protected days`, tone: "text-violet-600 dark:text-violet-400" },
+                    { label: "Response rate", value: `${performance.messageResponseRate}%`, detail: `${performance.messagesReplied}/${performance.messagesExpected} messages`, tone: performance.messageResponseRate >= 90 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400" },
+                    { label: "Email completion", value: `${performance.emailCompletionRate}%`, detail: `${performance.emailsCompleted}/${performance.emailsExpected} due`, tone: performance.emailCompletionRate >= 90 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400" },
+                    { label: "Missed checks", value: performance.missingEvidence.toLocaleString(), detail: "source-confirmed misses", tone: performance.missingEvidence === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400" },
+                    { label: "Joyce updates", value: performance.openClarifications.toLocaleString(), detail: `${performance.evidenceRecords} source facts`, tone: performance.openClarifications === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400" },
                   ].map((metric) => (
                     <div key={metric.label} className="min-w-0 px-3 py-3">
                       <p className="truncate text-[10px] font-medium uppercase text-muted-foreground">{metric.label}</p>

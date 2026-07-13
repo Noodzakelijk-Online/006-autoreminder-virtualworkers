@@ -28,6 +28,7 @@ export type OperationalEvent =
   | "scan-complete"
   | "aptlss-invalidate"
   | "gmail-invalidate"
+  | "compliance-invalidate"
   | "jobs-invalidate";
 
 /**
