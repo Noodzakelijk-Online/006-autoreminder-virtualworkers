@@ -14,8 +14,6 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -35,6 +33,8 @@ jobs:
       - run: pnpm build
       - name: Verify migration metadata matches the schema
         shell: bash
+        env:
+          DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
         run: |
           pnpm exec drizzle-kit generate --name ci-drift
           test -z "$(git status --porcelain -- drizzle)"
