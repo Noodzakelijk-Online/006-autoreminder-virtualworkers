@@ -198,6 +198,7 @@ import {
 } from "./taskDependenciesDb";
 import { getOutstandingCommunicationEvidence } from "./communicationEvidenceDb";
 import { getRecentHandoffs, getRecentOperatorNotifications } from "./operatorRecordsDb";
+import { getDailyTimeEvidence, getWeeklyTimeEvidence } from "./timeEvidence";
 
 export const appRouter = router({
   system: systemRouter,
@@ -708,6 +709,11 @@ export const appRouter = router({
         return await getDailyTimeSummary(input.date);
       }),
 
+    /** Source-backed daily timer allocation, target, and overtime in EAT. */
+    getDailyEvidence: protectedProcedure
+      .input(z.object({ date: dateKeySchema }))
+      .query(async ({ input }) => getDailyTimeEvidence(input.date)),
+
     /** Get total tracked seconds in a date range (for weekly hours). */
     getWeeklyTotal: protectedProcedure
       .input(weekDateRangeSchema)
@@ -747,6 +753,10 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return await getWeeklyBreakdown(input.startDate, input.endDate);
       }),
+    /** One query for weekly totals, daily allocation, and contractual overtime. */
+    getWeeklyEvidence: protectedProcedure
+      .input(weekDateRangeSchema)
+      .query(async ({ input }) => getWeeklyTimeEvidence(input.startDate, input.endDate)),
   }),
 
   // ─── Compliance Snapshots ───────────────────────────────────────────────────────────────────────────────────

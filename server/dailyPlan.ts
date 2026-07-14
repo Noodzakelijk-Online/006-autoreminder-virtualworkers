@@ -1,5 +1,6 @@
 import { hasConfiguredAptlssLlm, invokeAptlssLLM, type AptlssValidationIssue } from "./aptlssLlmRouter";
-import { getActiveTimer, getDailyGoalHours, getDailyTimeSummary, getDb, getScheduleSettings } from "./db";
+import { getActiveTimer, getDb, getScheduleSettings } from "./db";
+import { getDailyTimeEvidence } from "./timeEvidence";
 import { getAllAptlssPlans, getDailyPlanByDate, upsertDailyPlan } from "./aptlssDb";
 import {
   getAllCardStates,
@@ -1039,12 +1040,9 @@ export async function generateDailyPlan(dateKey = eatDateKey(), generatedBy: Dai
     throw new Error("No APTLSS plans or live Trello cards found. Check Trello access, then generate card plans for richer daily planning.");
   }
 
-  const [dailyGoalHours, trackedEntries] = await Promise.all([
-    getDailyGoalHours(),
-    getDailyTimeSummary(dateKey),
-  ]);
-  const trackedMinutes = Math.floor(trackedEntries.reduce((sum, entry) => sum + entry.totalSeconds, 0) / 60);
-  const remainingGoalMinutes = Math.max(0, Math.round(dailyGoalHours * 60) - trackedMinutes);
+  const trackedEvidence = await getDailyTimeEvidence(dateKey);
+  const trackedMinutes = Math.floor(trackedEvidence.trackedSeconds / 60);
+  const remainingGoalMinutes = Math.max(0, Math.round(trackedEvidence.targetSeconds / 60) - trackedMinutes);
   const aiPlannerConfigured = await hasConfiguredAptlssLlm();
 
   let llmPlan: Awaited<ReturnType<typeof callPlannerLLM>> | null = null;
@@ -1191,7 +1189,8 @@ export async function replanRemainingDay(dateKey: string, completedBlockIds: str
 export async function draftDailyHandoff(dateKey = eatDateKey()) {
   const plan = await getSavedDailyPlan(dateKey);
   if (!plan) throw new Error("No daily plan found for handoff.");
-  const [activeTimer, timeSummary] = await Promise.all([getActiveTimer(), getDailyTimeSummary(dateKey)]);
+  const [activeTimer, timeEvidence] = await Promise.all([getActiveTimer(), getDailyTimeEvidence(dateKey)]);
+  const timeSummary = timeEvidence.cards;
   const done = plan.blocks.filter((block) => block.status === "done");
   const skipped = plan.blocks.filter((block) => block.status === "skipped");
   const planned = plan.blocks.filter((block) => block.status === "planned" && block.cardId);

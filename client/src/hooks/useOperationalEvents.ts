@@ -17,6 +17,9 @@ export function useOperationalEvents() {
       void utils.timer.getDailySummary.invalidate();
       void utils.timer.getWeeklyTotal.invalidate();
       void utils.timer.getWeeklyBreakdown.invalidate();
+      void utils.timer.getDailyEvidence.invalidate();
+      void utils.timer.getWeeklyEvidence.invalidate();
+      void utils.compliance.getHistory.invalidate();
     };
     const onPayChange = () => {
       void utils.payment.getAllCycles.invalidate();

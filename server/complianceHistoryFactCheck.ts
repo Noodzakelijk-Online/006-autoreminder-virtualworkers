@@ -18,6 +18,7 @@ import { getListCategory } from "./trello";
 import { buildCommunicationComplianceDay } from "./complianceCommunication";
 import { getComplianceSourceData } from "./complianceCommunicationDb";
 import { verifyGmailTaskOutcomes } from "./gmailIngestion";
+import { getTimeEvidenceRange } from "./timeEvidence";
 
 const TRELLO_API_BASE = "https://api.trello.com/1";
 const JOYCE_USERNAME = "joyjemimajj1";
@@ -456,7 +457,11 @@ export async function factCheckComplianceHistory(options: FactCheckOptions = {})
 
   const sourceStart = eatDateRangeUtc(dateKeys[0]).startUtc;
   const sourceEnd = eatDateRangeUtc(dateKeys.at(-1)!).endUtc;
-  const complianceSources = await getComplianceSourceData(sourceStart, sourceEnd);
+  const [complianceSources, timeEvidenceRange] = await Promise.all([
+    getComplianceSourceData(sourceStart, sourceEnd),
+    getTimeEvidenceRange(dateKeys[0], dateKeys.at(-1)!, now),
+  ]);
+  const timeEvidenceByDate = new Map(timeEvidenceRange.days.map((day) => [day.dateKey, day]));
   const gmailObservations = await verifyGmailTaskOutcomes(complianceSources.emails.map((email) => ({
     gmailMessageId: email.gmailMessageId,
     gmailThreadId: email.gmailThreadId,
@@ -512,10 +517,16 @@ export async function factCheckComplianceHistory(options: FactCheckOptions = {})
         cutoff,
         verifiedAt,
       });
+    const timeEvidence = timeEvidenceByDate.get(dateKey);
+    if (!timeEvidence) throw new Error(`Time evidence was not calculated for ${dateKey}`);
     Object.assign(result.snapshot, communication.aggregate, {
+      trackedSeconds: timeEvidence.trackedSeconds,
+      scheduledTargetSeconds: timeEvidence.targetSeconds,
+      overtimeSeconds: timeEvidence.overtimeSeconds,
+      timeEntryCount: timeEvidence.entryCount,
       verificationStatus: communication.aggregate.clarificationOpen > 0 ? "needs_clarification" : result.snapshot.verificationStatus,
-      verificationMethod: `${METHOD_VERSION}+communication-compliance-v1`,
-      evidenceCount: result.evidence.length + communication.facts.length,
+      verificationMethod: `${METHOD_VERSION}+communication-compliance-v1+time-evidence-v1`,
+      evidenceCount: result.evidence.length + communication.facts.length + timeEvidence.entryCount,
     });
     const scoredCommunicationTotal = communication.aggregate.messageTotal
       - communication.aggregate.messageNeedsClarification
@@ -537,6 +548,8 @@ export async function factCheckComplianceHistory(options: FactCheckOptions = {})
       || old.onHoldReviewed !== result.snapshot.onHoldReviewed
       || old.doingTotal !== result.snapshot.doingTotal
       || old.doingUpdated !== result.snapshot.doingUpdated
+      || old.trackedSeconds !== (result.snapshot.trackedSeconds ?? 0)
+      || old.overtimeSeconds !== (result.snapshot.overtimeSeconds ?? 0)
       || old.required !== result.snapshot.required;
   }).length;
   return {
@@ -563,6 +576,10 @@ export async function factCheckComplianceHistory(options: FactCheckOptions = {})
       emailCompleted: result.snapshot.emailCompleted ?? 0,
       emailMissed: result.snapshot.emailMissed ?? 0,
       clarificationOpen: result.snapshot.clarificationOpen ?? 0,
+      trackedSeconds: result.snapshot.trackedSeconds ?? 0,
+      scheduledTargetSeconds: result.snapshot.scheduledTargetSeconds ?? 0,
+      overtimeSeconds: result.snapshot.overtimeSeconds ?? 0,
+      timeEntryCount: result.snapshot.timeEntryCount ?? 0,
       doingMissedCards: result.snapshot.doingMissedCards,
       onHoldMissedCards: result.snapshot.onHoldMissedCards,
     })),

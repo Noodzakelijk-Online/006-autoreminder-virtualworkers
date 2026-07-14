@@ -29,7 +29,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useEatClock } from "@/hooks/useEatClock";
-import { dateKeyInEat } from "@shared/eatTime";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -212,14 +211,13 @@ function EditDialog({ cardId, cardName, date, open, onClose, onSaved }: EditDial
 // ─── Weekly Bar Chart ─────────────────────────────────────────────────────────
 
 interface WeeklyBarChartProps {
-  breakdown: { date: string; totalSeconds: number }[];
+  breakdown: { date: string; totalSeconds: number; targetSeconds: number; overtimeSeconds: number; isWorkday: boolean }[];
   todayDate: string;
-  dailyGoalSeconds: number;
-  protectedDayIndex?: number;
 }
 
-function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds, protectedDayIndex = 6 }: WeeklyBarChartProps) {
-  const maxSeconds = Math.max(...breakdown.map(d => d.totalSeconds), dailyGoalSeconds);
+function WeeklyBarChart({ breakdown, todayDate }: WeeklyBarChartProps) {
+  const maxTargetSeconds = Math.max(...breakdown.map((day) => day.targetSeconds), 0);
+  const maxSeconds = Math.max(...breakdown.map(d => d.totalSeconds), maxTargetSeconds, 1);
 
   return (
     <div>
@@ -230,11 +228,11 @@ function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds, protectedDayIn
       <div className="flex items-end gap-1.5 h-28 pt-6 relative">
         {breakdown.map((day, i) => {
           const pct = day.totalSeconds / maxSeconds;
-          const isProtectedDay = i === protectedDayIndex;
-          const goalPct = isProtectedDay ? 0 : dailyGoalSeconds / maxSeconds;
+          const isProtectedDay = !day.isWorkday;
+          const goalPct = day.targetSeconds / maxSeconds;
           const isToday = day.date === todayDate;
-          const isGoalMet = !isProtectedDay && day.totalSeconds >= dailyGoalSeconds;
-          const barColor = isProtectedDay && day.totalSeconds > 0
+          const isGoalMet = !isProtectedDay && day.totalSeconds >= day.targetSeconds;
+          const barColor = day.overtimeSeconds > 0
             ? "bg-amber-500"
             : isGoalMet
             ? "bg-green-500"
@@ -267,7 +265,9 @@ function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds, protectedDayIn
                     {hoursLabel && (
                       <span
                         className={`absolute -top-5 text-[10px] font-semibold tabular-nums whitespace-nowrap ${
-                          isGoalMet
+                          day.overtimeSeconds > 0
+                            ? "text-amber-600 dark:text-amber-400"
+                            : isGoalMet
                             ? "text-green-600 dark:text-green-400"
                             : isToday
                             ? "text-violet-500"
@@ -304,7 +304,7 @@ function WeeklyBarChart({ breakdown, todayDate, dailyGoalSeconds, protectedDayIn
         </div>
         <div className="flex items-center gap-1 sm:ml-auto">
           <div className="w-4 border-t border-dashed border-muted-foreground/50" />
-          <span className="text-xs text-muted-foreground">{(dailyGoalSeconds / 3600).toFixed(0)}h weekday target · Sun protected</span>
+          <span className="text-xs text-muted-foreground">{(maxTargetSeconds / 3600).toFixed(0)}h workday target | protected days have no target</span>
         </div>
       </div>
     </div>
@@ -332,26 +332,17 @@ export default function TimeTracker() {
     staleTime: 30 * 60_000, // no polling; SSE handles invalidation
   });
 
-  const { data: dailySummary = [] } = trpc.timer.getDailySummary.useQuery(
-    { date: todayDate },
-    { staleTime: 30 * 60_000 } // no polling; SSE handles invalidation
-  );
-
-  // Weekly totals: no polling. Only change when a timer stops (SSE-driven) or on edit.
-  const { data: weeklyTotal } = trpc.timer.getWeeklyTotal.useQuery(weekBounds, {
-    staleTime: 30 * 60_000,
-  });
-
-  const { data: weeklyBreakdown = [] } = trpc.timer.getWeeklyBreakdown.useQuery(weekBounds, {
-    staleTime: 30 * 60_000,
-  });
-
-  const { data: goalData } = trpc.settings.getDailyGoal.useQuery(undefined, {
+  // One weekly query provides totals, overtime, the chart, and today's exact log.
+  const { data: weeklyEvidence } = trpc.timer.getWeeklyEvidence.useQuery(weekBounds, {
     staleTime: 30 * 60_000,
   });
 
   // ── SSE listener: invalidate all timer queries on server push ─────────────────
-  const dailyGoalSeconds = (goalData?.hours ?? 9) * 3600;
+  const dailyEvidence = weeklyEvidence?.currentDay ?? null;
+  const dailyGoalSeconds = dailyEvidence?.targetSeconds ?? (isSunday ? 0 : 9 * 3_600);
+  const protectedDay = dailyEvidence ? !dailyEvidence.isWorkday : isSunday;
+  const dailySummary = dailyEvidence?.cards ?? [];
+  const weeklyBreakdown = weeklyEvidence?.days ?? [];
 
   // ── live elapsed counter ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -372,9 +363,7 @@ export default function TimeTracker() {
       toast.success("Timer stopped");
       setBannerDismissed(false);
       void utils.timer.getActive.invalidate();
-      void utils.timer.getDailySummary.invalidate();
-      void utils.timer.getWeeklyTotal.invalidate();
-      void utils.timer.getWeeklyBreakdown.invalidate();
+      void utils.timer.getWeeklyEvidence.invalidate();
     },
     onError: (e) => toast.error(`Failed to stop: ${e.message}`),
   });
@@ -390,21 +379,24 @@ export default function TimeTracker() {
 
   const handleEditSaved = useCallback(() => {
     void utils.timer.getActive.invalidate();
-    void utils.timer.getDailySummary.invalidate();
-    void utils.timer.getWeeklyTotal.invalidate();
-    void utils.timer.getWeeklyBreakdown.invalidate();
+    void utils.timer.getWeeklyEvidence.invalidate();
   }, [utils]);
 
   // ── derived ───────────────────────────────────────────────────────────────────
-  const todayTotalSeconds = dailySummary.reduce((s, r) => s + r.totalSeconds, 0)
-    + (activeTimer ? elapsedSeconds : 0);
-
-  const activeStartedDate = activeTimer ? dateKeyInEat(new Date(activeTimer.startedAt)) : null;
-  const activeIsInWeek = Boolean(activeStartedDate && activeStartedDate >= weekBounds.startDate && activeStartedDate <= weekBounds.endDate);
-  const weeklySeconds = (weeklyTotal?.totalSeconds ?? 0) + (activeIsInWeek ? elapsedSeconds : 0);
+  const activeIsInWeek = Boolean(activeTimer && todayDate >= weekBounds.startDate && todayDate <= weekBounds.endDate);
+  const activeElapsedAtDailyCalculation = activeTimer && dailyEvidence
+    ? Math.max(0, Math.floor((new Date(dailyEvidence.calculatedAt).getTime() - new Date(activeTimer.startedAt).getTime()) / 1_000))
+    : 0;
+  const activeElapsedAtWeeklyCalculation = activeTimer && weeklyEvidence
+    ? Math.max(0, Math.floor((new Date(weeklyEvidence.calculatedAt).getTime() - new Date(activeTimer.startedAt).getTime()) / 1_000))
+    : 0;
+  const dailyLiveDelta = activeTimer ? Math.max(0, elapsedSeconds - activeElapsedAtDailyCalculation) : 0;
+  const weeklyLiveDelta = activeIsInWeek ? Math.max(0, elapsedSeconds - activeElapsedAtWeeklyCalculation) : 0;
+  const todayTotalSeconds = (dailyEvidence?.trackedSeconds ?? 0) + dailyLiveDelta;
+  const weeklySeconds = (weeklyEvidence?.trackedSeconds ?? 0) + weeklyLiveDelta;
   const weeklyHours = Math.round((weeklySeconds / 3600) * 10) / 10;
   const liveWeeklyBreakdown = weeklyBreakdown.map((day) => day.date === todayDate && activeIsInWeek
-    ? { ...day, totalSeconds: day.totalSeconds + elapsedSeconds }
+    ? { ...day, totalSeconds: day.totalSeconds + weeklyLiveDelta, overtimeSeconds: Math.max(0, day.totalSeconds + weeklyLiveDelta - day.targetSeconds) }
     : day);
 
   // Show the resume banner if a timer is running and it hasn't been dismissed this session
@@ -533,7 +525,7 @@ export default function TimeTracker() {
               <div className="flex items-center gap-3 p-3 bg-muted/40 rounded-lg border border-dashed border-border">
                 <Timer className="w-4 h-4 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
-                  {isSunday
+                  {protectedDay
                     ? "No timer running. Sunday is protected; emergency work can be started from Today with confirmation."
                     : "No timer running. Start the current task from Today, or use the Trello Power-Up from a card."}
                 </p>
@@ -542,9 +534,9 @@ export default function TimeTracker() {
 
             {/* ── Summary Row ───────────────────────────────────────────────────── */}
             {(() => {
-              const isOvertime = !isSunday && todayTotalSeconds > dailyGoalSeconds;
-              const otSeconds = isOvertime ? todayTotalSeconds - dailyGoalSeconds : 0;
-              const pct = isSunday ? 0 : Math.min(todayTotalSeconds / dailyGoalSeconds, 1);
+              const otSeconds = Math.max(0, todayTotalSeconds - dailyGoalSeconds);
+              const isOvertime = otSeconds > 0;
+              const pct = protectedDay || dailyGoalSeconds === 0 ? 0 : Math.min(todayTotalSeconds / dailyGoalSeconds, 1);
               const radius = 28;
               const circumference = 2 * Math.PI * radius;
               const strokeDashoffset = circumference * (1 - pct);
@@ -552,10 +544,10 @@ export default function TimeTracker() {
               // Overtime → amber ring; goal met → green; progressing → violet; early → amber
               const ringColor = isOvertime ? "#f59e0b" : pct >= 1 ? "#22c55e" : pct >= 0.6 ? "#a78bfa" : "#f59e0b";
               const goalHours = (dailyGoalSeconds / 3600).toFixed(0);
-              // Weekly OT: above 55h
-              const WEEKLY_OT_THRESHOLD = 55;
-              const weeklyOtHours = Math.max(weeklyHours - WEEKLY_OT_THRESHOLD, 0);
-              const isWeeklyOT = weeklyHours > WEEKLY_OT_THRESHOLD;
+              const weeklyMin = weeklyEvidence?.weeklyHoursMin ?? 50;
+              const weeklyMax = weeklyEvidence?.weeklyHoursMax ?? 55;
+              const weeklyOtHours = Math.max(weeklyHours - weeklyMax, 0);
+              const isWeeklyOT = weeklyOtHours > 0;
               return (
                 <div className="grid grid-cols-3 gap-3">
                   <div className="rounded-lg border border-primary/20 bg-primary/10 p-3 text-center">
@@ -563,17 +555,17 @@ export default function TimeTracker() {
                     <p className="text-lg font-bold tabular-nums text-foreground">
                       {formatSeconds(todayTotalSeconds)}
                     </p>
-                    {isOvertime && (
+                    {isOvertime && !protectedDay && (
                       <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 mt-0.5">
                         +{formatSeconds(otSeconds)} OT
                       </p>
                     )}
                   </div>
-                  {isSunday ? (
-                    <div className="flex flex-col items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2 text-center">
-                      <ShieldCheck className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
-                      <p className="mt-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">Protected day</p>
-                      <p className="text-[10px] text-muted-foreground">No hour target</p>
+                  {protectedDay ? (
+                    <div className={`flex flex-col items-center justify-center rounded-lg border p-2 text-center ${isOvertime ? "border-amber-500/30 bg-amber-500/10" : "border-emerald-500/30 bg-emerald-500/10"}`}>
+                      <ShieldCheck className={`h-8 w-8 ${isOvertime ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`} />
+                      <p className={`mt-1 text-xs font-semibold ${isOvertime ? "text-amber-700 dark:text-amber-300" : "text-emerald-700 dark:text-emerald-300"}`}>Protected day</p>
+                      <p className="text-[10px] text-muted-foreground">{isOvertime ? `${formatSeconds(otSeconds)} overtime` : "No hour target"}</p>
                     </div>
                   ) : (
                     <div className={`flex flex-col items-center justify-center p-2 border rounded-lg ${
@@ -624,9 +616,9 @@ export default function TimeTracker() {
                     )}
                     {!isWeeklyOT && (
                       <p className="text-[10px] text-muted-foreground mt-0.5">
-                        {Math.max(50 - weeklyHours, 0) > 0
-                          ? `${(50 - weeklyHours).toFixed(1)}h to min`
-                          : `${(55 - weeklyHours).toFixed(1)}h to max`}
+                        {Math.max(weeklyMin - weeklyHours, 0) > 0
+                          ? `${(weeklyMin - weeklyHours).toFixed(1)}h to min`
+                          : `${Math.max(weeklyMax - weeklyHours, 0).toFixed(1)}h to max`}
                       </p>
                     )}
                   </div>
@@ -638,7 +630,7 @@ export default function TimeTracker() {
             {liveWeeklyBreakdown.length > 0 && (
               <>
                 <Separator />
-                <WeeklyBarChart breakdown={liveWeeklyBreakdown} todayDate={todayDate} dailyGoalSeconds={dailyGoalSeconds} />
+                <WeeklyBarChart breakdown={liveWeeklyBreakdown} todayDate={todayDate} />
               </>
             )}
 
@@ -655,7 +647,7 @@ export default function TimeTracker() {
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6"
-                      onClick={() => { utils.timer.getDailySummary.invalidate(); utils.timer.getActive.invalidate(); }}
+                      onClick={() => { utils.timer.getWeeklyEvidence.invalidate(); utils.timer.getActive.invalidate(); }}
                     >
                       <RefreshCw className="h-3 w-3" />
                     </Button>

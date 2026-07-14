@@ -19,6 +19,7 @@ import {
   MessageSquare,
   RefreshCw,
   ShieldCheck,
+  Timer,
   TrendingUp,
   XCircle,
 } from "lucide-react";
@@ -72,6 +73,13 @@ function getWeekStart(dateStr: string): string {
   return dateKey ? weekBoundsFromDateKey(dateKey).startDate : "";
 }
 
+function formatDuration(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+}
+
 function MiniBar({ pct, label, title }: { pct: number; label: string; title: string }) {
   return (
     <div className="flex min-w-7 flex-col items-center gap-1" title={`${title}: ${pct}%`}>
@@ -95,12 +103,42 @@ const evidenceLabels: Record<string, string> = {
 function ComplianceEvidenceDetails({ dateKey }: { dateKey: string }) {
   const { data: rows = [], isLoading } = trpc.compliance.getEvidence.useQuery({ dateKey });
   const { data: communication = [], isLoading: communicationLoading } = trpc.compliance.getCommunicationEvidence.useQuery({ dateKey });
-  if (isLoading || communicationLoading) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">Loading verified compliance facts...</p>;
-  if (rows.length === 0 && communication.length === 0) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">No compliance check was required for this date.</p>;
+  const { data: time, isLoading: timeLoading } = trpc.timer.getDailyEvidence.useQuery({ date: dateKey });
+  if (isLoading || communicationLoading || timeLoading) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">Loading verified compliance facts...</p>;
+  if (rows.length === 0 && communication.length === 0 && !time?.entryCount) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">No source evidence was recorded for this date.</p>;
 
   return (
     <div className="mt-3 border-t border-border/60 pt-3">
-      {rows.length > 0 && <p className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">Card maintenance</p>}
+      {time && time.entryCount > 0 && (
+        <>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase text-muted-foreground">Tracked time</p>
+            <p className="text-[10px] text-muted-foreground">
+              {formatDuration(time.trackedSeconds)} tracked | {formatDuration(time.targetSeconds)} target | {formatDuration(time.overtimeSeconds)} overtime
+            </p>
+          </div>
+          <div className="divide-y divide-border/50 rounded-md border border-border/60">
+            {time.entries.map((entry) => (
+              <div key={`${entry.id}-${entry.startedAt.toString()}`} className="grid min-w-0 gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div className="flex min-w-0 items-start gap-2">
+                  <Timer className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-500" />
+                  <div className="min-w-0">
+                    <a href={entry.cardUrl} target="_blank" rel="noopener noreferrer" className="block truncate text-xs font-medium text-foreground hover:underline">{entry.cardName}</a>
+                    <p className="truncate text-[10px] text-muted-foreground">{entry.boardName} | {entry.listName}</p>
+                  </div>
+                </div>
+                <div className="sm:text-right">
+                  <p className="text-[11px] font-medium text-foreground">{formatDuration(entry.allocatedSeconds)}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {new Date(entry.startedAt).toLocaleTimeString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit" })} EAT{entry.active ? " | active" : ""}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {rows.length > 0 && <p className={`mb-2 text-[11px] font-semibold uppercase text-muted-foreground ${time?.entryCount ? "mt-3" : ""}`}>Card maintenance</p>}
       {rows.length > 0 && <div className="divide-y divide-border/50 rounded-md border border-border/60">
         {rows.map((row) => (
           <div key={row.cardId} className="grid min-w-0 gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
@@ -198,7 +236,9 @@ function DailyEvidenceRow({
   onToggle: () => void;
   onToggleEvidence: () => void;
 }) {
-  const total = row.onHoldTotal + row.doingTotal + row.messageTotal + row.emailTotal;
+  const total = row.onHoldTotal + row.doingTotal
+    + Math.max(0, row.messageTotal - row.messageNeedsClarification)
+    + Math.max(0, row.emailTotal - row.emailNeedsClarification);
   const done = row.onHoldReviewed + row.doingUpdated + row.messageReplied + row.emailCompleted;
   const weekStart = getWeekStart(row.snapshotDate);
   const statusClass = !row.required
@@ -220,7 +260,9 @@ function DailyEvidenceRow({
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-foreground">{formatDate(row.snapshotDate)}</p>
             <p className="truncate text-[11px] text-muted-foreground">
-              {row.required ? `${done}/${total} checks passed | Cards ${row.onHoldReviewed + row.doingUpdated}/${row.onHoldTotal + row.doingTotal} | Replies ${row.messageReplied}/${row.messageTotal} | Email ${row.emailCompleted}/${row.emailTotal}` : "Protected day | excluded from averages"}
+              {row.required
+                ? `${done}/${total} checks passed | ${formatDuration(row.trackedSeconds)} tracked | ${formatDuration(row.overtimeSeconds)} overtime`
+                : `Protected day | ${row.overtimeSeconds > 0 ? `${formatDuration(row.overtimeSeconds)} emergency overtime` : "no time tracked"}`}
             </p>
           </div>
         </div>
@@ -244,7 +286,7 @@ function DailyEvidenceRow({
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
             {!row.required ? (
-              <span>Sunday is Joyce&apos;s protected day; no review was required.</span>
+              <span>Protected day; no review was required. Any tracked time is recorded as overtime.</span>
             ) : (
               <>
                 <span>ON-HOLD reviewed: {row.onHoldReviewed}/{row.onHoldTotal}</span>
@@ -256,6 +298,8 @@ function DailyEvidenceRow({
                 {row.verifiedAt && <span>Checked: {new Date(row.verifiedAt).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })} EAT</span>}
               </>
             )}
+            <span>Time: {formatDuration(row.trackedSeconds)} / {formatDuration(row.scheduledTargetSeconds)} target</span>
+            {row.overtimeSeconds > 0 && <span className="font-medium text-amber-600 dark:text-amber-400">Overtime: {formatDuration(row.overtimeSeconds)}</span>}
           </div>
 
           {row.required && row.d1Instances > 0 && (
@@ -275,7 +319,7 @@ function DailyEvidenceRow({
 
           <MissedCards row={row} />
 
-          {row.evidenceCount > 0 && row.required && (
+          {row.evidenceCount > 0 && (
             <Button type="button" variant="outline" size="sm" className="mt-3 h-7 gap-1.5 px-2 text-[11px]" aria-expanded={evidenceOpen} onClick={onToggleEvidence}>
               <ShieldCheck className="h-3 w-3" />
               {evidenceOpen ? "Hide evidence" : `Inspect all ${row.evidenceCount} facts`}
@@ -322,7 +366,7 @@ export default function ComplianceTracker() {
   const factCheckHistory = trpc.compliance.factCheckHistory.useMutation({
     onSuccess: (data) => {
       utils.compliance.getHistory.invalidate();
-      toast.success("Compliance history fact-checked", { description: `${data.daysChecked} days checked, ${data.changedDays} corrected, ${data.evidenceRows} card facts stored.` });
+      toast.success("Compliance history fact-checked", { description: `${data.daysChecked} days checked, ${data.changedDays} corrected, ${data.evidenceRows} source facts stored.` });
     },
     onError: (error) => toast.error("Fact-check failed", { description: error.message }),
   });
@@ -344,7 +388,7 @@ export default function ComplianceTracker() {
             </div>
             <div>
               <p className="text-sm font-semibold text-foreground">Compliance History</p>
-              <p className="text-xs text-muted-foreground">Source-backed cards, response rates, and email processing</p>
+              <p className="text-xs text-muted-foreground">Source-backed cards, communication, email processing, and overtime</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -381,7 +425,7 @@ export default function ComplianceTracker() {
                 <div className="flex flex-wrap items-end justify-between gap-2 border-b border-border/60 bg-muted/20 px-4 py-3">
                   <div>
                     <p className="text-sm font-semibold text-foreground">Worker Performance Signals</p>
-                    <p className="text-[11px] text-muted-foreground">Daily card, message, and Gmail evidence. Unclear outcomes stay provisional until Joyce responds.</p>
+                    <p className="text-[11px] text-muted-foreground">Daily card, communication, Gmail, and timer evidence. Unclear outcomes stay provisional until Joyce responds.</p>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
                     {formatDate(rangeRows.at(-1)!.snapshotDate)} to {formatDate(rangeRows[0].snapshotDate)}
@@ -389,10 +433,10 @@ export default function ComplianceTracker() {
                 </div>
                 <div className="grid grid-cols-2 divide-x divide-y divide-border/60 sm:grid-cols-3 lg:grid-cols-6">
                   {[
-                    { label: "Compliance", value: `${performance.average}%`, detail: `${range.label} average`, tone: pctColor(performance.average) },
-                    { label: "Verified days", value: `${performance.verifiedDays}/${rangeRows.length}`, detail: "source checked", tone: "text-emerald-600 dark:text-emerald-400" },
+                    { label: "Compliance", value: `${performance.average}%`, detail: `${performance.verifiedDays}/${rangeRows.length} days verified`, tone: pctColor(performance.average) },
                     { label: "Response rate", value: `${performance.messageResponseRate}%`, detail: `${performance.messagesReplied}/${performance.messagesExpected} messages`, tone: performance.messageResponseRate >= 90 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400" },
                     { label: "Email completion", value: `${performance.emailCompletionRate}%`, detail: `${performance.emailsCompleted}/${performance.emailsExpected} due`, tone: performance.emailCompletionRate >= 90 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400" },
+                    { label: "Overtime", value: formatDuration(performance.overtimeSeconds), detail: `${performance.overtimeDays} days | ${formatDuration(performance.trackedSeconds)} tracked`, tone: performance.overtimeSeconds === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400" },
                     { label: "Missed checks", value: performance.missingEvidence.toLocaleString(), detail: "source-confirmed misses", tone: performance.missingEvidence === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400" },
                     { label: "Joyce updates", value: performance.openClarifications.toLocaleString(), detail: `${performance.evidenceRecords} source facts`, tone: performance.openClarifications === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400" },
                   ].map((metric) => (

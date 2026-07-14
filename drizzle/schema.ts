@@ -216,6 +216,7 @@ export const timeEntries = mysqlTable("time_entries", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   index("time_entries_running_idx").on(table.stoppedAt, table.startedAt),
+  index("time_entries_period_idx").on(table.startedAt, table.stoppedAt),
 ]);
 
 export type TimeEntry = typeof timeEntries.$inferSelect;
@@ -258,6 +259,10 @@ export const dailyComplianceSnapshots = mysqlTable("daily_compliance_snapshots",
   emailMissed: int("emailMissed").notNull().default(0),
   emailNeedsClarification: int("emailNeedsClarification").notNull().default(0),
   clarificationOpen: int("clarificationOpen").notNull().default(0),
+  trackedSeconds: int("trackedSeconds").notNull().default(0),
+  scheduledTargetSeconds: int("scheduledTargetSeconds").notNull().default(0),
+  overtimeSeconds: int("overtimeSeconds").notNull().default(0),
+  timeEntryCount: int("timeEntryCount").notNull().default(0),
   d1Instances: int("d1Instances").notNull().default(0),   // number of D1 demerits added
   estimatedPenalty: decimal("estimatedPenalty", { precision: 8, scale: 2 }).notNull().default("0.00"),
   source: varchar("source", { length: 16 }).notNull().default("auto"), // 'auto' | 'manual'

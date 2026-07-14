@@ -141,7 +141,7 @@ try {
   await clickButton("Time & Pay");
   await waitForText("Keep daily time, payment administration");
   await clickTab("Quality history");
-  await waitForText("Source-backed cards, response rates, and email processing");
+  await waitForText("Source-backed cards, communication, email processing, and overtime");
   await page.waitForFunction(() => !document.body?.innerText.includes("Loading compliance history"), { timeout: 30_000 });
   await page.screenshot({ path: path.join(outputDir, "desktop-compliance-history-dark.png"), fullPage: true });
   await clickButton("Standards");

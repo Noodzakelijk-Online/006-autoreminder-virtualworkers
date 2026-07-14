@@ -9,10 +9,12 @@ vi.mock("./db", () => ({
 }));
 vi.mock("./aptlssReassessment", () => ({ queueCardReassessment: vi.fn() }));
 vi.mock("./sse", () => ({ broadcast: vi.fn() }));
+vi.mock("./timeEvidence", () => ({ refreshStoredComplianceTimeEvidence: vi.fn().mockResolvedValue({ daysCalculated: 1 }) }));
 
 const db = await import("./db");
 const { queueCardReassessment } = await import("./aptlssReassessment");
 const { broadcast } = await import("./sse");
+const { refreshStoredComplianceTimeEvidence } = await import("./timeEvidence");
 const {
   autoStopManagedTimers,
   deleteManagedTimeEntry,
@@ -44,6 +46,7 @@ describe("managed timer service", () => {
     expect(queueCardReassessment).toHaveBeenCalledTimes(2);
     expect(queueCardReassessment).toHaveBeenCalledWith("new-card", "timer");
     expect(queueCardReassessment).toHaveBeenCalledWith("old-card", "timer");
+    expect(refreshStoredComplianceTimeEvidence).toHaveBeenCalledWith(expect.any(String), expect.any(String));
     expect(broadcast).toHaveBeenCalledWith("timer-invalidate");
   });
 

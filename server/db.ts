@@ -1039,6 +1039,10 @@ export interface ComplianceSnapshotRow {
   emailMissed: number;
   emailNeedsClarification: number;
   clarificationOpen: number;
+  trackedSeconds: number;
+  scheduledTargetSeconds: number;
+  overtimeSeconds: number;
+  timeEntryCount: number;
   d1Instances: number;
   estimatedPenalty: number;
   source: string;
@@ -1070,6 +1074,10 @@ export type ComplianceSnapshotInput = {
   emailMissed?: number;
   emailNeedsClarification?: number;
   clarificationOpen?: number;
+  trackedSeconds?: number;
+  scheduledTargetSeconds?: number;
+  overtimeSeconds?: number;
+  timeEntryCount?: number;
   d1Instances: number;
   estimatedPenalty: number;
   source?: string;
@@ -1163,11 +1171,16 @@ function complianceSnapshotUpsertQuery(data: ComplianceSnapshotInput) {
   const emailMissed = data.emailMissed ?? 0;
   const emailNeedsClarification = data.emailNeedsClarification ?? 0;
   const clarificationOpen = data.clarificationOpen ?? 0;
+  const trackedSeconds = data.trackedSeconds ?? 0;
+  const scheduledTargetSeconds = data.scheduledTargetSeconds ?? 0;
+  const overtimeSeconds = data.overtimeSeconds ?? 0;
+  const timeEntryCount = data.timeEntryCount ?? 0;
   return sql`INSERT INTO daily_compliance_snapshots
       (snapshotDate, onHoldTotal, onHoldReviewed, onHoldMissedCards,
        doingTotal, doingUpdated, doingMissedCards,
        messageTotal, messageReplied, messageMissed, messageNeedsClarification,
        emailTotal, emailCompleted, emailMissed, emailNeedsClarification, clarificationOpen,
+       trackedSeconds, scheduledTargetSeconds, overtimeSeconds, timeEntryCount,
        d1Instances, estimatedPenalty, source, weeklyPayLogId,
        required, verificationStatus, verificationMethod, verificationCutoffAt, verifiedAt, evidenceCount)
     VALUES
@@ -1175,6 +1188,7 @@ function complianceSnapshotUpsertQuery(data: ComplianceSnapshotInput) {
        ${data.doingTotal}, ${data.doingUpdated}, ${doingJson},
        ${messageTotal}, ${messageReplied}, ${messageMissed}, ${messageNeedsClarification},
        ${emailTotal}, ${emailCompleted}, ${emailMissed}, ${emailNeedsClarification}, ${clarificationOpen},
+       ${trackedSeconds}, ${scheduledTargetSeconds}, ${overtimeSeconds}, ${timeEntryCount},
        ${data.d1Instances}, ${data.estimatedPenalty}, ${src}, ${wplId},
        ${required}, ${verificationStatus}, ${verificationMethod}, ${verificationCutoffAt}, ${verifiedAt}, ${evidenceCount})
     ON DUPLICATE KEY UPDATE
@@ -1193,6 +1207,10 @@ function complianceSnapshotUpsertQuery(data: ComplianceSnapshotInput) {
       emailMissed = VALUES(emailMissed),
       emailNeedsClarification = VALUES(emailNeedsClarification),
       clarificationOpen = VALUES(clarificationOpen),
+      trackedSeconds = VALUES(trackedSeconds),
+      scheduledTargetSeconds = VALUES(scheduledTargetSeconds),
+      overtimeSeconds = VALUES(overtimeSeconds),
+      timeEntryCount = VALUES(timeEntryCount),
       d1Instances = VALUES(d1Instances),
       estimatedPenalty = VALUES(estimatedPenalty),
       source = VALUES(source),
@@ -1220,7 +1238,10 @@ export async function upsertVerifiedComplianceSnapshot(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.transaction(async (tx) => {
-    await tx.execute(complianceSnapshotUpsertQuery({ ...data, evidenceCount: evidence.length + communication.length }));
+    await tx.execute(complianceSnapshotUpsertQuery({
+      ...data,
+      evidenceCount: evidence.length + communication.length + (data.timeEntryCount ?? 0),
+    }));
     await tx.delete(complianceCardEvidence)
       .where(sql`DATE_FORMAT(${complianceCardEvidence.snapshotDate}, '%Y-%m-%d') = ${data.snapshotDate}`);
     if (evidence.length > 0) {
@@ -1280,6 +1301,7 @@ export async function getComplianceHistory(limit = 30): Promise<ComplianceSnapsh
               doingTotal, doingUpdated, doingMissedCards,
               messageTotal, messageReplied, messageMissed, messageNeedsClarification,
               emailTotal, emailCompleted, emailMissed, emailNeedsClarification, clarificationOpen,
+              trackedSeconds, scheduledTargetSeconds, overtimeSeconds, timeEntryCount,
               d1Instances, estimatedPenalty, source, weeklyPayLogId,
               required, verificationStatus, verificationMethod, verificationCutoffAt,
               verifiedAt, evidenceCount, createdAt
@@ -1307,6 +1329,10 @@ export async function getComplianceHistory(limit = 30): Promise<ComplianceSnapsh
       emailMissed: Number(r.emailMissed ?? 0),
       emailNeedsClarification: Number(r.emailNeedsClarification ?? 0),
       clarificationOpen: Number(r.clarificationOpen ?? 0),
+      trackedSeconds: Number(r.trackedSeconds ?? 0),
+      scheduledTargetSeconds: Number(r.scheduledTargetSeconds ?? 0),
+      overtimeSeconds: Number(r.overtimeSeconds ?? 0),
+      timeEntryCount: Number(r.timeEntryCount ?? 0),
       d1Instances: Number(r.d1Instances),
       estimatedPenalty: Number(r.estimatedPenalty),
       source: r.source ?? "auto",

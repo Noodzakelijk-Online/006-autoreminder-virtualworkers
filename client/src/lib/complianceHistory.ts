@@ -29,6 +29,10 @@ export interface ComplianceSummaryDatum extends ComplianceHistoryDatum {
   emailCompleted: number;
   emailNeedsClarification: number;
   clarificationOpen: number;
+  trackedSeconds: number;
+  scheduledTargetSeconds: number;
+  overtimeSeconds: number;
+  timeEntryCount: number;
   evidenceCount: number;
   verificationStatus: string;
 }
@@ -50,6 +54,11 @@ export interface ComplianceRangeSummary {
   emailCompletionRate: number;
   emailsCompleted: number;
   emailsExpected: number;
+  trackedSeconds: number;
+  scheduledTargetSeconds: number;
+  overtimeSeconds: number;
+  overtimeDays: number;
+  timeEntryCount: number;
 }
 
 export interface ComplianceChartBucket {
@@ -126,6 +135,11 @@ export function summarizeComplianceRange(rows: ComplianceSummaryDatum[]): Compli
     emailCompletionRate: emailsExpected === 0 ? 100 : Math.round((emailsCompleted / emailsExpected) * 100),
     emailsCompleted,
     emailsExpected,
+    trackedSeconds: rows.reduce((sum, row) => sum + row.trackedSeconds, 0),
+    scheduledTargetSeconds: rows.reduce((sum, row) => sum + row.scheduledTargetSeconds, 0),
+    overtimeSeconds: rows.reduce((sum, row) => sum + row.overtimeSeconds, 0),
+    overtimeDays: rows.filter((row) => row.overtimeSeconds > 0).length,
+    timeEntryCount: rows.reduce((sum, row) => sum + row.timeEntryCount, 0),
   };
 }
 
