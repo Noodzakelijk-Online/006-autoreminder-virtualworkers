@@ -4,17 +4,31 @@ vi.mock("./db", () => ({
   autoStopAllRunningTimers: vi.fn(),
   startTimer: vi.fn(),
   stopTimer: vi.fn(),
-  deleteTimeEntry: vi.fn(),
-  updateTimeEntry: vi.fn(),
 }));
 vi.mock("./aptlssReassessment", () => ({ queueCardReassessment: vi.fn() }));
 vi.mock("./sse", () => ({ broadcast: vi.fn() }));
-vi.mock("./timeEvidence", () => ({ refreshStoredComplianceTimeEvidence: vi.fn().mockResolvedValue({ daysCalculated: 1 }) }));
+vi.mock("./timeEvidence", () => ({
+  refreshStoredComplianceTimeEvidence: vi
+    .fn()
+    .mockResolvedValue({ daysCalculated: 1 }),
+}));
+vi.mock("./dailyPlan", () => ({
+  getSavedDailyPlan: vi.fn().mockResolvedValue(null),
+}));
+vi.mock("./timeAccountability", () => ({
+  recordTimeEntryEvent: vi.fn().mockResolvedValue(undefined),
+  markTimeDayNeedsReview: vi.fn().mockResolvedValue(undefined),
+  correctTimeEntry: vi.fn(),
+  voidTimeEntry: vi.fn(),
+  createManualTimeEntry: vi.fn(),
+}));
 
 const db = await import("./db");
 const { queueCardReassessment } = await import("./aptlssReassessment");
 const { broadcast } = await import("./sse");
 const { refreshStoredComplianceTimeEvidence } = await import("./timeEvidence");
+const accountability = await import("./timeAccountability");
+const dailyPlan = await import("./dailyPlan");
 const {
   autoStopManagedTimers,
   deleteManagedTimeEntry,
@@ -32,6 +46,14 @@ describe("managed timer service", () => {
       cardId: "new-card",
       cardName: "New card",
       startedAt: new Date("2026-07-12T08:00:00Z"),
+      stoppedEntries: [
+        {
+          id: 3,
+          cardId: "old-card",
+          startedAt: new Date("2026-07-12T07:00:00Z"),
+          stoppedAt: new Date("2026-07-12T08:00:00Z"),
+        },
+      ],
       stoppedCardIds: ["old-card", "old-card"],
     });
 
@@ -46,7 +68,10 @@ describe("managed timer service", () => {
     expect(queueCardReassessment).toHaveBeenCalledTimes(2);
     expect(queueCardReassessment).toHaveBeenCalledWith("new-card", "timer");
     expect(queueCardReassessment).toHaveBeenCalledWith("old-card", "timer");
-    expect(refreshStoredComplianceTimeEvidence).toHaveBeenCalledWith(expect.any(String), expect.any(String));
+    expect(refreshStoredComplianceTimeEvidence).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String)
+    );
     expect(broadcast).toHaveBeenCalledWith("timer-invalidate");
   });
 
@@ -57,19 +82,78 @@ describe("managed timer service", () => {
     expect(broadcast).not.toHaveBeenCalled();
   });
 
+  it("automatically links starts to the current plan block and APTLSS step", async () => {
+    vi.mocked(dailyPlan.getSavedDailyPlan).mockResolvedValue({
+      blocks: [
+        {
+          id: "block-7",
+          cardId: "card-7",
+          cardName: "Client call",
+          action: "Call the client",
+          startTime: "00:00",
+          endTime: "23:59",
+          status: "planned",
+          stepIds: [17],
+        },
+      ],
+    } as Awaited<ReturnType<typeof dailyPlan.getSavedDailyPlan>>);
+    vi.mocked(db.startTimer).mockResolvedValue({
+      id: 7,
+      cardId: "card-7",
+      cardName: "Client call",
+      startedAt: new Date(),
+      stoppedEntries: [],
+      stoppedCardIds: [],
+    });
+
+    await startManagedTimer({
+      cardId: "card-7",
+      cardName: "Client call",
+      cardUrl: "https://trello.com/c/card-7",
+      boardName: "Client",
+      listName: "Doing",
+      source: "work_queue",
+    });
+
+    expect(db.startTimer).toHaveBeenCalledWith(
+      "card-7",
+      "Client call",
+      "https://trello.com/c/card-7",
+      "Client",
+      "Doing",
+      expect.objectContaining({ planBlockId: "block-7", aptlssStepId: 17 })
+    );
+  });
+
   it("invalidates and reassesses after a successful stop", async () => {
-    vi.mocked(db.stopTimer).mockResolvedValue({ cardId: "card-1" } as Awaited<ReturnType<typeof db.stopTimer>>);
+    vi.mocked(db.stopTimer).mockResolvedValue({
+      id: 1,
+      cardId: "card-1",
+      startedAt: new Date("2026-07-12T08:00:00Z"),
+      stoppedAt: new Date(),
+      durationSeconds: 60,
+    } as Awaited<ReturnType<typeof db.stopTimer>>);
     await stopManagedTimer("card-1");
     expect(queueCardReassessment).toHaveBeenCalledWith("card-1", "timer");
     expect(broadcast).toHaveBeenCalledWith("timer-invalidate");
   });
 
   it("invalidates and reassesses after timer corrections", async () => {
-    vi.mocked(db.updateTimeEntry).mockResolvedValue({ success: true, id: 2, cardId: "card-2", durationSeconds: 90, stoppedAt: new Date() });
-    vi.mocked(db.deleteTimeEntry).mockResolvedValue({ success: true, id: 3, cardId: "card-3" });
+    vi.mocked(accountability.correctTimeEntry).mockResolvedValue({
+      id: 2,
+      cardId: "card-2",
+      startedAt: new Date("2026-07-12T08:00:00Z"),
+      durationSeconds: 90,
+      stoppedAt: new Date(),
+    } as Awaited<ReturnType<typeof accountability.correctTimeEntry>>);
+    vi.mocked(accountability.voidTimeEntry).mockResolvedValue({
+      id: 3,
+      cardId: "card-3",
+      startedAt: new Date("2026-07-12T08:00:00Z"),
+    } as Awaited<ReturnType<typeof accountability.voidTimeEntry>>);
 
-    await updateManagedTimeEntry(2, 90);
-    await deleteManagedTimeEntry(3);
+    await updateManagedTimeEntry(2, 90, "Fix accidental overrun");
+    await deleteManagedTimeEntry(3, "Duplicate session");
 
     expect(queueCardReassessment).toHaveBeenCalledWith("card-2", "timer");
     expect(queueCardReassessment).toHaveBeenCalledWith("card-3", "timer");

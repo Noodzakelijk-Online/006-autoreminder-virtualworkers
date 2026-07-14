@@ -1,4 +1,4 @@
-import { and, gt, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import { timeEntries, type TimeEntry } from "../drizzle/schema";
 import {
   addDaysToDateKey,
@@ -18,7 +18,22 @@ import {
 
 export type TimeEvidenceEntry = Pick<
   TimeEntry,
-  "id" | "cardId" | "cardName" | "cardUrl" | "boardName" | "listName" | "startedAt" | "stoppedAt" | "durationSeconds"
+  | "id"
+  | "cardId"
+  | "cardName"
+  | "cardUrl"
+  | "boardName"
+  | "listName"
+  | "startedAt"
+  | "stoppedAt"
+  | "durationSeconds"
+  | "notes"
+  | "source"
+  | "category"
+  | "planDateKey"
+  | "planBlockId"
+  | "aptlssStepId"
+  | "isVoided"
 >;
 
 export type AllocatedTimeEntry = TimeEvidenceEntry & {
@@ -129,6 +144,7 @@ async function loadRangeEntries(startDate: string, endDate: string) {
   if (!db) return [];
   const { startUtc, endUtc } = eatDateSpanUtc(startDate, endDate);
   return db.select().from(timeEntries).where(and(
+    eq(timeEntries.isVoided, false),
     lt(timeEntries.startedAt, endUtc),
     or(isNull(timeEntries.stoppedAt), gt(timeEntries.stoppedAt, startUtc)),
   ));

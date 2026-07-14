@@ -212,15 +212,84 @@ export const timeEntries = mysqlTable("time_entries", {
   stoppedAt: timestamp("stoppedAt"),           // null = timer still running
   durationSeconds: int("durationSeconds"),      // null = timer still running
   notes: text("notes"),
+  source: varchar("source", { length: 32 }).notNull().default("legacy"),
+  category: varchar("category", { length: 32 }).notNull().default("client_work"),
+  planDateKey: varchar("planDateKey", { length: 16 }),
+  planBlockId: varchar("planBlockId", { length: 128 }),
+  aptlssStepId: int("aptlssStepId"),
+  isVoided: boolean("isVoided").notNull().default(false),
+  voidedAt: timestamp("voidedAt"),
+  voidReason: text("voidReason"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
   index("time_entries_running_idx").on(table.stoppedAt, table.startedAt),
   index("time_entries_period_idx").on(table.startedAt, table.stoppedAt),
+  index("time_entries_plan_block_idx").on(table.planDateKey, table.planBlockId),
+  index("time_entries_step_idx").on(table.aptlssStepId),
 ]);
 
 export type TimeEntry = typeof timeEntries.$inferSelect;
 export type InsertTimeEntry = typeof timeEntries.$inferInsert;
+
+/** Append-only audit history for timer creation, correction, stop, and void events. */
+export const timeEntryEvents = mysqlTable("time_entry_events", {
+  id: int("id").autoincrement().primaryKey(),
+  timeEntryId: int("timeEntryId").notNull(),
+  eventType: varchar("eventType", { length: 32 }).notNull(),
+  reason: text("reason"),
+  beforeJson: text("beforeJson"),
+  afterJson: text("afterJson"),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [
+  index("time_entry_events_entry_created_idx").on(table.timeEntryId, table.createdAt),
+  index("time_entry_events_type_created_idx").on(table.eventType, table.createdAt),
+]);
+export type TimeEntryEvent = typeof timeEntryEvents.$inferSelect;
+
+/** Joyce's daily review state; locked days reopen automatically after a correction. */
+export const timeDayReviews = mysqlTable("time_day_reviews", {
+  id: int("id").autoincrement().primaryKey(),
+  dateKey: varchar("dateKey", { length: 16 }).notNull().unique(),
+  status: mysqlEnum("status", ["open", "needs_review", "locked"]).notNull().default("open"),
+  overtimeReason: text("overtimeReason"),
+  summaryJson: text("summaryJson"),
+  lockedAt: timestamp("lockedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("time_day_reviews_status_date_idx").on(table.status, table.dateKey),
+]);
+export type TimeDayReview = typeof timeDayReviews.$inferSelect;
+
+/** Persisted reconciliation questions produced from plan, Trello, communication, and timer evidence. */
+export const timeReconciliationItems = mysqlTable("time_reconciliation_items", {
+  id: int("id").autoincrement().primaryKey(),
+  dateKey: varchar("dateKey", { length: 16 }).notNull(),
+  fingerprint: varchar("fingerprint", { length: 256 }).notNull().unique(),
+  type: varchar("type", { length: 48 }).notNull(),
+  severity: mysqlEnum("severity", ["low", "medium", "high"]).notNull().default("medium"),
+  status: mysqlEnum("status", ["open", "resolved", "dismissed", "superseded"]).notNull().default("open"),
+  cardId: varchar("cardId", { length: 64 }),
+  cardName: varchar("cardName", { length: 512 }),
+  cardUrl: varchar("cardUrl", { length: 1024 }),
+  boardName: varchar("boardName", { length: 256 }),
+  listName: varchar("listName", { length: 256 }),
+  timeEntryId: int("timeEntryId"),
+  planBlockId: varchar("planBlockId", { length: 128 }),
+  title: varchar("title", { length: 512 }).notNull(),
+  detail: text("detail").notNull(),
+  sourceJson: text("sourceJson").notNull(),
+  resolution: text("resolution"),
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("time_reconciliation_date_status_idx").on(table.dateKey, table.status),
+  index("time_reconciliation_entry_idx").on(table.timeEntryId),
+]);
+export type TimeReconciliationItem = typeof timeReconciliationItems.$inferSelect;
 
 /**
  * App-wide settings — key/value store for configurable parameters.

@@ -21,6 +21,20 @@ describe("APTLSS runtime intelligence", () => {
     expect(calibration.sampleSize).toBe(2);
   });
 
+  it("prefers direct APTLSS step links over card-level allocation", () => {
+    const calibration = calculateEffortCalibration(
+      [
+        { id: 11, cardId: "a", status: "complete", estimatedMinutes: 30 },
+        { id: 12, cardId: "a", status: "open", estimatedMinutes: 90 },
+      ],
+      [
+        { cardId: "a", aptlssStepId: 11, startedAt: NOW - 3_600_000, stoppedAt: NOW, durationSeconds: 2_700 },
+        { cardId: "a", startedAt: NOW - 10_000, stoppedAt: NOW, durationSeconds: 18_000 },
+      ],
+    );
+    expect(calibration).toMatchObject({ factor: 1.5, sampleSize: 1 });
+  });
+
   it("combines timer, reply, decision, schedule, overrun, and forecast evidence", () => {
     const result = buildAptlssRuntimeAnalysis({
       cardIds: ["a"],

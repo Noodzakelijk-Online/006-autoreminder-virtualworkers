@@ -210,6 +210,11 @@ export default function PlanMyDay() {
         cardUrl: block.cardUrl ?? `https://trello.com/c/${block.cardId}`,
         boardName: block.boardName,
         listName: block.listName,
+        source: "plan_my_day",
+        planDateKey: dateKey,
+        planBlockId: block.id,
+        aptlssStepId: block.stepIds[0] ?? null,
+        notes: block.action,
       });
       await activeTimer.refetch();
       await persistStatus(block, "active");

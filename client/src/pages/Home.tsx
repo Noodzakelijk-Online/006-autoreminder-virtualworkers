@@ -84,6 +84,16 @@ function SectionFallback() {
 // ─── Compliance badge for the Performance sidebar item ───────────────────────
 function ComplianceBadge() {
   const { data } = trpc.compliance.getRollingAvg.useQuery({ days: 7 });
+  const { data: counts } = trpc.system.navigationCounts.useQuery(undefined, {
+    staleTime: 5 * 60_000,
+  });
+  if ((counts?.timeExceptionCount ?? 0) > 0) {
+    return (
+      <span className="ml-auto flex h-[18px] min-w-[28px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[9px] font-bold leading-none text-white" title="Open time reconciliation items">
+        {counts!.timeExceptionCount}
+      </span>
+    );
+  }
   const avg = data?.avg;
   if (avg === undefined) return null;
   const color = avg >= 90
@@ -1124,6 +1134,7 @@ function HomeInner() {
         utils.timer.getDailySummary.invalidate(),
         utils.timer.getWeeklyTotal.invalidate(),
         utils.timer.getWeeklyBreakdown.invalidate(),
+        utils.timer.getWorkspace.invalidate(),
       ]);
       toast.success("Timer started");
     },
@@ -1149,6 +1160,8 @@ function HomeInner() {
       cardUrl: card.url,
       boardName: card.boardName,
       listName: card.listName,
+      source: "work_queue",
+      category: "client_work",
     });
   };
 

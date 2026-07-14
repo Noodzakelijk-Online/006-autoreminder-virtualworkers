@@ -109,6 +109,7 @@ import {
   setGmailIngestionSettings,
 } from "./gmailIngestionSettings";
 import {
+  createManagedManualTimeEntry,
   deleteManagedTimeEntry,
   startManagedTimer,
   stopManagedTimer,
@@ -199,6 +200,19 @@ import {
 import { getOutstandingCommunicationEvidence } from "./communicationEvidenceDb";
 import { getRecentHandoffs, getRecentOperatorNotifications } from "./operatorRecordsDb";
 import { getDailyTimeEvidence, getWeeklyTimeEvidence } from "./timeEvidence";
+import {
+  getTimeWorkspace,
+  resolveTimeReconciliationItem,
+  reviewAndLockTimeDay,
+} from "./timeReconciliation";
+
+async function refreshTimeReconciliation(dateKey: string) {
+  try {
+    await getTimeWorkspace(dateKey);
+  } catch (error) {
+    console.warn("[Time] Could not refresh plan reconciliation:", error);
+  }
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -714,6 +728,11 @@ export const appRouter = router({
       .input(z.object({ date: dateKeySchema }))
       .query(async ({ input }) => getDailyTimeEvidence(input.date)),
 
+    /** Consolidated daily evidence, immutable audit events, and clarification queue. */
+    getWorkspace: protectedProcedure
+      .input(z.object({ date: dateKeySchema }))
+      .query(async ({ input }) => getTimeWorkspace(input.date)),
+
     /** Get total tracked seconds in a date range (for weekly hours). */
     getWeeklyTotal: protectedProcedure
       .input(weekDateRangeSchema)
@@ -728,18 +747,54 @@ export const appRouter = router({
 
     /** Delete a specific time entry by ID. */
     delete: protectedProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.number().int().positive(), reason: z.string().trim().min(5).max(2_000) }))
       .mutation(async ({ input }) => {
-        return deleteManagedTimeEntry(input.id);
+        return deleteManagedTimeEntry(input.id, input.reason);
       }),
     /** Update a time entry's duration (correction for overnight/accidental timers). */
     updateEntry: protectedProcedure
       .input(z.object({
         id: z.number(),
         durationSeconds: z.number().int().min(0).max(86400), // max 24h
+        reason: z.string().trim().min(5).max(2_000),
       }))
       .mutation(async ({ input }) => {
-        return updateManagedTimeEntry(input.id, input.durationSeconds);
+        return updateManagedTimeEntry(input.id, input.durationSeconds, input.reason);
+      }),
+    createManual: protectedProcedure
+      .input(z.object({
+        dateKey: dateKeySchema,
+        startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        cardId: trelloCardIdSchema,
+        cardName: z.string().trim().min(1).max(1_000),
+        cardUrl: z.string().trim().url().max(2_048),
+        boardName: z.string().trim().min(1).max(500),
+        listName: z.string().trim().min(1).max(500),
+        category: z.enum(["client_work", "communication", "administration", "meeting", "training", "waiting", "break", "emergency"]),
+        reason: z.string().trim().min(5).max(2_000),
+        notes: z.string().trim().max(4_000).nullable().optional(),
+        planBlockId: z.string().trim().min(1).max(128).nullable().optional(),
+        aptlssStepId: z.number().int().positive().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => createManagedManualTimeEntry(input)),
+    resolveException: protectedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        resolution: z.string().trim().min(5).max(4_000),
+        dismiss: z.boolean().default(false),
+      }))
+      .mutation(async ({ input }) => {
+        const result = await resolveTimeReconciliationItem(input.id, input.resolution, input.dismiss);
+        broadcast("timer-invalidate");
+        return result;
+      }),
+    lockDay: protectedProcedure
+      .input(z.object({ dateKey: dateKeySchema, overtimeReason: z.string().trim().max(4_000).nullable().optional() }))
+      .mutation(async ({ input }) => {
+        const result = await reviewAndLockTimeDay(input.dateKey, input.overtimeReason);
+        broadcast("timer-invalidate");
+        return result;
       }),
     /** Get individual time entries for a card on a specific date (for the edit dialog). */
     getEntriesForCard: protectedProcedure
@@ -1548,14 +1603,18 @@ export const appRouter = router({
           const existing = await getSavedDailyPlan(dateKey);
           if (existing) return existing;
         }
-        return await buildDailyPlan(dateKey, "manual");
+        const plan = await buildDailyPlan(dateKey, "manual");
+        await refreshTimeReconciliation(dateKey);
+        return plan;
       }),
 
     /** Persist cockpit edits such as block status, notes, and ordering. */
     updateDailyPlan: protectedProcedure
       .input(z.object({ dateKey: z.string(), scheduleJson: z.any() }))
       .mutation(async ({ input }) => {
-        return await persistDailyPlan(input.dateKey, input.scheduleJson as DailyPlanPayload);
+        const plan = await persistDailyPlan(input.dateKey, input.scheduleJson as DailyPlanPayload);
+        await refreshTimeReconciliation(input.dateKey);
+        return plan;
       }),
 
     /** Replan only unfinished future blocks while preserving completed/active work. */
@@ -1567,7 +1626,9 @@ export const appRouter = router({
         activeBlockId: z.string().nullable().optional(),
       }))
       .mutation(async ({ input }) => {
-        return await buildRemainingDayReplan(input.dateKey, input.completedBlockIds, input.activeBlockId ?? null);
+        const plan = await buildRemainingDayReplan(input.dateKey, input.completedBlockIds, input.activeBlockId ?? null);
+        await refreshTimeReconciliation(input.dateKey);
+        return plan;
       }),
 
     /** Draft an end-of-day handoff from the persisted plan and tracked timers. */
@@ -1586,7 +1647,9 @@ export const appRouter = router({
         const apiKey = process.env.TrelloAPIKey;
         const apiToken = process.env.TrelloAPIToken;
         if (!apiKey || !apiToken) throw new Error("Trello API credentials not configured");
-        const payload = await buildDailyPlan(getEatDateKey(), "manual");
+        const dateKey = getEatDateKey();
+        const payload = await buildDailyPlan(dateKey, "manual");
+        await refreshTimeReconciliation(dateKey);
         return toLegacyDailySchedule(payload);
       }),
 

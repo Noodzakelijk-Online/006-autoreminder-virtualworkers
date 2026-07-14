@@ -598,7 +598,7 @@ export async function getUpdateStreak(): Promise<{
 
 // ── Time Entries ──────────────────────────────────────────────────────────────
 
-import { appSettings, timeEntries } from "../drizzle/schema";
+import { appSettings, timeEntries, timeEntryEvents } from "../drizzle/schema";
 import { isNull, isNotNull, gte, lt, lte } from "drizzle-orm";
 
 /** Start a timer while enforcing one globally active Joyce timer. */
@@ -607,7 +607,15 @@ export async function startTimer(
   cardName: string,
   cardUrl: string,
   boardName: string,
-  listName: string
+  listName: string,
+  context: {
+    source?: string;
+    category?: string;
+    planDateKey?: string | null;
+    planBlockId?: string | null;
+    aptlssStepId?: number | null;
+    notes?: string | null;
+  } = {}
 ) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
@@ -620,9 +628,9 @@ export async function startTimer(
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT id FROM app_settings WHERE ${appSettings.key} = ${lockKey} FOR UPDATE`);
     const running = await tx
-      .select({ cardId: timeEntries.cardId })
+      .select()
       .from(timeEntries)
-      .where(isNull(timeEntries.stoppedAt));
+      .where(and(isNull(timeEntries.stoppedAt), eq(timeEntries.isVoided, false)));
     const startedAt = new Date();
 
     await tx
@@ -631,7 +639,7 @@ export async function startTimer(
         stoppedAt: startedAt,
         durationSeconds: sql`TIMESTAMPDIFF(SECOND, startedAt, ${startedAt})`,
       })
-      .where(isNull(timeEntries.stoppedAt));
+      .where(and(isNull(timeEntries.stoppedAt), eq(timeEntries.isVoided, false)));
 
     const [result] = await tx.insert(timeEntries).values([{
       cardId,
@@ -642,12 +650,47 @@ export async function startTimer(
       startedAt,
       stoppedAt: null,
       durationSeconds: null,
+      source: context.source ?? "timer",
+      category: context.category ?? "client_work",
+      planDateKey: context.planDateKey ?? null,
+      planBlockId: context.planBlockId ?? null,
+      aptlssStepId: context.aptlssStepId ?? null,
+      notes: context.notes?.trim() || null,
     }]);
+    const id = Number((result as { insertId: number }).insertId);
+    const stoppedEntries = running.map((entry) => ({
+      ...entry,
+      stoppedAt: startedAt,
+      durationSeconds: Math.max(0, Math.floor((startedAt.getTime() - entry.startedAt.getTime()) / 1_000)),
+    }));
+    if (stoppedEntries.length) {
+      await tx.insert(timeEntryEvents).values(stoppedEntries.map((entry) => ({
+        timeEntryId: entry.id,
+        eventType: "auto_switched",
+        reason: `Timer switched to ${cardName}`,
+        afterJson: JSON.stringify({ stoppedAt: startedAt, durationSeconds: entry.durationSeconds }),
+        metadataJson: JSON.stringify({ nextCardId: cardId }),
+      })));
+    }
+    await tx.insert(timeEntryEvents).values({
+      timeEntryId: id,
+      eventType: "started",
+      afterJson: JSON.stringify({
+        cardId,
+        startedAt,
+        source: context.source ?? "timer",
+        category: context.category ?? "client_work",
+        planDateKey: context.planDateKey ?? null,
+        planBlockId: context.planBlockId ?? null,
+        aptlssStepId: context.aptlssStepId ?? null,
+      }),
+    });
     return {
-      id: (result as any).insertId,
+      id,
       cardId,
       cardName,
       startedAt,
+      stoppedEntries,
       stoppedCardIds: Array.from(new Set(running.map((entry) => entry.cardId))),
     };
   });
@@ -660,23 +703,26 @@ export async function stopTimer(cardId: string) {
   const db = await getDb();
   if (!db) throw new Error("DB not available");
 
-  const running = await db
-    .select()
-    .from(timeEntries)
-    .where(and(eq(timeEntries.cardId, cardId), isNull(timeEntries.stoppedAt)))
-    .limit(1);
-
-  if (!running[0]) return null;
-
-  const now = new Date();
-  const durationSeconds = Math.round((now.getTime() - running[0].startedAt.getTime()) / 1000);
-
-  await db
-    .update(timeEntries)
-    .set({ stoppedAt: now, durationSeconds })
-    .where(eq(timeEntries.id, running[0].id));
-
-  return { ...running[0], stoppedAt: now, durationSeconds };
+  return db.transaction(async (tx) => {
+    const [running] = await tx
+      .select()
+      .from(timeEntries)
+      .where(and(eq(timeEntries.cardId, cardId), isNull(timeEntries.stoppedAt), eq(timeEntries.isVoided, false)))
+      .limit(1);
+    if (!running) return null;
+    const now = new Date();
+    const durationSeconds = Math.max(0, Math.round((now.getTime() - running.startedAt.getTime()) / 1000));
+    await tx
+      .update(timeEntries)
+      .set({ stoppedAt: now, durationSeconds })
+      .where(eq(timeEntries.id, running.id));
+    await tx.insert(timeEntryEvents).values({
+      timeEntryId: running.id,
+      eventType: "stopped",
+      afterJson: JSON.stringify({ stoppedAt: now, durationSeconds }),
+    });
+    return { ...running, stoppedAt: now, durationSeconds };
+  });
 }
 
 /**
@@ -688,7 +734,7 @@ export async function getActiveTimer() {
   const rows = await db
     .select()
     .from(timeEntries)
-    .where(isNull(timeEntries.stoppedAt))
+    .where(and(isNull(timeEntries.stoppedAt), eq(timeEntries.isVoided, false)))
     .orderBy(desc(timeEntries.startedAt))
     .limit(1);
   return rows[0] ?? null;
@@ -703,7 +749,7 @@ export async function getTimeEntriesForCard(cardId: string, limit = 20) {
   return db
     .select()
     .from(timeEntries)
-    .where(and(eq(timeEntries.cardId, cardId), isNotNull(timeEntries.stoppedAt)))
+    .where(and(eq(timeEntries.cardId, cardId), isNotNull(timeEntries.stoppedAt), eq(timeEntries.isVoided, false)))
     .orderBy(desc(timeEntries.startedAt))
     .limit(limit);
 }
@@ -715,7 +761,7 @@ export async function getTimeEntriesSince(since: Date, limit = 20_000) {
   return db
     .select()
     .from(timeEntries)
-    .where(gte(timeEntries.startedAt, since))
+    .where(and(gte(timeEntries.startedAt, since), eq(timeEntries.isVoided, false)))
     .orderBy(desc(timeEntries.startedAt))
     .limit(Math.max(1, Math.min(limit, 50_000)));
 }
@@ -744,6 +790,7 @@ export async function getDailyTimeSummary(dateEAT: string): Promise<Array<{
     .where(
       and(
         isNotNull(timeEntries.stoppedAt),
+        eq(timeEntries.isVoided, false),
         gte(timeEntries.startedAt, startUtc),
         lt(timeEntries.startedAt, endUtc)
       )
@@ -795,42 +842,13 @@ export async function getTrackedSecondsInRange(startDate: string, endDate: strin
     .where(
       and(
         isNotNull(timeEntries.stoppedAt),
+        eq(timeEntries.isVoided, false),
         gte(timeEntries.startedAt, startUtc),
         lt(timeEntries.startedAt, endUtc)
       )
     );
 
   return rows.reduce((sum, r) => sum + (r.durationSeconds ?? 0), 0);
-}
-
-/**
- * Delete a specific time entry by ID.
- */
-export async function deleteTimeEntry(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const [entry] = await db.select({ cardId: timeEntries.cardId }).from(timeEntries).where(eq(timeEntries.id, id)).limit(1);
-  if (!entry) throw new Error("Time entry not found");
-  await db.delete(timeEntries).where(eq(timeEntries.id, id));
-  return { success: true, id, cardId: entry.cardId };
-}
-
-/**
- * Update a specific time entry's duration (for correction after accidental overnight timers).
- * Recalculates stoppedAt based on startedAt + new durationSeconds.
- */
-export async function updateTimeEntry(id: number, durationSeconds: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB not available");
-  const rows = await db.select().from(timeEntries).where(eq(timeEntries.id, id)).limit(1);
-  if (rows.length === 0) throw new Error("Time entry not found");
-  const entry = rows[0];
-  const newStoppedAt = new Date(new Date(entry.startedAt).getTime() + durationSeconds * 1000);
-  await db
-    .update(timeEntries)
-    .set({ durationSeconds, stoppedAt: newStoppedAt })
-    .where(eq(timeEntries.id, id));
-  return { success: true, id, cardId: entry.cardId, durationSeconds, stoppedAt: newStoppedAt };
 }
 
 /**
@@ -848,6 +866,7 @@ export async function getTimeEntriesForCardOnDate(cardId: string, dateEAT: strin
       and(
         eq(timeEntries.cardId, cardId),
         isNotNull(timeEntries.stoppedAt),
+        eq(timeEntries.isVoided, false),
         gte(timeEntries.startedAt, startUtc),
         lt(timeEntries.startedAt, endUtc)
       )
@@ -865,7 +884,7 @@ export async function getAllRunningTimers() {
   return db
     .select()
     .from(timeEntries)
-    .where(isNull(timeEntries.stoppedAt));
+    .where(and(isNull(timeEntries.stoppedAt), eq(timeEntries.isVoided, false)));
 }
 
 /**
@@ -921,6 +940,7 @@ export async function getWeeklyBreakdown(startDate: string, endDate: string): Pr
       and(
         isNotNull(timeEntries.stoppedAt),
         isNotNull(timeEntries.durationSeconds),
+        eq(timeEntries.isVoided, false),
         gte(timeEntries.startedAt, startUtc),
         lt(timeEntries.startedAt, endUtc)
       )
@@ -1553,6 +1573,7 @@ export type NavigationCounts = {
   emailCount: number;
   followUpCount: number;
   operationalCardCount: number;
+  timeExceptionCount: number;
 };
 
 const EMPTY_NAVIGATION_COUNTS: NavigationCounts = {
@@ -1564,6 +1585,7 @@ const EMPTY_NAVIGATION_COUNTS: NavigationCounts = {
   emailCount: 0,
   followUpCount: 0,
   operationalCardCount: 0,
+  timeExceptionCount: 0,
 };
 
 /** One lightweight aggregate for the always-mounted navigation badges. */
@@ -1580,6 +1602,7 @@ export async function getNavigationCounts(): Promise<NavigationCounts> {
         (SELECT COUNT(*) FROM compliance_clarification_requests WHERE status = 'open') AS clarificationCount,
         (SELECT COUNT(*) FROM email_tasks WHERE status <> 'archived') AS emailCount,
         (SELECT COUNT(*) FROM auto_follow_up_drafts WHERE status = 'pending') AS followUpCount,
+        (SELECT COUNT(*) FROM time_reconciliation_items WHERE status = 'open' AND severity IN ('high', 'medium')) AS timeExceptionCount,
         (SELECT COUNT(*) FROM card_states WHERE state IN (
           'OVERDUE',
           'WAITING_FOR_JOYCE',
@@ -1603,6 +1626,7 @@ export async function getNavigationCounts(): Promise<NavigationCounts> {
       emailCount: count("emailCount"),
       followUpCount: count("followUpCount"),
       operationalCardCount: count("operationalCardCount"),
+      timeExceptionCount: count("timeExceptionCount"),
     };
   } catch (error) {
     console.warn("[Database] Navigation counts unavailable:", error instanceof Error ? error.message : String(error));

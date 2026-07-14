@@ -98,7 +98,11 @@ export const powerUpRouter = router({
     .input(timerStartInputSchema.extend({ token }))
     .mutation(async ({ input }) => {
       await verifyPowerUpToken(input.token);
-      return startManagedTimer(input);
+      return startManagedTimer({
+        ...input,
+        source: "trello_powerup",
+        category: "client_work",
+      });
     }),
 
   stopTimer: publicProcedure

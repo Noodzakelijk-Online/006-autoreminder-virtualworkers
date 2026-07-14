@@ -1,4 +1,5 @@
 export type RuntimeStep = {
+  id?: number;
   cardId: string;
   status: string;
   estimatedMinutes?: number | null;
@@ -8,6 +9,7 @@ export type RuntimeStep = {
 
 export type RuntimeTimeEntry = {
   cardId: string;
+  aptlssStepId?: number | null;
   startedAt: Date | string;
   stoppedAt?: Date | string | null;
   durationSeconds?: number | null;
@@ -96,6 +98,25 @@ function minutesBetween(startTime?: string, endTime?: string) {
 }
 
 export function calculateEffortCalibration(steps: RuntimeStep[], entries: RuntimeTimeEntry[]): EffortCalibration {
+  const completedStepById = new Map(
+    steps
+      .filter((step) => step.id != null && step.status === "complete")
+      .map((step) => [step.id!, step]),
+  );
+  const actualByStep = new Map<number, number>();
+  for (const entry of entries) {
+    if (!entry.stoppedAt || !entry.durationSeconds || entry.durationSeconds <= 0 || entry.aptlssStepId == null) continue;
+    if (!completedStepById.has(entry.aptlssStepId)) continue;
+    actualByStep.set(entry.aptlssStepId, (actualByStep.get(entry.aptlssStepId) ?? 0) + entry.durationSeconds / 60);
+  }
+  const directlyCalibratedCards = new Set<string>();
+  const directRatios = Array.from(actualByStep.entries()).flatMap(([stepId, actual]) => {
+    const step = completedStepById.get(stepId)!;
+    const estimated = Math.max(0, step.estimatedMinutes ?? 0);
+    if (estimated < 15 || actual < 5) return [];
+    directlyCalibratedCards.add(step.cardId);
+    return [clamp(actual / estimated, 0.5, 3)];
+  });
   const completedEstimateByCard = new Map<string, number>();
   const cardsWithOpenWork = new Set(steps.filter((step) => step.status === "open").map((step) => step.cardId));
   for (const step of steps) {
@@ -105,14 +126,16 @@ export function calculateEffortCalibration(steps: RuntimeStep[], entries: Runtim
   const trackedByCard = new Map<string, number>();
   for (const entry of entries) {
     if (!entry.stoppedAt || !entry.durationSeconds || entry.durationSeconds <= 0) continue;
+    if (entry.aptlssStepId != null) continue;
     trackedByCard.set(entry.cardId, (trackedByCard.get(entry.cardId) ?? 0) + entry.durationSeconds / 60);
   }
-  const ratios = Array.from(completedEstimateByCard.entries())
+  const fallbackRatios = Array.from(completedEstimateByCard.entries())
     .flatMap(([cardId, estimated]) => {
-      if (cardsWithOpenWork.has(cardId)) return [];
+      if (directlyCalibratedCards.has(cardId) || cardsWithOpenWork.has(cardId)) return [];
       const actual = trackedByCard.get(cardId) ?? 0;
       return estimated >= 15 && actual >= 5 ? [clamp(actual / estimated, 0.5, 3)] : [];
     });
+  const ratios = [...directRatios, ...fallbackRatios];
   const rawMedian = median(ratios);
   const factor = rawMedian == null ? 1 : clamp(rawMedian, 0.65, 2.5);
   const deviations = ratios.map((ratio) => Math.abs(ratio - factor));

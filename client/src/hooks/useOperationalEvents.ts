@@ -13,12 +13,14 @@ export function useOperationalEvents() {
       void utils.aptlss.getActiveWaitingReasons.invalidate();
     };
     const onTimerChange = () => {
+      void utils.system.navigationCounts.invalidate();
       void utils.timer.getActive.invalidate();
       void utils.timer.getDailySummary.invalidate();
       void utils.timer.getWeeklyTotal.invalidate();
       void utils.timer.getWeeklyBreakdown.invalidate();
       void utils.timer.getDailyEvidence.invalidate();
       void utils.timer.getWeeklyEvidence.invalidate();
+      void utils.timer.getWorkspace.invalidate();
       void utils.compliance.getHistory.invalidate();
     };
     const onPayChange = () => {
@@ -47,6 +49,7 @@ export function useOperationalEvents() {
       void utils.aptlss.getDailyPlan.invalidate();
       void utils.aptlss.getLatestWeeklyAnalysis.invalidate();
       void utils.aptlss.getWeeklyAnalysisHistory.invalidate();
+      void utils.timer.getWorkspace.invalidate();
     };
     const onGmailChange = () => {
       void utils.system.navigationCounts.invalidate();
@@ -58,6 +61,7 @@ export function useOperationalEvents() {
       void utils.compliance.getHistory.invalidate();
       void utils.compliance.getClarifications.invalidate();
       void utils.compliance.getCommunicationEvidence.invalidate();
+      void utils.timer.getWorkspace.invalidate();
     };
     const onJobsChange = () => {
       void utils.system.scheduledJobFreshness.invalidate();
