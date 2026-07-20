@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -137,6 +137,75 @@ export default function TriageTab() {
   const [deferredTasks, setDeferredTasks] = useState<Task[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
 
+  const [workerProfile, setWorkerProfile] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/va/worker/profile', { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) setWorkerProfile(data);
+      })
+      .catch(err => console.error("Error fetching worker profile in TriageTab:", err));
+  }, []);
+
+  const triageSteps = useMemo(() => {
+    const trelloLink = workerProfile?.trelloMemberId 
+      ? `https://trello.com/${workerProfile.trelloMemberId}/cards` 
+      : "https://trello.com/your/cards";
+    return [
+      {
+        id: "email",
+        label: "Email Inbox",
+        type: "triage" as const,
+        icon: <Mail className="w-5 h-5 text-blue-600" />,
+        color: "bg-blue-50 dark:bg-blue-950/30",
+        borderColor: "border-blue-400",
+        instruction: "Open Gmail. Go top to bottom. For each email: reply, file, or create a Trello card.",
+        link: "https://mail.google.com",
+      },
+      {
+        id: "whatsapp",
+        label: "WhatsApp",
+        type: "triage" as const,
+        icon: <MessageSquare className="w-5 h-5 text-emerald-600" />,
+        color: "bg-emerald-50 dark:bg-emerald-950/30",
+        borderColor: "border-emerald-400",
+        instruction: "Open WhatsApp. Go top to bottom. Reply to all unread messages. Convert tasks to Trello.",
+        link: "https://web.whatsapp.com",
+      },
+      {
+        id: "upwork",
+        label: "Upwork Messages",
+        type: "triage" as const,
+        icon: <Briefcase className="w-5 h-5 text-green-600" />,
+        color: "bg-green-50 dark:bg-green-950/30",
+        borderColor: "border-green-400",
+        instruction: "Open Upwork. Go top to bottom. Reply to all messages. Archive inactive conversations.",
+        link: "https://www.upwork.com/messages",
+      },
+      {
+        id: "trello_notifs",
+        label: "Trello Notifications",
+        type: "triage" as const,
+        icon: <Bell className="w-5 h-5 text-orange-600" />,
+        color: "bg-orange-50 dark:bg-orange-950/30",
+        borderColor: "border-orange-400",
+        instruction: "Open Trello notifications. Review all unread. Update cards that need action.",
+        link: "https://trello.com/",
+      },
+      {
+        id: "planning",
+        label: "Major Tasks (APTLSS)",
+        type: "planning" as const,
+        icon: <ListTodo className="w-5 h-5 text-purple-600" />,
+        color: "bg-purple-50 dark:bg-purple-950/30",
+        borderColor: "border-purple-400",
+        instruction: "Open your assigned Trello cards. Log each 'Doing' task below with an estimated time.",
+        link: trelloLink,
+      },
+    ];
+  }, [workerProfile]);
+
   // Track which morning ritual steps are done
   const [stepsDone, setStepsDone] = useState<boolean[]>([false, false, false, false, false]);
   const [eveningStepsDone, setEveningStepsDone] = useState<boolean[]>([false, false, false, false]);
@@ -198,7 +267,7 @@ export default function TriageTab() {
     }
   }
 
-  const currentStep = TRIAGE_STEPS[currentStepIndex];
+  const currentStep = triageSteps[currentStepIndex];
 
   // ── Triage timer ────────────────────────────────────────────────────────────
   const startTriageTimer = useCallback(() => {
@@ -310,9 +379,9 @@ export default function TriageTab() {
       step4Done: newStepsDone[3],
       step5Done: newStepsDone[4],
       focusTasks: JSON.stringify(tasks),
-      currentView: currentStepIndex < TRIAGE_STEPS.length - 1 ? "triage" : "summary",
+      currentView: currentStepIndex < triageSteps.length - 1 ? "triage" : "summary",
     });
-    if (currentStepIndex < TRIAGE_STEPS.length - 1) {
+    if (currentStepIndex < triageSteps.length - 1) {
       setCurrentStepIndex((i) => i + 1);
     } else {
       setView("summary");
@@ -634,7 +703,7 @@ export default function TriageTab() {
       <div className="space-y-4">
         {/* Progress dots */}
         <div className="flex justify-center gap-2">
-          {TRIAGE_STEPS.map((step, idx) => (
+          {triageSteps.map((step, idx) => (
             <div
               key={step.id}
               className={`h-2 rounded-full transition-all duration-300 ${
@@ -657,7 +726,7 @@ export default function TriageTab() {
               </div>
               <div>
                 <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-                  Step {currentStepIndex + 1} of {TRIAGE_STEPS.length}
+                  Step {currentStepIndex + 1} of {triageSteps.length}
                 </p>
                 <h2 className="text-base font-bold text-foreground">{currentStep.label}</h2>
               </div>
@@ -801,7 +870,7 @@ export default function TriageTab() {
               onClick={nextStep}
               className="w-full bg-foreground text-background hover:opacity-80 h-11 font-semibold"
             >
-              {currentStepIndex === TRIAGE_STEPS.length - 1 ? "Finish & View Summary" : "Next Step"}
+              {currentStepIndex === triageSteps.length - 1 ? "Finish & View Summary" : "Next Step"}
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </CardContent>

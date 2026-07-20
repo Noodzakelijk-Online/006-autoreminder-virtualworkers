@@ -306,8 +306,8 @@ function TrelloCommentTokenSettings() {
       {!tokenData?.isSet && (
         <div className="mb-3 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
           <strong>Comments are currently posting as the board owner.</strong> This means comment detection
-          relies on the <code className="font-mono text-[10px] bg-amber-500/20 px-1 rounded">@joyjemimajj1</code> mention workaround.
-          Set Worker's personal token below so comments post directly under her account — this is the most reliable setup.
+          relies on the Trello @mention workaround.
+          Set your personal token below so comments post directly under your account — this is the most reliable setup.
         </div>
       )}
 
@@ -1349,8 +1349,18 @@ function TodayHoursChip() {
 
 // ─── Inner layout (needs useSidebar) ────────────────────────────────────────
 function HomeInner() {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const [workerProfile, setWorkerProfile] = useState<any>(null);
+
+  useEffect(() => {
+    fetch('/api/va/worker/profile', { credentials: 'include' })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data) setWorkerProfile(data);
+      })
+      .catch(err => console.error("Error fetching worker profile:", err));
+  }, []);
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
 
@@ -1409,10 +1419,14 @@ function HomeInner() {
         <SidebarHeader className="h-16 justify-center border-b border-border/40">
           <div className="flex items-center gap-2.5 min-w-0 px-3">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm shrink-0">
-              <span className="text-white font-bold text-sm">J</span>
+              <span className="text-white font-bold text-sm">
+                {(workerProfile?.name || user?.name || "Worker").charAt(0).toUpperCase()}
+              </span>
             </div>
             {!isCollapsed && (
-              <span className="font-semibold text-sm tracking-tight truncate text-foreground">Worker's Dashboard</span>
+              <span className="font-semibold text-sm tracking-tight truncate text-foreground">
+                {workerProfile?.name || user?.name || "Worker"}'s Dashboard
+              </span>
             )}
           </div>
         </SidebarHeader>
@@ -1483,7 +1497,9 @@ function HomeInner() {
             <div className="flex items-center gap-3">
               <SidebarTrigger className="h-8 w-8 rounded-lg" />
               <div>
-                <h1 className="text-base font-bold text-foreground tracking-tight leading-none">Worker's Work Dashboard</h1>
+                <h1 className="text-base font-bold text-foreground tracking-tight leading-none">
+                  {workerProfile?.name || user?.name || "Worker"}'s Work Dashboard
+                </h1>
                 <p className="text-[11px] text-muted-foreground mt-0.5">Performance &amp; Schedule Hub</p>
               </div>
             </div>
@@ -1710,7 +1726,7 @@ function HomeInner() {
 
       {/* Floating Trello button */}
       <a
-        href="https://trello.com/u/joyjemimajj1/cards"
+        href={workerProfile?.trelloMemberId ? `https://trello.com/${workerProfile.trelloMemberId}/cards` : "https://trello.com/your/cards"}
         target="_blank"
         rel="noopener noreferrer"
         className="fixed bottom-5 right-5 z-50 flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-2.5 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 group"

@@ -539,7 +539,44 @@ router.get('/history/:cardId', async (req: any, res: Response) => {
     const { cardId } = req.params;
     const limit = req.query.limit ? Number(req.query.limit) : 50;
 
-    const conversations = await getCardConversations(cardId, limit);
+    const rows = await getCardConversations(cardId, limit);
+    const conversations = rows.map((r: any) => {
+      // Determine frontend messageType
+      let messageType: 'command' | 'response' | 'checkin' | 'reminder' = 'command';
+      if (r.command === 'checkin') {
+        messageType = 'checkin';
+      } else if (r.command === 'remind' || r.command === 'reminder') {
+        messageType = 'reminder';
+      } else if (r.command === 'response') {
+        messageType = 'response';
+      }
+
+      let commandText: string | null = null;
+      let botResponseText: string | null = null;
+
+      if (r.command === 'manual_message' || r.command === 'ask_founder') {
+        commandText = r.responseText;
+        botResponseText = null;
+      } else {
+        commandText = `@bot ${r.command}`;
+        botResponseText = r.responseText;
+        // If it's a response from the bot, set type to response
+        messageType = 'response';
+      }
+
+      return {
+        id: r.id,
+        cardId: r.cardTrelloId,
+        cardName: r.cardName,
+        messageType,
+        command: commandText,
+        authorName: r.authorName || 'System',
+        authorId: r.authorTrelloId || '',
+        botResponse: botResponseText,
+        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
+      };
+    });
+
     res.json({ conversations });
   } catch (error: any) {
     console.error('[TrelloWebhook] Error fetching history:', error);
