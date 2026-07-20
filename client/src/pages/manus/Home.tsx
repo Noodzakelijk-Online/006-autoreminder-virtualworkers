@@ -274,6 +274,16 @@ function TrelloCommentTokenSettings() {
 
   const [tokenInput, setTokenInput] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [clientApiKey, setClientApiKey] = useState("");
+
+  useEffect(() => {
+    fetch("/api/auth/trello/client-key")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.apiKey) setClientApiKey(data.apiKey);
+      })
+      .catch(err => console.error("Failed to load Trello client key:", err));
+  }, []);
 
   const handleSave = () => {
     const trimmed = tokenInput.trim();
@@ -314,7 +324,7 @@ function TrelloCommentTokenSettings() {
       <p className="text-xs text-muted-foreground mb-4">
         To get Worker's token: go to{" "}
         <a
-          href={`https://trello.com/1/authorize?expiration=never&scope=read,write&response_type=token&key=080b27d4a815fa368e0a5f004dca9718`}
+          href={`https://trello.com/1/authorize?expiration=never&scope=read,write&response_type=token&key=${clientApiKey || '080b27d4a815fa368e0a5f004dca9718'}`}
           target="_blank"
           rel="noopener noreferrer"
           className="text-blue-500 hover:underline"
