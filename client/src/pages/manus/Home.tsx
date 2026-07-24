@@ -81,7 +81,7 @@ import { useHotkeys } from "react-hotkeys-hook";
 function TodayComplianceChip() {
   const { data: history = [] } = trpc.compliance.getHistory.useQuery({ limit: 1 });
   const today = new Date().toISOString().slice(0, 10);
-  const todayRow = history.find(r => {
+  const todayRow = history.find((r: { snapshotDate: string | Date; compliancePct: number }) => {
     const d = typeof r.snapshotDate === 'string' ? r.snapshotDate : new Date(r.snapshotDate).toISOString().slice(0, 10);
     return d === today;
   });
@@ -1349,7 +1349,7 @@ function TodayHoursChip() {
     { date: todayDate },
     { staleTime: 30 * 60_000 }
   );
-  const totalSecs = dailySummary.reduce((s, e) => s + e.totalSeconds, 0);
+  const totalSecs = dailySummary.reduce((s: number, e: { totalSeconds: number }) => s + e.totalSeconds, 0);
   if (totalSecs === 0) return <span className="text-xs text-muted-foreground">0h today</span>;
   const h = Math.floor(totalSecs / 3600);
   const m = Math.floor((totalSecs % 3600) / 60);

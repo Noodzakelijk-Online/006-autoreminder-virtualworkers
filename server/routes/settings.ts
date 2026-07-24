@@ -361,4 +361,88 @@ export const settingsRouter = router({
         throw error;
       }
     }),
+
+  getDailyGoal: protectedProcedure.query(async ({ ctx }) => {
+    const vaId = Number(ctx.user.id);
+    const db = await getDb();
+    if (!db) return { hours: 9 };
+    const rows = await db.select().from(appSettings)
+      .where(and(eq(appSettings.vaId, vaId), eq(appSettings.key, "daily_hour_goal")))
+      .limit(1);
+    const val = rows[0]?.value;
+    return { hours: val === undefined ? 9 : parseFloat(val) };
+  }),
+
+  setDailyGoal: protectedProcedure
+    .input(z.object({ hours: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const vaId = Number(ctx.user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      const value = String(input.hours);
+      await db.insert(appSettings).values({
+        vaId,
+        key: "daily_hour_goal",
+        value,
+      }).onDuplicateKeyUpdate({
+        set: { value }
+      });
+      return { hours: input.hours };
+    }),
+
+  getSchedule: protectedProcedure.query(async ({ ctx }) => {
+    const vaId = Number(ctx.user.id);
+    const db = await getDb();
+    if (!db) return { startTime: "08:00", endTime: "23:00", breaks: [], typingPractice: true, typingPracticeMinutes: 30 };
+    const rows = await db.select().from(appSettings)
+      .where(and(eq(appSettings.vaId, vaId), eq(appSettings.key, "daily_schedule")))
+      .limit(1);
+    const val = rows[0]?.value;
+    if (!val) {
+      return {
+        startTime: "08:00",
+        endTime: "23:00",
+        breaks: [
+          { name: "Breakfast", startTime: "09:00", durationMinutes: 30, icon: "☕" },
+          { name: "Lunch",     startTime: "14:30", durationMinutes: 45, icon: "🍽️" },
+          { name: "Dinner",    startTime: "19:15", durationMinutes: 90, icon: "🌙" },
+        ],
+        typingPractice: true,
+        typingPracticeMinutes: 30,
+      };
+    }
+    try {
+      return JSON.parse(val);
+    } catch {
+      return { startTime: "08:00", endTime: "23:00", breaks: [], typingPractice: true, typingPracticeMinutes: 30 };
+    }
+  }),
+
+  setSchedule: protectedProcedure
+    .input(z.object({
+      startTime: z.string(),
+      endTime: z.string(),
+      breaks: z.array(z.object({
+        name: z.string(),
+        startTime: z.string(),
+        durationMinutes: z.number(),
+        icon: z.string().optional(),
+      })),
+      typingPractice: z.boolean().optional(),
+      typingPracticeMinutes: z.number().optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const vaId = Number(ctx.user.id);
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+      const value = JSON.stringify(input);
+      await db.insert(appSettings).values({
+        vaId,
+        key: "daily_schedule",
+        value,
+      }).onDuplicateKeyUpdate({
+        set: { value }
+      });
+      return input;
+    }),
 });

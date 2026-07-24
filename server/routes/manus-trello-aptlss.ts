@@ -229,14 +229,21 @@ export const trelloRouter = router({
   }),
 
   setCommentToken: protectedProcedure
-    .input(z.object({ token: z.string() }))
+    .input(z.object({ token: z.string().nullable() }))
     .mutation(async ({ input, ctx }) => {
       const vaId = Number(ctx.user.id);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
-      await db.insert(appSettings)
-        .values({ vaId, key: "trello_comment_token", value: input.token })
-        .onDuplicateKeyUpdate({ set: { value: input.token, updatedAt: new Date() } });
+      if (input.token === null) {
+        // Clear the token row
+        await db.delete(appSettings).where(
+          and(eq(appSettings.vaId, vaId), eq(appSettings.key, "trello_comment_token"))
+        );
+      } else {
+        await db.insert(appSettings)
+          .values({ vaId, key: "trello_comment_token", value: input.token })
+          .onDuplicateKeyUpdate({ set: { value: input.token, updatedAt: new Date() } });
+      }
       return { success: true };
     }),
 });

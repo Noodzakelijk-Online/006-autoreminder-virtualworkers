@@ -161,11 +161,11 @@ async function runComplianceSnapshotForWorker(worker: any) {
     const checkedOnHold = await db.select().from(onHoldDailyChecks).where(
       and(
         eq(onHoldDailyChecks.vaId, worker.userId),
-        eq(onHoldDailyChecks.date, todayEAT),
+        eq(onHoldDailyChecks.date, new Date(todayEAT)),
         eq(onHoldDailyChecks.checked, true)
       )
     );
-    const checkedOnHoldIds = new Set(checkedOnHold.map(c => c.cardId));
+    const checkedOnHoldIds = new Set(checkedOnHold.map((c: { cardId: string }) => c.cardId));
 
     const onHoldReviewedCount = onHoldCards.filter(c => checkedOnHoldIds.has(c.id)).length;
     const d1Instances = doingMissed.length;
