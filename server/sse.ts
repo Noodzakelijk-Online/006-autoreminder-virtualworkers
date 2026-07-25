@@ -29,7 +29,8 @@ export type OperationalEvent =
   | "aptlss-invalidate"
   | "gmail-invalidate"
   | "compliance-invalidate"
-  | "jobs-invalidate";
+  | "jobs-invalidate"
+  | "browser-tabs-invalidate";
 
 /**
  * Register the GET /api/sse/trello route.

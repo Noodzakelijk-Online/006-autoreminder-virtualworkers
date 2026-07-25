@@ -1705,16 +1705,6 @@ export async function updateEmailTaskStatus(
   }).where(eq(emailTasks.id, id));
 }
 
-/** Archive every processed email task. Pending work is never skipped. */
-export async function archiveAllEmailTasks(): Promise<number> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const now = new Date();
-  const result = await db.update(emailTasks).set({ status: "archived", archivedAt: now })
-    .where(eq(emailTasks.status, "processed"));
-  return (result as any)[0]?.affectedRows ?? 0;
-}
-
 /** Count of pending (non-archived) email tasks. */
 export async function getPendingEmailCount(): Promise<number> {
   const db = await getDb();

@@ -32,7 +32,7 @@ APTLSS is the intelligence layer beneath the dashboard. It continuously combines
 | API          | Express, tRPC, Zod                     | Typed application procedures and integration endpoints            |
 | Data         | MySQL 8, Drizzle ORM                   | Plans, assessments, evidence, outcomes, timers, and audit history |
 | Intelligence | APTLSS, OpenAI API                     | Structured assessment, planning, review, and repair               |
-| Integrations | Trello, Gmail, Google Drive            | Work, communication, and supporting evidence ingestion            |
+| Integrations | Trello, Gmail, Google Drive, Upwork    | Work, communication, and supporting evidence ingestion            |
 | Runtime      | Node.js 22, SSE, node-cron             | Web server, live updates, webhooks, and internal maintenance jobs |
 
 The application uses one Node process for the web client, API, internal scheduler, webhook handling, and server-sent events. MySQL is the durable source of truth.
@@ -45,6 +45,7 @@ The application uses one Node process for the web client, API, internal schedule
 - A Trello API key and token
 - An OpenAI API key
 - Google OAuth credentials when Gmail and Drive ingestion are enabled
+- An approved Upwork OAuth 2.0 key when Upwork Reply Monitor is enabled
 
 ## Local Setup
 
@@ -76,12 +77,17 @@ Start with [`.env.example`](./.env.example). The main values are:
 | `GMAIL_CREDENTIALS_ENCRYPTION_KEY` | Required for saved Google OAuth | Encrypts stored Google refresh credentials            |
 | `GMAIL_OAUTH_CLIENT_ID`            | Conditional                     | Gmail and Drive OAuth client                          |
 | `GMAIL_OAUTH_CLIENT_SECRET`        | Conditional                     | Gmail and Drive OAuth secret                          |
+| `UPWORK_OAUTH_CLIENT_ID`           | Conditional                     | Approved Upwork OAuth client ID                       |
+| `UPWORK_OAUTH_CLIENT_SECRET`       | Conditional                     | Approved Upwork OAuth client secret                   |
+| `UPWORK_CREDENTIALS_ENCRYPTION_KEY` | Saved Upwork OAuth             | Encrypts stored Upwork refresh credentials            |
 | `SCHEDULED_TASK_SECRET`            | Production                      | Protects external scheduled endpoints                 |
 | `TRELLO_WEBHOOK_CALLBACK_URL`      | Hosted Trello sync              | Public HTTPS callback ending in `/api/trello/webhook` |
 | `TRELLO_POWERUP_API_KEY`           | Power-Up only                   | Trello Power-Up authorization                         |
 | `TRELLO_POWERUP_SECRET`            | Power-Up only                   | Power-Up and webhook-signature fallback               |
 
 The Google account can be connected from **Settings > Automation**. Gmail ingestion is read-only and runs inside the application at the selected interval. Google Drive evidence ingestion uses the same authorized account and does not modify Drive files.
+
+Upwork can be connected from **Settings > Automation** after an approved API key has the `Messaging - Read-Only Access` and `Common Entities - Read-Only Access` permissions. Register the callback URL shown in Settings with the Upwork key, save the client credentials, connect the account, and then enable the 15-minute monitor. The integration reads official GraphQL message data only; it does not reuse browser cookies, internal session tokens, or undocumented endpoints, and it cannot send or archive Upwork messages.
 
 ## Database
 
@@ -128,6 +134,19 @@ Use the two health endpoints for different purposes:
 - `GET /api/readiness`: database, Trello, webhook, scheduler, and configuration probes. A blocked deployment returns `503` with a non-secret summary.
 
 Do not treat liveness as production readiness.
+
+## Browser Tab Hygiene
+
+The optional Manifest V3 extension in `browser-extension/` reports a privacy-limited inventory of open Chrome tabs to the local dashboard once per minute. It never closes tabs automatically. Joyce can explicitly select tabs to close from the extension toolbar popup.
+
+1. Open `chrome://extensions` and enable Developer mode.
+2. Choose **Load unpacked** and select the repository's `browser-extension` directory.
+3. The extension automatically obtains its local collector token and starts reporting within one minute.
+4. Confirm **Settings > Workday > Browser tab hygiene** changes to **Connected**. Manual token entry remains available as a recovery option.
+
+Chrome does not permit websites to silently install local extensions. The dashboard detects a missing collector immediately and keeps the one-time **Load unpacked** setup visible until Chrome reports a live inventory.
+
+The server stores only the latest inventory per collector and one compact EOD evidence row per EAT date. URL query strings and fragments are discarded before persistence. Pinned tabs are excluded from the limit by default.
 
 ## Application Routes
 

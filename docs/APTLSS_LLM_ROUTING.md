@@ -30,11 +30,16 @@ APTLSS_OPENAI_MODEL_EXCLUDE=
 APTLSS_OPENAI_MAX_MODELS=0
 APTLSS_OPENAI_TIMEOUT_MS=180000
 APTLSS_LLM_REVIEW_ENABLED=true
-APTLSS_LLM_MAX_CALLS_PER_RUN=32
+APTLSS_LLM_MAX_CALLS_PER_RUN=8
 APTLSS_LLM_MAX_RANK=
+APTLSS_OPENAI_DAILY_CALL_LIMIT=0
+APTLSS_OPENAI_WEEKLY_CALL_LIMIT=0
+APTLSS_OPENAI_MONTHLY_CALL_LIMIT=0
 ```
 
 `APTLSS_OPENAI_MODEL_INCLUDE` and `APTLSS_OPENAI_MODEL_EXCLUDE` accept comma-separated exact IDs or `*` wildcards. Exclusions win. Zero for `APTLSS_OPENAI_MAX_MODELS` means all eligible account-visible models.
+
+The per-run cap prevents a provider outage or malformed response from walking the entire catalog. Provider call limits are optional request budgets; zero keeps a period unlimited. Token usage, cached input, completion tokens, and reasoning tokens remain visible in Admin Monitor for measured tuning.
 
 ## Failure behavior
 

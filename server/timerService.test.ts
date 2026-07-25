@@ -15,6 +15,9 @@ vi.mock("./timeEvidence", () => ({
 vi.mock("./dailyPlan", () => ({
   getSavedDailyPlan: vi.fn().mockResolvedValue(null),
 }));
+vi.mock("./timeReconciliation", () => ({
+  reconcileTimeWorkspace: vi.fn().mockResolvedValue({ anomalies: [] }),
+}));
 vi.mock("./timeAccountability", () => ({
   recordTimeEntryEvent: vi.fn().mockResolvedValue(undefined),
   markTimeDayNeedsReview: vi.fn().mockResolvedValue(undefined),

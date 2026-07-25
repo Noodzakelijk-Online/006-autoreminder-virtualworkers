@@ -66,6 +66,10 @@ export function useOperationalEvents() {
     const onJobsChange = () => {
       void utils.system.scheduledJobFreshness.invalidate();
     };
+    const onBrowserTabsChange = () => {
+      void utils.browserTabs.getStatus.invalidate();
+      void utils.browserTabs.getHistory.invalidate();
+    };
 
     events.addEventListener("trello-invalidate", onTrelloChange);
     events.addEventListener("timer-invalidate", onTimerChange);
@@ -75,6 +79,7 @@ export function useOperationalEvents() {
     events.addEventListener("gmail-invalidate", onGmailChange);
     events.addEventListener("compliance-invalidate", onComplianceChange);
     events.addEventListener("jobs-invalidate", onJobsChange);
+    events.addEventListener("browser-tabs-invalidate", onBrowserTabsChange);
     return () => events.close();
   }, [utils]);
 }

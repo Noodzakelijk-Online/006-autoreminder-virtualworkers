@@ -14,6 +14,23 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: joyce_test
+          MYSQL_USER: joyce
+          MYSQL_PASSWORD: joyce_test
+          MYSQL_ROOT_PASSWORD: root_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ujoyce -pjoyce_test --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      DATABASE_URL: mysql://joyce:joyce_test@127.0.0.1:3306/joyce_test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -29,12 +46,12 @@ jobs:
         shell: bash
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f dir /repo --no-banner --redact
       - run: pnpm check
+      - name: Apply migrations to the integration database
+        run: pnpm db:migrate
       - run: pnpm test
       - run: pnpm build
       - name: Verify migration metadata matches the schema
         shell: bash
-        env:
-          DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
         run: |
           pnpm exec drizzle-kit generate --name ci-drift
           test -z "$(git status --porcelain -- drizzle)"

@@ -121,7 +121,7 @@ async function persistDriveFile(accessToken: string, file: GoogleDriveFile, extr
     await setWorkspaceEvidenceActive("google_drive", file.id, false);
     return { indexed: 0, contentExtracted: 0, removed: 1 };
   }
-  let content: string | null = null;
+  let content: string | null | undefined;
   if (extractContent) {
     try {
       content = await extractDriveText(accessToken, file);

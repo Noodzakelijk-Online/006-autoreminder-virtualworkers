@@ -76,3 +76,24 @@ export async function getRecentHandoffs(limit = 30) {
   if (!db) return [];
   return db.select().from(handoffRecords).orderBy(desc(handoffRecords.createdAt)).limit(Math.max(1, Math.min(limit, 100)));
 }
+
+export async function updateHandoffChecklist(
+  recordId: number,
+  checklist: Array<{ id: string; label: string; done: boolean }>,
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [record] = await db.select({ id: handoffRecords.id, status: handoffRecords.status })
+    .from(handoffRecords)
+    .where(eq(handoffRecords.id, recordId))
+    .limit(1);
+  if (!record) throw new Error("Handoff record not found");
+  if (record.status === "superseded") throw new Error("This handoff was superseded by a newer draft");
+  const allDone = checklist.length > 0 && checklist.every((item) => item.done);
+  await db.update(handoffRecords).set({
+    checklistJson: JSON.stringify(checklist),
+    status: allDone ? "reviewed" : "draft",
+    reviewedAt: allDone ? new Date() : null,
+  }).where(eq(handoffRecords.id, recordId));
+  return { recordId, status: allDone ? "reviewed" as const : "draft" as const, checklist };
+}

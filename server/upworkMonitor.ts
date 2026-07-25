@@ -1,9 +1,8 @@
 /**
  * Upwork Reply Monitor
  *
- * Uses the existing Chromium browser session (remote debugging port 9222) to
- * call Upwork's internal REST API via the authenticated page context.
- * No token management needed — the browser session handles auth automatically.
+ * Reads conversations through Upwork's approved read-only OAuth and GraphQL
+ * APIs. The monitor never sends, archives, or otherwise mutates Upwork data.
  *
  * Detects:
  *  1. Threads where the last message is from a freelancer (not the account owner)
@@ -12,12 +11,10 @@
  *     (e.g. "I'll get back to you tonight") → flagged for review
  *  3. Owner messages missing ~ Angel or ~ Joyce signature → unsigned review flag
  *
- * The Upwork account owner is Noodzakelijk Online (Angel Huang).
- * Joyce replies ON BEHALF of the owner, so messages sent as the owner are Joyce's replies.
+ * Joyce replies on behalf of the connected account, so messages authored by
+ * that connected account are treated as Joyce's replies.
  */
 
-import { notifyOwner } from "./_core/notification";
-import { upsertCommunicationEvidence } from "./communicationEvidenceDb";
 import { upsertWorkspaceEvidence } from "./workspaceEvidenceDb";
 import { isVagueReply, hasValidSignature } from "./replyMonitor";
 import {
@@ -25,20 +22,12 @@ import {
   upsertUpworkVagueFlag,
   insertUnsignedFlag,
 } from "./replyMonitorDb";
-import {
-  fetchUpworkRooms as scraperFetchRooms,
-  OWNER_USER_ID as SCRAPER_OWNER_USER_ID,
-  type UpworkRoom as ScraperRoom,
-  type UpworkStory as ScraperStory,
-} from "./upworkScraper";
+import { fetchUpworkMessageSnapshot, type UpworkRoom, type UpworkStory } from "./upworkApi";
+import { getUpworkMonitoringSettings } from "./upworkIntegrationSettings";
 
 // The account owner's user ID — messages from this ID are Joyce's replies
-const OWNER_USER_ID = process.env.UPWORK_CLIENT_USER_ID || SCRAPER_OWNER_USER_ID;
-const UPWORK_ORG_ID = process.env.UPWORK_ORG_ID || "1681372983093714945";
+const FALLBACK_OWNER_USER_ID = process.env.UPWORK_ACCOUNT_USER_ID || "1681372983093714944";
 const REPLY_DEADLINE_MS = 12 * 60 * 60 * 1000; // 12 hours
-
-type UpworkRoom = ScraperRoom;
-type UpworkStory = ScraperStory;
 
 /**
  * Analyse a single room's story thread.
@@ -59,8 +48,13 @@ export interface UpworkThreadAnalysis {
   isOverdue: boolean;
 }
 
-export async function analyseUpworkRoom(room: UpworkRoom): Promise<UpworkThreadAnalysis> {
-  const roomUrl = `https://www.upwork.com/ab/messages/rooms/${room.roomId}?companyReference=${UPWORK_ORG_ID}`;
+export async function analyseUpworkRoom(
+  room: UpworkRoom,
+  ownerUserId = FALLBACK_OWNER_USER_ID,
+  organizationId?: string | null,
+): Promise<UpworkThreadAnalysis> {
+  const roomUrl = new URL(`https://www.upwork.com/ab/messages/rooms/${encodeURIComponent(room.roomId)}`);
+  if (organizationId) roomUrl.searchParams.set("companyReference", organizationId);
   // Use stories already fetched by the scraper (guard against undefined for tests/edge cases)
   const stories = room.stories ?? [];
 
@@ -72,7 +66,7 @@ export async function analyseUpworkRoom(room: UpworkRoom): Promise<UpworkThreadA
       roomId: room.roomId,
       roomName: room.roomName,
       topic: "Direct Message",
-      roomUrl,
+      roomUrl: roomUrl.toString(),
       lastNonOwnerMsgAt: null,
       lastNonOwnerAuthor: "",
       lastNonOwnerText: "",
@@ -94,7 +88,7 @@ export async function analyseUpworkRoom(room: UpworkRoom): Promise<UpworkThreadA
   const sorted = [...humanStories].sort((a, b) => b.createdAt - a.createdAt);
 
   for (const story of sorted) {
-    const isOwner = story.userId === OWNER_USER_ID;
+    const isOwner = story.userId === ownerUserId;
 
     if (isOwner) {
       if (!lastOwnerReply) lastOwnerReply = story;
@@ -118,8 +112,6 @@ export async function analyseUpworkRoom(room: UpworkRoom): Promise<UpworkThreadA
       if (!lastNonOwnerMsg) lastNonOwnerMsg = story;
     }
 
-    // Stop once we have both
-    if (lastNonOwnerMsg && lastOwnerReply) break;
   }
 
   const now = Date.now();
@@ -140,9 +132,9 @@ export async function analyseUpworkRoom(room: UpworkRoom): Promise<UpworkThreadA
     roomId: room.roomId,
     roomName: room.roomName,
     topic: "Direct Message",
-    roomUrl,
+    roomUrl: roomUrl.toString(),
     lastNonOwnerMsgAt: lastNonOwnerAt,
-    lastNonOwnerAuthor: room.roomName, // room name = freelancer name on Upwork
+    lastNonOwnerAuthor: lastNonOwnerMsg?.userName || room.roomName,
     lastNonOwnerText: lastNonOwnerMsg?.message?.slice(0, 200) ?? "",
     lastOwnerReplyAt: lastOwnerAt,
     vagueReplies,
@@ -160,51 +152,19 @@ export async function runUpworkReplyMonitorScan(): Promise<{
   pending: number;
   overdue: number;
   vagueFlags: number;
-  tokenExpired: boolean;
 }> {
-  let rooms: UpworkRoom[];
-  try {
-    rooms = await scraperFetchRooms();
-  } catch (err: any) {
-    console.error("[upworkMonitor] Scraper failed:", err?.message);
-    await notifyOwner({
-      title: "⚠️ Upwork Scraper Failed",
-      content: `The Upwork reply monitor scraper encountered an error: ${err?.message}. Please ensure the browser is open and logged into Upwork.`,
-    });
-    return { scanned: 0, pending: 0, overdue: 0, vagueFlags: 0, tokenExpired: false };
-  }
+  const snapshot = await fetchUpworkMessageSnapshot();
+  const rooms = snapshot.rooms;
 
   let pending = 0;
   let overdue = 0;
   let vagueFlags = 0;
+  const processingErrors: string[] = [];
 
   for (const room of rooms) {
     try {
-      const analysis = await analyseUpworkRoom(room);
+      const analysis = await analyseUpworkRoom(room, snapshot.ownerUserId, snapshot.organizationId);
 
-      // Upsert thread record
-      await upsertUpworkThread({
-        source: "upwork",
-        cardId: analysis.roomId,
-        cardName: analysis.roomName,
-        cardUrl: analysis.roomUrl,
-        boardName: "Upwork Messages",
-        listName: analysis.topic || "Direct Message",
-        lastNonJoyceMsgAt: analysis.lastNonOwnerMsgAt
-          ? new Date(analysis.lastNonOwnerMsgAt)
-          : null,
-        lastNonJoyceAuthor: analysis.lastNonOwnerAuthor,
-        lastNonJoyceText: analysis.lastNonOwnerText,
-        lastJoyceReplyAt: analysis.lastOwnerReplyAt
-          ? new Date(analysis.lastOwnerReplyAt)
-          : null,
-        status: analysis.isOverdue
-          ? "overdue"
-          : analysis.needsReply
-          ? "pending"
-          : "ok",
-        demerited: false,
-      });
       if (analysis.lastNonOwnerMsgAt) {
         const evidenceItemId = await upsertWorkspaceEvidence({
           source: "communication",
@@ -225,25 +185,33 @@ export async function runUpworkReplyMonitorScan(): Promise<{
           }),
           active: true,
         });
-        await upsertCommunicationEvidence({
-          channel: "upwork",
-          externalId: `${analysis.roomId}:${analysis.lastNonOwnerMsgAt}`,
-          threadId: analysis.roomId,
-          direction: "inbound",
-          sender: analysis.lastNonOwnerAuthor || analysis.roomName,
-          subject: analysis.topic || analysis.roomName,
-          summary: analysis.lastNonOwnerText,
-          occurredAt: new Date(analysis.lastNonOwnerMsgAt),
-          responseRequired: analysis.needsReply,
-          respondedAt: analysis.lastOwnerReplyAt ? new Date(analysis.lastOwnerReplyAt) : null,
-          evidenceItemId,
-          metadata: { roomUrl: analysis.roomUrl, overdue: analysis.isOverdue },
-        });
-      }
 
-      if (analysis.needsReply) {
-        if (analysis.isOverdue) overdue++;
-        else pending++;
+        await upsertUpworkThread({
+          source: "upwork",
+          cardId: analysis.roomId,
+          cardName: analysis.roomName,
+          cardUrl: analysis.roomUrl,
+          boardName: "Upwork Messages",
+          listName: analysis.topic || "Direct Message",
+          lastNonJoyceMsgAt: new Date(analysis.lastNonOwnerMsgAt),
+          lastNonJoyceAuthor: analysis.lastNonOwnerAuthor,
+          lastNonJoyceText: analysis.lastNonOwnerText,
+          lastJoyceReplyAt: analysis.lastOwnerReplyAt
+            ? new Date(analysis.lastOwnerReplyAt)
+            : null,
+          status: analysis.isOverdue
+            ? "overdue"
+            : analysis.needsReply
+            ? "pending"
+            : "ok",
+          demerited: false,
+          evidenceItemId,
+        });
+
+        if (analysis.needsReply) {
+          if (analysis.isOverdue) overdue++;
+          else pending++;
+        }
       }
 
       // Upsert vague reply flags
@@ -272,9 +240,15 @@ export async function runUpworkReplyMonitorScan(): Promise<{
           flaggedAt: new Date(unsigned.createdAt),
         });
       }
-    } catch (err: any) {
-      console.error(`[upworkMonitor] Error processing room ${room.roomId}:`, err?.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      processingErrors.push(`${room.roomId}: ${message}`);
+      console.error(`[upworkMonitor] Error processing room ${room.roomId}:`, message);
     }
+  }
+
+  if (processingErrors.length > 0) {
+    throw new Error(`Upwork scan failed for ${processingErrors.length} of ${rooms.length} rooms: ${processingErrors.slice(0, 3).join("; ")}`);
   }
 
   console.log(
@@ -286,6 +260,9 @@ export async function runUpworkReplyMonitorScan(): Promise<{
     pending,
     overdue,
     vagueFlags,
-    tokenExpired: false,
   };
+}
+
+export async function isUpworkMonitorEnabled() {
+  return (await getUpworkMonitoringSettings()).enabled;
 }

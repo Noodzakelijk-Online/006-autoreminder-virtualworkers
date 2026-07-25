@@ -16,9 +16,12 @@ import { registerScheduledAptlssMaintenanceRoute } from "../scheduledAptlssMaint
 import { registerScheduledWeeklyAnalysisRoute } from "../scheduledWeeklyAnalysis";
 import { startCronJobs } from "../cronJobs";
 import { registerGmailOauthRoutes } from "../gmailOauth";
+import { registerUpworkOauthRoutes } from "../upworkOauth";
+import { registerBrowserTabRoutes } from "../browserTabRoutes";
 import { startGmailIngestionScheduler } from "../gmailIngestion";
 import { getSystemHealth, getSystemLiveness } from "./systemRouter";
 import { displayServerHost, resolveServerHost } from "./serverBinding";
+import { reconcileAbandonedJobRuns } from "../scheduledJobsDb";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -112,6 +115,8 @@ async function startServer() {
     res.redirect(authorizeUrl.toString());
   });
   registerGmailOauthRoutes(app);
+  registerUpworkOauthRoutes(app);
+  registerBrowserTabRoutes(app);
 
   // Server-Sent Events — frontend subscribes for instant Trello invalidation
   registerSseRoute(app);
@@ -152,6 +157,9 @@ async function startServer() {
   server.listen(port, host, () => {
     const displayHost = displayServerHost(host);
     console.log(`Server running on http://${displayHost}:${port}/`);
+    reconcileAbandonedJobRuns().then((count) => {
+      if (count > 0) console.warn(`[Jobs] Marked ${count} interrupted run${count === 1 ? "" : "s"} as abandoned.`);
+    }).catch((error) => console.error("[Jobs] Could not reconcile interrupted runs:", error));
     // Auto-register Trello webhooks for all boards Joyce is a member of
     registerTrelloWebhooksForAllBoards().catch(console.error);
     // Start server-side cron jobs (midnight auto-stop, etc.)

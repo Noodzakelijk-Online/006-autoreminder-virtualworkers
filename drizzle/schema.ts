@@ -1,4 +1,4 @@
-import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, index, varchar, decimal, date } from "drizzle-orm/mysql-core";
+import { boolean, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, index, varchar, decimal, date, foreignKey } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -305,6 +305,47 @@ export const appSettings = mysqlTable("app_settings", {
 
 export type AppSetting = typeof appSettings.$inferSelect;
 
+/** Latest privacy-limited browser inventory received from each local collector. */
+export const browserTabStates = mysqlTable("browser_tab_states", {
+  id: int("id").autoincrement().primaryKey(),
+  collectorId: varchar("collectorId", { length: 128 }).notNull().unique(),
+  collectorLabel: varchar("collectorLabel", { length: 128 }).notNull().default("Joyce Chrome"),
+  totalTabs: int("totalTabs").notNull().default(0),
+  pinnedTabs: int("pinnedTabs").notNull().default(0),
+  windowCount: int("windowCount").notNull().default(0),
+  tabsJson: text("tabsJson").notNull(),
+  capturedAt: timestamp("capturedAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("browser_tab_states_captured_idx").on(table.capturedAt),
+]);
+
+export type BrowserTabState = typeof browserTabStates.$inferSelect;
+export type InsertBrowserTabState = typeof browserTabStates.$inferInsert;
+
+/** One durable browser-organization result per EAT day. */
+export const browserTabDailyEvidence = mysqlTable("browser_tab_daily_evidence", {
+  id: int("id").autoincrement().primaryKey(),
+  snapshotDate: date("snapshotDate").notNull().unique(),
+  status: varchar("status", { length: 32 }).notNull(),
+  totalTabs: int("totalTabs").notNull().default(0),
+  actionableTabs: int("actionableTabs").notNull().default(0),
+  allowedTabs: int("allowedTabs").notNull().default(0),
+  compliant: boolean("compliant").notNull().default(false),
+  source: varchar("source", { length: 32 }).notNull().default("auto"),
+  evidenceJson: text("evidenceJson").notNull(),
+  capturedAt: timestamp("capturedAt"),
+  verifiedAt: timestamp("verifiedAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [
+  index("browser_tab_daily_status_date_idx").on(table.status, table.snapshotDate),
+]);
+
+export type BrowserTabDailyEvidence = typeof browserTabDailyEvidence.$inferSelect;
+export type InsertBrowserTabDailyEvidence = typeof browserTabDailyEvidence.$inferInsert;
+
 /**
  * Daily compliance snapshots — one row per work day.
  * Recorded automatically at 22:30 EAT by the server cron job.
@@ -338,7 +379,7 @@ export const dailyComplianceSnapshots = mysqlTable("daily_compliance_snapshots",
   weeklyPayLogId: int("weeklyPayLogId"),                  // FK to weekly_pay_log row (if D1 was added)
   required: boolean("required").notNull().default(true),
   verificationStatus: varchar("verificationStatus", { length: 24 }).notNull().default("unverified"),
-  verificationMethod: varchar("verificationMethod", { length: 64 }),
+  verificationMethod: varchar("verificationMethod", { length: 255 }),
   verificationCutoffAt: timestamp("verificationCutoffAt"),
   verifiedAt: timestamp("verifiedAt"),
   evidenceCount: int("evidenceCount").notNull().default(0),
@@ -521,6 +562,13 @@ export const replyMonitorStatus = mysqlTable("reply_monitor_status", {
   lastSuccessfulAt: timestamp("lastSuccessfulAt"),
   threadsScanned: int("threadsScanned").notNull().default(0),
   errorMessage: text("errorMessage"),
+  upworkState: mysqlEnum("upworkState", ["never", "running", "success", "error", "disabled"]).notNull().default("never"),
+  upworkLastStartedAt: timestamp("upworkLastStartedAt"),
+  upworkLastSuccessfulAt: timestamp("upworkLastSuccessfulAt"),
+  upworkRoomsScanned: int("upworkRoomsScanned").notNull().default(0),
+  upworkPending: int("upworkPending").notNull().default(0),
+  upworkOverdue: int("upworkOverdue").notNull().default(0),
+  upworkErrorMessage: text("upworkErrorMessage"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -1059,7 +1107,7 @@ export const scheduledJobRuns = mysqlTable("scheduled_job_runs", {
   id: int("id").autoincrement().primaryKey(),
   jobKey: varchar("jobKey", { length: 96 }).notNull(),
   trigger: mysqlEnum("trigger", ["cron", "external", "manual"]).notNull().default("cron"),
-  status: mysqlEnum("status", ["running", "success", "error"]).notNull().default("running"),
+  status: mysqlEnum("status", ["running", "success", "error", "abandoned"]).notNull().default("running"),
   startedAt: timestamp("startedAt").notNull(),
   finishedAt: timestamp("finishedAt"),
   durationMs: int("durationMs"),
@@ -1073,6 +1121,19 @@ export const scheduledJobRuns = mysqlTable("scheduled_job_runs", {
 ]);
 export type ScheduledJobRun = typeof scheduledJobRuns.$inferSelect;
 export type InsertScheduledJobRun = typeof scheduledJobRuns.$inferInsert;
+
+/** Cross-process single-flight lease for cron and manual background jobs. */
+export const scheduledJobLeases = mysqlTable("scheduled_job_leases", {
+  jobKey: varchar("jobKey", { length: 96 }).primaryKey(),
+  ownerToken: varchar("ownerToken", { length: 64 }).notNull(),
+  acquiredAt: timestamp("acquiredAt").notNull(),
+  heartbeatAt: timestamp("heartbeatAt").notNull(),
+  leaseExpiresAt: timestamp("leaseExpiresAt").notNull(),
+}, (table) => [
+  index("scheduled_job_leases_expiry_idx").on(table.leaseExpiresAt),
+]);
+export type ScheduledJobLease = typeof scheduledJobLeases.$inferSelect;
+export type InsertScheduledJobLease = typeof scheduledJobLeases.$inferInsert;
 
 /**
  * Read-only source snapshots used to connect Gmail, Drive, and Trello evidence.
@@ -1094,6 +1155,9 @@ export const workspaceEvidenceItems = mysqlTable("workspace_evidence_items", {
   observedAt: timestamp("observedAt").notNull(),
   contentHash: varchar("contentHash", { length: 64 }).notNull(),
   metadataJson: text("metadataJson"),
+  reviewStatus: mysqlEnum("reviewStatus", ["unreviewed", "linked", "not_work_related"]).notNull().default("unreviewed"),
+  reviewedAt: timestamp("reviewedAt"),
+  reviewedBy: varchar("reviewedBy", { length: 128 }),
   active: boolean("active").notNull().default(true),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -1101,6 +1165,7 @@ export const workspaceEvidenceItems = mysqlTable("workspace_evidence_items", {
   uniqueIndex("workspace_evidence_source_id_unique").on(table.source, table.sourceId),
   index("workspace_evidence_source_modified_idx").on(table.source, table.modifiedAt),
   index("workspace_evidence_active_observed_idx").on(table.active, table.observedAt),
+  index("workspace_evidence_review_idx").on(table.reviewStatus, table.modifiedAt),
 ]);
 export type WorkspaceEvidenceItem = typeof workspaceEvidenceItems.$inferSelect;
 export type InsertWorkspaceEvidenceItem = typeof workspaceEvidenceItems.$inferInsert;
@@ -1112,9 +1177,15 @@ export const workspaceEvidenceLinks = mysqlTable("workspace_evidence_links", {
   cardId: varchar("cardId", { length: 64 }).notNull(),
   relevanceScore: int("relevanceScore").notNull(),
   matchReason: varchar("matchReason", { length: 512 }).notNull(),
+  linkMethod: mysqlEnum("linkMethod", ["automatic", "manual"]).notNull().default("automatic"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
+  foreignKey({
+    columns: [table.evidenceId],
+    foreignColumns: [workspaceEvidenceItems.id],
+    name: "workspace_evidence_item_fk",
+  }).onDelete("cascade").onUpdate("cascade"),
   uniqueIndex("workspace_evidence_link_unique").on(table.evidenceId, table.cardId),
   index("workspace_evidence_card_relevance_idx").on(table.cardId, table.relevanceScore),
 ]);

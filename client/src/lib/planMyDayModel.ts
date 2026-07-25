@@ -59,6 +59,8 @@ export type HandoffDraft = {
   dateKey: string;
   draft: string;
   checklist: Array<{ id: string; label: string; done: boolean }>;
+  recordId: number;
+  version: number;
 };
 
 export const planViews: PlanView[] = ["Day Plan", "Board View", "Timeline (Compact)", "Workload", "Plan History"];

@@ -17,11 +17,11 @@ import { APTLSS_ASSESSMENT_VERSION, APTLSS_NEAR_CERTAINTY_TARGET } from "./aptls
 import { getAssessmentHistory, getLatestAssessment, getLatestAssessments } from "./aptlssAssessmentDb";
 import { queueCardReassessment, reassessCardById } from "./aptlssReassessment";
 import { APTLSS_CARD_STATES } from "./aptlssStateValues";
+import { compareWorkLaneNames } from "@shared/workLanePriority";
 import {
   getAllEmailTasks,
   getPendingEmailTasks,
   updateEmailTaskStatus,
-  archiveAllEmailTasks,
   getPendingEmailCount,
   upsertEmailTask,
   snoozeCard,
@@ -31,6 +31,7 @@ import {
   getCardSnooze,
   resurfaceExpiredSnoozes,
 } from "./db";
+import { verifyEmailTaskOutcome, verifyProcessedEmailOutcomes } from "./emailOutcomeVerification";
 import { getJoyceCards, getJoyceRecentActions, getJoyceCommentedCardIdsToday, getRegisteredWebhooks, getJoyceBoards, getListCategory, getTrelloCacheStatus, isDoingList, isOnHoldList, moveCardToDoing } from "./trello";
 import { postJoyceCardComment, postSystemCardComment } from "./trelloCommentService";
 import { getAptlssPlan, getAllAptlssPlans } from "./aptlssDb";
@@ -51,6 +52,7 @@ import {
   getRecentSyncLog,
   getLastSuccessfulSync,
   getSyncStats24h,
+  getLlmUsageSummary,
 } from "./aptlssAuditDb";
 import {
   getOpenStepsForCard,
@@ -95,6 +97,7 @@ import { getDoneGateStatus } from "./aptlssDoneGate";
 import { selectWorkQueueNextAction } from "./aptlssWorkQueue";
 import { getLatestJobRuns, getRecentJobRuns } from "./scheduledJobsDb";
 import { createGmailOauthAuthorizationUrl, requestOrigin } from "./gmailOauth";
+import { createUpworkOauthAuthorizationUrl } from "./upworkOauth";
 import {
   disconnectGmail,
   getGmailIntegrationStatus,
@@ -108,6 +111,15 @@ import {
   saveGmailOauthClientCredentials,
   setGmailIngestionSettings,
 } from "./gmailIngestionSettings";
+import {
+  clearUpworkOauthConnection,
+  disconnectUpwork,
+  getUpworkIntegrationStatus,
+  getUpworkOauthClientCredentials,
+  getUpworkOauthConnection,
+  saveUpworkOauthClientCredentials,
+  setUpworkMonitoringSettings,
+} from "./upworkIntegrationSettings";
 import {
   createManagedManualTimeEntry,
   deleteManagedTimeEntry,
@@ -198,17 +210,36 @@ import {
   upsertTaskDependency,
 } from "./taskDependenciesDb";
 import { getOutstandingCommunicationEvidence } from "./communicationEvidenceDb";
-import { getRecentHandoffs, getRecentOperatorNotifications } from "./operatorRecordsDb";
+import { getRecentHandoffs, getRecentOperatorNotifications, updateHandoffChecklist } from "./operatorRecordsDb";
+import {
+  ensureBrowserTabCollectorToken,
+  getBrowserTabEvidenceByDate,
+  getBrowserTabEvidenceHistory,
+  getBrowserTabPolicy,
+  getBrowserTabStatus,
+  recordBrowserTabEodEvidence,
+  setBrowserTabPolicy,
+} from "./browserTabHygiene";
 import { getDailyTimeEvidence, getWeeklyTimeEvidence } from "./timeEvidence";
 import {
+  getTrelloEvidenceMatchCards,
+  getWorkspaceEvidenceDismissed,
+  getWorkspaceEvidenceReviewQueue,
+  getWorkspaceEvidenceStats,
+  classifyWorkspaceEvidenceAsNotWorkRelated,
+  linkWorkspaceEvidenceManually,
+  reopenWorkspaceEvidenceReview,
+} from "./workspaceEvidenceDb";
+import {
   getTimeWorkspace,
+  reconcileTimeWorkspace,
   resolveTimeReconciliationItem,
   reviewAndLockTimeDay,
 } from "./timeReconciliation";
 
 async function refreshTimeReconciliation(dateKey: string) {
   try {
-    await getTimeWorkspace(dateKey);
+    await reconcileTimeWorkspace(dateKey);
   } catch (error) {
     console.warn("[Time] Could not refresh plan reconciliation:", error);
   }
@@ -217,6 +248,40 @@ async function refreshTimeReconciliation(dateKey: string) {
 export const appRouter = router({
   system: systemRouter,
   powerup: powerUpRouter,
+
+  browserTabs: router({
+    getStatus: protectedProcedure.query(() => getBrowserTabStatus()),
+    getHistory: protectedProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(366).default(30) }).optional())
+      .query(({ input }) => getBrowserTabEvidenceHistory(input?.limit ?? 30)),
+    getEvidence: protectedProcedure
+      .input(z.object({ dateKey: dateKeySchema }))
+      .query(({ input }) => getBrowserTabEvidenceByDate(input.dateKey)),
+    getPolicy: protectedProcedure.query(() => getBrowserTabPolicy()),
+    getCollectorSetup: protectedProcedure.query(async () => ({
+      token: await ensureBrowserTabCollectorToken(),
+      endpointPath: "/api/browser-tabs/ingest",
+      extensionDirectory: "browser-extension",
+    })),
+    setPolicy: protectedProcedure
+      .input(z.object({
+        enabled: z.boolean(),
+        maxOpenTabs: z.number().int().min(0).max(50),
+        warningMinutesBeforeEnd: z.number().int().min(0).max(240),
+        staleAfterMinutes: z.number().int().min(2).max(120),
+        includePinnedTabs: z.boolean(),
+      }))
+      .mutation(async ({ input }) => {
+        const policy = await setBrowserTabPolicy(input);
+        broadcast("browser-tabs-invalidate");
+        return policy;
+      }),
+    recordNow: protectedProcedure.mutation(async () => {
+      const result = await recordBrowserTabEodEvidence(new Date(), "manual");
+      broadcast("browser-tabs-invalidate");
+      return result;
+    }),
+  }),
 
   operations: router({
     getCalendar: protectedProcedure
@@ -1041,6 +1106,53 @@ export const appRouter = router({
     runGmailIngestion: protectedProcedure.mutation(async () => {
       return await runWorkspaceIngestion("manual");
     }),
+
+    /** Official read-only Upwork OAuth connection and message-monitoring state. */
+    getUpworkIntegration: protectedProcedure.query(async ({ ctx }) => {
+      return await getUpworkIntegrationStatus(requestOrigin(ctx.req));
+    }),
+
+    saveUpworkOauthClient: protectedProcedure
+      .input(z.object({
+        clientId: z.string().trim().min(8).max(512),
+        clientSecret: z.string().trim().min(6).max(2_048),
+      }))
+      .mutation(async ({ input }) => {
+        const currentClient = await getUpworkOauthClientCredentials();
+        if (currentClient?.source === "environment") {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Upwork OAuth client settings are managed by the server environment" });
+        }
+        await saveUpworkOauthClientCredentials(input.clientId, input.clientSecret);
+        const connection = await getUpworkOauthConnection();
+        if (connection?.source === "database") await clearUpworkOauthConnection();
+        await setUpworkMonitoringSettings(false);
+        return { success: true, reconnectRequired: Boolean(connection) };
+      }),
+
+    beginUpworkOauth: protectedProcedure.mutation(async ({ ctx }) => {
+      return await createUpworkOauthAuthorizationUrl(requestOrigin(ctx.req));
+    }),
+
+    disconnectUpwork: protectedProcedure.mutation(async () => {
+      await disconnectUpwork();
+      return { success: true };
+    }),
+
+    setUpworkMonitoring: protectedProcedure
+      .input(z.object({ enabled: z.boolean() }))
+      .mutation(async ({ input }) => {
+        if (input.enabled) {
+          const [client, connection] = await Promise.all([
+            getUpworkOauthClientCredentials(),
+            getUpworkOauthConnection(),
+          ]);
+          if (!client || !connection) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Configure an approved Upwork OAuth key and connect the account before enabling monitoring" });
+          }
+        }
+        const settings = await setUpworkMonitoringSettings(input.enabled);
+        return { success: true, settings };
+      }),
   }),
   replyMonitor: replyMonitorRouter,
   // ─── Email Inbox ──────────────────────────────────────────────────────────────
@@ -1075,12 +1187,20 @@ export const appRouter = router({
         broadcast("gmail-invalidate");
         return { success: true };
       }),
-    /** Archive all non-archived email tasks (inbox zero). */
-    archiveAll: protectedProcedure.mutation(async () => {
-      const count = await archiveAllEmailTasks();
+    /** Verify processed messages against read-only Gmail evidence. */
+    verifyProcessed: protectedProcedure.mutation(async () => {
+      const result = await verifyProcessedEmailOutcomes();
       broadcast("gmail-invalidate");
-      return { success: true, archived: count };
+      return { success: true, ...result };
     }),
+    /** Verify one local processing record against Gmail reply/archive evidence. */
+    verifyOutcome: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const result = await verifyEmailTaskOutcome(input.id);
+        broadcast("gmail-invalidate");
+        return result;
+      }),
     /** Compatibility import for owner agents; the internal scheduler is the primary path. */
     upsertBatch: protectedProcedure
       .input(z.array(z.object({
@@ -1552,6 +1672,8 @@ export const appRouter = router({
           };
         })
         .sort((a, b) => {
+          const laneDiff = compareWorkLaneNames(a.listName, b.listName);
+          if (laneDiff !== 0) return laneDiff;
           const tierOrder: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, BLOCKED: 4 };
           return (tierOrder[a.tier] ?? 2) - (tierOrder[b.tier] ?? 2);
         });
@@ -1637,6 +1759,17 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         return await draftDailyHandoff(input?.dateKey ?? getEatDateKey());
       }),
+
+    updateDailyHandoffChecklist: protectedProcedure
+      .input(z.object({
+        recordId: z.number().int().positive(),
+        checklist: z.array(z.object({
+          id: z.string().trim().min(1).max(128),
+          label: z.string().trim().min(1).max(512),
+          done: z.boolean(),
+        })).min(1).max(20),
+      }))
+      .mutation(({ input }) => updateHandoffChecklist(input.recordId, input.checklist)),
 
     /** Generate a cross-card daily schedule using all APTLSS plans + priority scores. */
     planMyDay: protectedProcedure
@@ -2172,7 +2305,7 @@ export const appRouter = router({
           c.escalationCategory === 'money_decision' ||
           (c.tier === 'HIGH' && c.daysSinceProgress > 5)
         )
-      ).sort((a, b) => b.score - a.score);
+      ).sort((a, b) => compareWorkLaneNames(a.listName, b.listName) || b.score - a.score);
 
       // ── Bucket 2: Ready to Act ────────────────────────────────────────────
       const readyToAct = enrichedCards.filter(c =>
@@ -2180,14 +2313,14 @@ export const appRouter = router({
         (c.state === 'READY_TO_START' || c.state === 'IN_PROGRESS' || c.state === 'READY_FOR_REVIEW') &&
         c.openRobertSteps === 0 &&
         !c.isOverdue
-      ).sort((a, b) => b.score - a.score);
+      ).sort((a, b) => compareWorkLaneNames(a.listName, b.listName) || b.score - a.score);
 
       // ── Bucket 3: Waiting External ────────────────────────────────────────
       const waitingExternal = enrichedCards.filter(c =>
         !criticalToday.find(x => x.cardId === c.cardId) &&
         !readyToAct.find(x => x.cardId === c.cardId) &&
         (c.state === 'WAITING_FOR_EXTERNAL_PARTY' || c.state === 'BLOCKED_BY_OTHER_CARD')
-      ).sort((a, b) => b.score - a.score);
+      ).sort((a, b) => compareWorkLaneNames(a.listName, b.listName) || b.score - a.score);
 
       // ── Bucket 4: Needs Robert Decision ──────────────────────────────────
       const needsRobertDecision = enrichedCards.filter(c =>
@@ -2195,7 +2328,7 @@ export const appRouter = router({
         !readyToAct.find(x => x.cardId === c.cardId) &&
         !waitingExternal.find(x => x.cardId === c.cardId) &&
         (c.openRobertSteps > 0 || c.state === 'WAITING_FOR_ROBERT' || !!c.robertDecision)
-      ).sort((a, b) => b.score - a.score);
+      ).sort((a, b) => compareWorkLaneNames(a.listName, b.listName) || b.score - a.score);
 
       // ── Bucket 5: Low-Risk Maintenance ────────────────────────────────────
       const lowRiskMaintenance = enrichedCards.filter(c =>
@@ -2205,7 +2338,7 @@ export const appRouter = router({
         !needsRobertDecision.find(x => x.cardId === c.cardId) &&
         c.state !== 'DONE_CONFIRMED' &&
         c.state !== 'NEEDS_ARCHIVE'
-      ).sort((a, b) => a.score - b.score); // lowest priority first
+      ).sort((a, b) => compareWorkLaneNames(a.listName, b.listName) || b.score - a.score);
 
       // ── ON-HOLD cards with sub-classification ────────────────────────────
       const onHoldCards = enrichedCards.filter(c =>
@@ -2213,7 +2346,7 @@ export const appRouter = router({
       ).map(c => ({
         ...c,
         onHoldClassification: c.onHoldClassification ?? 'still_waiting',
-      }));
+      })).sort((a, b) => b.score - a.score);
 
       // ── Summary counts ────────────────────────────────────────────────────
       const summary = {
@@ -2540,6 +2673,39 @@ export const appRouter = router({
       return runAptlssMaintenance("manual");
     }),
 
+    linkWorkspaceEvidence: protectedProcedure
+      .input(z.object({
+        evidenceId: z.number().int().positive(),
+        cardId: trelloCardIdSchema,
+      }))
+      .mutation(async ({ input }) => {
+        await linkWorkspaceEvidenceManually(input.evidenceId, input.cardId);
+        let reassessed = false;
+        try {
+          reassessed = Boolean(await reassessCardById(input.cardId, "evidence"));
+        } catch (error) {
+          console.warn(`[APTLSS] Evidence linked; immediate reassessment deferred for ${input.cardId}:`, error instanceof Error ? error.message : String(error));
+        }
+        broadcast("aptlss-invalidate");
+        return { success: true, reassessed };
+      }),
+
+    classifyWorkspaceEvidenceAsNotWorkRelated: protectedProcedure
+      .input(z.object({ evidenceId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await classifyWorkspaceEvidenceAsNotWorkRelated(input.evidenceId);
+        broadcast("aptlss-invalidate");
+        return { success: true };
+      }),
+
+    reopenWorkspaceEvidenceReview: protectedProcedure
+      .input(z.object({ evidenceId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await reopenWorkspaceEvidenceReview(input.evidenceId);
+        broadcast("aptlss-invalidate");
+        return { success: true };
+      }),
+
     // ─── Admin Monitoring ─────────────────────────────────────────────────
     /**
      * Admin-only monitoring data: sync health, API errors, webhook status,
@@ -2551,7 +2717,7 @@ export const appRouter = router({
       const apiToken = process.env.TrelloAPIToken;
 
       // Sync stats
-      const [syncStats, lastSync, recentSyncs, recentAudit, assessments, states, calibration, assessmentReviewQueue, plans, latestJobRuns, recentJobRuns] = await Promise.all([
+      const [syncStats, lastSync, recentSyncs, recentAudit, assessments, states, calibration, assessmentReviewQueue, plans, latestJobRuns, recentJobRuns, llmUsage, evidenceStats, evidenceReviewQueue, evidenceCards, dismissedEvidence] = await Promise.all([
         getSyncStats24h(),
         getLastSuccessfulSync(),
         getRecentSyncLog(20),
@@ -2563,6 +2729,11 @@ export const appRouter = router({
         getAllAptlssPlans(),
         getLatestJobRuns(),
         getRecentJobRuns(30),
+        getLlmUsageSummary(24),
+        getWorkspaceEvidenceStats(),
+        getWorkspaceEvidenceReviewQueue(12),
+        getTrelloEvidenceMatchCards(),
+        getWorkspaceEvidenceDismissed(12),
       ]);
       const now = Date.now();
       const assessmentHealth = {
@@ -2611,6 +2782,11 @@ export const appRouter = router({
 
       return {
         syncStats,
+        llmUsage,
+        evidenceStats,
+        evidenceReviewQueue,
+        dismissedEvidence,
+        evidenceCards: evidenceCards.map((card) => ({ id: card.id, name: card.name, url: card.url ?? null })),
         lastSync,
         recentSyncs,
         webhookStatus,

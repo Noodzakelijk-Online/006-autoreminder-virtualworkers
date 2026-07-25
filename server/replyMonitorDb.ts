@@ -50,6 +50,7 @@ export async function upsertReplyThread(data: {
   lastJoyceReplyAt: Date | null;
   status: "pending" | "replied" | "overdue" | "ok";
   demerited: boolean;
+  evidenceItemId?: number | null;
 }): Promise<void> {
   if (!data.lastNonJoyceMsgAt) {
     throw new Error(`Reply thread ${data.cardId} has no external message timestamp.`);
@@ -88,6 +89,7 @@ export async function upsertReplyThread(data: {
     responseRequired: true,
     respondedAt: validReplyAt,
     linkedCardId: data.cardId,
+    evidenceItemId: data.evidenceItemId ?? null,
     metadata: {
       cardUrl: data.cardUrl,
       boardName: data.boardName,
@@ -321,6 +323,58 @@ export async function markReplyMonitorScanFailed(error: unknown): Promise<void> 
   });
 }
 
+export async function markUpworkScanStarted(): Promise<void> {
+  const db = await requireDb();
+  const now = new Date();
+  await db.insert(replyMonitorStatus).values({ id: 1, upworkState: "running", upworkLastStartedAt: now })
+    .onDuplicateKeyUpdate({ set: { upworkState: "running", upworkLastStartedAt: now, upworkErrorMessage: null, updatedAt: now } });
+}
+
+export async function markUpworkScanSucceeded(result: { scanned: number; pending: number; overdue: number }): Promise<void> {
+  const db = await requireDb();
+  const now = new Date();
+  await db.insert(replyMonitorStatus).values({
+    id: 1,
+    upworkState: "success",
+    upworkLastStartedAt: now,
+    upworkLastSuccessfulAt: now,
+    upworkRoomsScanned: result.scanned,
+    upworkPending: result.pending,
+    upworkOverdue: result.overdue,
+  }).onDuplicateKeyUpdate({
+    set: {
+      upworkState: "success",
+      upworkLastSuccessfulAt: now,
+      upworkRoomsScanned: result.scanned,
+      upworkPending: result.pending,
+      upworkOverdue: result.overdue,
+      upworkErrorMessage: null,
+      updatedAt: now,
+    },
+  });
+}
+
+export async function markUpworkScanFailed(error: unknown): Promise<void> {
+  const db = await requireDb();
+  const now = new Date();
+  const message = errorMessage(error).slice(0, 2000);
+  await db.insert(replyMonitorStatus).values({
+    id: 1,
+    upworkState: "error",
+    upworkLastStartedAt: now,
+    upworkErrorMessage: message,
+  }).onDuplicateKeyUpdate({
+    set: { upworkState: "error", upworkErrorMessage: message, updatedAt: now },
+  });
+}
+
+export async function markUpworkScanDisabled(): Promise<void> {
+  const db = await requireDb();
+  const now = new Date();
+  await db.insert(replyMonitorStatus).values({ id: 1, upworkState: "disabled" })
+    .onDuplicateKeyUpdate({ set: { upworkState: "disabled", upworkErrorMessage: null, updatedAt: now } });
+}
+
 export async function getReplyMonitorStatus() {
   const db = await requireDb();
   const rows = await db.select().from(replyMonitorStatus).where(eq(replyMonitorStatus.id, 1)).limit(1);
@@ -332,6 +386,13 @@ export async function getReplyMonitorStatus() {
     lastSuccessfulAt: null,
     threadsScanned: 0,
     errorMessage: null,
+    upworkState: "never" as const,
+    upworkLastStartedAt: null,
+    upworkLastSuccessfulAt: null,
+    upworkRoomsScanned: 0,
+    upworkPending: 0,
+    upworkOverdue: 0,
+    upworkErrorMessage: null,
     updatedAt: new Date(0),
   };
 }

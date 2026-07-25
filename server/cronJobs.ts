@@ -8,7 +8,7 @@ import cron from "node-cron";
 import { getWeeklyPayLogByWeek } from "./db";
 import { notifyOwner } from "./_core/notification";
 import { scanTrelloReplyThreads } from "./replyMonitor";
-import { runUpworkReplyMonitorScan } from "./upworkMonitor";
+import { isUpworkMonitorEnabled, runUpworkReplyMonitorScan } from "./upworkMonitor";
 import { factCheckComplianceHistory } from "./complianceHistoryFactCheck";
 import { runAptlssMaintenance } from "./scheduledAptlssMaintenance";
 import {
@@ -18,12 +18,17 @@ import {
   markReplyMonitorScanFailed,
   markReplyMonitorScanStarted,
   markReplyMonitorScanSucceeded,
+  markUpworkScanDisabled,
+  markUpworkScanFailed,
+  markUpworkScanStarted,
+  markUpworkScanSucceeded,
   resolveSystemGeneratedUnsignedFlags,
 } from "./replyMonitorDb";
 import { runTrackedJob, type JobTrigger } from "./scheduledJobsDb";
 import { broadcast } from "./sse";
 import { autoStopManagedTimers } from "./timerService";
 import { runWeeklyAnalysis as runSharedWeeklyAnalysis } from "./weeklyAnalysisService";
+import { recordBrowserTabEodEvidence } from "./browserTabHygiene";
 
 /**
  * Midnight auto-stop: every day at 00:00 EAT (UTC+3 = 21:00 UTC previous day).
@@ -96,10 +101,17 @@ export async function runEODComplianceSnapshot(now = new Date()): Promise<EodCom
   try {
     const checked = await factCheckComplianceHistory({ dateKeys: [todayEAT], source: "auto_verified", now });
     const result = checked.results[0];
+    const browserEvidence = await recordBrowserTabEodEvidence(now, "eod_compliance");
     const d1Instances = result.doingTotal - result.doingUpdated;
     const estimatedPenalty = d1Instances * 5;
     const summary = `${result.compliancePct}% verified compliance — ${result.doingUpdated}/${result.doingTotal} DOING updated, ${result.onHoldReviewed}/${result.onHoldTotal} ON-HOLD reviewed${d1Instances > 0 ? `, ${d1Instances} potential D1 exception${d1Instances > 1 ? 's' : ''} (review impact: $${estimatedPenalty})` : ''}`;
-    console.log(`[CronJob] EOD compliance snapshot saved: ${summary}`);
+    const browserSummary = browserEvidence.status === "over_limit"
+      ? `${browserEvidence.actionableTabs} browser tabs open (${browserEvidence.excessTabs} over limit)`
+      : browserEvidence.status === "clear"
+        ? `${browserEvidence.actionableTabs} browser tabs open (organized)`
+        : `browser tabs ${browserEvidence.status.replaceAll("_", " ")}`;
+    const combinedSummary = `${summary}; ${browserSummary}`;
+    console.log(`[CronJob] EOD compliance snapshot saved: ${combinedSummary}`);
 
     if (d1Instances > 0) {
       await notifyOwner({
@@ -115,11 +127,21 @@ export async function runEODComplianceSnapshot(now = new Date()): Promise<EodCom
         ].join("\n"),
       });
     }
+    if (browserEvidence.shouldWarn) {
+      await notifyOwner({
+        title: `Browser cleanup required: ${browserEvidence.actionableTabs} tabs still open`,
+        content: [
+          `Joyce has ${browserEvidence.excessTabs} tab${browserEvidence.excessTabs === 1 ? "" : "s"} over the end-of-day limit of ${browserEvidence.allowedTabs}.`,
+          "Close completed and duplicate tabs, then keep only the tabs needed for tomorrow.",
+          "No tabs were closed automatically.",
+        ].join("\n"),
+      });
+    }
     return {
       status: "completed",
       dateKey: todayEAT,
-      detail: summary,
-      recordsProcessed: result.evidenceCount,
+      detail: combinedSummary,
+      recordsProcessed: result.evidenceCount + 1,
     };
   } catch (err) {
     console.error("[CronJob] EOD compliance snapshot failed:", err);
@@ -225,14 +247,42 @@ export function runReplyMonitorScan(options: { sendNotifications?: boolean } = {
   return replyMonitorScanInFlight;
 }
 
+async function executeUpworkReplyMonitorScan(sendNotifications: boolean): Promise<void> {
+  if (!(await isUpworkMonitorEnabled())) {
+    await markUpworkScanDisabled();
+    console.log("[ReplyMonitor] Upwork monitoring is explicitly disabled.");
+    return;
+  }
+
+  await markUpworkScanStarted();
+  try {
+    console.log("[ReplyMonitor] Starting Upwork reply-thread scan…");
+    const result = await runUpworkReplyMonitorScan();
+    await markUpworkScanSucceeded(result);
+    if (sendNotifications && result.overdue > 0) await notifyOwner({
+      title: `⏰ ${result.overdue} overdue Upwork conversation${result.overdue > 1 ? "s" : ""}`,
+      content: "Open Reply Monitor to process the Upwork messages that exceeded the 12-hour response window.",
+    }).catch(() => {});
+    console.log(`[ReplyMonitor] Upwork scan complete: ${result.scanned} rooms, ${result.overdue} overdue, ${result.vagueFlags} vague flags.`);
+  } catch (error) {
+    await markUpworkScanFailed(error);
+    console.error("[ReplyMonitor] Upwork scan failed:", error instanceof Error ? error.message : String(error));
+    if (sendNotifications) await notifyOwner({
+      title: "Upwork message monitoring needs attention",
+      content: "The official Upwork message API could not be read. Check the OAuth connection and required read-only permissions in Settings, then run Reply Monitor again.",
+    }).catch(() => {});
+  }
+}
+
 async function executeReplyMonitorScan({ sendNotifications = false }: { sendNotifications?: boolean }): Promise<void> {
   const apiKey = process.env.TrelloAPIKey;
   const apiToken = process.env.TrelloAPIToken;
   await markReplyMonitorScanStarted();
   if (!apiKey || !apiToken) {
     await markReplyMonitorScanFailed(new Error("Trello API credentials are not configured."));
+    await executeUpworkReplyMonitorScan(sendNotifications);
     broadcast("scan-complete");
-    console.warn("[ReplyMonitor] Trello API credentials not configured — skipping scan.");
+    console.warn("[ReplyMonitor] Trello API credentials not configured — only the independent Upwork source was checked.");
     return;
   }
 
@@ -324,27 +374,7 @@ async function executeReplyMonitorScan({ sendNotifications = false }: { sendNoti
     }
 
 
-    // ─── Upwork scan (self-contained — persists threads and review flags) ─────────
-    const upworkToken = process.env.UPWORK_API_TOKEN;
-    if (upworkToken) {
-      try {
-        console.log("[ReplyMonitor] Starting Upwork reply-thread scan…");
-        const upworkResult = await runUpworkReplyMonitorScan();
-        if (sendNotifications && upworkResult.tokenExpired) {
-          await notifyOwner({
-            title: "⚠️ Upwork token expired — please re-login",
-            content: "The Upwork API token has expired. Please log into Upwork in the browser and update the UPWORK_API_TOKEN secret to resume monitoring.",
-          }).catch(() => {});
-        } else if (upworkResult.overdue > 0) {
-          newOverdueCards.push(`• [Upwork] ${upworkResult.overdue} room${upworkResult.overdue > 1 ? 's' : ''} overdue`);
-        }
-        console.log(`[ReplyMonitor] Upwork scan complete: ${upworkResult.scanned} rooms, ${upworkResult.overdue} overdue, ${upworkResult.vagueFlags} vague flags.`);
-      } catch (upworkErr) {
-        throw new Error(`Upwork scan failed: ${upworkErr instanceof Error ? upworkErr.message : String(upworkErr)}`);
-      }
-    } else {
-      console.log("[ReplyMonitor] UPWORK_API_TOKEN not set — skipping Upwork scan.");
-    }
+    await executeUpworkReplyMonitorScan(sendNotifications);
 
     if (sendNotifications && newUnsignedMessages.length > 0) {
       await notifyOwner({

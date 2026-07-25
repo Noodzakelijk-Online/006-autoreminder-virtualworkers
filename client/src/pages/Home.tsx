@@ -2,6 +2,8 @@ import { toast } from "sonner";
 import TimeTracker from "@/components/TimeTracker";
 import WebhookHealthPanel from "@/components/WebhookHealthPanel";
 import GmailIngestionSettings from "@/components/GmailIngestionSettings";
+import UpworkIntegrationSettings from "@/components/UpworkIntegrationSettings";
+import { BrowserExtensionSetupBanner, BrowserTabHygieneSettings } from "@/components/BrowserTabHygiene";
 import { useTriageCounts } from "./useTriageCounts";
 import { trpc } from "@/lib/trpc";
 import {
@@ -875,6 +877,7 @@ function SettingsSection({
         <TabsContent value="workday" className="mt-0 grid gap-4 lg:grid-cols-2">
           <DailyGoalSettings />
           <DailyScheduleSettings onGoToSchedule={onGoToSchedule} />
+          <BrowserTabHygieneSettings />
         </TabsContent>
 
         <TabsContent value="weekly-reset" className="mt-0">
@@ -917,6 +920,7 @@ function SettingsSection({
 
         <TabsContent value="automation" className="mt-0 grid gap-4 lg:grid-cols-2">
           <GmailIngestionSettings />
+          <UpworkIntegrationSettings />
           <ReplyMonitorBadgeSettings />
           <OperationalPoliciesSettings />
           <div className="lg:col-span-2"><DefaultActionsSettings /></div>
@@ -1252,6 +1256,7 @@ function HomeInner() {
                   <TabsList><TabsTrigger value="queue">Work queue</TabsTrigger><TabsTrigger value="plan" data-testid="today-day-plan">Day plan</TabsTrigger></TabsList>
                 </Tabs>
               </div>
+              <BrowserExtensionSetupBanner onOpenSettings={() => handleNav("settings")} />
               {todayMode === "queue" ? (
                 <WorkQueueDashboard
                   trelloDisabledReason={trelloDisabledReason}

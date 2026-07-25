@@ -4,7 +4,27 @@
 
 This workspace is the product authority for Joyce Work Schedule. The legacy GitHub repository at `Noodzakelijk-Online/006-autoreminder-virtualworkers` is retained for history, but its application tree is not a runtime dependency and is not merged into this codebase file by file.
 
-The consolidation source reviewed on 2026-07-14 was remote `main` commit `9607fd536f058d72c1edb14293bcb1e9e406a9b0`.
+The original consolidation source reviewed on 2026-07-14 was remote `main`
+commit `9607fd536f058d72c1edb14293bcb1e9e406a9b0`.
+
+The remote was reviewed again on 2026-07-25 at
+`917a9af45692718796f2bc3a875ee16453a24c67`. Its three newer commits were
+checked behavior by behavior:
+
+- dynamic Trello authorization already exists at `/api/trello/authorize` and
+  uses the configured server key;
+- clearing a personal Trello comment token is already supported with a nullable
+  input and deletes the stored value;
+- daily goals and schedule settings already have validated, persisted tRPC
+  procedures;
+- the duplicate legacy Manus route is not present in this runtime;
+- generic worker branding was not imported because this deployment is
+  intentionally Joyce-specific;
+- the legacy chatbot conversation mapping was not imported because that route
+  and schema are not runtime dependencies of the operator dashboard.
+
+The remote commits remain reachable through the final consolidation merge even
+where their legacy file changes are not applied to the canonical tree.
 
 ## Adopted Capabilities
 
@@ -44,7 +64,9 @@ The consolidation branch must pass:
 6. release-tree secret scanning
 7. local database migration and readiness verification
 
-Remote `main` must not be replaced until these checks pass and exposed historical credentials have been rotated. The pre-consolidation remote head is preserved in a dated legacy branch before the consolidation branch is pushed.
+Remote `main` must not be replaced until these checks pass and exposed
+historical credentials have been rotated. Preserve the pre-consolidation remote
+head in a dated legacy branch before updating `main`.
 
 ## Rollback
 

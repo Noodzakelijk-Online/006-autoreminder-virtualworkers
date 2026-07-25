@@ -4,6 +4,7 @@ import { runTrackedJob, type JobTrigger } from "./scheduledJobsDb";
 import { broadcast } from "./sse";
 import { runTrelloEvidenceIngestion, type TrelloEvidenceIngestionResult } from "./trelloEvidenceIngestion";
 import { getTrelloEvidenceMatchCards, relinkWorkspaceEvidence } from "./workspaceEvidenceDb";
+import { queueCardReassessment } from "./aptlssReassessment";
 
 type SourceRun<T> = {
   status: "success" | "error";
@@ -15,7 +16,7 @@ export type WorkspaceIngestionResult = {
   gmail: SourceRun<GmailIngestionResult>;
   googleDrive: SourceRun<GoogleDriveIngestionResult>;
   trello: SourceRun<Omit<TrelloEvidenceIngestionResult, "cards">>;
-  linking: { evidenceItems: number; linkedItems: number; linksCreated: number };
+  linking: { evidenceItems: number; linkedItems: number; linksCreated: number; changedCardIds: string[] };
   failures: number;
 };
 
@@ -41,7 +42,8 @@ async function executeWorkspaceIngestion(trigger: JobTrigger): Promise<Workspace
   const cards = trelloFull.result?.cards ?? await getTrelloEvidenceMatchCards();
   const linking = cards.length
     ? await relinkWorkspaceEvidence(cards)
-    : { evidenceItems: 0, linkedItems: 0, linksCreated: 0 };
+    : { evidenceItems: 0, linkedItems: 0, linksCreated: 0, changedCardIds: [] };
+  linking.changedCardIds.forEach((cardId) => queueCardReassessment(cardId, "evidence"));
   const trello: WorkspaceIngestionResult["trello"] = trelloFull.status === "success"
     ? {
         status: "success",
@@ -67,7 +69,7 @@ export function runWorkspaceIngestion(trigger: JobTrigger = "manual") {
       recordsProcessed: (result.gmail.result?.imported ?? 0)
         + (result.googleDrive.result?.indexed ?? 0)
         + (result.trello.result?.imported ?? 0),
-      detail: `${result.gmail.result?.imported ?? 0} Gmail, ${result.googleDrive.result?.indexed ?? 0} Drive, ${result.trello.result?.imported ?? 0} Trello indexed; ${result.linking.linksCreated} card links; ${result.failures} source failure(s)`,
+      detail: `${result.gmail.result?.imported ?? 0} Gmail, ${result.googleDrive.result?.indexed ?? 0} Drive, ${result.trello.result?.imported ?? 0} Trello indexed; ${result.linking.linksCreated} card links; ${result.linking.changedCardIds.length} reassessment(s) queued; ${result.failures} source failure(s)`,
     }),
   }).then((result) => {
     broadcast("gmail-invalidate");

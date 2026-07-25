@@ -82,8 +82,14 @@ export function matchEvidenceToCards(
   const normalizedEvidence = normalize(rawEvidence);
   const semanticEvidence = evidence.source === "google_drive"
     ? evidence.title
-    : [evidence.title, evidence.summary].filter(Boolean).join("\n");
+    : [evidence.title, evidence.summary, evidence.content].filter(Boolean).join("\n");
   const evidenceTerms = new Set(terms(semanticEvidence).filter((term) => !LOW_SIGNAL_MATCH_TERMS.has(term)));
+  const driveContent = evidence.source === "google_drive" ? normalize(evidence.content ?? "") : "";
+  const driveContentTerms = new Set(
+    evidence.source === "google_drive"
+      ? terms(evidence.content ?? "").filter((term) => !LOW_SIGNAL_MATCH_TERMS.has(term))
+      : [],
+  );
   const matches: WorkspaceEvidenceMatch[] = [];
 
   for (const card of cards) {
@@ -107,7 +113,9 @@ export function matchEvidenceToCards(
     } else if (
       cardName.length >= 6
       && terms(card.name).some((term) => !LOW_SIGNAL_MATCH_TERMS.has(term))
-      && normalizedEvidence.includes(cardName)
+      && (evidence.source === "google_drive"
+        ? normalize([evidence.title, evidence.summary].filter(Boolean).join("\n")).includes(cardName)
+        : normalizedEvidence.includes(cardName))
     ) {
       relevanceScore = 92;
       matchReason = "Full card name appears in the source";
@@ -118,6 +126,16 @@ export function matchEvidenceToCards(
       if (overlap.length >= 2 && ratio >= 0.67) {
         relevanceScore = Math.min(88, Math.round(56 + ratio * 32));
         matchReason = `Distinctive title terms: ${overlap.join(", ")}`;
+      } else if (evidence.source === "google_drive" && cardTerms.length >= 2 && driveContent.includes(cardName)) {
+        relevanceScore = 84;
+        matchReason = "Full card name appears in Drive content";
+      } else if (evidence.source === "google_drive") {
+        const contentOverlap = cardTerms.filter((term) => driveContentTerms.has(term));
+        const contentRatio = cardTerms.length ? contentOverlap.length / cardTerms.length : 0;
+        if (contentOverlap.length >= 3 && contentRatio >= 0.8) {
+          relevanceScore = Math.min(78, Math.round(62 + contentRatio * 16));
+          matchReason = `Distinctive Drive content terms: ${contentOverlap.join(", ")}`;
+        }
       }
     }
 

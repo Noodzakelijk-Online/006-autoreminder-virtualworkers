@@ -13,6 +13,7 @@ import {
   type TimeCategory,
 } from "./timeAccountability";
 import { getSavedDailyPlan } from "./dailyPlan";
+import { reconcileTimeWorkspace } from "./timeReconciliation";
 
 export type StartManagedTimerInput = {
   cardId: string;
@@ -41,6 +42,14 @@ async function refreshCurrentOvertimeEvidence(dateKey = dateKeyInEat()) {
       "[Timer] Could not refresh compliance overtime evidence:",
       error
     );
+  }
+}
+
+async function refreshTimeReconciliation(dateKey = dateKeyInEat()) {
+  try {
+    await reconcileTimeWorkspace(dateKey);
+  } catch (error) {
+    console.warn("[Timer] Could not refresh time reconciliation:", error);
   }
 }
 
@@ -118,6 +127,7 @@ export async function startManagedTimer(input: StartManagedTimerInput) {
   refreshAffectedCards([linkedInput.cardId, ...entry.stoppedCardIds]);
   await markTimeDayNeedsReview(dateKeyInEat());
   await refreshCurrentOvertimeEvidence();
+  await refreshTimeReconciliation();
   broadcast("timer-invalidate");
   return entry;
 }
@@ -128,6 +138,7 @@ export async function stopManagedTimer(cardId: string) {
     refreshAffectedCards([entry.cardId]);
     await markTimeDayNeedsReview(dateKeyInEat(entry.startedAt));
     await refreshCurrentOvertimeEvidence();
+    await refreshTimeReconciliation(dateKeyInEat(entry.startedAt));
     broadcast("timer-invalidate");
   }
   return entry;
@@ -137,6 +148,7 @@ export async function deleteManagedTimeEntry(id: number, reason: string) {
   const result = await voidTimeEntry(id, reason);
   refreshAffectedCards([result.cardId]);
   await refreshCurrentOvertimeEvidence(dateKeyInEat(result.startedAt));
+  await refreshTimeReconciliation(dateKeyInEat(result.startedAt));
   broadcast("timer-invalidate");
   return result;
 }
@@ -149,6 +161,7 @@ export async function updateManagedTimeEntry(
   const result = await correctTimeEntry(id, durationSeconds, reason);
   refreshAffectedCards([result.cardId]);
   await refreshCurrentOvertimeEvidence(dateKeyInEat(result.startedAt));
+  await refreshTimeReconciliation(dateKeyInEat(result.startedAt));
   broadcast("timer-invalidate");
   return result;
 }
@@ -159,6 +172,7 @@ export async function createManagedManualTimeEntry(
   const result = await createManualTimeEntry(input);
   refreshAffectedCards([result.cardId]);
   await refreshCurrentOvertimeEvidence(input.dateKey);
+  await refreshTimeReconciliation(input.dateKey);
   broadcast("timer-invalidate");
   return result;
 }
@@ -184,6 +198,7 @@ export async function autoStopManagedTimers(maxSeconds = 12 * 60 * 60) {
     );
     refreshAffectedCards(entries.map(entry => entry.cardId));
     await refreshCurrentOvertimeEvidence();
+    await Promise.all(Array.from(new Set(entries.map(entry => dateKeyInEat(entry.startedAt)))).map(refreshTimeReconciliation));
     broadcast("timer-invalidate");
   }
   return entries;

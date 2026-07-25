@@ -15,6 +15,7 @@ import {
   getGmailOauthConnection,
 } from "../gmailIngestionSettings";
 import { hasGoogleDriveReadonlyScope } from "../googleDriveIngestion";
+import { getWorkspaceEvidenceStats } from "../workspaceEvidenceDb";
 
 type ReadinessStatus = "ready" | "warning" | "blocked";
 
@@ -370,6 +371,24 @@ export async function getSystemReadiness(options: { probeDatabase?: boolean; pro
             : `Reply Monitor last completed successfully at ${lastSuccess!.toISOString()}.`,
         action: failed || stale ? "Run Reply Monitor from Inbox and verify a successful completion." : "No action needed.",
       });
+      const upworkLastSuccess = status.upworkLastSuccessfulAt ? new Date(status.upworkLastSuccessfulAt) : null;
+      const upworkStale = !upworkLastSuccess || Date.now() - upworkLastSuccess.getTime() > 30 * 60_000;
+      const upworkReady = status.upworkState === "success" && !upworkStale;
+      items.push({
+        id: "upwork-message-source",
+        label: "Upwork message source",
+        status: upworkReady ? "ready" : "warning",
+        message: status.upworkState === "disabled"
+          ? "Upwork message monitoring is explicitly disabled."
+          : status.upworkState === "error"
+            ? `The Upwork source scan failed: ${status.upworkErrorMessage ?? "Unknown source error"}`
+            : upworkReady
+              ? `Upwork checked ${status.upworkRoomsScanned} conversations at ${upworkLastSuccess!.toISOString()}.`
+              : "No recent successful Upwork message scan is available.",
+        action: upworkReady
+          ? "No action needed."
+          : "Configure the official Upwork OAuth connection with Messaging and Common Entities read-only permissions in Settings, then run Reply Monitor again.",
+      });
     } catch (error) {
       items.push({
         id: "reply-monitor-runtime",
@@ -377,6 +396,39 @@ export async function getSystemReadiness(options: { probeDatabase?: boolean; pro
         status: "blocked",
         message: error instanceof Error ? error.message : "Reply Monitor health could not be read.",
         action: "Apply database migrations and verify Reply Monitor storage.",
+      });
+    }
+
+    try {
+      const evidence = await getWorkspaceEvidenceStats();
+      const externalLinked = evidence.linkedBySource.gmail + evidence.linkedBySource.google_drive;
+      const externalPendingReview = evidence.pendingReviewBySource.gmail + evidence.pendingReviewBySource.google_drive;
+      const externalNotWorkRelated = evidence.notWorkRelatedBySource.gmail + evidence.notWorkRelatedBySource.google_drive;
+      const driveContentCoverage = evidence.contentEligibleBySource.google_drive > 0
+        ? Math.round(evidence.contentBySource.google_drive / evidence.contentEligibleBySource.google_drive * 100)
+        : 100;
+      const linkageReady = externalPendingReview === 0;
+      items.push({
+        id: "workspace-evidence-linkage",
+        label: "Workspace evidence linkage",
+        status: linkageReady ? "ready" : "warning",
+        message: `${externalLinked} Gmail/Drive items are linked to Trello work; ${externalPendingReview} recent item(s) await review; ${externalNotWorkRelated} classified outside tracked work.`,
+        action: linkageReady ? "No action needed." : "Review each recent item and either link it to Trello work or classify it as not work-related.",
+      });
+      items.push({
+        id: "drive-evidence-content",
+        label: "Drive evidence content",
+        status: evidence.contentEligibleBySource.google_drive > 0 && driveContentCoverage < 80 ? "warning" : "ready",
+        message: `${evidence.contentBySource.google_drive}/${evidence.contentEligibleBySource.google_drive} text-extractable Drive items have indexed content (${driveContentCoverage}%); ${evidence.bySource.google_drive - evidence.contentEligibleBySource.google_drive} non-text items are excluded.`,
+        action: evidence.contentEligibleBySource.google_drive === 0 || driveContentCoverage >= 80 ? "No action needed." : "Run Drive content backfill and inspect inaccessible text files.",
+      });
+    } catch (error) {
+      items.push({
+        id: "workspace-evidence-linkage",
+        label: "Workspace evidence linkage",
+        status: "warning",
+        message: error instanceof Error ? error.message : "Workspace evidence coverage could not be measured.",
+        action: "Verify workspace evidence migrations and rerun ingestion.",
       });
     }
 
@@ -426,11 +478,11 @@ export async function getSystemReadiness(options: { probeDatabase?: boolean; pro
       for (const job of expected) {
         const run = latestRuns.find((candidate) => candidate.jobKey === job.key);
         const stale = !run || Date.now() - new Date(run.startedAt).getTime() > job.maxAgeMs;
-        const failed = run?.status === "error";
+        const failed = run?.status === "error" || run?.status === "abandoned";
         items.push({
           id: `job-${job.key}`,
           label: job.label,
-          status: failed || stale ? "warning" : "ready",
+          status: job.key === "eod_compliance" && failed ? "blocked" : failed || stale ? "warning" : "ready",
           message: !run
             ? "No durable run has been recorded."
             : `${run.status} at ${new Date(run.startedAt).toISOString()}${run.errorMessage ? `: ${run.errorMessage}` : ""}`,

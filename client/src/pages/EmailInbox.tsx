@@ -3,10 +3,10 @@
  *
  * Goals:
  *   - Show ALL emails (not just unread) — inbox-zero every day
- *   - Financial emails: 48h deadline countdown, archive when handled
+ *   - Financial emails: 48h deadline countdown and Gmail outcome verification
  *   - Non-financial emails: suggested Trello card link + next action
  *   - Inbox-zero progress bar
- *   - Batch "Archive All" button for end-of-day inbox zero
+ *   - Batch verification for messages Joyce processed in Gmail
  *
  * Data is populated by the server-owned Gmail scheduler configured in Settings.
  * This page reads the durable imported records from the database.
@@ -111,14 +111,14 @@ function getFinancialDeadlineInfo(email: EmailTask): {
 // ── Email Row ─────────────────────────────────────────────────────────────────
 function EmailRow({
   email,
-  onArchive,
+  onVerify,
   onProcess,
-  isArchiving,
+  isVerifying,
 }: {
   email: EmailTask;
-  onArchive: (id: number) => void;
+  onVerify: (id: number) => void;
   onProcess: (id: number) => void;
-  isArchiving: boolean;
+  isVerifying: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isFinancial = email.category === "financial";
@@ -242,10 +242,10 @@ function EmailRow({
                     Open in Gmail
                   </a>
                 </Button>
-                {!isArchived && !isProcessed && (
-                  <Button variant="ghost" size="sm" className="h-8 gap-1.5" onClick={() => onArchive(email.id)} disabled={isArchiving}>
-                    <Archive className="h-3.5 w-3.5" />
-                    Archive directly
+                {isProcessed && (
+                  <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => onVerify(email.id)} disabled={isVerifying}>
+                    <RefreshCw className={`h-3.5 w-3.5 ${isVerifying ? "animate-spin" : ""}`} />
+                    Verify Gmail outcome
                   </Button>
                 )}
               </div>
@@ -285,12 +285,12 @@ function EmailRow({
           {!isArchived && isProcessed && (
             <button
               type="button"
-              onClick={() => onArchive(email.id)}
-              disabled={isArchiving}
+              onClick={() => onVerify(email.id)}
+              disabled={isVerifying}
               className="p-1 rounded hover:bg-accent/50 transition-colors disabled:opacity-50"
-              title="Archive"
+              title="Verify Gmail outcome"
             >
-              <Archive className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
+              <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground hover:text-foreground ${isVerifying ? "animate-spin" : ""}`} />
             </button>
           )}
         </div>
@@ -302,8 +302,8 @@ function EmailRow({
 // ── Main Component ────────────────────────────────────────────────────────────
 export default function EmailInbox() {
   const utils = trpc.useUtils();
-  const [archivingId, setArchivingId] = useState<number | null>(null);
-  const [isArchivingAll, setIsArchivingAll] = useState(false);
+  const [verifyingId, setVerifyingId] = useState<number | null>(null);
+  const [isVerifyingAll, setIsVerifyingAll] = useState(false);
 
   const { data: emails = [], isLoading, error: inboxError, refetch } = trpc.emailInbox.getPending.useQuery(undefined, {
     refetchInterval: 15 * 60_000,
@@ -321,26 +321,38 @@ export default function EmailInbox() {
     },
   });
 
-  const archiveAll = trpc.emailInbox.archiveAll.useMutation({
+  const verifyProcessed = trpc.emailInbox.verifyProcessed.useMutation({
     onSuccess: (data) => {
       utils.emailInbox.getPending.invalidate();
       utils.system.navigationCounts.invalidate();
-      toast.success(`Inbox zero! Archived ${data.archived} email${data.archived !== 1 ? "s" : ""}.`);
-      setIsArchivingAll(false);
+      if (data.closed > 0) toast.success(`Verified and closed ${data.closed} email${data.closed !== 1 ? "s" : ""}.`);
+      if (data.unresolved > 0) toast.info(`${data.unresolved} processed email${data.unresolved !== 1 ? "s are" : " is"} still in Gmail Inbox.`);
+      if (data.checked === 0) toast.info("No processed emails are waiting for verification.");
+      setIsVerifyingAll(false);
     },
     onError: () => {
-      toast.error("Failed to archive emails");
-      setIsArchivingAll(false);
+      toast.error("Gmail verification failed");
+      setIsVerifyingAll(false);
     },
   });
 
-  const handleArchive = (id: number) => {
-    setArchivingId(id);
-    updateStatus.mutate(
-      { id, status: "archived" },
+  const verifyOutcome = trpc.emailInbox.verifyOutcome.useMutation();
+
+  const handleVerify = (id: number) => {
+    setVerifyingId(id);
+    verifyOutcome.mutate(
+      { id },
       {
-        onSettled: () => setArchivingId(null),
-        onError: () => toast.error("Failed to archive email"),
+        onSuccess: (result) => {
+          void utils.emailInbox.getPending.invalidate();
+          void utils.system.navigationCounts.invalidate();
+          if (result.error) toast.error(result.error);
+          else if (result.archived) toast.success("Gmail archive verified. The item is closed.");
+          else if (result.replied) toast.success("Gmail reply verified. Archive the thread in Gmail to close it.");
+          else toast.info("No reply or archive was found in Gmail yet.");
+        },
+        onSettled: () => setVerifyingId(null),
+        onError: () => toast.error("Gmail verification failed"),
       }
     );
   };
@@ -352,23 +364,24 @@ export default function EmailInbox() {
     );
   };
 
-  const handleArchiveAll = () => {
-    setIsArchivingAll(true);
-    archiveAll.mutate();
+  const handleVerifyProcessed = () => {
+    setIsVerifyingAll(true);
+    verifyProcessed.mutate();
   };
 
   // Split into financial and non-financial
-  const { financial, nonFinancial, total, pending } = useMemo(() => {
+  const { financial, nonFinancial, total, pending, processed } = useMemo(() => {
     const financial = emails.filter(e => e.category === "financial");
     const nonFinancial = emails.filter(e => e.category === "non_financial");
     const total = emails.length;
     const pending = emails.filter(e => e.status === "pending").length;
-    return { financial, nonFinancial, total, pending };
+    const processed = emails.filter(e => e.status === "processed").length;
+    return { financial, nonFinancial, total, pending, processed };
   }, [emails]);
 
   // Inbox-zero progress
-  const progressPct = total === 0 ? 0 : Math.round(((total - pending) / total) * 100);
-  const isInboxZero = total > 0 && pending === 0;
+  const progressPct = total === 0 ? 100 : Math.round((processed / total) * 100);
+  const isInboxZero = total === 0;
   const latestGmailRun = gmailStatus.data?.latestRun;
   const latestRunAt = latestGmailRun?.startedAt ? new Date(latestGmailRun.startedAt) : null;
   const scanAgeMs = latestRunAt ? Date.now() - latestRunAt.getTime() : Number.POSITIVE_INFINITY;
@@ -429,7 +442,7 @@ export default function EmailInbox() {
             Email Inbox
           </h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Goal: inbox zero every day — process every email, archive when done
+            Process in Gmail, record the outcome, then verify the reply or archive evidence
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -443,16 +456,16 @@ export default function EmailInbox() {
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          {!isInboxZero && (
+          {processed > 0 && (
             <Button
               variant="default"
               size="sm"
-              onClick={handleArchiveAll}
-              disabled={isArchivingAll || pending === 0}
+              onClick={handleVerifyProcessed}
+              disabled={isVerifyingAll}
               className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
             >
-              <Archive className="w-3.5 h-3.5" />
-              Archive All ({pending})
+              <RefreshCw className={`w-3.5 h-3.5 ${isVerifyingAll ? "animate-spin" : ""}`} />
+              Verify processed ({processed})
             </Button>
           )}
         </div>
@@ -483,7 +496,7 @@ export default function EmailInbox() {
                 <Clock className="w-4 h-4 text-amber-500" />
               )}
               <span className="text-sm font-medium text-foreground">
-                {total === 0 ? "No imported email records" : isInboxZero ? "Imported inbox is clear" : `${pending} email${pending !== 1 ? "s" : ""} remaining`}
+                {isInboxZero ? "No open imported emails" : `${pending} pending, ${processed} awaiting Gmail verification`}
               </span>
             </div>
             <span className="text-sm font-bold text-foreground">{progressPct}%</span>
@@ -498,7 +511,7 @@ export default function EmailInbox() {
           </div>
           {total > 0 && (
             <p className="text-xs text-muted-foreground mt-1.5">
-              {total - pending} of {total} emails processed or archived
+              {processed} of {total} open emails processed locally
             </p>
           )}
           <div className={`mt-3 flex items-start gap-2 border-t pt-3 ${isScannerFresh ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-300"}`}>
@@ -591,9 +604,9 @@ export default function EmailInbox() {
                   <EmailRow
                     key={email.id}
                     email={email}
-                    onArchive={handleArchive}
+                    onVerify={handleVerify}
                     onProcess={handleProcess}
-                    isArchiving={archivingId === email.id}
+                    isVerifying={verifyingId === email.id}
                   />
                 ))}
               </>
@@ -611,9 +624,9 @@ export default function EmailInbox() {
                 <EmailRow
                   key={email.id}
                   email={email}
-                  onArchive={handleArchive}
+                  onVerify={handleVerify}
                   onProcess={handleProcess}
-                  isArchiving={archivingId === email.id}
+                  isVerifying={verifyingId === email.id}
                 />
               ))
             )}
@@ -625,9 +638,9 @@ export default function EmailInbox() {
               <EmailRow
                 key={email.id}
                 email={email}
-                onArchive={handleArchive}
+                onVerify={handleVerify}
                 onProcess={handleProcess}
-                isArchiving={archivingId === email.id}
+                isVerifying={verifyingId === email.id}
               />
             ))}
           </TabsContent>

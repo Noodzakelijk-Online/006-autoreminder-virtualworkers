@@ -112,9 +112,30 @@ export default function PlanMyDay() {
   });
 
   const draftHandoff = trpc.aptlss.draftDailyHandoff.useMutation({
-    onSuccess: (data) => setHandoff(data as HandoffDraft),
+    onSuccess: (data) => {
+      const nextHandoff = data as HandoffDraft;
+      setHandoff(nextHandoff);
+      setLocalChecks(Object.fromEntries(nextHandoff.checklist.map((item) => [item.id, item.done])));
+    },
     onError: (err) => toast.error("Handoff draft failed", { description: err.message }),
   });
+  const updateHandoffChecklist = trpc.aptlss.updateDailyHandoffChecklist.useMutation({
+    onSuccess: (data) => {
+      setHandoff((current) => current ? { ...current, checklist: data.checklist } : current);
+      if (data.status === "reviewed") toast.success("End-of-day handoff reviewed");
+    },
+    onError: (err) => toast.error("Handoff checklist was not saved", { description: err.message }),
+  });
+  const toggleHandoffItem = (itemId: string, done: boolean) => {
+    if (!handoff) return;
+    const previousChecks = localChecks;
+    const checklist = handoff.checklist.map((item) => item.id === itemId ? { ...item, done } : item);
+    setLocalChecks({ ...localChecks, [itemId]: done });
+    updateHandoffChecklist.mutate(
+      { recordId: handoff.recordId, checklist },
+      { onError: () => setLocalChecks(previousChecks) },
+    );
+  };
 
   const startTimer = trpc.timer.start.useMutation({
     onError: (err) => toast.error("Timer failed", { description: err.message }),
@@ -427,13 +448,13 @@ export default function PlanMyDay() {
             isPreview={isPreview}
             handoff={handoff}
             localChecks={localChecks}
-            setLocalChecks={setLocalChecks}
+            onToggleHandoffItem={toggleHandoffItem}
             onApply={queueApplyPlan}
             onReplan={() => replan.mutate({ dateKey, completedBlockIds: completedIds, activeBlockId: nowBlock?.status === "active" ? nowBlock.id : undefined })}
             onDraft={() => draftHandoff.mutate({ dateKey })}
             isApplied={Boolean(appliedAt)}
             appliedAt={appliedAt}
-            busy={generatePlan.isPending || replan.isPending || draftHandoff.isPending || updatePlan.isPending}
+            busy={generatePlan.isPending || replan.isPending || draftHandoff.isPending || updatePlan.isPending || updateHandoffChecklist.isPending}
           /></div>
         </SheetContent>
       </Sheet>
@@ -957,7 +978,7 @@ function CommandRail({
   isPreview,
   handoff,
   localChecks,
-  setLocalChecks,
+  onToggleHandoffItem,
   onApply,
   onReplan,
   onDraft,
@@ -969,7 +990,7 @@ function CommandRail({
   isPreview: boolean;
   handoff: HandoffDraft | null;
   localChecks: Record<string, boolean>;
-  setLocalChecks: (value: Record<string, boolean>) => void;
+  onToggleHandoffItem: (itemId: string, done: boolean) => void;
   onApply: () => void;
   onReplan: () => void;
   onDraft: () => void;
@@ -978,6 +999,13 @@ function CommandRail({
   busy: boolean;
 }) {
   const risks = plan.blocks.filter((block) => block.flags.some((flag) => ["Blocked", "Waiting", "Robert"].includes(flag))).slice(0, 4);
+  const handoffItems = handoff?.checklist ?? [
+    { id: "send_daily_update", label: "Send daily update to Robert", done: false },
+    { id: "post_key_updates", label: "Post key updates on Trello cards", done: false },
+    { id: "log_time", label: "Log time and close timers", done: false },
+    { id: "close_browser_tabs", label: "Save needed references and close work tabs", done: false },
+    { id: "prepare_tomorrow", label: "Prepare tomorrow's plan", done: false },
+  ];
 
   return (
     <aside className="space-y-3">
@@ -1031,14 +1059,19 @@ function CommandRail({
         <RailCard>
           <RailHeading icon={<CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />} label="END-OF-DAY HANDOFF" />
           <div className="mt-3 space-y-3">
-            {["send_daily_update", "post_updates", "log_time", "prepare_tomorrow"].map((id) => (
-              <label key={id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Checkbox checked={Boolean(localChecks[id])} onCheckedChange={(checked) => setLocalChecks({ ...localChecks, [id]: checked === true })} />
-                {id === "send_daily_update" ? "Send daily update to Robert" : id === "post_updates" ? "Post key updates on Trello cards" : id === "log_time" ? "Log time and close timers" : "Prepare tomorrow's plan"}
+            {handoffItems.map((item) => (
+              <label key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Checkbox
+                  checked={Boolean(localChecks[item.id])}
+                  disabled={!handoff || busy}
+                  onCheckedChange={(checked) => onToggleHandoffItem(item.id, checked === true)}
+                />
+                {item.label}
               </label>
             ))}
           </div>
-          <Button variant="ghost" className="mt-3 h-8 px-0 text-primary" onClick={onDraft} disabled={isPreview || busy}>View template<ChevronRight className="ml-1 h-3.5 w-3.5" /></Button>
+          {!handoff && <p className="mt-3 text-[11px] text-muted-foreground">Draft the handoff before recording checklist evidence.</p>}
+          {!handoff && <Button variant="ghost" className="mt-3 h-8 px-0 text-primary" onClick={onDraft} disabled={isPreview || busy}>Draft handoff<ChevronRight className="ml-1 h-3.5 w-3.5" /></Button>}
           {handoff && <Textarea className="mt-3 min-h-36 text-xs" value={handoff.draft} readOnly />}
         </RailCard>
 

@@ -11,6 +11,10 @@ vi.mock("./replyMonitorDb", async (importOriginal) => ({
   getReplyMonitorStatus: vi.fn(),
 }));
 
+vi.mock("./scheduledJobsDb", () => ({
+  runTrackedJob: vi.fn(async ({ run }: { run: () => Promise<unknown> }) => run()),
+}));
+
 const { runReplyMonitorScan } = await import("./cronJobs");
 const { getReplyMonitorStatus } = await import("./replyMonitorDb");
 const { appRouter } = await import("./routers");

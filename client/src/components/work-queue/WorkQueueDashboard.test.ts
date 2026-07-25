@@ -19,6 +19,9 @@ vi.mock("@/lib/trpc", () => ({
     system: {
       readiness: { useQuery: vi.fn(() => ({ data: undefined })) },
     },
+    browserTabs: {
+      getStatus: { useQuery: vi.fn(() => ({ data: undefined, isLoading: false })) },
+    },
   },
 }));
 

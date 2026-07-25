@@ -27,6 +27,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      HOST: 0.0.0.0
       DATABASE_URL: mysql://joyce:${JOYCE_DB_PASSWORD:-replace-with-db-password}@db:3306/joyce_work_schedule
     ports:
       - "${PORT:-3000}:3000"

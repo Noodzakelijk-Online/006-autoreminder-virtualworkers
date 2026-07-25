@@ -5,7 +5,7 @@ vi.mock("./aptlssAuditDb", () => ({
   logAuditAction: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { countLlmProviderAttempts } from "./aptlssAuditDb";
+import { countLlmProviderAttempts, logAuditAction } from "./aptlssAuditDb";
 import {
   getAvailableAptlssLlmStages,
   getAptlssLlmConfigurationStatus,
@@ -55,6 +55,9 @@ function clearProviderEnv() {
     "APTLSS_LLM_STAGES_JSON",
     "APTLSS_LLM_MAX_RANK",
     "APTLSS_LLM_MAX_CALLS_PER_RUN",
+    "APTLSS_OPENAI_DAILY_CALL_LIMIT",
+    "APTLSS_OPENAI_WEEKLY_CALL_LIMIT",
+    "APTLSS_OPENAI_MONTHLY_CALL_LIMIT",
     "APTLSS_MODEL_DISCOVERY_ENABLED",
     "APTLSS_OLLAMA_DISCOVERY_ENABLED",
   ]) vi.stubEnv(name, "");
@@ -157,6 +160,15 @@ describe("APTLSS model and effort router", () => {
     expect(JSON.parse(result.choices[0].message.content as string)).toEqual({ task: "Prepare the signed client handoff" });
     expect(result.routing).toMatchObject({ outcome: "verified", selectedStageId: "stage-1", verifiedByStageId: "stage-2" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    const successfulAudit = vi.mocked(logAuditAction).mock.calls
+      .map(([entry]) => entry)
+      .find((entry) => entry.description?.includes("generate success"));
+    expect(successfulAudit).toBeDefined();
+    expect(JSON.parse(successfulAudit?.payload ?? "{}")).toMatchObject({
+      promptTokens: 10,
+      completionTokens: 10,
+      totalTokens: 20,
+    });
   });
 
   it("repairs a flawed candidate and has the next stage verify the repair", async () => {

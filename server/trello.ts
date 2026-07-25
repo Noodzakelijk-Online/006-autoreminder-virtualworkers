@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getWorkLaneCategory } from "@shared/workLanePriority";
 
 const TRELLO_API_BASE = "https://api.trello.com/1";
 const JOYCE_MEMBER_ID = "joyjemimajj1";
@@ -40,9 +41,6 @@ const DOING_LIST_NAMES = new Set(["doing", "in progress", "in-progress"]);
 // List names that are considered "on-hold"
 const ON_HOLD_LIST_NAMES = new Set(["on-hold", "on hold", "onhold"]);
 
-// List names that are considered "to-do" / backlog
-const TODO_LIST_NAMES = new Set(["to do", "todo", "to-do", "backlog", "inbox", "new", "queue"]);
-
 function isDoneList(listName: string): boolean {
   return DONE_LIST_NAMES.has(listName.trim().toLowerCase());
 }
@@ -56,11 +54,7 @@ export function isOnHoldList(listName: string): boolean {
 }
 
 export function getListCategory(listName: string): "on-hold" | "doing" | "todo" | "other" {
-  const n = listName.trim().toLowerCase();
-  if (ON_HOLD_LIST_NAMES.has(n)) return "on-hold";
-  if (DOING_LIST_NAMES.has(n)) return "doing";
-  if (TODO_LIST_NAMES.has(n)) return "todo";
-  return "other";
+  return getWorkLaneCategory(listName);
 }
 
 interface TrelloList {

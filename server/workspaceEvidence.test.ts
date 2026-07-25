@@ -34,6 +34,17 @@ describe("workspace evidence matching", () => {
     ]);
   });
 
+  it("uses distinctive Gmail body terms when the subject is generic", () => {
+    const linked = matchEvidenceToCards(evidence({
+      title: "Re: requested update",
+      summary: "Please review the attached request.",
+      content: "Can you finish the Acme landing page approval today?",
+    }), cards);
+    expect(linked).toEqual([
+      expect.objectContaining({ cardId: "card-acme" }),
+    ]);
+  });
+
   it("uses explicit Drive identifiers embedded in Trello attachments", () => {
     const drive = evidence({ source: "google_drive", sourceId: "drive-file-123", title: "Launch brief" });
     const linked = matchEvidenceToCards(drive, [{
@@ -76,6 +87,34 @@ describe("workspace evidence matching", () => {
     }])).toEqual([
       expect.objectContaining({ cardId: "card-daylight-therapy", relevanceScore: 88 }),
     ]);
+  });
+
+  it("uses an exact multi-term card name found in Drive content", () => {
+    const drive = evidence({
+      source: "google_drive",
+      sourceId: "drive-acme-brief",
+      title: "Client meeting notes",
+      summary: null,
+      content: "Decision: finish the Acme landing page before the campaign starts.",
+    });
+    expect(matchEvidenceToCards(drive, cards)).toEqual([
+      expect.objectContaining({
+        cardId: "card-acme",
+        relevanceScore: 84,
+        matchReason: "Full card name appears in Drive content",
+      }),
+    ]);
+  });
+
+  it("does not link Drive content from one generic overlapping term", () => {
+    const drive = evidence({
+      source: "google_drive",
+      sourceId: "drive-generic-notes",
+      title: "Meeting notes",
+      summary: null,
+      content: "The landing deliverable needs a routine update.",
+    });
+    expect(matchEvidenceToCards(drive, cards)).toEqual([]);
   });
 
   it("does not create semantic card-to-card links without an explicit Trello reference", () => {

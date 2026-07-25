@@ -470,7 +470,12 @@ export default function ReplyMonitor() {
         utils.replyMonitor.getStatus.invalidate(),
         utils.system.navigationCounts.invalidate(),
       ]);
-      toast.success("Reply scan completed", { description: `${result.threadsScanned} Trello threads checked.` });
+      const upworkDetail = result.upworkState === "success"
+        ? `${result.upworkRoomsScanned} Upwork conversations checked.`
+        : result.upworkState === "disabled"
+          ? "Upwork monitoring is disabled."
+          : `Upwork needs attention: ${result.upworkErrorMessage ?? "no successful source scan"}`;
+      toast.success("Reply scan completed", { description: `${result.threadsScanned} Trello threads checked. ${upworkDetail}` });
     },
     onError: (error) => toast.error("Reply scan failed", { description: error.message }),
   });
@@ -512,6 +517,20 @@ export default function ReplyMonitor() {
               ? `Last successful scan ${lastSuccessfulAt.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
               : "No successful scan has been recorded yet"}
           </p>
+          {!statusLoading && scanStatus && (
+            <p
+              className={`mt-1 text-[11px] ${scanStatus.upworkState === "success" ? "text-emerald-600 dark:text-emerald-400" : scanStatus.upworkState === "disabled" ? "text-muted-foreground" : "text-amber-700 dark:text-amber-400"}`}
+              data-testid="upwork-monitor-status"
+            >
+              {scanStatus.upworkState === "success"
+                ? `Upwork connected · ${scanStatus.upworkRoomsScanned} conversations · ${scanStatus.upworkPending} pending · ${scanStatus.upworkOverdue} overdue`
+                : scanStatus.upworkState === "disabled"
+                  ? "Upwork monitoring disabled in Settings"
+                  : scanStatus.upworkState === "error"
+                    ? `Upwork unavailable · ${scanStatus.upworkErrorMessage ?? "Check the OAuth connection in Settings"}`
+                    : "Upwork has not completed a source scan yet"}
+            </p>
+          )}
         </div>
         <Button
           data-testid="reply-monitor-scan"

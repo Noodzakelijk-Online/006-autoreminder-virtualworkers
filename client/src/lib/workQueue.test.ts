@@ -37,23 +37,23 @@ function intelligence(cardId: string, extras: Partial<WorkQueueIntelligenceCard>
 }
 
 describe("normalizeWorkQueue", () => {
-  it("deduplicates cards by highest priority lane", () => {
+  it("deduplicates cards using the mandatory on-hold lane first", () => {
     const queue = normalizeWorkQueue({
-      overdueCards: [card("shared", "Shared card", { due: "2026-07-08T10:00:00.000Z" })],
+      overdueCards: [card("shared", "Shared card", { due: "2026-07-08T10:00:00.000Z", listName: "On Hold" })],
       doingCards: [card("shared", "Shared card", { due: "2026-07-08T10:00:00.000Z" })],
-      onHoldCards: [card("shared", "Shared card")],
+      onHoldCards: [card("shared", "Shared card", { listName: "On Hold" })],
     });
 
     expect(queue.cards).toHaveLength(1);
     expect(queue.cards[0]).toMatchObject({
       id: "shared",
-      lane: "overdue",
+      lane: "onhold",
       risk: "High",
     });
     expect(queue.lanes.map((lane) => [lane.id, lane.count])).toEqual([
-      ["overdue", 1],
+      ["onhold", 1],
       ["doing", 0],
-      ["onhold", 0],
+      ["overdue", 0],
     ]);
   });
 
@@ -84,39 +84,41 @@ describe("normalizeWorkQueue", () => {
     expect(queue.nextItems.map((item) => item.id)).toEqual(["two", "three", "four"]);
   });
 
-  it("promotes the active day-plan card so Today and Day plan agree on Now", () => {
+  it("keeps an active day-plan card within the mandatory lane order", () => {
     const queue = normalizeWorkQueue({
-      overdueCards: [card("overdue")],
+      overdueCards: [card("overdue", "Overdue", { listName: "To Do" })],
       doingCards: [card("planned-now")],
+      onHoldCards: [card("hold", "Blocked", { listName: "On Hold" })],
     }, "planned-now");
 
-    expect(queue.nowItem?.id).toBe("planned-now");
-    expect(queue.nextItems[0]?.id).toBe("overdue");
+    expect(queue.nowItem?.id).toBe("hold");
+    expect(queue.nextItems[0]?.id).toBe("planned-now");
+    expect(queue.nextItems[1]?.id).toBe("overdue");
   });
 
   it("orders each lane by the most actionable stale signal", () => {
     const queue = normalizeWorkQueue({
       overdueCards: [
-        card("later-overdue", "Later overdue", { due: "2026-07-08T10:00:00.000Z" }),
-        card("oldest-overdue", "Oldest overdue", { due: "2026-07-06T10:00:00.000Z" }),
+        card("later-overdue", "Later overdue", { due: "2026-07-08T10:00:00.000Z", listName: "To Do" }),
+        card("oldest-overdue", "Oldest overdue", { due: "2026-07-06T10:00:00.000Z", listName: "To Do" }),
       ],
       doingCards: [
         card("doing-no-due", "Doing no due", { due: null, dateLastActivity: "2026-07-01T10:00:00.000Z" }),
         card("doing-due", "Doing due", { due: "2026-07-09T10:00:00.000Z", dateLastActivity: "2026-07-08T10:00:00.000Z" }),
       ],
       onHoldCards: [
-        card("newer-hold", "Newer hold", { dateLastActivity: "2026-07-08T10:00:00.000Z" }),
-        card("older-hold", "Older hold", { dateLastActivity: "2026-07-02T10:00:00.000Z" }),
+        card("newer-hold", "Newer hold", { dateLastActivity: "2026-07-08T10:00:00.000Z", listName: "On Hold" }),
+        card("older-hold", "Older hold", { dateLastActivity: "2026-07-02T10:00:00.000Z", listName: "On Hold" }),
       ],
     });
 
     expect(queue.cards.map((item) => item.id)).toEqual([
-      "oldest-overdue",
-      "later-overdue",
-      "doing-due",
-      "doing-no-due",
       "older-hold",
       "newer-hold",
+      "doing-due",
+      "doing-no-due",
+      "oldest-overdue",
+      "later-overdue",
     ]);
   });
 
@@ -164,7 +166,7 @@ describe("normalizeWorkQueue", () => {
     expect(queue.nowItem?.detail).not.toContain("checkpoint is due");
   });
 
-  it("uses live APTLSS actionability and score instead of lane age for Now", () => {
+  it("uses live APTLSS score within a lane without overriding mandatory lane order", () => {
     const queue = normalizeWorkQueue({
       overdueCards: [card("old-overdue", "Old overdue", { due: "2026-06-01T10:00:00.000Z" })],
       doingCards: [card("critical-doing", "Critical execution")],
@@ -182,14 +184,8 @@ describe("normalizeWorkQueue", () => {
       ],
     });
 
-    expect(queue.nowItem).toMatchObject({
-      id: "critical-doing",
-      priorityScore: 96,
-      priorityTier: "CRITICAL",
-      confidenceScore: 91,
-      nextAction: "Complete the signed client delivery and attach proof.",
-      detail: "Delivery is executable and due today.",
-    });
+    expect(queue.cards.map((item) => item.id)).toEqual(["critical-doing", "old-overdue"]);
+    expect(queue.nowItem).toMatchObject({ id: "critical-doing", priorityScore: 96, priorityTier: "CRITICAL" });
   });
 });
 

@@ -122,6 +122,14 @@ function stageId(providerId: string, model: string, effort?: string) {
   return `${providerId}:${model}${effort ? `:${effort}` : ""}`.replace(/[^a-zA-Z0-9:._/-]/g, "-");
 }
 
+function openAiQuota() {
+  return {
+    daily: intEnv("APTLSS_OPENAI_DAILY_CALL_LIMIT", 0),
+    weekly: intEnv("APTLSS_OPENAI_WEEKLY_CALL_LIMIT", 0),
+    monthly: intEnv("APTLSS_OPENAI_MONTHLY_CALL_LIMIT", 0),
+  };
+}
+
 function effortStages({
   providerId,
   label,
@@ -236,6 +244,7 @@ export function getConfiguredAptlssLlmStages(): AptlssLlmStage[] {
         maxTokenField: "max_completion_tokens",
         supportsJsonSchema: true,
         timeoutMs: intEnv("APTLSS_OPENAI_TIMEOUT_MS", 180_000),
+        quota: openAiQuota(),
       }));
     });
   }
@@ -264,7 +273,7 @@ function catalogProviderSettings(model: AptlssCatalogModel): CatalogProviderSett
       apiKey: process.env.OPENAI_API_KEY?.trim(),
       maxTokenField: "max_completion_tokens",
       timeoutMs: intEnv("APTLSS_OPENAI_TIMEOUT_MS", 180_000),
-      quota: { daily: 0, weekly: 0, monthly: 0 },
+      quota: openAiQuota(),
     };
   }
   return null;
@@ -437,6 +446,11 @@ async function auditAttempt(
       stagePurpose: attempt.purpose,
       status: attempt.status,
       latencyMs: attempt.latencyMs,
+      promptTokens: attempt.usage?.prompt_tokens ?? 0,
+      cachedTokens: attempt.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+      completionTokens: attempt.usage?.completion_tokens ?? 0,
+      reasoningTokens: attempt.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+      totalTokens: attempt.usage?.total_tokens ?? 0,
       error: attempt.error?.slice(0, 1_000) ?? null,
     }),
     requiresApproval: false,
@@ -498,6 +512,7 @@ async function callStage(
       purpose,
       status: "success",
       latencyMs: Date.now() - startedAt,
+      usage: result.usage,
     };
     attempts.push(attempt);
     recordMemoryAttempt(stage.providerId, startedAt);
@@ -650,7 +665,7 @@ export async function invokeAptlssLLM(params: InvokeParams, options: AptlssLlmOp
 
   const correlationId = randomUUID();
   const attempts: LlmRoutingAttempt[] = [];
-  const maxCalls = intEnv("APTLSS_LLM_MAX_CALLS_PER_RUN", 32);
+  const maxCalls = Math.max(1, intEnv("APTLSS_LLM_MAX_CALLS_PER_RUN", 8));
   let calls = 0;
   let candidate: Record<string, unknown> | null = null;
   let candidateResult: InvokeResult | null = null;

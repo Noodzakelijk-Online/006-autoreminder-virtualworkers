@@ -248,22 +248,71 @@ async function persistCandidates(dateKey: string, candidates: Candidate[]) {
     );
 }
 
-export async function getTimeWorkspace(dateKey: string) {
+async function getPersistedReconciliationItems(dateKey: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(timeReconciliationItems)
+    .where(
+      and(
+        eq(timeReconciliationItems.dateKey, dateKey),
+        inArray(timeReconciliationItems.status, [
+          "open",
+          "resolved",
+          "dismissed",
+        ])
+      )
+    )
+    .orderBy(
+      timeReconciliationItems.status,
+      timeReconciliationItems.severity,
+      timeReconciliationItems.createdAt
+    );
+}
+
+async function getTimeWorkspaceBase(dateKey: string) {
   const { startDate, endDate } = weekBoundsFromDateKey(dateKey);
-  const [evidence, plan, compliance, communication, review, events, week] =
+  const [evidence, plan, review, events, week] =
     await Promise.all([
       getDailyTimeEvidence(dateKey),
       getSavedDailyPlan(dateKey),
-      getComplianceEvidenceByDate(dateKey),
-      getComplianceCommunicationEvidenceByDate(dateKey),
       getTimeDayReview(dateKey),
       getTimeEntryEventsForDate(dateKey),
       getWeeklyTimeEvidence(startDate, endDate),
     ]);
-  const blocks = plan?.blocks ?? [];
+  return { evidence, plan, review, events, week };
+}
+
+/** Read-only time workspace used by tRPC queries and automatic refetches. */
+export async function getTimeWorkspace(dateKey: string) {
+  const [base, anomalies] = await Promise.all([
+    getTimeWorkspaceBase(dateKey),
+    getPersistedReconciliationItems(dateKey),
+  ]);
+  const blocks = base.plan?.blocks ?? [];
+  return {
+    dateKey,
+    evidence: base.evidence,
+    week: base.week,
+    review: base.review,
+    anomalies,
+    events: base.events,
+    planBlocks: blocks,
+  };
+}
+
+/** Explicitly recompute and persist reconciliation evidence after a mutation or job. */
+export async function reconcileTimeWorkspace(dateKey: string) {
+  const [base, compliance, communication] = await Promise.all([
+    getTimeWorkspaceBase(dateKey),
+    getComplianceEvidenceByDate(dateKey),
+    getComplianceCommunicationEvidenceByDate(dateKey),
+  ]);
+  const blocks = base.plan?.blocks ?? [];
   const candidates = buildTimeReconciliationCandidates(
     dateKey,
-    evidence,
+    base.evidence,
     blocks,
     compliance,
     communication
@@ -271,11 +320,11 @@ export async function getTimeWorkspace(dateKey: string) {
   const anomalies = await persistCandidates(dateKey, candidates);
   return {
     dateKey,
-    evidence,
-    week,
-    review,
+    evidence: base.evidence,
+    week: base.week,
+    review: base.review,
     anomalies,
-    events,
+    events: base.events,
     planBlocks: blocks,
   };
 }
@@ -312,7 +361,7 @@ export async function reviewAndLockTimeDay(
   dateKey: string,
   overtimeReason?: string | null
 ) {
-  const workspace = await getTimeWorkspace(dateKey);
+  const workspace = await reconcileTimeWorkspace(dateKey);
   const highOpen = workspace.anomalies.filter(
     item => item.status === "open" && item.severity === "high"
   );

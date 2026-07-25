@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Mail,
   MessageSquare,
+  Monitor,
   RefreshCw,
   ShieldCheck,
   Timer,
@@ -104,11 +105,27 @@ function ComplianceEvidenceDetails({ dateKey }: { dateKey: string }) {
   const { data: rows = [], isLoading } = trpc.compliance.getEvidence.useQuery({ dateKey });
   const { data: communication = [], isLoading: communicationLoading } = trpc.compliance.getCommunicationEvidence.useQuery({ dateKey });
   const { data: time, isLoading: timeLoading } = trpc.timer.getDailyEvidence.useQuery({ date: dateKey });
-  if (isLoading || communicationLoading || timeLoading) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">Loading verified compliance facts...</p>;
-  if (rows.length === 0 && communication.length === 0 && !time?.entryCount) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">No source evidence was recorded for this date.</p>;
+  const { data: browserTabs, isLoading: browserTabsLoading } = trpc.browserTabs.getEvidence.useQuery({ dateKey });
+  if (isLoading || communicationLoading || timeLoading || browserTabsLoading) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">Loading verified compliance facts...</p>;
+  if (rows.length === 0 && communication.length === 0 && !time?.entryCount && !browserTabs) return <p className="border-t border-border/60 pt-3 text-xs text-muted-foreground">No source evidence was recorded for this date.</p>;
 
   return (
     <div className="mt-3 border-t border-border/60 pt-3">
+      {browserTabs && (
+        <>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase text-muted-foreground">Browser organization</p>
+            <Badge variant="outline" className={browserTabs.compliant ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-300" : "border-red-500/30 text-red-700 dark:text-red-300"}>{browserTabs.status.replaceAll("_", " ")}</Badge>
+          </div>
+          <div className="grid gap-2 rounded-md border border-border/60 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div className="flex min-w-0 items-start gap-2">
+              <Monitor className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${browserTabs.compliant ? "text-emerald-500" : "text-red-500"}`} />
+              <div className="min-w-0"><p className="text-xs font-medium text-foreground">End-of-day Chrome inventory</p><p className="text-[10px] text-muted-foreground">{browserTabs.totalTabs} total | {browserTabs.actionableTabs} work tabs | limit {browserTabs.allowedTabs}</p></div>
+            </div>
+            <p className="text-[10px] text-muted-foreground sm:text-right">{browserTabs.capturedAt ? new Date(browserTabs.capturedAt).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit" }) + " EAT" : "No fresh collector evidence"}</p>
+          </div>
+        </>
+      )}
       {time && time.entryCount > 0 && (
         <>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

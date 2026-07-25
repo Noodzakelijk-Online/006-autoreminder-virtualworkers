@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("axios", () => ({
   default: { get: vi.fn() },
@@ -28,6 +28,8 @@ function card(dateLastActivity: string) {
 
 describe("reply monitor scan cache", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-13T12:00:00.000Z"));
     clearReplyMonitorCommentCache();
     vi.clearAllMocks();
     vi.mocked(axios.get).mockResolvedValue({
@@ -39,6 +41,10 @@ describe("reply monitor scan cache", () => {
         memberCreator: { id: "client-1", username: "client", fullName: "Client" },
       }],
     } as never);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("fetches comments again only after card activity changes", async () => {

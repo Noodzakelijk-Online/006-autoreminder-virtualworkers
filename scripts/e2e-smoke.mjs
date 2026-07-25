@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import puppeteer from "puppeteer-core";
 
-const baseUrl = process.env.E2E_BASE_URL || "http://localhost:3025/";
+const baseUrl = process.env.E2E_BASE_URL || "http://127.0.0.1:3025/";
 const outputDir = process.env.E2E_OUTPUT_DIR || path.join(os.tmpdir(), "joyce-dashboard-e2e");
 const browserCandidates = [
   process.env.BROWSER_EXECUTABLE,
@@ -52,12 +52,20 @@ async function clickTab(text) {
     }
   }
   if (!target) throw new Error(`Tab not found: ${text}`);
+  await target.evaluate((element) => element.scrollIntoView({ block: "center", inline: "center" }));
   await target.click();
-  await page.waitForFunction(
+  const waitUntilActive = () => page.waitForFunction(
     (label) => [...document.querySelectorAll('[role="tab"]')].some((item) => item.textContent?.trim() === label && item.getAttribute("data-state") === "active"),
     { timeout: 5_000 },
     text,
   );
+  try {
+    await waitUntilActive();
+  } catch {
+    await target.focus();
+    await page.keyboard.press("Enter");
+    await waitUntilActive();
+  }
 }
 
 try {
@@ -148,8 +156,27 @@ try {
   await waitForText("Priority Playbook");
   await clickButton("Settings");
   await waitForText("Choose one configuration area at a time");
+  await clickTab("Automation");
+  await waitForText("Upwork messages");
+  await waitForText("Official read-only OAuth and GraphQL connection");
+  await waitForText("/api/integrations/upwork/callback");
+  const upworkSettingsOverflow = await page.evaluate(() => {
+    const callback = document.querySelector('#upwork-callback-url');
+    return callback ? callback.scrollWidth > callback.clientWidth + 1 : true;
+  });
+  if (upworkSettingsOverflow) throw new Error("Upwork callback field has horizontal overflow.");
+  await page.screenshot({ path: path.join(outputDir, "desktop-upwork-settings-dark.png"), fullPage: true });
   await page.goto(new URL("/admin", baseUrl).toString(), { waitUntil: "networkidle2", timeout: 30_000 });
   await waitForText("APTLSS Intelligence Health");
+  await waitForText("Workspace Evidence Coverage");
+  const evidenceReviewIsActionable = await page.evaluate(() => {
+    const body = document.body?.innerText ?? "";
+    const hasEmptyState = body.includes("No recent unlinked Gmail, Drive, or communication evidence needs review.");
+    const hasDispositionAction = [...document.querySelectorAll("button")]
+      .some((button) => button.textContent?.includes("Not related to tracked work"));
+    return hasEmptyState || hasDispositionAction;
+  });
+  if (!evidenceReviewIsActionable) throw new Error("Workspace evidence review has no completion action");
   await waitForText("Validated accuracy");
   await waitForText("Assessment Review Queue");
   await waitForText("Incorrect");
@@ -191,6 +218,16 @@ try {
   const mobileOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   if (mobileOverflow) throw new Error("Mobile layout has horizontal page overflow.");
   await page.screenshot({ path: path.join(outputDir, "mobile-waiting-reason.png"), fullPage: false });
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[data-testid="waiting-reason-inspector"]', { hidden: true, timeout: 5_000 });
+  await clickButton("Toggle Sidebar");
+  await clickButton("Settings");
+  await waitForText("Choose one configuration area at a time");
+  await clickTab("Automation");
+  await waitForText("Upwork messages");
+  const mobileUpworkOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+  if (mobileUpworkOverflow) throw new Error("Mobile Upwork settings have horizontal page overflow.");
+  await page.screenshot({ path: path.join(outputDir, "mobile-upwork-settings.png"), fullPage: true });
 
   const relevantProblems = consoleProblems.filter((message) => !message.includes("favicon") && !message.includes("React DevTools"));
   if (relevantProblems.length) throw new Error(`Browser console problems:\n${relevantProblems.join("\n")}`);
@@ -198,8 +235,8 @@ try {
   console.log(JSON.stringify({
     ok: true,
     url: page.url(),
-    screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "desktop-waiting-reason-dark.png", "desktop-reply-accountability-dark.png", "desktop-compliance-history-dark.png", "desktop-aptlss-health-dark.png", "mobile-waiting-reason.png"].map((name) => path.join(outputDir, name)),
-    checks: ["single-user access", "Today", "card inspector", "Day plan", "Inbox", "waiting reason inspector", "Reply accountability", "Decisions classifier 7/7", "Time & Pay", "communication compliance history", "Standards", "Settings", "APTLSS intelligence health", "assessment review gate", "dark mode", "desktop overflow", "mobile overflow", "console"],
+    screenshots: ["desktop-today.png", "desktop-decisions-dark.png", "desktop-day-plan-dark.png", "desktop-waiting-reason-dark.png", "desktop-reply-accountability-dark.png", "desktop-compliance-history-dark.png", "desktop-upwork-settings-dark.png", "desktop-aptlss-health-dark.png", "mobile-waiting-reason.png", "mobile-upwork-settings.png"].map((name) => path.join(outputDir, name)),
+    checks: ["single-user access", "Today", "card inspector", "Day plan", "Inbox", "waiting reason inspector", "Reply accountability", "Decisions classifier 7/7", "Time & Pay", "communication compliance history", "Standards", "Settings", "Upwork OAuth settings", "APTLSS intelligence health", "workspace evidence disposition", "assessment review gate", "dark mode", "desktop overflow", "mobile overflow", "console"],
   }, null, 2));
 } catch (error) {
   const failurePath = path.join(outputDir, "failure.png");

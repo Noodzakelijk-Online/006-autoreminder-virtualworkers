@@ -62,6 +62,9 @@ export const replyMonitorRouter = router({
       message: "Scan completed",
       threadsScanned: status.threadsScanned,
       completedAt: status.lastCompletedAt,
+      upworkState: status.upworkState,
+      upworkRoomsScanned: status.upworkRoomsScanned,
+      upworkErrorMessage: status.upworkErrorMessage,
     };
   }),
 

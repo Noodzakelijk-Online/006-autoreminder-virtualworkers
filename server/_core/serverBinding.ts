@@ -1,9 +1,8 @@
-const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
-
-export function resolveServerHost(configuredHost: string | undefined, nodeEnv: string | undefined) {
-  return configuredHost?.trim() || (nodeEnv === "development" ? "127.0.0.1" : "0.0.0.0");
+export function resolveServerHost(configuredHost: string | undefined, _nodeEnv: string | undefined) {
+  return configuredHost?.trim() || "127.0.0.1";
 }
 
 export function displayServerHost(host: string) {
-  return LOOPBACK_HOSTS.has(host) ? "localhost" : host;
+  if (host === "0.0.0.0" || host === "::") return "127.0.0.1";
+  return host;
 }

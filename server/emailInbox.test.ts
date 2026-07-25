@@ -3,7 +3,7 @@
  *
  * These tests verify:
  * - emailInbox.getPendingCount returns { count: number }
- * - emailInbox.archiveAll fails closed without persistence
+ * - inbox persistence operations fail closed without persistence
  * - emailInbox.upsertBatch accepts valid email payloads
  * - cardSnooze.getSnoozedIds returns { cardIds: string[] }
  * - cardSnooze.snooze and cancel work correctly
@@ -39,7 +39,6 @@ function createAuthContext(): TrpcContext {
 
 const caller = appRouter.createCaller(createAuthContext());
 const describeWithDb = process.env.DATABASE_URL ? describe : describe.skip;
-const itWithoutDb = process.env.DATABASE_URL ? it.skip : it;
 afterAll(async () => {
   const db = await getDb();
   if (db) await db.delete(emailTasks).where(like(emailTasks.gmailMessageId, "test-%"));
@@ -121,12 +120,6 @@ describeWithDb("emailInbox.upsertBatch", () => {
     const r2 = await caller.emailInbox.upsertBatch([email]);
     expect(r1.success).toBe(true);
     expect(r2.success).toBe(true);
-  });
-});
-
-describe("emailInbox.archiveAll API shape", () => {
-  itWithoutDb("fails closed when persistence is unavailable", async () => {
-    await expect(caller.emailInbox.archiveAll()).rejects.toThrow("Database not available");
   });
 });
 

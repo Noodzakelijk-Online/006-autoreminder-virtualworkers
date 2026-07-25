@@ -82,6 +82,60 @@ export async function countLlmProviderAttempts(providerId: string, since: Date):
   return rows[0]?.count ?? 0;
 }
 
+export type LlmUsageSummary = {
+  attempts: number;
+  successes: number;
+  failures: number;
+  promptTokens: number;
+  cachedTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+};
+
+const emptyLlmUsageSummary = (): LlmUsageSummary => ({
+    attempts: 0,
+    successes: 0,
+    failures: 0,
+    promptTokens: 0,
+    cachedTokens: 0,
+    completionTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+});
+
+export function summarizeLlmUsagePayloads(payloads: Array<string | null | undefined>): LlmUsageSummary {
+  const summary = emptyLlmUsageSummary();
+  for (const rawPayload of payloads) {
+    summary.attempts += 1;
+    try {
+      const payload = JSON.parse(rawPayload ?? "{}") as Record<string, unknown>;
+      if (payload.status === "success") summary.successes += 1;
+      else if (payload.status === "failed") summary.failures += 1;
+      for (const key of ["promptTokens", "cachedTokens", "completionTokens", "reasoningTokens", "totalTokens"] as const) {
+        const value = Number(payload[key] ?? 0);
+        if (Number.isFinite(value) && value > 0) summary[key] += Math.round(value);
+      }
+    } catch {
+      // Preserve the attempt count even when an old audit payload is malformed.
+    }
+  }
+  return summary;
+}
+
+export async function getLlmUsageSummary(hours = 24): Promise<LlmUsageSummary> {
+  const db = await getDb();
+  if (!db) return emptyLlmUsageSummary();
+  const since = new Date(Date.now() - Math.max(1, hours) * 60 * 60_000);
+  const rows = await db.select({ payload: aptlssAuditLog.payload })
+    .from(aptlssAuditLog)
+    .where(and(
+      eq(aptlssAuditLog.action, "llm_provider_call"),
+      gte(aptlssAuditLog.createdAt, since),
+    ));
+  return summarizeLlmUsagePayloads(rows.map((row) => row.payload));
+}
+
 /** Prune audit log entries older than 90 days. */
 export async function pruneOldAuditLog(): Promise<number> {
   const db = await getDb();

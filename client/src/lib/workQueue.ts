@@ -1,3 +1,5 @@
+import { getWorkLaneRank } from "@shared/workLanePriority";
+
 export type WorkQueueLaneId = "overdue" | "doing" | "onhold";
 
 export type WorkQueueConfidenceProfile = {
@@ -214,6 +216,8 @@ function applyIntelligence(card: WorkQueueCard, intelligence: WorkQueueIntellige
 }
 
 function compareQueuePriority(left: WorkQueueCard, right: WorkQueueCard) {
+  const laneDiff = getWorkLaneRank(left.listName) - getWorkLaneRank(right.listName);
+  if (laneDiff !== 0) return laneDiff;
   if (left.actionable !== right.actionable) return left.actionable ? -1 : 1;
   if (left.priorityScore !== right.priorityScore) return right.priorityScore - left.priorityScore;
   const riskDiff = riskRank(right.risk) - riskRank(left.risk);
@@ -280,8 +284,8 @@ export function normalizeWorkQueue(
     boardName: card.boardName,
     listName: card.listName,
     due: card.due,
-    lane: "overdue",
-    laneLabel: "Overdue",
+    lane: getWorkLaneRank(card.listName) === 0 ? "onhold" : getWorkLaneRank(card.listName) === 1 ? "doing" : "overdue",
+    laneLabel: getWorkLaneRank(card.listName) === 0 ? "On hold review" : getWorkLaneRank(card.listName) === 1 ? "Doing needs update" : "To-do overdue",
     risk: "High",
     nextAction: "Resolve the overdue blocker or update Trello with the exact waiting reason.",
     detail: "Past-due card. Start here unless Robert decision work is blocking delivery.",
@@ -362,19 +366,31 @@ export function normalizeWorkQueue(
     uncertainties: [],
   })).map((card) => applyWaitingEvidence(applyIntelligence(card, intelligenceByCard.get(card.id)), waitingByCard.get(card.id), nowMs)).sort(compareByActivityThenTitle);
 
-  const seenCardIds = new Set<string>();
-  const deduplicated = [...overdue, ...doing, ...onHold].filter((card) => {
-    if (seenCardIds.has(card.id)) return false;
-    seenCardIds.add(card.id);
-    return true;
-  });
+  const deduplicatedById = new Map<string, WorkQueueCard>();
+  for (const card of [...onHold, ...doing, ...overdue]) {
+    const existing = deduplicatedById.get(card.id);
+    if (!existing) {
+      deduplicatedById.set(card.id, card);
+      continue;
+    }
+    const preferred = getWorkLaneRank(card.listName) < getWorkLaneRank(existing.listName) ? card : existing;
+    deduplicatedById.set(card.id, {
+      ...preferred,
+      due: preferred.due ?? existing.due ?? card.due,
+      risk: highestRisk(existing.risk, card.risk),
+      priorityScore: Math.max(existing.priorityScore, card.priorityScore),
+      actionable: existing.actionable || card.actionable,
+    });
+  }
+  const deduplicated = Array.from(deduplicatedById.values());
   const cards = [
     ...deduplicated.filter((card) => card.actionable),
     ...deduplicated.filter((card) => !card.actionable),
   ].sort(compareQueuePriority);
   if (preferredCardId) {
     const preferredIndex = cards.findIndex((card) => card.id === preferredCardId);
-    if (preferredIndex > 0 && cards[preferredIndex].actionable) {
+    const sameLeadingLane = preferredIndex > 0 && getWorkLaneRank(cards[preferredIndex].listName) === getWorkLaneRank(cards[0].listName);
+    if (sameLeadingLane && cards[preferredIndex].actionable) {
       const [preferred] = cards.splice(preferredIndex, 1);
       cards.unshift(preferred);
     }
@@ -386,28 +402,28 @@ export function normalizeWorkQueue(
   };
   const lanes: WorkQueueLane[] = [
     {
-      id: "overdue",
-      label: "Overdue",
-      count: laneCounts.overdue,
-      summary: laneCounts.overdue === 1 ? "1 card needs attention" : `${laneCounts.overdue} cards need attention`,
-      helper: "Due dates in the past",
-      tone: "red",
+      id: "onhold",
+      label: "On hold review",
+      count: laneCounts.onhold,
+      summary: laneCounts.onhold === 1 ? "1 card to review" : `${laneCounts.onhold} cards to review`,
+      helper: "Resolve the waiting reason first",
+      tone: "violet",
     },
     {
       id: "doing",
       label: "Doing needs update",
       count: laneCounts.doing,
       summary: laneCounts.doing === 1 ? "1 card needs a comment" : `${laneCounts.doing} cards need a comment`,
-      helper: "Update in Trello today",
+      helper: "Continue active work second",
       tone: "amber",
     },
     {
-      id: "onhold",
-      label: "On hold review",
-      count: laneCounts.onhold,
-      summary: laneCounts.onhold === 1 ? "1 card to review" : `${laneCounts.onhold} cards to review`,
-      helper: "Review and decide next step",
-      tone: "violet",
+      id: "overdue",
+      label: "To-do overdue",
+      count: laneCounts.overdue,
+      summary: laneCounts.overdue === 1 ? "1 card needs attention" : `${laneCounts.overdue} cards need attention`,
+      helper: "Start new work after on-hold and doing",
+      tone: "red",
     },
   ];
 

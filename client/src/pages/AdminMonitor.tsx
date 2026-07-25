@@ -33,7 +33,11 @@ import {
   ChevronUp,
   ArrowLeft,
   BarChart2,
+  Database,
+  ExternalLink,
   History,
+  Link2,
+  CircleSlash2,
 } from "lucide-react";
 import { useState } from "react";
 import { Link } from "wouter";
@@ -181,8 +185,31 @@ export default function AdminMonitor() {
 
   const [showFullSyncLog, setShowFullSyncLog] = useState(false);
   const [showFullAuditLog, setShowFullAuditLog] = useState(false);
+  const [evidenceCardById, setEvidenceCardById] = useState<Record<number, string>>({});
+  const linkEvidence = trpc.aptlss.linkWorkspaceEvidence.useMutation({
+    onSuccess: async (result) => {
+      toast.success(result.reassessed ? "Evidence linked and APTLSS refreshed" : "Evidence linked; APTLSS refresh queued");
+      await Promise.all([refetch(), refetchReadiness()]);
+    },
+    onError: (err) => toast.error("Evidence link was not saved", { description: err.message }),
+  });
+  const classifyEvidence = trpc.aptlss.classifyWorkspaceEvidenceAsNotWorkRelated.useMutation({
+    onSuccess: async () => {
+      toast.success("Evidence classified outside tracked work");
+      await Promise.all([refetch(), refetchReadiness()]);
+    },
+    onError: (err) => toast.error("Evidence review was not saved", { description: err.message }),
+  });
+  const reopenEvidence = trpc.aptlss.reopenWorkspaceEvidenceReview.useMutation({
+    onSuccess: async () => {
+      toast.success("Evidence returned to the review queue");
+      await Promise.all([refetch(), refetchReadiness()]);
+    },
+    onError: (err) => toast.error("Evidence could not be reopened", { description: err.message }),
+  });
 
   const syncStats = data?.syncStats;
+  const llmUsage = data?.llmUsage;
   const lastSync = data?.lastSync;
   const webhookStatus = data?.webhookStatus;
   const trelloApiKeyStatus = readiness?.items.find((item) => item.id === "trello-api-key")?.status;
@@ -199,6 +226,10 @@ export default function AdminMonitor() {
   const assessmentHealth = data?.assessmentHealth;
   const calibration = data?.calibration;
   const assessmentReviewQueue = (data?.assessmentReviewQueue ?? []) as AssessmentReviewItem[];
+  const evidenceStats = data?.evidenceStats;
+  const evidenceReviewQueue = data?.evidenceReviewQueue ?? [];
+  const dismissedEvidence = data?.dismissedEvidence ?? [];
+  const evidenceCards = data?.evidenceCards ?? [];
   const latestJobRuns = data?.latestJobRuns ?? [];
   const refreshMonitor = () => {
     void refetchReadiness();
@@ -368,6 +399,108 @@ export default function AdminMonitor() {
         </Card>
         <Card>
           <CardContent className="p-4">
+            <SectionTitle icon={<Database className="h-3.5 w-3.5 text-cyan-500" />} title="Workspace Evidence Coverage" />
+            <div className="grid grid-cols-2 divide-x divide-y divide-border border border-border sm:grid-cols-4 sm:divide-y-0">
+              {[
+                ["Indexed", evidenceStats?.total ?? 0],
+                ["Linked", evidenceStats?.linked ?? 0],
+                ["Content ready", evidenceStats?.contentReady ?? 0],
+                ["Needs review", evidenceStats?.pendingReview ?? evidenceReviewQueue.length],
+              ].map(([label, value]) => (
+                <div key={label} className="px-3 py-3">
+                  <p className="text-[10px] font-medium uppercase text-muted-foreground">{label}</p>
+                  <p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+              Automatic links use exact identifiers and distinctive work terms. Confirmed links remain durable when the workspace index refreshes.
+            </p>
+            {evidenceReviewQueue.length === 0 ? (
+              <p className="mt-3 border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                No recent unlinked Gmail, Drive, or communication evidence needs review.
+              </p>
+            ) : (
+              <div className="mt-3 divide-y divide-border border border-border">
+                {evidenceReviewQueue.map((item) => (
+                  <div key={item.id} className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(15rem,22rem)] lg:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline" className="text-[10px]">{item.source.replaceAll("_", " ")}</Badge>
+                        <p className="min-w-0 truncate text-sm font-medium text-foreground">{item.title}</p>
+                        {item.sourceUrl && (
+                          <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" aria-label={`Open ${item.title}`}>
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </a>
+                        )}
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                        {item.summary || item.content || "No content preview is available."}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                      <Select
+                        value={evidenceCardById[item.id] ?? ""}
+                        onValueChange={(cardId) => setEvidenceCardById((current) => ({ ...current, [item.id]: cardId }))}
+                      >
+                        <SelectTrigger className="h-8 min-w-0 text-xs"><SelectValue placeholder="Choose Trello card" /></SelectTrigger>
+                        <SelectContent>
+                          {evidenceCards.map((card) => <SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-1.5 text-xs"
+                        disabled={!evidenceCardById[item.id] || linkEvidence.isPending}
+                        onClick={() => linkEvidence.mutate({ evidenceId: item.id, cardId: evidenceCardById[item.id] })}
+                      >
+                        <Link2 className="h-3.5 w-3.5" /> Link
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="col-span-2 h-8 justify-start gap-1.5 text-xs text-muted-foreground"
+                        disabled={linkEvidence.isPending || classifyEvidence.isPending}
+                        onClick={() => classifyEvidence.mutate({ evidenceId: item.id })}
+                      >
+                        <CircleSlash2 className="h-3.5 w-3.5" /> Not related to tracked work
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {dismissedEvidence.length > 0 && (
+              <details className="mt-3 border border-border">
+                <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground">
+                  Recently classified outside tracked work ({dismissedEvidence.length})
+                </summary>
+                <div className="divide-y divide-border border-t border-border">
+                  {dismissedEvidence.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-foreground">{item.title}</p>
+                        <p className="text-[10px] text-muted-foreground">{item.source.replaceAll("_", " ")}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 shrink-0 gap-1.5 text-xs"
+                        disabled={reopenEvidence.isPending}
+                        onClick={() => reopenEvidence.mutate({ evidenceId: item.id })}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" /> Reopen
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
             <SectionTitle icon={<Clock className="h-3.5 w-3.5 text-blue-500" />} title="Scheduled Job Freshness" />
             {latestJobRuns.length === 0 ? (
               <p className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
@@ -518,6 +651,19 @@ export default function AdminMonitor() {
                 color="bg-purple-500/5 border-purple-500/20"
                 icon={<BarChart2 className="w-3.5 h-3.5 text-purple-500" />}
               />
+            </div>
+            <div className="mb-4 border-y border-border/60 py-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-foreground">
+                <Zap className="h-3.5 w-3.5 text-amber-500" />
+                APTLSS model usage, last 24 hours
+              </div>
+              <dl className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-5">
+                <div><dt className="text-muted-foreground">Calls</dt><dd className="mt-0.5 font-semibold text-foreground">{llmUsage?.attempts ?? 0}</dd></div>
+                <div><dt className="text-muted-foreground">Prompt</dt><dd className="mt-0.5 font-semibold text-foreground">{(llmUsage?.promptTokens ?? 0).toLocaleString()}</dd></div>
+                <div><dt className="text-muted-foreground">Cached</dt><dd className="mt-0.5 font-semibold text-foreground">{(llmUsage?.cachedTokens ?? 0).toLocaleString()}</dd></div>
+                <div><dt className="text-muted-foreground">Completion</dt><dd className="mt-0.5 font-semibold text-foreground">{(llmUsage?.completionTokens ?? 0).toLocaleString()}</dd></div>
+                <div><dt className="text-muted-foreground">Reasoning</dt><dd className="mt-0.5 font-semibold text-foreground">{(llmUsage?.reasoningTokens ?? 0).toLocaleString()}</dd></div>
+              </dl>
             </div>
             {/* Last successful sync */}
             {lastSync && (

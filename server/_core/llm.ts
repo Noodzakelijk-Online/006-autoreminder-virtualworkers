@@ -82,6 +82,7 @@ export type LlmRoutingAttempt = {
   status: "success" | "failed" | "skipped";
   latencyMs: number;
   error?: string;
+  usage?: InvokeResult["usage"];
 };
 
 export type LlmRoutingTrace = {
@@ -119,6 +120,8 @@ export type InvokeResult = {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+    completion_tokens_details?: { reasoning_tokens?: number };
   };
   routing?: LlmRoutingTrace;
 };

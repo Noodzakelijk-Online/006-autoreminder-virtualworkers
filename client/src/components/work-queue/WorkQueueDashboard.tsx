@@ -28,6 +28,7 @@ import {
   type WorkQueueSourceData,
   type WorkQueueWaitingReason,
 } from "@/lib/workQueue";
+import { BrowserTabEndOfDayAlert } from "@/components/BrowserTabHygiene";
 
 type WorkQueuePlanSummary = {
   planHealth?: { focusMinutes?: number; confidence?: number };
@@ -163,6 +164,7 @@ export function WorkQueueDashboard({
               </AlertDescription>
             </Alert>
           )}
+          <BrowserTabEndOfDayAlert onOpenSettings={() => onNavigate("settings")} />
           <NowPanel
             card={queue.nowItem}
             loading={actionsLoading}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSavedDailyPlan, parseDailyPlanPayload, summarizeLiveTrelloCards, toLegacyDailySchedule } from "./dailyPlan";
+import { parseDailyPlanPayload, summarizeLiveTrelloCards, toLegacyDailySchedule } from "./dailyPlan";
 
 function minutes(time: string) {
   const [hours, mins] = time.split(":").map(Number);
@@ -233,11 +233,8 @@ describe("live Trello daily plan fallback", () => {
     ]);
 
     expect(summaries).toHaveLength(3);
-    expect(summaries[0]).toMatchObject({
-      cardId: "doing-card",
-      priorityTier: "HIGH",
-      cardState: "IN_PROGRESS",
-    });
+    expect(summaries.map((summary) => summary.cardId)).toEqual(["hold-card", "doing-card", "todo-card"]);
+    expect(summaries[1]).toMatchObject({ cardId: "doing-card", priorityTier: "HIGH", cardState: "IN_PROGRESS" });
     expect(summaries.find((summary) => summary.cardId === "hold-card")).toMatchObject({
       isBlocked: true,
       cardState: "WAITING_FOR_DEPENDENCY",
@@ -245,13 +242,53 @@ describe("live Trello daily plan fallback", () => {
   });
 });
 
-const itWithoutDb = process.env.DATABASE_URL ? it.skip : it;
+describe("saved daily plan lane normalization", () => {
+  it("keeps completed work fixed and orders remaining work on-hold, doing, then to-do", () => {
+    const makeBlock = (id: string, listName: string, startTime: string, status: "planned" | "done" = "planned") => ({
+      id,
+      startTime,
+      endTime: startTime === "08:00" ? "09:00" : startTime === "09:00" ? "10:00" : startTime === "10:00" ? "11:00" : "12:00",
+      cardId: id,
+      cardName: id,
+      cardUrl: `https://trello.com/c/${id}`,
+      boardName: "Ops",
+      listName,
+      action: id,
+      stepIds: [],
+      priority: "Medium",
+      score: 50,
+      state: "READY_TO_WORK",
+      status,
+      notes: "",
+      flags: [],
+    });
+    const payload = parseDailyPlanPayload(JSON.stringify({
+      version: 1,
+      dateKey: "2026-07-15",
+      generatedAt: "2026-07-15T05:00:00.000Z",
+      generatedBy: "manual",
+      blocks: [
+        makeBlock("done", "To Do", "08:00", "done"),
+        makeBlock("todo", "To Do", "09:00"),
+        makeBlock("doing", "Doing", "10:00"),
+        makeBlock("hold", "On Hold", "11:00"),
+      ],
+      totalScheduledMinutes: 240,
+      dailySummary: "Plan",
+      topPriority: "todo",
+      robertItems: [],
+      unscheduledCards: [],
+      planHealth: { workloadMinutes: 240, focusMinutes: 240, bufferMinutes: 0, overlaps: 0, gaps: 0, confidence: 80, status: "good" },
+      constraints: { timezone: "EAT", workStart: "08:00", workEnd: "23:00", isWorkday: true, dayType: "workday", breaks: [] },
+      audit: [],
+    }));
 
-describe("daily plan persistence readiness", () => {
-  itWithoutDb("reports missing database before pretending a plan can load", async () => {
-    await expect(getSavedDailyPlan("2026-07-04")).rejects.toThrow(
-      "Database not available; daily plan persistence is disabled",
-    );
+    expect(payload?.blocks.map((block) => [block.cardId, block.startTime])).toEqual([
+      ["done", "08:00"],
+      ["hold", "09:00"],
+      ["doing", "10:00"],
+      ["todo", "11:00"],
+    ]);
   });
 });
 

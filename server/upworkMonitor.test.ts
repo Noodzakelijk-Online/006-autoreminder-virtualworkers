@@ -11,18 +11,28 @@ vi.mock("./replyMonitorDb", () => ({
   insertUnsignedFlag: vi.fn(),
 }));
 
+vi.mock("./workspaceEvidenceDb", () => ({
+  upsertWorkspaceEvidence: vi.fn(async () => 42),
+}));
+
 vi.mock("./_core/notification", () => ({
   notifyOwner: vi.fn(),
 }));
 
 // ─── Mock the scraper so no Puppeteer calls are made ─────────────────────────
-vi.mock("./upworkScraper", () => ({
-  fetchUpworkRooms: vi.fn(),
-  OWNER_USER_ID: "1681372983093714944",
+vi.mock("./upworkApi", () => ({
+  fetchUpworkMessageSnapshot: vi.fn(),
 }));
 
-import { analyseUpworkRoom } from "./upworkMonitor";
+vi.mock("./upworkIntegrationSettings", () => ({
+  getUpworkMonitoringSettings: vi.fn(async () => ({ enabled: true })),
+}));
+
+import { fetchUpworkMessageSnapshot } from "./upworkApi";
+import { analyseUpworkRoom, runUpworkReplyMonitorScan } from "./upworkMonitor";
 import { hasValidSignature, isVagueReply } from "./replyMonitor";
+import { upsertUpworkThread } from "./replyMonitorDb";
+import { upsertWorkspaceEvidence } from "./workspaceEvidenceDb";
 
 const OWNER_USER_ID = "1681372983093714944";
 const FREELANCER_USER_ID = "9999999999999999999";
@@ -31,15 +41,66 @@ const ORG_ID = "1681372983093714945";
 const NOW = Date.now();
 const HOURS = (n: number) => n * 60 * 60 * 1000;
 
+describe("runUpworkReplyMonitorScan", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("fails explicitly when the official API source is unavailable", async () => {
+    vi.mocked(fetchUpworkMessageSnapshot).mockRejectedValueOnce(new Error("Upwork OAuth unavailable"));
+    await expect(runUpworkReplyMonitorScan()).rejects.toThrow("Upwork OAuth unavailable");
+  });
+
+  it("does not create a reply thread when a room has no external message", async () => {
+    vi.mocked(fetchUpworkMessageSnapshot).mockResolvedValueOnce({
+      ownerUserId: OWNER_USER_ID,
+      organizationId: ORG_ID,
+      rooms: [makeRoom({ stories: [makeStory({ userId: OWNER_USER_ID, message: "Done. ~ Joyce" })] })],
+    });
+
+    await expect(runUpworkReplyMonitorScan()).resolves.toMatchObject({ scanned: 1, pending: 0, overdue: 0 });
+    expect(upsertWorkspaceEvidence).not.toHaveBeenCalled();
+    expect(upsertUpworkThread).not.toHaveBeenCalled();
+  });
+
+  it("links one workspace evidence item to the normalized reply thread", async () => {
+    vi.mocked(fetchUpworkMessageSnapshot).mockResolvedValueOnce({
+      ownerUserId: OWNER_USER_ID,
+      organizationId: ORG_ID,
+      rooms: [makeRoom({ stories: [makeStory({ userId: FREELANCER_USER_ID })] })],
+    });
+
+    await expect(runUpworkReplyMonitorScan()).resolves.toMatchObject({ scanned: 1, pending: 1, overdue: 0 });
+    expect(upsertWorkspaceEvidence).toHaveBeenCalledTimes(1);
+    expect(upsertUpworkThread).toHaveBeenCalledWith(expect.objectContaining({
+      source: "upwork",
+      evidenceItemId: 42,
+      status: "pending",
+    }));
+  });
+
+  it("reports a partial room-processing failure instead of publishing a false success", async () => {
+    vi.mocked(fetchUpworkMessageSnapshot).mockResolvedValueOnce({
+      ownerUserId: OWNER_USER_ID,
+      organizationId: ORG_ID,
+      rooms: [makeRoom({ stories: [makeStory({ userId: FREELANCER_USER_ID })] })],
+    });
+    vi.mocked(upsertWorkspaceEvidence).mockRejectedValueOnce(new Error("database write failed"));
+
+    await expect(runUpworkReplyMonitorScan()).rejects.toThrow("failed for 1 of 1 rooms");
+    expect(upsertUpworkThread).not.toHaveBeenCalled();
+  });
+});
+
 function makeStory(overrides: Partial<{
   storyId: string;
   userId: string;
+  userName: string;
   message: string;
   createdAt: number;
 }> = {}) {
   return {
     storyId: "story_" + Math.random().toString(36).slice(2),
     userId: FREELANCER_USER_ID,
+    userName: "Test Freelancer",
     message: "Hello, any update?",
     createdAt: NOW - HOURS(1),
     ...overrides,
@@ -54,6 +115,8 @@ function makeRoom(overrides: Partial<{
   return {
     roomId: "room_test123",
     roomName: "Test Freelancer",
+    topic: "Direct Message",
+    unreadCount: 0,
     latestStory: null,
     stories: [] as ReturnType<typeof makeStory>[],
     ...overrides,
@@ -167,6 +230,17 @@ describe("analyseUpworkRoom", () => {
     expect(result.unsignedMessages.length).toBeGreaterThan(0);
   });
 
+  it("checks older owner messages even after the latest owner and external messages are known", async () => {
+    const stories = [
+      makeStory({ userId: FREELANCER_USER_ID, createdAt: NOW - HOURS(1) }),
+      makeStory({ userId: OWNER_USER_ID, message: "Handled. ~ Joyce", createdAt: NOW - HOURS(2) }),
+      makeStory({ userId: OWNER_USER_ID, message: "I will get back to you later", createdAt: NOW - HOURS(3) }),
+    ];
+    const result = await analyseUpworkRoom(makeRoom({ stories }));
+    expect(result.vagueReplies).toHaveLength(1);
+    expect(result.unsignedMessages).toHaveLength(1);
+  });
+
   it("does NOT flag signed message as unsigned", async () => {
     const stories = [
       makeStory({ userId: OWNER_USER_ID, message: "We will proceed with the contract. ~ Joyce", createdAt: NOW - HOURS(1) }),
@@ -193,7 +267,7 @@ describe("analyseUpworkRoom", () => {
   });
 
   it("returns correct roomUrl with org reference", async () => {
-    const result = await analyseUpworkRoom(makeRoom({ roomId: "room_abc123", stories: [] }));
+    const result = await analyseUpworkRoom(makeRoom({ roomId: "room_abc123", stories: [] }), OWNER_USER_ID, ORG_ID);
     expect(result.roomUrl).toContain("room_abc123");
     expect(result.roomUrl).toContain("companyReference");
   });

@@ -16,6 +16,7 @@ import { broadcast } from "./sse";
 import { getOperatingDay } from "./operatingCalendar";
 import { persistHandoffDraft } from "./operatorRecordsDb";
 import { listProjectContexts } from "./projectContextDb";
+import { compareWorkLaneNames } from "@shared/workLanePriority";
 
 export type PlanBlockStatus = "planned" | "active" | "done" | "skipped";
 
@@ -101,6 +102,61 @@ type LiveTrelloPlanCard = {
   list?: { name: string };
   boardName?: string;
 };
+
+function compareCardSummaries(left: CardSummary, right: CardSummary) {
+  const laneDiff = compareWorkLaneNames(left.listName, right.listName);
+  if (laneDiff !== 0) return laneDiff;
+  return right.priorityScore - left.priorityScore;
+}
+
+function orderPlanCardPayloads<T extends Partial<DailyPlanBlock> & { time?: string; estimatedMinutes?: number }>(
+  source: T[],
+  summaries: CardSummary[],
+): T[] {
+  const summaryByCard = new Map(summaries.map((summary) => [summary.cardId, summary]));
+  const slotIndexes: number[] = [];
+  const cardPayloads: T[] = [];
+  source.forEach((item, index) => {
+    if (!item.cardId) return;
+    slotIndexes.push(index);
+    cardPayloads.push(item);
+  });
+  cardPayloads.sort((left, right) => {
+    const leftSummary = left.cardId ? summaryByCard.get(left.cardId) : undefined;
+    const rightSummary = right.cardId ? summaryByCard.get(right.cardId) : undefined;
+    return compareWorkLaneNames(leftSummary?.listName ?? left.listName ?? "", rightSummary?.listName ?? right.listName ?? "")
+      || (rightSummary?.priorityScore ?? right.score ?? 0) - (leftSummary?.priorityScore ?? left.score ?? 0);
+  });
+  const ordered = [...source];
+  slotIndexes.forEach((slotIndex, index) => {
+    const slot = source[slotIndex];
+    ordered[slotIndex] = {
+      ...cardPayloads[index],
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      time: slot.time,
+      estimatedMinutes: slot.estimatedMinutes,
+    };
+  });
+  return ordered;
+}
+
+function orderSavedPlannedBlocks(blocks: DailyPlanBlock[]): DailyPlanBlock[] {
+  const slotIndexes: number[] = [];
+  const plannedCards: DailyPlanBlock[] = [];
+  blocks.forEach((block, index) => {
+    if (!block.cardId || block.status !== "planned") return;
+    slotIndexes.push(index);
+    plannedCards.push(block);
+  });
+  plannedCards.sort((left, right) => compareWorkLaneNames(left.listName, right.listName) || right.score - left.score);
+  const ordered = [...blocks];
+  slotIndexes.forEach((slotIndex, index) => {
+    const slot = blocks[slotIndex];
+    ordered[slotIndex] = { ...plannedCards[index], startTime: slot.startTime, endTime: slot.endTime };
+  });
+  return ordered;
+}
 
 const DEFAULT_CONSTRAINTS: DailyPlanPayload["constraints"] = {
   timezone: "EAT",
@@ -294,10 +350,11 @@ function normalizeBlocks(
   const workEnd = timeToMinutes(constraints.workEnd) ?? 23 * 60;
   let cursor = workStart;
 
-  const source: Array<Partial<DailyPlanBlock> & { time?: string; estimatedMinutes?: number }> =
+  const unorderedSource: Array<Partial<DailyPlanBlock> & { time?: string; estimatedMinutes?: number }> =
     rawBlocks && rawBlocks.length > 0
       ? rawBlocks
       : deterministicBlocks(summaries).map((block) => ({ ...block }));
+  const source = orderPlanCardPayloads(unorderedSource, summaries);
 
   const blocks: DailyPlanBlock[] = [];
   for (let index = 0; index < source.length; index += 1) {
@@ -572,7 +629,7 @@ async function buildSummaries() {
     }));
 
   return {
-    summaries: summaries.sort((a, b) => b.priorityScore - a.priorityScore),
+    summaries: summaries.sort(compareCardSummaries),
     robertItems: [
       ...robertSteps.map((step) => ({
         stepId: step.id,
@@ -621,7 +678,7 @@ export function summarizeLiveTrelloCards(cards: LiveTrelloPlanCard[]): CardSumma
       const due = dueStatus(card.due);
       const staleDays = daysSince(card.dateLastActivity);
       const priorityScore =
-        (due.overdue ? 95 : due.dueToday ? 90 : listCategory === "doing" ? 85 : listCategory === "on-hold" ? 70 : listCategory === "todo" ? 62 : 45) +
+        (due.overdue ? 95 : due.dueToday ? 90 : listCategory === "on-hold" ? 85 : listCategory === "doing" ? 75 : listCategory === "todo" ? 62 : 45) +
         (staleDays && staleDays > 14 ? 5 : 0);
       const priorityTier = priorityScore >= 90 ? "HIGH" : priorityScore >= 70 ? "MEDIUM" : "LOW";
       const flags = [
@@ -650,7 +707,7 @@ export function summarizeLiveTrelloCards(cards: LiveTrelloPlanCard[]): CardSumma
         flags,
       };
     })
-    .sort((a, b) => b.priorityScore - a.priorityScore)
+    .sort(compareCardSummaries)
     .slice(0, 30);
 }
 
@@ -687,7 +744,8 @@ async function callPlannerLLM(
           "You create approval-gated daily operator plans for Joyce, a virtual assistant working Trello cards for Robert. " +
           `Return a realistic schedule inside ${constraints.workStart}-${constraints.workEnd} EAT. ` +
           `Protect these configured breaks exactly: ${constraints.breaks.map((item) => `${item.label} ${item.startTime}-${item.endTime}`).join(", ") || "none"}. ` +
-          "Prioritize CRITICAL/HIGH, Robert decisions, overdue cards, then ready work. Keep blocks 30-120 minutes. Return only JSON.",
+          "Use the mandatory Trello lane order ON-HOLD first, then DOING, then TO-DO; use urgency, deadlines, and score only within the same lane. " +
+          "For ON-HOLD, schedule the blocker review, decision preparation, or due follow-up rather than pretending blocked execution can continue. Keep blocks 30-120 minutes. Return only JSON.",
       },
       {
         role: "user" as const,
@@ -798,6 +856,7 @@ export function parseDailyPlanPayload(raw: string | null | undefined, dateKey?: 
         })
       : {
           ...payload,
+          blocks: orderSavedPlannedBlocks(payload.blocks),
           planHealth: {
             ...payload.planHealth,
             source: payload.planHealth?.source ?? "legacy",
@@ -1213,6 +1272,7 @@ export async function draftDailyHandoff(dateKey = eatDateKey()) {
       { id: "send_daily_update", label: "Send daily update to Robert", done: false },
       { id: "post_key_updates", label: "Post key updates on Trello cards", done: false },
       { id: "log_time", label: "Log time and close timers", done: false },
+      { id: "close_browser_tabs", label: "Save needed references and close work tabs", done: false },
       { id: "prepare_tomorrow", label: "Prepare tomorrow's plan", done: false },
     ],
   };

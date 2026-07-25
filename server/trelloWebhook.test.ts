@@ -1,6 +1,10 @@
 import crypto from "crypto";
-import { describe, expect, it } from "vitest";
-import { authorizeTrelloWebhook, shouldRefreshAptlssForAction, verifyTrelloSignature } from "./trelloWebhook";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("./aptlssReassessment", () => ({ reassessCardById: vi.fn() }));
+
+import { reassessCardById } from "./aptlssReassessment";
+import { authorizeTrelloWebhook, refreshCardIntelligence, shouldRefreshAptlssForAction, verifyTrelloSignature } from "./trelloWebhook";
 
 const body = JSON.stringify({ action: { type: "updateCard" } });
 const callbackUrl = "https://example.test/api/trello/webhook";
@@ -41,5 +45,11 @@ describe("APTLSS webhook intelligence triggers", () => {
 
   it("ignores unrelated board administration events", () => {
     expect(shouldRefreshAptlssForAction("updateBoard")).toBe(false);
+  });
+
+  it("uses the shared full-context reassessment pipeline", async () => {
+    vi.mocked(reassessCardById).mockResolvedValue({ cardId: "card-1" } as never);
+    await refreshCardIntelligence("card-1");
+    expect(reassessCardById).toHaveBeenCalledWith("card-1", "webhook");
   });
 });

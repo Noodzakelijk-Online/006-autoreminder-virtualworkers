@@ -1,0 +1,1 @@
+ALTER TABLE `workspace_evidence_links` ADD `linkMethod` enum('automatic','manual') DEFAULT 'automatic' NOT NULL;

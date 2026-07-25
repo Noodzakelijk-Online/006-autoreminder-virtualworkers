@@ -20,11 +20,8 @@ import {
   completeStepByCheckItemId,
   uncompleteStepByCheckItemId,
 } from "./aptlssStepsDb";
-import { fetchCardContext } from "./trelloCardContext";
 import { invalidateTrelloCardCache } from "./trello";
-import {
-  assessAndSaveCardIntelligence,
-} from "./aptlssEngine";
+import { reassessCardById } from "./aptlssReassessment";
 
 const APTLSS_INTELLIGENCE_TRIGGERS = new Set([
   "createCard", "updateCard", "commentCard",
@@ -156,14 +153,9 @@ export function registerTrelloWebhookRoute(app: Application): void {
  * Re-run the card state machine and priority scoring for a card.
  * Runs for every changed card so untriaged work also receives an assessment.
  */
-async function refreshCardIntelligence(cardId: string): Promise<void> {
-  const apiKey = process.env.TrelloAPIKey;
-  const apiToken = process.env.TrelloAPIToken;
-  if (!apiKey || !apiToken) return;
-
+export async function refreshCardIntelligence(cardId: string): Promise<void> {
   try {
-    const ctx = await fetchCardContext(cardId, apiKey, apiToken);
-    await assessAndSaveCardIntelligence(ctx, "webhook");
+    await reassessCardById(cardId, "webhook");
   } catch (e) {
     console.error("[Trello Webhook] refreshCardIntelligence failed for", cardId, e);
   }

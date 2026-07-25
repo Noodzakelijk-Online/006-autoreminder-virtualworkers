@@ -8,7 +8,7 @@ import type { AptlssExternalEvidenceSignal } from "./workspaceEvidence";
 export const APTLSS_ASSESSMENT_VERSION = "4.3.0";
 export const APTLSS_NEAR_CERTAINTY_TARGET = 99;
 
-export type AssessmentTrigger = "generation" | "webhook" | "scheduled" | "manual" | "timer";
+export type AssessmentTrigger = "generation" | "webhook" | "scheduled" | "manual" | "timer" | "evidence";
 
 export type AssessmentStep = {
   status: string;
