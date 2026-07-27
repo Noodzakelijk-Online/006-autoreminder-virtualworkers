@@ -57,16 +57,20 @@ export async function initializeRedis(): Promise<void> {
     _pubClient = createClient(url);
     _subClient = createClient(url);
 
-    // Attempt connection — if it fails, clients stay null-ish but won't crash
-    await Promise.all([
-      _pubClient.connect().catch((err: any) => {
-        console.warn('[Redis] Pub client failed to connect:', err.message);
-        _pubClient = null;
-      }),
-      _subClient.connect().catch((err: any) => {
-        console.warn('[Redis] Sub client failed to connect:', err.message);
-        _subClient = null;
-      }),
+    // Attempt connection with a 2-second timeout guard — if Redis hangs, proceed without blocking
+    const timeout = new Promise((resolve) => setTimeout(resolve, 2000));
+    await Promise.race([
+      Promise.all([
+        _pubClient.connect().catch((err: any) => {
+          console.warn('[Redis] Pub client failed to connect:', err.message);
+          _pubClient = null;
+        }),
+        _subClient.connect().catch((err: any) => {
+          console.warn('[Redis] Sub client failed to connect:', err.message);
+          _subClient = null;
+        }),
+      ]),
+      timeout,
     ]);
 
     if (_pubClient && _subClient) {

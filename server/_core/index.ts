@@ -133,6 +133,7 @@ function concurrencyLimiter(
 
 async function startServer() {
   const app = express();
+  app.set("trust proxy", true);
   const server = createServer(app);
   
   // Concurrency limiter — queues excess requests instead of hard-rejecting them
