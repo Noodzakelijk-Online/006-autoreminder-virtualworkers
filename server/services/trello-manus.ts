@@ -110,7 +110,7 @@ async function getBoardListsCached(
 export async function getWorkerCards(apiKey: string, apiToken: string, trelloMemberId: string): Promise<TrelloCard[]> {
   try {
     const response = await axios.get(
-      `${TRELLO_API_BASE}/members/${trelloMemberId}/cards`,
+      `${TRELLO_API_BASE}/members/me/cards`,
       {
         params: {
           key: apiKey,

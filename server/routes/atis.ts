@@ -33,52 +33,77 @@ function isInactiveListName(listName?: string | null) {
 }
 
 async function fetchUserWorkspaceBoardIds(apiKey: string, token: string) {
-  const workspacesResponse = await fetchWithRetry(
-    `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`,
-    undefined,
-    {
-      maxRetries: 3,
-      initialDelayMs: 1000,
-      maxDelayMs: 10000,
-    }
-  );
-
-  if (!workspacesResponse.ok) {
-    const errorText = await workspacesResponse.text();
-    throw new Error(`Failed to fetch Trello workspaces: ${errorText}`);
-  }
-
-  const workspaces = await workspacesResponse.json();
-  if (!Array.isArray(workspaces)) {
-    throw new Error('Invalid Trello workspaces response');
-  }
-
   const boardIds = new Set<string>();
-  for (const workspace of workspaces) {
-    const boardsResponse = await fetchWithRetry(
-      `https://api.trello.com/1/organizations/${workspace.id}/boards?filter=open&key=${apiKey}&token=${token}`,
+
+  // 1. Fetch ALL boards the token owner can access (personal + workspace)
+  try {
+    const allBoardsResponse = await fetchWithRetry(
+      `https://api.trello.com/1/members/me/boards?filter=open&fields=id&key=${apiKey}&token=${token}`,
       undefined,
-      {
-        maxRetries: 2,
-        initialDelayMs: 1000,
-        maxDelayMs: 10000,
+      { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 10000 }
+    );
+    if (allBoardsResponse.ok) {
+      const allBoards = await allBoardsResponse.json();
+      if (Array.isArray(allBoards)) {
+        for (const board of allBoards) {
+          if (board?.id) boardIds.add(board.id);
+        }
       }
+    }
+  } catch {
+    // non-fatal — fall through to workspace-based fetch
+  }
+
+  // 2. Also fetch organization-scoped boards (in case token is a workspace admin)
+  try {
+    const workspacesResponse = await fetchWithRetry(
+      `https://api.trello.com/1/members/me/organizations?key=${apiKey}&token=${token}`,
+      undefined,
+      { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 10000 }
     );
 
-    if (!boardsResponse.ok) {
-      continue;
-    }
-
-    const boards = await boardsResponse.json();
-    if (!Array.isArray(boards)) {
-      continue;
-    }
-
-    for (const board of boards) {
-      // Skip template boards — they contain no real work cards
-      if (board?.id && board.prefs?.isTemplate !== true) {
-        boardIds.add(board.id);
+    if (workspacesResponse.ok) {
+      const workspaces = await workspacesResponse.json();
+      if (Array.isArray(workspaces)) {
+        for (const workspace of workspaces) {
+          try {
+            const boardsResponse = await fetchWithRetry(
+              `https://api.trello.com/1/organizations/${workspace.id}/boards?filter=open&key=${apiKey}&token=${token}`,
+              undefined,
+              { maxRetries: 2, initialDelayMs: 1000, maxDelayMs: 10000 }
+            );
+            if (boardsResponse.ok) {
+              const boards = await boardsResponse.json();
+              if (Array.isArray(boards)) {
+                for (const board of boards) {
+                  if (board?.id && board.prefs?.isTemplate !== true) {
+                    boardIds.add(board.id);
+                  }
+                }
+              }
+            }
+          } catch {
+            // non-fatal
+          }
+        }
       }
+    }
+  } catch {
+    // non-fatal
+  }
+
+  // 3. If Trello API returned no boards at all, fall back to all boards in DB
+  if (boardIds.size === 0) {
+    try {
+      const db = await getDb();
+      if (db) {
+        const dbBoards = await db.select({ trelloId: atisBoards.trelloId }).from(atisBoards);
+        for (const b of dbBoards) {
+          if (b.trelloId) boardIds.add(b.trelloId);
+        }
+      }
+    } catch {
+      // non-fatal
     }
   }
 
