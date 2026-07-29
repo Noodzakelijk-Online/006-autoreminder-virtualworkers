@@ -1,1 +1,0 @@
-ALTER TABLE `atis_card_understanding` ADD `aptlssChecklist` text;

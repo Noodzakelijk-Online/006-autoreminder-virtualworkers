@@ -1,11 +1,11 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "d1089c53-a3bb-478b-a372-935eff53435c",
-  "prevId": "1a5d3a09-fe23-44c8-a395-0063fc955dd6",
+  "id": "3445bbc7-0cb9-4310-b4b2-b7c389c4e549",
+  "prevId": "9c399d51-2193-495d-a480-52fd582fe22b",
   "tables": {
-    "clients": {
-      "name": "clients",
+    "app_settings": {
+      "name": "app_settings",
       "columns": {
         "id": {
           "name": "id",
@@ -14,56 +14,19 @@
           "notNull": true,
           "autoincrement": true
         },
-        "founderId": {
-          "name": "founderId",
-          "type": "int",
+        "key": {
+          "name": "key",
+          "type": "varchar(128)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "priority": {
-          "name": "priority",
-          "type": "enum('standard','priority','vip')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'standard'"
-        },
-        "trelloBoardIds": {
-          "name": "trelloBoardIds",
+        "value": {
+          "name": "value",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "contactEmail": {
-          "name": "contactEmail",
-          "type": "varchar(320)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "autoincrement": false
         },
         "updatedAt": {
           "name": "updatedAt",
@@ -78,18 +41,25 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "clients_id": {
-          "name": "clients_id",
+        "app_settings_id": {
+          "name": "app_settings_id",
           "columns": [
             "id"
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "app_settings_key_unique": {
+          "name": "app_settings_key_unique",
+          "columns": [
+            "key"
+          ]
+        }
+      },
       "checkConstraint": {}
     },
-    "communication_log": {
-      "name": "communication_log",
+    "daily_card_updates": {
+      "name": "daily_card_updates",
       "columns": {
         "id": {
           "name": "id",
@@ -97,253 +67,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": true
-        },
-        "taskId": {
-          "name": "taskId",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "fromUserId": {
-          "name": "fromUserId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "toUserId": {
-          "name": "toUserId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "messageType": {
-          "name": "messageType",
-          "type": "enum('question','decision','update','handoff','feedback')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "message": {
-          "name": "message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "context": {
-          "name": "context",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "isRead": {
-          "name": "isRead",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "communication_log_id": {
-          "name": "communication_log_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "daily_briefings": {
-      "name": "daily_briefings",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "vaId": {
-          "name": "vaId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "founderId": {
-          "name": "founderId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "briefingDate": {
-          "name": "briefingDate",
-          "type": "varchar(10)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "briefingType": {
-          "name": "briefingType",
-          "type": "enum('morning','end_of_day','weekly')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "content": {
-          "name": "content",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "sentAt": {
-          "name": "sentAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sentTo": {
-          "name": "sentTo",
-          "type": "varchar(320)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "daily_briefings_id": {
-          "name": "daily_briefings_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "founder_priority_overrides": {
-      "name": "founder_priority_overrides",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "taskId": {
-          "name": "taskId",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "founderId": {
-          "name": "founderId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "priority": {
-          "name": "priority",
-          "type": "enum('normal','high','urgent','drop_everything')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'normal'"
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "expiresAt": {
-          "name": "expiresAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "founder_priority_overrides_id": {
-          "name": "founder_priority_overrides_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "generation_items": {
-      "name": "generation_items",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "jobId": {
-          "name": "jobId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
         },
         "cardId": {
           "name": "cardId",
@@ -354,302 +77,39 @@
         },
         "cardName": {
           "name": "cardName",
-          "type": "text",
+          "type": "varchar(512)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "boardName": {
-          "name": "boardName",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "maxAttempts": {
-          "name": "maxAttempts",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 3
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "result": {
-          "name": "result",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "generation_items_id": {
-          "name": "generation_items_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "generation_jobs": {
-      "name": "generation_jobs",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "totalCards": {
-          "name": "totalCards",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "completedCards": {
-          "name": "completedCards",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "failedCards": {
-          "name": "failedCards",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "settings": {
-          "name": "settings",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "completedAt": {
-          "name": "completedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "createdBy": {
-          "name": "createdBy",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "generation_jobs_id": {
-          "name": "generation_jobs_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "handoff_notes": {
-      "name": "handoff_notes",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "taskId": {
-          "name": "taskId",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "fromVaId": {
-          "name": "fromVaId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "toVaId": {
-          "name": "toVaId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "founderId": {
-          "name": "founderId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "whereLeftOff": {
-          "name": "whereLeftOff",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "nextSteps": {
-          "name": "nextSteps",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "blockers": {
-          "name": "blockers",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "handoff_notes_id": {
-          "name": "handoff_notes_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "holidays": {
-      "name": "holidays",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "userId": {
-          "name": "userId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "userOpenId": {
-          "name": "userOpenId",
-          "type": "varchar(255)",
+        "cardUrl": {
+          "name": "cardUrl",
+          "type": "varchar(1024)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
         "date": {
           "name": "date",
-          "type": "varchar(10)",
+          "type": "date",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "country": {
-          "name": "country",
-          "type": "varchar(2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "isActive": {
-          "name": "isActive",
-          "type": "int",
+        "completed": {
+          "name": "completed",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 1
+          "default": false
+        },
+        "completedAt": {
+          "name": "completedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "createdAt": {
           "name": "createdAt",
@@ -663,8 +123,8 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "holidays_id": {
-          "name": "holidays_id",
+        "daily_card_updates_id": {
+          "name": "daily_card_updates_id",
           "columns": [
             "id"
           ]
@@ -673,8 +133,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "review_queue": {
-      "name": "review_queue",
+    "daily_due_date_assignments": {
+      "name": "daily_due_date_assignments",
       "columns": {
         "id": {
           "name": "id",
@@ -683,64 +143,181 @@
           "notNull": true,
           "autoincrement": true
         },
-        "taskId": {
-          "name": "taskId",
-          "type": "varchar(128)",
+        "cardId": {
+          "name": "cardId",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "vaId": {
-          "name": "vaId",
-          "type": "int",
+        "cardName": {
+          "name": "cardName",
+          "type": "varchar(512)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "founderId": {
-          "name": "founderId",
-          "type": "int",
+        "cardUrl": {
+          "name": "cardUrl",
+          "type": "varchar(1024)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "status": {
-          "name": "status",
-          "type": "enum('pending_review','approved','needs_revision','rejected')",
+        "date": {
+          "name": "date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "completed": {
+          "name": "completed",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'pending_review'"
+          "default": false
         },
-        "submittedAt": {
-          "name": "submittedAt",
+        "completedAt": {
+          "name": "completedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": "(now())"
-        },
-        "reviewedAt": {
-          "name": "reviewedAt",
-          "type": "timestamp",
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "daily_due_date_assignments_id": {
+          "name": "daily_due_date_assignments_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "daily_triage_state": {
+      "name": "daily_triage_state",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "triageDate": {
+          "name": "triageDate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
           "autoincrement": false
         },
-        "feedback": {
-          "name": "feedback",
+        "step1Done": {
+          "name": "step1Done",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "step2Done": {
+          "name": "step2Done",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "step3Done": {
+          "name": "step3Done",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "step4Done": {
+          "name": "step4Done",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "step5Done": {
+          "name": "step5Done",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "focusTasks": {
+          "name": "focusTasks",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "revisionCount": {
-          "name": "revisionCount",
-          "type": "int",
+        "eveningStep1Done": {
+          "name": "eveningStep1Done",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 0
+          "default": false
+        },
+        "eveningStep2Done": {
+          "name": "eveningStep2Done",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "eveningStep3Done": {
+          "name": "eveningStep3Done",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "eveningStep4Done": {
+          "name": "eveningStep4Done",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "eodReport": {
+          "name": "eodReport",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "currentView": {
+          "name": "currentView",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'overview'"
         },
         "createdAt": {
           "name": "createdAt",
@@ -763,53 +340,143 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "review_queue_id": {
-          "name": "review_queue_id",
+        "daily_triage_state_id": {
+          "name": "daily_triage_state_id",
           "columns": [
             "id"
           ]
         }
       },
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "daily_triage_state_triageDate_unique": {
+          "name": "daily_triage_state_triageDate_unique",
+          "columns": [
+            "triageDate"
+          ]
+        }
+      },
       "checkConstraint": {}
     },
-    "scheduled_jobs": {
-      "name": "scheduled_jobs",
+    "daily_update_streak": {
+      "name": "daily_update_streak",
       "columns": {
         "id": {
           "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "streakDate": {
+          "name": "streakDate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "completedBeforeDeadline": {
+          "name": "completedBeforeDeadline",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "completedAt": {
+          "name": "completedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "doingCardCount": {
+          "name": "doingCardCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "daily_update_streak_id": {
+          "name": "daily_update_streak_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "daily_update_streak_streakDate_unique": {
+          "name": "daily_update_streak_streakDate_unique",
+          "columns": [
+            "streakDate"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "on_hold_daily_checks": {
+      "name": "on_hold_daily_checks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "cardId": {
+          "name": "cardId",
           "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "cardIds": {
-          "name": "cardIds",
-          "type": "text",
+        "cardName": {
+          "name": "cardName",
+          "type": "varchar(512)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "scheduledTime": {
-          "name": "scheduledTime",
-          "type": "timestamp",
+        "cardUrl": {
+          "name": "cardUrl",
+          "type": "varchar(1024)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "status": {
-          "name": "status",
-          "type": "varchar(20)",
+        "date": {
+          "name": "date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "checked": {
+          "name": "checked",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'pending'"
+          "default": false
         },
-        "settings": {
-          "name": "settings",
-          "type": "text",
+        "checkedAt": {
+          "name": "checkedAt",
+          "type": "timestamp",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "createdAt": {
@@ -819,34 +486,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(now())"
-        },
-        "completedAt": {
-          "name": "completedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "createdBy": {
-          "name": "createdBy",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
         }
       },
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "scheduled_jobs_id": {
-          "name": "scheduled_jobs_id",
+        "on_hold_daily_checks_id": {
+          "name": "on_hold_daily_checks_id",
           "columns": [
             "id"
           ]
@@ -855,8 +501,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "task_assignments": {
-      "name": "task_assignments",
+    "payment_cycles": {
+      "name": "payment_cycles",
       "columns": {
         "id": {
           "name": "id",
@@ -865,49 +511,49 @@
           "notNull": true,
           "autoincrement": true
         },
-        "taskId": {
-          "name": "taskId",
-          "type": "varchar(128)",
+        "cycleStart": {
+          "name": "cycleStart",
+          "type": "date",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "vaId": {
-          "name": "vaId",
-          "type": "int",
+        "cycleEnd": {
+          "name": "cycleEnd",
+          "type": "date",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "founderId": {
-          "name": "founderId",
-          "type": "int",
+        "baseAmount": {
+          "name": "baseAmount",
+          "type": "decimal(8,2)",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "'90.00'"
         },
-        "assignedAt": {
-          "name": "assignedAt",
+        "isPaid": {
+          "name": "isPaid",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "paidAt": {
+          "name": "paidAt",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "assignedBy": {
-          "name": "assignedBy",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
-        "status": {
-          "name": "status",
-          "type": "enum('assigned','in_progress','completed','blocked','ready_for_review')",
+        "paidBy": {
+          "name": "paidBy",
+          "type": "varchar(64)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'assigned'"
+          "notNull": false,
+          "autoincrement": false
         },
         "notes": {
           "name": "notes",
@@ -923,6 +569,141 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "payment_cycles_id": {
+          "name": "payment_cycles_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "sunday_checklist": {
+      "name": "sunday_checklist",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "sundayDate": {
+          "name": "sundayDate",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "trelloArchived": {
+          "name": "trelloArchived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "trelloLabels": {
+          "name": "trelloLabels",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "trelloDeadlines": {
+          "name": "trelloDeadlines",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "trelloTimers": {
+          "name": "trelloTimers",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "emailInbox": {
+          "name": "emailInbox",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "whatsappCleared": {
+          "name": "whatsappCleared",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "upworkArchived": {
+          "name": "upworkArchived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "downloadsCleared": {
+          "name": "downloadsCleared",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "desktopCleared": {
+          "name": "desktopCleared",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "browserTabsClosed": {
+          "name": "browserTabsClosed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "weekReviewed": {
+          "name": "weekReviewed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "nextWeekPlanned": {
+          "name": "nextWeekPlanned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
         },
         "updatedAt": {
           "name": "updatedAt",
@@ -937,75 +718,21 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "task_assignments_id": {
-          "name": "task_assignments_id",
+        "sunday_checklist_id": {
+          "name": "sunday_checklist_id",
           "columns": [
             "id"
           ]
         }
       },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "task_dependencies": {
-      "name": "task_dependencies",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "taskId": {
-          "name": "taskId",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "blockedByTaskId": {
-          "name": "blockedByTaskId",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "founderId": {
-          "name": "founderId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "dependencyType": {
-          "name": "dependencyType",
-          "type": "enum('finish_to_start','start_to_start','finish_to_finish')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'finish_to_start'"
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "task_dependencies_id": {
-          "name": "task_dependencies_id",
+      "uniqueConstraints": {
+        "sunday_checklist_sundayDate_unique": {
+          "name": "sunday_checklist_sundayDate_unique",
           "columns": [
-            "id"
+            "sundayDate"
           ]
         }
       },
-      "uniqueConstraints": {},
       "checkConstraint": {}
     },
     "time_entries": {
@@ -1018,43 +745,59 @@
           "notNull": true,
           "autoincrement": true
         },
-        "taskId": {
-          "name": "taskId",
-          "type": "varchar(128)",
+        "cardId": {
+          "name": "cardId",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "vaId": {
-          "name": "vaId",
-          "type": "int",
+        "cardName": {
+          "name": "cardName",
+          "type": "varchar(512)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "founderId": {
-          "name": "founderId",
-          "type": "int",
+        "cardUrl": {
+          "name": "cardUrl",
+          "type": "varchar(1024)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "startTime": {
-          "name": "startTime",
+        "boardName": {
+          "name": "boardName",
+          "type": "varchar(256)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Unknown Board'"
+        },
+        "listName": {
+          "name": "listName",
+          "type": "varchar(256)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Unknown'"
+        },
+        "startedAt": {
+          "name": "startedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "endTime": {
-          "name": "endTime",
+        "stoppedAt": {
+          "name": "stoppedAt",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "durationMinutes": {
-          "name": "durationMinutes",
+        "durationSeconds": {
+          "name": "durationSeconds",
           "type": "int",
           "primaryKey": false,
           "notNull": false,
@@ -1090,507 +833,6 @@
       "compositePrimaryKeys": {
         "time_entries_id": {
           "name": "time_entries_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "trello_cache_metadata": {
-      "name": "trello_cache_metadata",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "userId": {
-          "name": "userId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "userOpenId": {
-          "name": "userOpenId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "cacheKey": {
-          "name": "cacheKey",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "lastFetched": {
-          "name": "lastFetched",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "expiresAt": {
-          "name": "expiresAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "ttlSeconds": {
-          "name": "ttlSeconds",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 300
-        },
-        "hitCount": {
-          "name": "hitCount",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "missCount": {
-          "name": "missCount",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "trello_cache_metadata_id": {
-          "name": "trello_cache_metadata_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "trello_cached_boards": {
-      "name": "trello_cached_boards",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "userId": {
-          "name": "userId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "userOpenId": {
-          "name": "userOpenId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "boardId": {
-          "name": "boardId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "boardData": {
-          "name": "boardData",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "cachedAt": {
-          "name": "cachedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "expiresAt": {
-          "name": "expiresAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "trello_cached_boards_id": {
-          "name": "trello_cached_boards_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "trello_cached_cards": {
-      "name": "trello_cached_cards",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "userId": {
-          "name": "userId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "userOpenId": {
-          "name": "userOpenId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "boardId": {
-          "name": "boardId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "cardId": {
-          "name": "cardId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "cardData": {
-          "name": "cardData",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "cachedAt": {
-          "name": "cachedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "expiresAt": {
-          "name": "expiresAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "trello_cached_cards_id": {
-          "name": "trello_cached_cards_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "trello_cached_tasks": {
-      "name": "trello_cached_tasks",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "userId": {
-          "name": "userId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "userOpenId": {
-          "name": "userOpenId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "taskData": {
-          "name": "taskData",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "cachedAt": {
-          "name": "cachedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "expiresAt": {
-          "name": "expiresAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "trello_cached_tasks_id": {
-          "name": "trello_cached_tasks_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "user_working_hours": {
-      "name": "user_working_hours",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "userId": {
-          "name": "userId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "userOpenId": {
-          "name": "userOpenId",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workStartHour": {
-          "name": "workStartHour",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 9
-        },
-        "workStartMinute": {
-          "name": "workStartMinute",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "workEndHour": {
-          "name": "workEndHour",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 18
-        },
-        "workEndMinute": {
-          "name": "workEndMinute",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "breakfastTime": {
-          "name": "breakfastTime",
-          "type": "varchar(5)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "'09:00'"
-        },
-        "breakfastDuration": {
-          "name": "breakfastDuration",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 45
-        },
-        "lunchTime": {
-          "name": "lunchTime",
-          "type": "varchar(5)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "'15:00'"
-        },
-        "lunchDuration": {
-          "name": "lunchDuration",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 45
-        },
-        "dinnerTime": {
-          "name": "dinnerTime",
-          "type": "varchar(5)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "'20:00'"
-        },
-        "dinnerDuration": {
-          "name": "dinnerDuration",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 120
-        },
-        "enableBreaks": {
-          "name": "enableBreaks",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "shortBreakInterval": {
-          "name": "shortBreakInterval",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 120
-        },
-        "shortBreakDuration": {
-          "name": "shortBreakDuration",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 10
-        },
-        "longBreakInterval": {
-          "name": "longBreakInterval",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 240
-        },
-        "longBreakDuration": {
-          "name": "longBreakDuration",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 30
-        },
-        "workingDays": {
-          "name": "workingDays",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'1,2,3,4,5'"
-        },
-        "timezone": {
-          "name": "timezone",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'UTC'"
-        },
-        "country": {
-          "name": "country",
-          "type": "varchar(2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'US'"
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "user_working_hours_id": {
-          "name": "user_working_hours_id",
           "columns": [
             "id"
           ]
@@ -1691,8 +933,8 @@
       },
       "checkConstraint": {}
     },
-    "va_profiles": {
-      "name": "va_profiles",
+    "weekly_pay_log": {
+      "name": "weekly_pay_log",
       "columns": {
         "id": {
           "name": "id",
@@ -1701,95 +943,185 @@
           "notNull": true,
           "autoincrement": true
         },
-        "userId": {
-          "name": "userId",
+        "weekStart": {
+          "name": "weekStart",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "weekEnd": {
+          "name": "weekEnd",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "paymentCycleId": {
+          "name": "paymentCycleId",
           "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "founderId": {
-          "name": "founderId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "email": {
-          "name": "email",
-          "type": "varchar(320)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "timezone": {
-          "name": "timezone",
-          "type": "varchar(50)",
+        "baseAmount": {
+          "name": "baseAmount",
+          "type": "decimal(8,2)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'Asia/Manila'"
+          "default": "'90.00'"
         },
-        "skills": {
-          "name": "skills",
+        "meritM1": {
+          "name": "meritM1",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "meritM2": {
+          "name": "meritM2",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "meritM3": {
+          "name": "meritM3",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "meritStreak": {
+          "name": "meritStreak",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD1": {
+          "name": "demeritD1",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD2": {
+          "name": "demeritD2",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD3": {
+          "name": "demeritD3",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD4": {
+          "name": "demeritD4",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD5": {
+          "name": "demeritD5",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD6": {
+          "name": "demeritD6",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD7": {
+          "name": "demeritD7",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD8": {
+          "name": "demeritD8",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD9": {
+          "name": "demeritD9",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD10": {
+          "name": "demeritD10",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "demeritD11": {
+          "name": "demeritD11",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "totalMerits": {
+          "name": "totalMerits",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "totalDemerits": {
+          "name": "totalDemerits",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'0.00'"
+        },
+        "projectedPay": {
+          "name": "projectedPay",
+          "type": "decimal(8,2)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'90.00'"
+        },
+        "notes": {
+          "name": "notes",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "hourlyRate": {
-          "name": "hourlyRate",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "currency": {
-          "name": "currency",
-          "type": "varchar(3)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "'USD'"
-        },
-        "workStartHour": {
-          "name": "workStartHour",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 9
-        },
-        "workEndHour": {
-          "name": "workEndHour",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 18
-        },
-        "workingDays": {
-          "name": "workingDays",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'1,2,3,4,5'"
-        },
-        "status": {
-          "name": "status",
-          "type": "enum('active','inactive','on_leave')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'active'"
         },
         "createdAt": {
           "name": "createdAt",
@@ -1812,8 +1144,8 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "va_profiles_id": {
-          "name": "va_profiles_id",
+        "weekly_pay_log_id": {
+          "name": "weekly_pay_log_id",
           "columns": [
             "id"
           ]

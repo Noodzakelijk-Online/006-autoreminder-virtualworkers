@@ -3,7 +3,7 @@
  */
 import { getDb } from "./db";
 import { aptlssPlans, InsertAptlssPlan, dailyPlans, InsertDailyPlan } from "../drizzle/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 // ─── APTLSS Card Plans ────────────────────────────────────────────────────────
 
@@ -11,29 +11,37 @@ import { eq, desc, and } from "drizzle-orm";
 export async function upsertAptlssPlan(plan: InsertAptlssPlan): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  // Delete any existing plan for this card first, then insert fresh
-  await db.delete(aptlssPlans).where(and(eq(aptlssPlans.cardId, plan.cardId), eq(aptlssPlans.vaId, plan.vaId)));
-  await db.insert(aptlssPlans).values(plan);
+  await db.insert(aptlssPlans).values(plan).onDuplicateKeyUpdate({
+    set: {
+      cardName: plan.cardName,
+      cardUrl: plan.cardUrl,
+      boardName: plan.boardName ?? "",
+      listName: plan.listName ?? "",
+      planJson: plan.planJson,
+      contextSnapshot: plan.contextSnapshot ?? null,
+      generatedAt: plan.generatedAt ?? new Date(),
+    },
+  });
 }
 
 /** Get the most recent APTLSS plan for a card (null if none). */
-export async function getAptlssPlan(vaId: number, cardId: string): Promise<(typeof aptlssPlans.$inferSelect) | null> {
+export async function getAptlssPlan(cardId: string): Promise<(typeof aptlssPlans.$inferSelect) | null> {
   const db = await getDb();
   if (!db) return null;
   const rows = await db
     .select()
     .from(aptlssPlans)
-    .where(and(eq(aptlssPlans.cardId, cardId), eq(aptlssPlans.vaId, vaId)))
+    .where(eq(aptlssPlans.cardId, cardId))
     .orderBy(desc(aptlssPlans.generatedAt))
     .limit(1);
   return rows[0] ?? null;
 }
 
-/** Get all stored APTLSS plans for a specific worker. */
-export async function getAllAptlssPlans(vaId: number): Promise<(typeof aptlssPlans.$inferSelect)[]> {
+/** Get all stored APTLSS plans (for admin/debug view). */
+export async function getAllAptlssPlans(): Promise<(typeof aptlssPlans.$inferSelect)[]> {
   const db = await getDb();
   if (!db) return [];
-  return await db.select().from(aptlssPlans).where(eq(aptlssPlans.vaId, vaId)).orderBy(desc(aptlssPlans.generatedAt));
+  return await db.select().from(aptlssPlans).orderBy(desc(aptlssPlans.generatedAt));
 }
 
 // ─── Daily Plans ──────────────────────────────────────────────────────────────
@@ -58,27 +66,26 @@ export async function upsertDailyPlan(plan: InsertDailyPlan): Promise<void> {
     });
 }
 
-/** Get the most recently generated daily plan for a worker. */
-export async function getLatestDailyPlan(vaId: number): Promise<(typeof dailyPlans.$inferSelect) | null> {
+/** Get the most recently generated daily plan. */
+export async function getLatestDailyPlan(): Promise<(typeof dailyPlans.$inferSelect) | null> {
   const db = await getDb();
   if (!db) return null;
   const rows = await db
     .select()
     .from(dailyPlans)
-    .where(eq(dailyPlans.vaId, vaId))
     .orderBy(desc(dailyPlans.generatedAt))
     .limit(1);
   return rows[0] ?? null;
 }
 
-/** Get a daily plan by ISO date key for a worker. */
-export async function getDailyPlanByDate(vaId: number, dateKey: string): Promise<(typeof dailyPlans.$inferSelect) | null> {
+/** Get a daily plan by ISO date key (e.g. "2026-05-27"). */
+export async function getDailyPlanByDate(dateKey: string): Promise<(typeof dailyPlans.$inferSelect) | null> {
   const db = await getDb();
   if (!db) return null;
   const rows = await db
     .select()
     .from(dailyPlans)
-    .where(and(eq(dailyPlans.dateKey, dateKey), eq(dailyPlans.vaId, vaId)))
+    .where(eq(dailyPlans.dateKey, dateKey))
     .limit(1);
   return rows[0] ?? null;
 }

@@ -1,63 +1,36 @@
-# Multi-stage build for VA Dashboard
-# Stage 1: Build frontend and backend
-FROM node:22-alpine AS builder
+# syntax=docker/dockerfile:1.7
 
-# Install pnpm
-RUN npm install -g pnpm@10.4.1
-
-# Set working directory
+FROM node:22-alpine AS base
 WORKDIR /app
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
 
-# Copy package files
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY patches ./patches
-
-# Install dependencies
+FROM base AS deps
+COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# Copy source code
+FROM deps AS build
 COPY . .
-
-# Build frontend and backend
 RUN pnpm build
 
-# Stage 2: Production image
-FROM node:22-alpine AS production
+FROM deps AS migrate
+COPY drizzle ./drizzle
+COPY drizzle.config.ts tsconfig.json tsconfig.node.json ./
+CMD ["pnpm", "db:migrate"]
 
-# Install pnpm
-RUN npm install -g pnpm@10.4.1
-
-# Create app user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
-
-# Set working directory
+FROM node:22-alpine AS runtime
 WORKDIR /app
-
-# Copy package files
-COPY --chown=nodejs:nodejs package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY --chown=nodejs:nodejs patches ./patches
-
-# Install production dependencies only
-RUN pnpm install --frozen-lockfile --prod
-
-# Copy built artifacts from builder
-COPY --chown=nodejs:nodejs --from=builder /app/dist ./dist
-COPY --chown=nodejs:nodejs --from=builder /app/drizzle ./drizzle
-COPY --chown=nodejs:nodejs --from=builder /app/shared ./shared
-
-# Copy necessary runtime files
-COPY --chown=nodejs:nodejs drizzle.config.ts ./
-
-# Switch to non-root user
-USER nodejs
-
-# Expose port
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
+COPY package.json pnpm-lock.yaml ./
+COPY --from=deps /app/node_modules ./node_modules
+RUN pnpm prune --prod
+COPY --from=build /app/dist ./dist
 EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
-
-# Start application
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1
+USER node
 CMD ["node", "dist/index.js"]

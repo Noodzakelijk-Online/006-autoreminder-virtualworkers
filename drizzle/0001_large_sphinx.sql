@@ -1,0 +1,63 @@
+CREATE TABLE `daily_triage_state` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`triageDate` date NOT NULL,
+	`step1Done` boolean NOT NULL DEFAULT false,
+	`step2Done` boolean NOT NULL DEFAULT false,
+	`step3Done` boolean NOT NULL DEFAULT false,
+	`step4Done` boolean NOT NULL DEFAULT false,
+	`step5Done` boolean NOT NULL DEFAULT false,
+	`focusTasks` text,
+	`eveningStep1Done` boolean NOT NULL DEFAULT false,
+	`eveningStep2Done` boolean NOT NULL DEFAULT false,
+	`eveningStep3Done` boolean NOT NULL DEFAULT false,
+	`eveningStep4Done` boolean NOT NULL DEFAULT false,
+	`eodReport` text,
+	`currentView` varchar(32) NOT NULL DEFAULT 'overview',
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `daily_triage_state_id` PRIMARY KEY(`id`),
+	CONSTRAINT `daily_triage_state_triageDate_unique` UNIQUE(`triageDate`)
+);
+--> statement-breakpoint
+CREATE TABLE `payment_cycles` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`cycleStart` date NOT NULL,
+	`cycleEnd` date NOT NULL,
+	`baseAmount` decimal(8,2) NOT NULL DEFAULT '90.00',
+	`isPaid` boolean NOT NULL DEFAULT false,
+	`paidAt` timestamp,
+	`paidBy` varchar(64),
+	`notes` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `payment_cycles_id` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
+CREATE TABLE `weekly_pay_log` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`weekStart` date NOT NULL,
+	`weekEnd` date NOT NULL,
+	`paymentCycleId` int,
+	`baseAmount` decimal(8,2) NOT NULL DEFAULT '90.00',
+	`meritM1` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`meritM2` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`meritM3` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`meritStreak` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD1` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD2` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD3` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD4` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD5` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD6` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD7` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD8` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD9` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD10` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`demeritD11` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`totalMerits` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`totalDemerits` decimal(8,2) NOT NULL DEFAULT '0.00',
+	`projectedPay` decimal(8,2) NOT NULL DEFAULT '90.00',
+	`notes` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `weekly_pay_log_id` PRIMARY KEY(`id`)
+);

@@ -3,45 +3,25 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import localAuthRoutes from "../routes/local-auth.js";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
-import { sdk } from "./sdk";
 import { serveStatic, setupVite } from "./vite";
-import aptlssRoutes from "../routes/aptlss.js";
-import workingHoursRoutes from "../routes/working-hours.js";
-import holidaysRoutes from "../routes/holidays.js";
-import rescheduleRoutes from "../routes/reschedule.js";
-import cacheRoutes from "../routes/cache.js";
-import queueRoutes from "../routes/queue.js";
-import metricsRoutes from "../routes/metrics.js";
-import vaManagementRoutes from "../routes/va-management.js";
-import atisRoutes from "../routes/atis.js";
-import notificationPreferencesRoutes from "../routes/notification-preferences.js";
-import notificationHistoryRoutes from "../routes/notification-history.js";
-import timeTrackingRoutes from "../routes/time-tracking.js";
-import trelloWebhookRoutes from "../routes/trello-webhook.js";
-import trelloWebhookBulkRoutes from "../routes/trello-webhook-bulk.js";
-import trelloConfigRoutes from "../routes/trello-config.js";
-import trelloBoardsRoutes from "../routes/trello-boards.js";
-import handoffRoutes from "../routes/handoff.js";
-import communicationRoutes from "../routes/communication.js";
-import analyticsRoutes from "../routes/analytics.js";
-import reportsRoutes from "../routes/reports.js";
-import interviewEnhancedRoutes from "../routes/interview-enhanced.js";
-import performanceOptimizationRoutes from "../routes/performance-optimization.js";
-import advancedSchedulingRoutes from "../routes/advanced-scheduling.js";
-import atisPhasesRoutes from "../routes/atis-phases.js";
-import batchOperationsRoutes from "../routes/batch-operations.js";
-import healthRoutes from "../routes/health.js";
-import { websocketService } from "../services/websocket.js";
-import { warmUpCache, scheduleCacheRefresh } from "../services/cache-warming.js";
-import { initializeRedis, closeRedis } from "../services/redis.js";
-import { startBriefingScheduler } from "../services/briefing-scheduler.js";
-import { startManusScheduler } from "../services/manus-scheduler.js";
-import { apiRateLimiter, authRateLimiter, aptlssRateLimiter, atisRateLimiter } from "../middleware/rate-limiter.js";
-import { log } from "../utils/logger.js";
+import { registerSseRoute } from "../sse";
+import { registerTrelloWebhookRoute } from "../trelloWebhook";
+import { registerTrelloWebhooksForAllBoards } from "../trelloWebhookRegister";
+import { registerScheduledDailySummaryRoute } from "../scheduledDailySummary";
+import { registerScheduledAutoStopTimersRoute } from "../scheduledAutoStopTimers";
+import { registerScheduledGmailScanRoute } from "../scheduledGmailScan";
+import { registerScheduledAptlssMaintenanceRoute } from "../scheduledAptlssMaintenance";
+import { registerScheduledWeeklyAnalysisRoute } from "../scheduledWeeklyAnalysis";
+import { startCronJobs } from "../cronJobs";
+import { registerGmailOauthRoutes } from "../gmailOauth";
+import { registerUpworkOauthRoutes } from "../upworkOauth";
+import { registerBrowserTabRoutes } from "../browserTabRoutes";
+import { startGmailIngestionScheduler } from "../gmailIngestion";
+import { getSystemHealth, getSystemLiveness } from "./systemRouter";
+import { displayServerHost, resolveServerHost } from "./serverBinding";
+import { reconcileAbandonedJobRuns } from "../scheduledJobsDb";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -62,157 +42,95 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
-// ---------------------------------------------------------------------------
-// Concurrency limiter — replaces the old hard-503 approach.
-//
-// Instead of immediately rejecting requests over MAX_CONNECTIONS, we queue
-// them and process them as slots free up.  Requests that wait longer than
-// QUEUE_TIMEOUT_MS are rejected with 503 so the queue never grows unbounded.
-// ---------------------------------------------------------------------------
-const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_REQUESTS ?? '100', 10);
-const QUEUE_TIMEOUT_MS = parseInt(process.env.REQUEST_QUEUE_TIMEOUT_MS ?? '30000', 10);
-
-let activeRequests = 0;
-const waitQueue: Array<() => void> = [];
-
-function acquireSlot(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (activeRequests < MAX_CONCURRENT) {
-      activeRequests++;
-      resolve();
-      return;
-    }
-
-    // Queue the request with a timeout guard
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      const idx = waitQueue.indexOf(tryAcquire);
-      if (idx !== -1) waitQueue.splice(idx, 1);
-      reject(new Error('Request queue timeout'));
-    }, QUEUE_TIMEOUT_MS);
-
-    const tryAcquire = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      activeRequests++;
-      resolve();
-    };
-
-    waitQueue.push(tryAcquire);
-  });
-}
-
-function releaseSlot(): void {
-  activeRequests--;
-  const next = waitQueue.shift();
-  if (next) next();
-}
-
-function concurrencyLimiter(
-  req: express.Request,
-  res: express.Response,
-  next: express.NextFunction
-): void {
-  acquireSlot()
-    .then(() => {
-      res.on('finish', releaseSlot);
-      res.on('close', releaseSlot);   // handles aborted connections
-      next();
-    })
-    .catch(() => {
-      console.warn(`[Server] Request queue full (${waitQueue.length} waiting, ${activeRequests} active)`);
-      res.status(503).json({
-        error: 'Server busy — please retry in a moment',
-        retryAfter: Math.ceil(QUEUE_TIMEOUT_MS / 1000),
-      });
-    });
-}
-
 async function startServer() {
   const app = express();
   app.set("trust proxy", true);
   const server = createServer(app);
-  
-  // Concurrency limiter — queues excess requests instead of hard-rejecting them
-  app.use(concurrencyLimiter);
-  
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  
-  // Global rate limiting for all API routes
-  app.use('/api', apiRateLimiter);
-  
-  // Authentication middleware for all /api routes
-  app.use('/api', async (req: any, res, next) => {
-    try {
-      req.user = await sdk.authenticateRequest(req);
-    } catch (error) {
-      // Authentication is optional, continue without user
-      req.user = null;
-    }
+  app.disable("x-powered-by");
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     next();
   });
-  
-  // OAuth callback under /api/oauth/callback (Manus OAuth - kept for compatibility)
-  registerOAuthRoutes(app);
-  // Local auth routes (username/password login - works without Manus) with strict rate limiting
-  app.use('/api/auth', authRateLimiter, localAuthRoutes);
-  // APTLSS Management API with strict rate limiting
-  app.use("/api", aptlssRateLimiter, aptlssRoutes);
-  // Working Hours Settings API
-  app.use("/api/working-hours", workingHoursRoutes);
-  // VA Management API
-  app.use("/api/va", vaManagementRoutes);
-  // Holidays API
-  app.use("/api/holidays", holidaysRoutes);
-  // Reschedule API
-  app.use("/api/reschedule", rescheduleRoutes);
-  // Cache Management API
-  app.use("/api", cacheRoutes);
-  // Queue Metrics API
-  app.use("/api", queueRoutes);
-  // Performance Metrics API
-  app.use("/api", metricsRoutes);
-  // ATIS (Adaptive Task Intelligence System) API with strict rate limiting
-  app.use("/api/atis", apiRateLimiter, atisRoutes);
-  // Notification Preferences API
-  app.use("/api/notification-preferences", notificationPreferencesRoutes);
-  // Notification History API
-  app.use("/api/notifications", notificationHistoryRoutes);
-  // Time Tracking API
-  app.use("/api", timeTrackingRoutes);
-  // Trello Bulk Webhook API — MUST be mounted before the base trello-webhook
-  // router, otherwise Express matches /api/trello-webhook/bulk against the
-  // base router first and the bulk route is never reached.
-  app.use("/api/trello-webhook/bulk", trelloWebhookBulkRoutes);
-  // Trello Webhook API (for chatbot)
-  app.use("/api/trello-webhook", trelloWebhookRoutes);
-  // Chatbot API (alias for trello-webhook)
-  app.use("/api/chatbot", trelloWebhookRoutes);
-  // Trello Configuration API
-  app.use("/api/trello", trelloConfigRoutes);
-  // Trello Boards API (for board selector)
-  app.use("/api/trello-boards", trelloBoardsRoutes);
-  app.use("/api/handoff", handoffRoutes);
-  app.use("/api/communication", communicationRoutes);
-  app.use("/api/analytics", analyticsRoutes);
-  app.use("/api/reports", reportsRoutes);
-  // Enhanced Interview System API
-  app.use("/api/interview", interviewEnhancedRoutes);
-  // Performance Optimization API
-  app.use("/api/performance", performanceOptimizationRoutes);
-  // Advanced Scheduling API
-  app.use("/api/scheduling", advancedSchedulingRoutes);
-  // ATIS Phases 3-10 API
-  app.use("/api/atis/phases", atisPhasesRoutes);
-  // Batch Operations API
-  app.use("/api/batch-operations", batchOperationsRoutes);
-  // Health Check API (no rate limiting for health checks)
-  app.use("/api/health", healthRoutes);
+
+  const requestBodyLimit = process.env.REQUEST_BODY_LIMIT?.trim() || "2mb";
+  app.use(express.json({
+    limit: requestBodyLimit,
+    verify: (req, _res, buf) => {
+      const expressReq = req as express.Request & { rawBody?: string };
+      if (expressReq.originalUrl?.startsWith("/api/trello/webhook")) {
+        expressReq.rawBody = buf.toString("utf8");
+      }
+    },
+  }));
+  app.use(express.urlencoded({ limit: requestBodyLimit, extended: true }));
+  app.get("/api/health", (_req, res) => {
+    res.json(getSystemLiveness());
+  });
+  app.get("/api/readiness", async (_req, res) => {
+    try {
+      const health = await getSystemHealth({ probeDatabase: true, probeTrello: true });
+      res.status(health.ok ? 200 : 503).json(health);
+    } catch (error) {
+      res.status(503).json({
+        ok: false,
+        status: "blocked",
+        summary: error instanceof Error ? error.message : "Readiness check failed.",
+        checkedAt: new Date().toISOString(),
+        uptimeSeconds: Math.round(process.uptime()),
+        nodeEnv: process.env.NODE_ENV || "development",
+        counts: { ready: 0, warning: 0, blocked: 1 },
+      });
+    }
+  });
+  app.get("/api/powerup/key", (_req, res) => {
+    const appKey = process.env.TRELLO_POWERUP_API_KEY ?? "";
+    if (!appKey) {
+      res.status(503).type("text/plain").send("TRELLO_POWERUP_API_KEY is not configured");
+      return;
+    }
+
+    res.set("Cache-Control", "no-store");
+    res.type("text/plain").send(appKey);
+  });
+  app.get("/api/powerup/config.js", (_req, res) => {
+    const appKey = process.env.TRELLO_POWERUP_API_KEY ?? "";
+    res.set("Cache-Control", "no-store");
+    res.type("application/javascript").send(
+      `window.JOYCE_POWERUP_CONFIG=${JSON.stringify({ appKey, configured: Boolean(appKey) })};\n`,
+    );
+  });
+  app.get("/api/trello/authorize", (_req, res) => {
+    const apiKey = process.env.TrelloAPIKey ?? "";
+    if (!apiKey) {
+      res.status(503).type("text/plain").send("TrelloAPIKey is not configured");
+      return;
+    }
+
+    const authorizeUrl = new URL("https://trello.com/1/authorize");
+    authorizeUrl.searchParams.set("expiration", "never");
+    authorizeUrl.searchParams.set("scope", "read,write");
+    authorizeUrl.searchParams.set("response_type", "token");
+    authorizeUrl.searchParams.set("key", apiKey);
+    res.redirect(authorizeUrl.toString());
+  });
+  registerGmailOauthRoutes(app);
+  registerUpworkOauthRoutes(app);
+  registerBrowserTabRoutes(app);
+
+  // Server-Sent Events — frontend subscribes for instant Trello invalidation
+  registerSseRoute(app);
+
+  // Trello Webhook — receives push events from Trello and broadcasts SSE
+  registerTrelloWebhookRoute(app);
+  // Scheduled task endpoints
+  registerScheduledDailySummaryRoute(app);
+  registerScheduledAutoStopTimersRoute(app);
+  registerScheduledGmailScanRoute(app);
+  registerScheduledAptlssMaintenanceRoute(app);
+  registerScheduledWeeklyAnalysisRoute(app);
+
   // tRPC API
   app.use(
     "/api/trpc",
@@ -221,12 +139,6 @@ async function startServer() {
       createContext,
     })
   );
-  // Add 404 handler for unmatched API routes before Vite middleware
-  app.use('/api', (req, res) => {
-    console.log(`[Server] 404 - Unmatched API route: ${req.method} ${req.path}`);
-    res.status(404).json({ error: 'API endpoint not found', path: req.path });
-  });
-  
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
@@ -241,76 +153,23 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
-  // Initialize Redis (must happen before WebSocket so the adapter can be attached)
-  await initializeRedis();
+  const host = resolveServerHost(process.env.HOST, process.env.NODE_ENV);
 
-  // Initialize WebSocket server
-  websocketService.initialize(server);
-
-  // Warm up cache on startup
-  try {
-    await warmUpCache();
-    log.info('Cache warming completed');
-    // Schedule periodic cache refresh every 60 minutes
-    scheduleCacheRefresh(60);
-    log.info('Periodic cache refresh scheduled');
-    // Start automated schedulers
-    startBriefingScheduler();
-    startManusScheduler();
-  } catch (error) {
-    log.error('Cache warming failed', error as Error);
-  }
-
-  server.listen(port, async () => {
-    log.info(`Server running on http://localhost:${port}/`, {
-      port,
-      environment: process.env.NODE_ENV,
+  server.listen(port, host, () => {
+    const displayHost = displayServerHost(host);
+    console.log(`Server running on http://${displayHost}:${port}/`);
+    reconcileAbandonedJobRuns().then((count) => {
+      if (count > 0) console.warn(`[Jobs] Marked ${count} interrupted run${count === 1 ? "" : "s"} as abandoned.`);
+    }).catch((error) => console.error("[Jobs] Could not reconcile interrupted runs:", error));
+    // Auto-register Trello webhooks for all boards Joyce is a member of
+    registerTrelloWebhooksForAllBoards().catch(console.error);
+    // Start server-side cron jobs (midnight auto-stop, etc.)
+    startCronJobs();
+    // Gmail is pulled directly by this process at the interval selected in Settings.
+    startGmailIngestionScheduler().catch((error) => {
+      console.error("[GmailIngestion] Scheduler failed to start:", error);
     });
-  });
-
-  // Graceful shutdown handling
-  const gracefulShutdown = async () => {
-    log.info('Shutting down gracefully...');
-    
-    // Close WebSocket connections
-    const io = websocketService.getIO();
-    if (io) {
-      io.close();
-      log.info('WebSocket server closed');
-    }
-
-    // Close Redis connections
-    await closeRedis();
-    
-    // Close HTTP server
-    server.close(() => {
-      log.info('HTTP server closed');
-      process.exit(0);
-    });
-    
-    // Force exit after 10 seconds
-    setTimeout(() => {
-      log.fatal('Forced shutdown after timeout');
-      process.exit(1);
-    }, 10000);
-  };
-
-  process.on('SIGTERM', gracefulShutdown);
-  process.on('SIGINT', gracefulShutdown);
-  
-  // Handle uncaught exceptions
-  process.on('uncaughtException', (error) => {
-    log.fatal('Uncaught exception', error);
-    gracefulShutdown();
-  });
-  
-  // Handle unhandled promise rejections
-  process.on('unhandledRejection', (reason, promise) => {
-    log.error('Unhandled rejection', reason as Error, { promise: String(promise) });
   });
 }
 
-startServer().catch((error) => {
-  log.fatal('Failed to start server', error);
-  process.exit(1);
-});
+startServer().catch(console.error);

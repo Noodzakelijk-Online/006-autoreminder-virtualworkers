@@ -1,69 +1,50 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
+import { Suspense, lazy } from "react";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { LoadingQueueProvider } from "./contexts/LoadingQueueContext";
-import DashboardLayout from "./components/DashboardLayout";
-import Home from "./pages/Home";
-import APTLSSManagement from "./pages/APTLSSManagement";
-import Settings from "./pages/Settings";
-import Calendar from "./pages/Calendar";
-import FounderDashboard from "./pages/FounderDashboard";
-import WorkerDashboard from "./pages/WorkerDashboard";
-import AdvancedScheduling from "./pages/AdvancedScheduling";
-import ATISPhasesAnalysisDashboard from "./pages/ATISPhasesAnalysisDashboard";
-import RobertDashboard from "./pages/manus/RobertDashboard";
-import PriorityCommandCenter from "./pages/manus/PriorityCommandCenter";
-import AdminMonitor from "./pages/manus/AdminMonitor";
-import { ProtectedRoute } from "./components/ProtectedRoute";
 
+const Home = lazy(() => import("./pages/Home"));
+const RobertDashboard = lazy(() => import("./pages/RobertDashboard"));
+const PriorityCommandCenter = lazy(() => import("./pages/PriorityCommandCenter"));
+const AdminMonitor = lazy(() => import("./pages/AdminMonitor"));
+const NotFound = lazy(() => import("@/pages/NotFound"));
 
-function Router() {
-  // All routes are wrapped in DashboardLayout which handles authentication
-  // and shows the login form when user is not authenticated
+function RouteFallback() {
   return (
-    <DashboardLayout>
-      <Switch>
-        <Route path={"/"} component={() => <ProtectedRoute component={Home} allowedRoles={["admin"]} />} />
-        <Route path={"/aptlss"} component={() => <ProtectedRoute component={APTLSSManagement} allowedRoles={["admin"]} />} />
-        <Route path={"/settings"} component={() => <ProtectedRoute component={Settings} allowedRoles={["admin"]} />} />
-        <Route path={"/calendar"} component={() => <ProtectedRoute component={Calendar} allowedRoles={["admin"]} />} />
-        <Route path={"/advanced-scheduling"} component={() => <ProtectedRoute component={AdvancedScheduling} allowedRoles={["admin"]} />} />
-        <Route path={"/atis-phases"} component={() => <ProtectedRoute component={ATISPhasesAnalysisDashboard} allowedRoles={["admin"]} />} />
-
-        <Route path={"/founder"} component={() => <ProtectedRoute component={FounderDashboard} allowedRoles={["admin"]} />} />
-        <Route path={"/robert"} component={() => <ProtectedRoute component={RobertDashboard} allowedRoles={["admin"]} />} />
-        <Route path={"/command-center"} component={() => <ProtectedRoute component={PriorityCommandCenter} allowedRoles={["admin"]} />} />
-        <Route path={"/admin"} component={() => <ProtectedRoute component={AdminMonitor} allowedRoles={["admin"]} />} />
-        <Route path={"/worker"} component={() => <ProtectedRoute component={WorkerDashboard} allowedRoles={["worker"]} />} />
-        <Route path={"/404"} component={NotFound} />
-        {/* Final fallback route */}
-        <Route component={NotFound} />
-      </Switch>
-    </DashboardLayout>
+    <div className="flex min-h-screen items-center justify-center bg-background text-sm font-medium text-muted-foreground">
+      Loading Joyce dashboard...
+    </div>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
+function Router() {
+  return (
+    <Suspense fallback={<RouteFallback />}>
+      <Switch>
+        <Route path={"/"} component={Home} />
+        <Route path={"/robert"} component={RobertDashboard} />
+        <Route path={"/command-center"} component={PriorityCommandCenter} />
+        <Route path={"/admin"} component={AdminMonitor} />
+        <Route path={"/404"} component={NotFound} />
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
+  );
+}
 
 function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider
         defaultTheme="light"
-        // switchable
+        switchable
       >
-        <LoadingQueueProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Router />
-          </TooltipProvider>
-        </LoadingQueueProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

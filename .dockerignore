@@ -1,49 +1,20 @@
-# Dependencies
 node_modules
-.pnpm-store
-
-# Build outputs
 dist
-.vite
-
-# Environment files
+.git
+.pnpm-store
 .env
-.env.local
-.env.*.local
-
-# Logs
+.env.*
+!.env.example
+.manus
+.manus-logs
 logs
 *.log
-npm-debug.log*
-pnpm-debug.log*
-
-# Testing
 coverage
-.nyc_output
-
-# IDE
-.vscode
-.idea
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Git
-.git
-.gitignore
-
-# Documentation
-*.md
-docs
-
-# Manus data
-.manus
-
-# Temporary files
+.cache
+.parcel-cache
+.next
 tmp
 temp
-*.tmp
+*.db
+*.sqlite
+*.sqlite3

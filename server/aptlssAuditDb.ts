@@ -32,39 +32,108 @@ export async function logAuditAction(entry: Omit<InsertAptlssAuditLog, "id" | "c
 }
 
 /** Get the most recent N audit log entries for a specific card. */
-export async function getCardAuditLog(vaId: number, cardId: string, limit = 20): Promise<AptlssAuditLog[]> {
+export async function getCardAuditLog(cardId: string, limit = 20): Promise<AptlssAuditLog[]> {
   const db = await getDb();
   if (!db) return [];
   return db
     .select()
     .from(aptlssAuditLog)
-    .where(and(eq(aptlssAuditLog.cardId, cardId), eq(aptlssAuditLog.vaId, vaId)))
+    .where(eq(aptlssAuditLog.cardId, cardId))
     .orderBy(desc(aptlssAuditLog.createdAt))
     .limit(limit);
 }
 
-/** Get the most recent N audit log entries across all cards for a worker. */
-export async function getRecentAuditLog(vaId: number, limit = 100): Promise<AptlssAuditLog[]> {
+/** Get the most recent N audit log entries across all cards. */
+export async function getRecentAuditLog(limit = 100): Promise<AptlssAuditLog[]> {
   const db = await getDb();
   if (!db) return [];
   return db
     .select()
     .from(aptlssAuditLog)
-    .where(eq(aptlssAuditLog.vaId, vaId))
     .orderBy(desc(aptlssAuditLog.createdAt))
     .limit(limit);
 }
 
-/** Count total audit log entries in the last N hours for a worker. */
-export async function countRecentActions(vaId: number, hours = 24): Promise<number> {
+/** Count total audit log entries in the last N hours. */
+export async function countRecentActions(hours = 24): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
   const since = new Date(Date.now() - hours * 60 * 60 * 1000);
   const rows = await db
     .select({ count: sql<number>`count(*)` })
     .from(aptlssAuditLog)
-    .where(and(eq(aptlssAuditLog.vaId, vaId), gte(aptlssAuditLog.createdAt, since)));
+    .where(gte(aptlssAuditLog.createdAt, since));
   return rows[0]?.count ?? 0;
+}
+
+/** Count actual calls to one LLM provider since a timestamp. Null means persistence is unavailable. */
+export async function countLlmProviderAttempts(providerId: string, since: Date): Promise<number | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const providerMarker = `%\"providerId\":\"${providerId}\"%`;
+  const rows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(aptlssAuditLog)
+    .where(and(
+      eq(aptlssAuditLog.action, "llm_provider_call"),
+      gte(aptlssAuditLog.createdAt, since),
+      sql`${aptlssAuditLog.payload} LIKE ${providerMarker}`,
+    ));
+  return rows[0]?.count ?? 0;
+}
+
+export type LlmUsageSummary = {
+  attempts: number;
+  successes: number;
+  failures: number;
+  promptTokens: number;
+  cachedTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+};
+
+const emptyLlmUsageSummary = (): LlmUsageSummary => ({
+    attempts: 0,
+    successes: 0,
+    failures: 0,
+    promptTokens: 0,
+    cachedTokens: 0,
+    completionTokens: 0,
+    reasoningTokens: 0,
+    totalTokens: 0,
+});
+
+export function summarizeLlmUsagePayloads(payloads: Array<string | null | undefined>): LlmUsageSummary {
+  const summary = emptyLlmUsageSummary();
+  for (const rawPayload of payloads) {
+    summary.attempts += 1;
+    try {
+      const payload = JSON.parse(rawPayload ?? "{}") as Record<string, unknown>;
+      if (payload.status === "success") summary.successes += 1;
+      else if (payload.status === "failed") summary.failures += 1;
+      for (const key of ["promptTokens", "cachedTokens", "completionTokens", "reasoningTokens", "totalTokens"] as const) {
+        const value = Number(payload[key] ?? 0);
+        if (Number.isFinite(value) && value > 0) summary[key] += Math.round(value);
+      }
+    } catch {
+      // Preserve the attempt count even when an old audit payload is malformed.
+    }
+  }
+  return summary;
+}
+
+export async function getLlmUsageSummary(hours = 24): Promise<LlmUsageSummary> {
+  const db = await getDb();
+  if (!db) return emptyLlmUsageSummary();
+  const since = new Date(Date.now() - Math.max(1, hours) * 60 * 60_000);
+  const rows = await db.select({ payload: aptlssAuditLog.payload })
+    .from(aptlssAuditLog)
+    .where(and(
+      eq(aptlssAuditLog.action, "llm_provider_call"),
+      gte(aptlssAuditLog.createdAt, since),
+    ));
+  return summarizeLlmUsagePayloads(rows.map((row) => row.payload));
 }
 
 /** Prune audit log entries older than 90 days. */
@@ -90,32 +159,31 @@ export async function recordSyncAttempt(entry: Omit<InsertAdminSyncLog, "id" | "
 }
 
 /** Get the most recent N sync log entries. */
-export async function getRecentSyncLog(vaId: number, limit = 50): Promise<AdminSyncLog[]> {
+export async function getRecentSyncLog(limit = 50): Promise<AdminSyncLog[]> {
   const db = await getDb();
   if (!db) return [];
   return db
     .select()
     .from(adminSyncLog)
-    .where(eq(adminSyncLog.vaId, vaId))
     .orderBy(desc(adminSyncLog.createdAt))
     .limit(limit);
 }
 
 /** Get the last successful sync entry. */
-export async function getLastSuccessfulSync(vaId: number): Promise<AdminSyncLog | null> {
+export async function getLastSuccessfulSync(): Promise<AdminSyncLog | null> {
   const db = await getDb();
   if (!db) return null;
   const rows = await db
     .select()
     .from(adminSyncLog)
-    .where(and(eq(adminSyncLog.success, true), eq(adminSyncLog.vaId, vaId)))
+    .where(eq(adminSyncLog.success, true))
     .orderBy(desc(adminSyncLog.createdAt))
     .limit(1);
   return rows[0] ?? null;
 }
 
 /** Get sync statistics for the last 24 hours. */
-export async function getSyncStats24h(vaId: number): Promise<{
+export async function getSyncStats24h(): Promise<{
   totalRuns: number;
   successRuns: number;
   failedRuns: number;
@@ -129,7 +197,7 @@ export async function getSyncStats24h(vaId: number): Promise<{
   const rows = await db
     .select()
     .from(adminSyncLog)
-    .where(and(eq(adminSyncLog.vaId, vaId), gte(adminSyncLog.createdAt, since)));
+    .where(gte(adminSyncLog.createdAt, since));
   return {
     totalRuns: rows.length,
     successRuns: rows.filter(r => r.success).length,
