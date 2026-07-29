@@ -5,6 +5,7 @@ import { getAllCardStates, getAllPriorityScores } from "./aptlssStepsDb";
 import { notifyOwner } from "./_core/notification";
 import { runTrackedJob, type JobTrigger } from "./scheduledJobsDb";
 import { broadcast } from "./sse";
+import type { MaintenanceJobProgressReporter } from "./maintenanceJobProgress";
 
 const RECENT_ANALYSIS_MS = 6 * 60 * 60_000;
 
@@ -72,13 +73,19 @@ function deterministicImprovements(counts: {
   return improvements.slice(0, 5);
 }
 
-async function generateWeeklyAnalysis(force: boolean, notify: boolean): Promise<WeeklyAnalysisResult> {
+async function generateWeeklyAnalysis(
+  force: boolean,
+  notify: boolean,
+  reportProgress?: MaintenanceJobProgressReporter,
+): Promise<WeeklyAnalysisResult> {
+  reportProgress?.("preflight");
   const weekKey = getISOWeekKey(new Date());
   const existing = await getWeeklyAnalysisByKey(weekKey);
   if (!force && existing && Date.now() - new Date(existing.generatedAt).getTime() < RECENT_ANALYSIS_MS) {
     return resultFromSnapshot(existing);
   }
 
+  reportProgress?.("collecting");
   const [cardStates, plans, priorityScores] = await Promise.all([
     getAllCardStates(),
     getAllAptlssPlans(),
@@ -87,6 +94,7 @@ async function generateWeeklyAnalysis(force: boolean, notify: boolean): Promise<
   const planByCard = new Map(plans.map((plan) => [plan.cardId, plan]));
   const scoreByCard = new Map(priorityScores.map((score) => [score.cardId, score]));
 
+  reportProgress?.("analyzing");
   const noProgressCards = cardStates
     .filter((state) => state.state === "STALLED" || state.state === "IN_PROGRESS")
     .map((state) => ({ cardId: state.cardId, cardName: planByCard.get(state.cardId)?.cardName ?? state.cardId, state: state.state }));
@@ -137,6 +145,7 @@ async function generateWeeklyAnalysis(force: boolean, notify: boolean): Promise<
     waiting: waitingCards.length,
   };
   let processImprovements = deterministicImprovements(counts);
+  reportProgress?.("ai_review");
   try {
     const response = await invokeAptlssLLM({
       messages: [
@@ -189,6 +198,7 @@ async function generateWeeklyAnalysis(force: boolean, notify: boolean): Promise<
   }
 
   const summary = `Week ${weekKey}: ${cardStates.length} active cards. ${noProgressCards.length} stalled, ${overdueCards.length} overdue, ${recurringBlockers.length} recurring blocker patterns, ${restructuringCards.length} needing restructuring. ${processImprovements.length} process improvements recorded.`;
+  reportProgress?.("persisting");
   await upsertWeeklyAnalysis({
     weekKey,
     noProgressCards: JSON.stringify(noProgressCards),
@@ -201,6 +211,7 @@ async function generateWeeklyAnalysis(force: boolean, notify: boolean): Promise<
     summary,
   });
 
+  reportProgress?.("notifications");
   if (notify) {
     await notifyOwner({
       title: `Weekly APTLSS Analysis - ${weekKey}`,
@@ -224,7 +235,7 @@ async function generateWeeklyAnalysis(force: boolean, notify: boolean): Promise<
 
 export function runWeeklyAnalysis(
   trigger: JobTrigger = "manual",
-  options: { force?: boolean; notify?: boolean } = {},
+  options: { force?: boolean; notify?: boolean; reportProgress?: MaintenanceJobProgressReporter } = {},
 ): Promise<WeeklyAnalysisResult> {
   if (weeklyAnalysisInFlight) return weeklyAnalysisInFlight;
   const force = options.force ?? trigger === "manual";
@@ -232,7 +243,7 @@ export function runWeeklyAnalysis(
   weeklyAnalysisInFlight = runTrackedJob({
     jobKey: "weekly_analysis",
     trigger,
-    run: () => generateWeeklyAnalysis(force, notify),
+    run: () => generateWeeklyAnalysis(force, notify, options.reportProgress),
     summarize: (result) => ({
       recordsProcessed: result.noProgressCards + result.recurringBlockers + result.estimateDrift,
       detail: result.reused ? `Reused current snapshot. ${result.summary}` : result.summary,

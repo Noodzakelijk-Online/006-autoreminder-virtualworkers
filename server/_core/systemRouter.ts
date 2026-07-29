@@ -6,8 +6,8 @@ import { getReplyMonitorStatus } from "../replyMonitorDb";
 import { getAptlssLlmConfigurationStatus } from "../aptlssLlmRouter";
 import { notifyOwner } from "./notification";
 import { ownerProcedure, publicProcedure, router } from "./trpc";
-import { getLatestJobRuns } from "../scheduledJobsDb";
-import { runEodComplianceJob } from "../cronJobs";
+import { getLatestJobRuns, getRecentJobRuns, runTrackedJob } from "../scheduledJobsDb";
+import { runEodComplianceJob, runReplyMonitorScan } from "../cronJobs";
 import { runWeeklyAnalysis } from "../weeklyAnalysisService";
 import {
   getGmailIngestionSettings,
@@ -16,6 +16,20 @@ import {
 } from "../gmailIngestionSettings";
 import { hasGoogleDriveReadonlyScope } from "../googleDriveIngestion";
 import { getWorkspaceEvidenceStats } from "../workspaceEvidenceDb";
+import { runAptlssMaintenance } from "../scheduledAptlssMaintenance";
+import { runWorkspaceIngestion } from "../workspaceIngestion";
+import { rescheduleGmailIngestion } from "../gmailIngestion";
+import {
+  MAINTENANCE_JOB_CATALOG,
+  MAINTENANCE_JOB_KEYS,
+  getMaintenanceSchedules,
+  setMaintenanceSchedule,
+  type MaintenanceScheduleJobKey,
+} from "../maintenanceSchedules";
+import {
+  getMaintenanceJobProgress,
+  trackMaintenanceJobProgress,
+} from "../maintenanceJobProgress";
 
 type ReadinessStatus = "ready" | "warning" | "blocked";
 
@@ -30,6 +44,87 @@ type ReadinessItem = {
 const hasValue = (value: string | undefined) => Boolean(value?.trim());
 const TRELLO_API_BASE = "https://api.trello.com/1";
 const JOYCE_MEMBER_ID = "joyjemimajj1";
+const maintenanceCenterStartedAt = Date.now();
+
+function latestRunMap<T extends { jobKey: string }>(runs: T[]) {
+  return new Map(runs.map((run) => [run.jobKey, run]));
+}
+
+async function getMaintenanceCenter() {
+  const [schedules, latestRuns, recentRuns] = await Promise.all([
+    getMaintenanceSchedules(),
+    getLatestJobRuns(),
+    getRecentJobRuns(100),
+  ]);
+  const latestByJob = latestRunMap(latestRuns);
+  const progress = getMaintenanceJobProgress();
+  const progressByJob = {
+    aptlss_maintenance: progress.aptlssMaintenance,
+    workspace_ingestion: progress.workspaceIngestion,
+    reply_monitor: progress.replyMonitor,
+    eod_compliance: progress.eodCompliance,
+    weekly_analysis: progress.weeklyAnalysis,
+  } as const;
+  return {
+    jobs: MAINTENANCE_JOB_KEYS.map((jobKey) => {
+      const schedule = schedules[jobKey];
+      const latestRun = latestByJob.get(jobKey) ?? null;
+      const completedDurations = recentRuns
+        .filter((run) => run.jobKey === jobKey && run.status === "success" && Number(run.durationMs) > 0)
+        .map((run) => Number(run.durationMs))
+        .slice(0, 10);
+      const averageDurationMs = completedDurations.length
+        ? Math.round(completedDurations.reduce((sum, duration) => sum + duration, 0) / completedDurations.length)
+        : null;
+      const nextRunAt = schedule.enabled
+        ? new Date((latestRun ? new Date(latestRun.startedAt).getTime() : maintenanceCenterStartedAt) + schedule.intervalMinutes * 60_000)
+        : null;
+      return {
+        jobKey,
+        ...MAINTENANCE_JOB_CATALOG[jobKey],
+        schedule,
+        latestRun,
+        averageDurationMs,
+        nextRunAt,
+        progress: progressByJob[jobKey],
+      };
+    }),
+  };
+}
+
+async function runManualMaintenanceJob(jobKey: MaintenanceScheduleJobKey) {
+  return trackMaintenanceJobProgress(jobKey, async (report) => {
+    let summary: string;
+    if (jobKey === "aptlss_maintenance") {
+      const result = await runAptlssMaintenance("manual", "manual", report);
+      summary = `${result.refreshed}/${result.total} cards reassessed; ${result.plansGenerated} plans generated; ${result.failed} failed.`;
+    } else if (jobKey === "workspace_ingestion") {
+      const result = await runWorkspaceIngestion("manual", report);
+      summary = `${result.gmail.result?.imported ?? 0} Gmail, ${result.googleDrive.result?.indexed ?? 0} Drive, and ${result.trello.result?.imported ?? 0} Trello records indexed.`;
+    } else if (jobKey === "reply_monitor") {
+      const result = await runTrackedJob({
+        jobKey: "reply_monitor",
+        trigger: "manual",
+        run: async () => {
+          await runReplyMonitorScan({ sendNotifications: false, reportProgress: report });
+          return getReplyMonitorStatus();
+        },
+        summarize: (status) => ({
+          recordsProcessed: status.threadsScanned,
+          detail: `${status.threadsScanned} communication threads scanned manually`,
+        }),
+      });
+      summary = `${result.threadsScanned} communication threads scanned.`;
+    } else if (jobKey === "eod_compliance") {
+      const result = await runEodComplianceJob("manual", report);
+      summary = result.detail;
+    } else {
+      const result = await runWeeklyAnalysis("manual", { force: true, notify: false, reportProgress: report });
+      summary = result.summary;
+    }
+    return { success: true as const, jobKey, summary };
+  });
+}
 
 function trelloProbeFailureMessage(error: unknown) {
   if (axios.isAxiosError(error)) {
@@ -579,6 +674,36 @@ export const systemRouter = router({
     .query(({ input }) => getAptlssLlmConfigurationStatus({ forceRefresh: input?.refresh })),
 
   scheduledJobFreshness: ownerProcedure.query(() => getLatestJobRuns()),
+
+  maintenanceCenter: ownerProcedure.query(() => getMaintenanceCenter()),
+
+  setMaintenanceSchedule: ownerProcedure
+    .input(z.object({
+      jobKey: z.enum(MAINTENANCE_JOB_KEYS),
+      enabled: z.boolean(),
+      intervalMinutes: z.number().int().min(5).max(40_320),
+    }))
+    .mutation(async ({ input }) => {
+      if (input.jobKey === "workspace_ingestion" && input.enabled) {
+        const [client, connection] = await Promise.all([
+          getGmailOauthClientCredentials(),
+          getGmailOauthConnection(),
+        ]);
+        if (!client || !connection) {
+          throw new Error("Connect Google Workspace before enabling automatic workspace ingestion.");
+        }
+      }
+      const schedules = await setMaintenanceSchedule(input.jobKey, {
+        enabled: input.enabled,
+        intervalMinutes: input.intervalMinutes,
+      });
+      if (input.jobKey === "workspace_ingestion") await rescheduleGmailIngestion();
+      return { success: true as const, schedule: schedules[input.jobKey] };
+    }),
+
+  runMaintenanceJob: ownerProcedure
+    .input(z.object({ jobKey: z.enum(MAINTENANCE_JOB_KEYS) }))
+    .mutation(({ input }) => runManualMaintenanceJob(input.jobKey)),
 
   runEodCompliance: ownerProcedure.mutation(() => runEodComplianceJob("manual")),
 

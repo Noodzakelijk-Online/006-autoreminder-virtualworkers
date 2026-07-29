@@ -17,7 +17,6 @@ import {
   AlertTriangle,
   CheckCircle,
   ExternalLink,
-  RefreshCw,
   MessageSquare,
   ChevronDown,
   ChevronUp,
@@ -458,28 +457,6 @@ export default function ReplyMonitor() {
     onError: () => toast.error("Failed to resolve unsigned flag."),
   });
 
-  const triggerScan = trpc.replyMonitor.triggerScan.useMutation({
-    onSuccess: async (result) => {
-      await Promise.all([
-        utils.replyMonitor.getPendingThreads.invalidate(),
-        utils.replyMonitor.getActiveVagueFlags.invalidate(),
-        utils.replyMonitor.getActiveUnsignedFlags.invalidate(),
-        utils.replyMonitor.getAllThreads.invalidate(),
-        utils.replyMonitor.getAllVagueFlags.invalidate(),
-        utils.replyMonitor.getAllUnsignedFlags.invalidate(),
-        utils.replyMonitor.getStatus.invalidate(),
-        utils.system.navigationCounts.invalidate(),
-      ]);
-      const upworkDetail = result.upworkState === "success"
-        ? `${result.upworkRoomsScanned} Upwork conversations checked.`
-        : result.upworkState === "disabled"
-          ? "Upwork monitoring is disabled."
-          : `Upwork needs attention: ${result.upworkErrorMessage ?? "no successful source scan"}`;
-      toast.success("Reply scan completed", { description: `${result.threadsScanned} Trello threads checked. ${upworkDetail}` });
-    },
-    onError: (error) => toast.error("Reply scan failed", { description: error.message }),
-  });
-
   const resolveClarification = trpc.compliance.resolveClarification.useMutation({
     onSuccess: async () => {
       setClarificationResponse("");
@@ -532,17 +509,9 @@ export default function ReplyMonitor() {
             </p>
           )}
         </div>
-        <Button
-          data-testid="reply-monitor-scan"
-          size="sm"
-          variant="outline"
-          className="h-8 text-xs"
-          onClick={() => triggerScan.mutate()}
-          disabled={triggerScan.isPending}
-        >
-          <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${triggerScan.isPending ? "animate-spin" : ""}`} />
-          {triggerScan.isPending ? "Scanning..." : "Scan Now"}
-        </Button>
+        <Badge variant="outline" className="shrink-0 text-[10px] text-muted-foreground">
+          Runs managed in Settings
+        </Badge>
       </div>
 
       {activeClarification && (

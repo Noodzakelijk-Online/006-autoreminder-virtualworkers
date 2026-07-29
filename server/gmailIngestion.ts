@@ -1,4 +1,5 @@
 import { getLatestJobRuns, runTrackedJob, type JobTrigger } from "./scheduledJobsDb";
+import { trackMaintenanceJobProgress } from "./maintenanceJobProgress";
 import { upsertEmailTask } from "./db";
 import { refreshGmailAccessToken } from "./gmailOauth";
 import { broadcast } from "./sse";
@@ -423,7 +424,12 @@ async function scheduleNextRun(delayMs?: number): Promise<void> {
     schedulerTimer = null;
     schedulerState = { ...schedulerState, nextRunAt: null };
     schedulerState = { ...schedulerState, running: true };
-    void import("./workspaceIngestion").then(({ runWorkspaceIngestion }) => runWorkspaceIngestion("cron"))
+    void import("./workspaceIngestion").then(({ runWorkspaceIngestion }) => (
+      trackMaintenanceJobProgress(
+        "workspace_ingestion",
+        (reportProgress) => runWorkspaceIngestion("cron", reportProgress),
+      )
+    ))
       .catch((error) => console.error("[WorkspaceIngestion] Scheduled run failed:", error))
       .finally(() => {
         schedulerState = { ...schedulerState, running: false };

@@ -24,11 +24,16 @@ import {
   markUpworkScanSucceeded,
   resolveSystemGeneratedUnsignedFlags,
 } from "./replyMonitorDb";
-import { runTrackedJob, type JobTrigger } from "./scheduledJobsDb";
+import { getLatestJobRuns, runTrackedJob, type JobTrigger } from "./scheduledJobsDb";
 import { broadcast } from "./sse";
 import { autoStopManagedTimers } from "./timerService";
 import { runWeeklyAnalysis as runSharedWeeklyAnalysis } from "./weeklyAnalysisService";
 import { recordBrowserTabEodEvidence } from "./browserTabHygiene";
+import {
+  trackMaintenanceJobProgress,
+  type MaintenanceJobProgressReporter,
+} from "./maintenanceJobProgress";
+import { getMaintenanceSchedules, type MaintenanceScheduleJobKey } from "./maintenanceSchedules";
 
 /**
  * Midnight auto-stop: every day at 00:00 EAT (UTC+3 = 21:00 UTC previous day).
@@ -83,7 +88,11 @@ export type EodComplianceResult = {
   recordsProcessed: number;
 };
 
-export async function runEODComplianceSnapshot(now = new Date()): Promise<EodComplianceResult> {
+export async function runEODComplianceSnapshot(
+  now = new Date(),
+  reportProgress?: MaintenanceJobProgressReporter,
+): Promise<EodComplianceResult> {
+  reportProgress?.("preflight");
   const eatOffsetMs = 3 * 60 * 60 * 1000;
   const nowEAT = new Date(now.getTime() + eatOffsetMs);
   const todayEAT = nowEAT.toISOString().slice(0, 10);
@@ -99,8 +108,10 @@ export async function runEODComplianceSnapshot(now = new Date()): Promise<EodCom
   }
   console.log(`[CronJob] Running EOD compliance snapshot for ${todayEAT}…`);
   try {
+    reportProgress?.("fact_check");
     const checked = await factCheckComplianceHistory({ dateKeys: [todayEAT], source: "auto_verified", now });
     const result = checked.results[0];
+    reportProgress?.("browser_evidence");
     const browserEvidence = await recordBrowserTabEodEvidence(now, "eod_compliance");
     const d1Instances = result.doingTotal - result.doingUpdated;
     const estimatedPenalty = d1Instances * 5;
@@ -113,6 +124,7 @@ export async function runEODComplianceSnapshot(now = new Date()): Promise<EodCom
     const combinedSummary = `${summary}; ${browserSummary}`;
     console.log(`[CronJob] EOD compliance snapshot saved: ${combinedSummary}`);
 
+    reportProgress?.("notifications");
     if (d1Instances > 0) {
       await notifyOwner({
         title: `⚠️ ${d1Instances} potential D1 exception${d1Instances > 1 ? 's' : ''} need review — ${todayEAT}`,
@@ -137,6 +149,7 @@ export async function runEODComplianceSnapshot(now = new Date()): Promise<EodCom
         ].join("\n"),
       });
     }
+    reportProgress?.("persisting");
     return {
       status: "completed",
       dateKey: todayEAT,
@@ -149,11 +162,14 @@ export async function runEODComplianceSnapshot(now = new Date()): Promise<EodCom
   }
 }
 
-export function runEodComplianceJob(trigger: JobTrigger = "manual") {
+export function runEodComplianceJob(
+  trigger: JobTrigger = "manual",
+  reportProgress?: MaintenanceJobProgressReporter,
+) {
   return runTrackedJob({
     jobKey: "eod_compliance",
     trigger,
-    run: () => runEODComplianceSnapshot(),
+    run: () => runEODComplianceSnapshot(new Date(), reportProgress),
     summarize: (result) => ({
       recordsProcessed: result.recordsProcessed,
       detail: result.detail,
@@ -239,8 +255,12 @@ async function runFridayWeeklyPaySummary() {
  */
 let replyMonitorScanInFlight: Promise<void> | null = null;
 
-export function runReplyMonitorScan(options: { sendNotifications?: boolean } = {}): Promise<void> {
+export function runReplyMonitorScan(options: {
+  sendNotifications?: boolean;
+  reportProgress?: MaintenanceJobProgressReporter;
+} = {}): Promise<void> {
   if (replyMonitorScanInFlight) return replyMonitorScanInFlight;
+  options.reportProgress?.("preflight");
   replyMonitorScanInFlight = executeReplyMonitorScan(options).finally(() => {
     replyMonitorScanInFlight = null;
   });
@@ -274,7 +294,13 @@ async function executeUpworkReplyMonitorScan(sendNotifications: boolean): Promis
   }
 }
 
-async function executeReplyMonitorScan({ sendNotifications = false }: { sendNotifications?: boolean }): Promise<void> {
+async function executeReplyMonitorScan({
+  sendNotifications = false,
+  reportProgress,
+}: {
+  sendNotifications?: boolean;
+  reportProgress?: MaintenanceJobProgressReporter;
+}): Promise<void> {
   const apiKey = process.env.TrelloAPIKey;
   const apiToken = process.env.TrelloAPIToken;
   await markReplyMonitorScanStarted();
@@ -288,8 +314,10 @@ async function executeReplyMonitorScan({ sendNotifications = false }: { sendNoti
 
   console.log("[ReplyMonitor] Starting Trello reply-thread scan…");
   try {
+    reportProgress?.("collecting");
     await resolveSystemGeneratedUnsignedFlags();
     const threads = await scanTrelloReplyThreads(apiKey, apiToken);
+    reportProgress?.("analyzing", `Evaluating ${threads.length} Trello communication threads.`);
     const newOverdueCards: string[] = [];
     const newVagueFlags: Array<{ cardName: string; cardUrl: string; text: string }> = [];
     const newUnsignedMessages: Array<{ cardName: string; cardUrl: string; text: string }> = [];
@@ -374,6 +402,7 @@ async function executeReplyMonitorScan({ sendNotifications = false }: { sendNoti
     }
 
 
+    reportProgress?.("notifications");
     await executeUpworkReplyMonitorScan(sendNotifications);
 
     if (sendNotifications && newUnsignedMessages.length > 0) {
@@ -389,6 +418,7 @@ async function executeReplyMonitorScan({ sendNotifications = false }: { sendNoti
       }).catch(() => {});
     }
 
+    reportProgress?.("persisting");
     await markReplyMonitorScanSucceeded(threads.length);
     broadcast("scan-complete");
     console.log(`[ReplyMonitor] Scan complete. ${threads.length} Trello threads scanned, ${newOverdueCards.length} newly overdue, ${newVagueFlags.length} new vague flags, ${newUnsignedMessages.length} new unsigned flags.`);
@@ -409,15 +439,68 @@ function launchTrackedCron<T>(jobKey: string, run: () => Promise<T>, summarize?:
   });
 }
 
+let configuredMaintenanceTickRunning = false;
+const maintenanceSchedulerStartedAt = Date.now();
+
+async function runConfiguredMaintenanceJob(jobKey: Exclude<MaintenanceScheduleJobKey, "workspace_ingestion">) {
+  await trackMaintenanceJobProgress(jobKey, async (reportProgress) => {
+    if (jobKey === "aptlss_maintenance") {
+      await runAptlssMaintenance("scheduled", "cron", reportProgress);
+    } else if (jobKey === "reply_monitor") {
+      await runTrackedJob({
+        jobKey,
+        trigger: "cron",
+        run: () => runReplyMonitorScan({ sendNotifications: true, reportProgress }),
+      });
+    } else if (jobKey === "eod_compliance") {
+      await runEodComplianceJob("cron", reportProgress);
+    } else {
+      await runSharedWeeklyAnalysis("cron", { force: false, notify: true, reportProgress });
+    }
+  });
+}
+
+async function runDueConfiguredMaintenanceJobs() {
+  if (configuredMaintenanceTickRunning) return;
+  configuredMaintenanceTickRunning = true;
+  try {
+    const [schedules, latestRuns] = await Promise.all([
+      getMaintenanceSchedules(),
+      getLatestJobRuns(),
+    ]);
+    const latestByJob = new Map(latestRuns.map((run) => [run.jobKey, run]));
+    const jobKeys: Array<Exclude<MaintenanceScheduleJobKey, "workspace_ingestion">> = [
+      "aptlss_maintenance",
+      "reply_monitor",
+      "eod_compliance",
+      "weekly_analysis",
+    ];
+    for (const jobKey of jobKeys) {
+      const schedule = schedules[jobKey];
+      if (!schedule.enabled) continue;
+      const latest = latestByJob.get(jobKey);
+      const dueAt = latest
+        ? new Date(latest.startedAt).getTime() + schedule.intervalMinutes * 60_000
+        : maintenanceSchedulerStartedAt + schedule.intervalMinutes * 60_000;
+      if (Date.now() < dueAt) continue;
+      void runConfiguredMaintenanceJob(jobKey).catch((error) => {
+        console.error(`[CronJob] ${jobKey} failed:`, error instanceof Error ? error.message : String(error));
+      });
+    }
+  } finally {
+    configuredMaintenanceTickRunning = false;
+  }
+}
+
 export function startCronJobs() {
-  // Hourly evidence sweep. The shared maintenance runner coalesces overlaps
-  // with manual or externally scheduled runs and performs no Trello writes.
-  cron.schedule("7 * * * *", () => {
-    void runAptlssMaintenance("scheduled", "cron").catch((error) => {
-      console.error("[CronJob] aptlss_maintenance failed:", error instanceof Error ? error.message : String(error));
+  // Evaluate the independently configured maintenance intervals once per minute.
+  // Individual runners coalesce overlapping manual and scheduled executions.
+  cron.schedule("* * * * *", () => {
+    void runDueConfiguredMaintenanceJobs().catch((error) => {
+      console.error("[CronJob] Configured maintenance evaluation failed:", error instanceof Error ? error.message : String(error));
     });
   }, { timezone: "UTC" });
-  console.log("[CronJob] Continuous APTLSS assessment scheduled (hourly at :07 UTC).");
+  console.log("[CronJob] Configurable maintenance evaluator scheduled every minute.");
 
   // 21:00 UTC = 00:00 EAT (UTC+3)
   // cron format: second minute hour day month weekday
@@ -427,15 +510,6 @@ export function startCronJobs() {
   console.log("[CronJob] Midnight auto-stop timer scheduled (21:00 UTC = 00:00 EAT).");
 
   // 20:05 UTC = 23:05 EAT — verify after the 23:00 daily update deadline.
-  cron.schedule("5 20 * * *", () => {
-    void runEodComplianceJob("cron").catch((error) => {
-      console.error("[CronJob] eod_compliance failed:", error instanceof Error ? error.message : String(error));
-    });
-  }, {
-    timezone: "UTC",
-  });
-  console.log("[CronJob] EOD compliance fact-check scheduled (20:05 UTC = 23:05 EAT).");
-
   // 18:00 UTC = 21:00 EAT — Friday weekly pay summary notification
   cron.schedule("0 18 * * 5", () => launchTrackedCron("weekly_pay_summary", runFridayWeeklyPaySummary), {
     timezone: "UTC",
@@ -443,18 +517,5 @@ export function startCronJobs() {
   console.log("[CronJob] Friday weekly pay summary scheduled (18:00 UTC = 21:00 EAT every Friday).");
 
   // Every 15 minutes so the 12-hour SLA and 30-minute freshness check agree.
-  cron.schedule("*/15 * * * *", () => launchTrackedCron("reply_monitor", () => runReplyMonitorScan({ sendNotifications: true })), {
-    timezone: "UTC",
-  });
-  console.log("[CronJob] Reply monitor scheduled every 15 minutes.");
-
   // 19:00 UTC = 22:00 EAT — Sunday weekly analysis
-  cron.schedule("0 19 * * 0", () => {
-    void runSharedWeeklyAnalysis("cron", { force: false, notify: true }).catch((error) => {
-      console.error("[CronJob] weekly_analysis failed:", error instanceof Error ? error.message : String(error));
-    });
-  }, {
-    timezone: "UTC",
-  });
-  console.log("[CronJob] Weekly analysis scheduled (19:00 UTC every Sunday = 22:00 EAT).");
 }

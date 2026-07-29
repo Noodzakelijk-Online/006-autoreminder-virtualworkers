@@ -149,22 +149,6 @@ export default function AdminMonitor() {
     },
   );
 
-  const runMaintenance = trpc.aptlss.runMaintenanceNow.useMutation({
-    onSuccess: async (result) => {
-      toast.success("Maintenance run complete", {
-        description: `${result.refreshed}/${result.total} card plans refreshed; ${result.failed} failed.`,
-      });
-      await Promise.all([
-        refetch(),
-        refetchReadiness(),
-        utils.aptlss.getRecentAuditLog.invalidate(),
-      ]);
-    },
-    onError: (err) => {
-      toast.error("Maintenance run failed", { description: err.message });
-    },
-  });
-
   const [correctionItem, setCorrectionItem] = useState<AssessmentReviewItem | null>(null);
   const [correctedState, setCorrectedState] = useState("");
   const [correctionNote, setCorrectionNote] = useState("");
@@ -253,18 +237,7 @@ export default function AdminMonitor() {
               {isFetching && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => runMaintenance.mutate()}
-                disabled={runMaintenance.isPending}
-                title="Run APTLSS maintenance now"
-              >
-                {runMaintenance.isPending ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Zap className="w-3 h-3 mr-1" />}
-                Run Maintenance
-              </Button>
-              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={refreshMonitor} disabled={runMaintenance.isPending}>
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={refreshMonitor}>
                 <RefreshCw className="w-3 h-3 mr-1" /> Refresh
               </Button>
             </div>

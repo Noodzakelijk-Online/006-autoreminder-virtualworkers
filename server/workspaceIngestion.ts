@@ -5,6 +5,7 @@ import { broadcast } from "./sse";
 import { runTrelloEvidenceIngestion, type TrelloEvidenceIngestionResult } from "./trelloEvidenceIngestion";
 import { getTrelloEvidenceMatchCards, relinkWorkspaceEvidence } from "./workspaceEvidenceDb";
 import { queueCardReassessment } from "./aptlssReassessment";
+import type { MaintenanceJobProgressReporter } from "./maintenanceJobProgress";
 
 type SourceRun<T> = {
   status: "success" | "error";
@@ -30,7 +31,11 @@ function settled<T>(result: PromiseSettledResult<T>): SourceRun<T> {
     error: result.reason instanceof Error ? result.reason.message : String(result.reason),
   };
 }
-async function executeWorkspaceIngestion(trigger: JobTrigger): Promise<WorkspaceIngestionResult> {
+async function executeWorkspaceIngestion(
+  trigger: JobTrigger,
+  reportProgress?: MaintenanceJobProgressReporter,
+): Promise<WorkspaceIngestionResult> {
+  reportProgress?.("source_sync");
   const [gmailSettled, driveSettled, trelloSettled] = await Promise.allSettled([
     runGmailIngestion(trigger),
     runGoogleDriveIngestion(trigger),
@@ -40,9 +45,11 @@ async function executeWorkspaceIngestion(trigger: JobTrigger): Promise<Workspace
   const googleDrive = settled(driveSettled);
   const trelloFull = settled(trelloSettled);
   const cards = trelloFull.result?.cards ?? await getTrelloEvidenceMatchCards();
+  reportProgress?.("linking");
   const linking = cards.length
     ? await relinkWorkspaceEvidence(cards)
     : { evidenceItems: 0, linkedItems: 0, linksCreated: 0, changedCardIds: [] };
+  reportProgress?.("analyzing");
   linking.changedCardIds.forEach((cardId) => queueCardReassessment(cardId, "evidence"));
   const trello: WorkspaceIngestionResult["trello"] = trelloFull.status === "success"
     ? {
@@ -56,15 +63,20 @@ async function executeWorkspaceIngestion(trigger: JobTrigger): Promise<Workspace
       }
     : { status: "error", result: null, error: trelloFull.error };
   const failures = [gmail, googleDrive, trello].filter((source) => source.status === "error").length;
+  reportProgress?.("persisting");
   return { gmail, googleDrive, trello, linking, failures };
 }
 
-export function runWorkspaceIngestion(trigger: JobTrigger = "manual") {
+export function runWorkspaceIngestion(
+  trigger: JobTrigger = "manual",
+  reportProgress?: MaintenanceJobProgressReporter,
+) {
   if (activeRun) return activeRun;
+  reportProgress?.("preflight");
   activeRun = runTrackedJob({
     jobKey: "workspace_ingestion",
     trigger,
-    run: () => executeWorkspaceIngestion(trigger),
+    run: () => executeWorkspaceIngestion(trigger, reportProgress),
     summarize: (result) => ({
       recordsProcessed: (result.gmail.result?.imported ?? 0)
         + (result.googleDrive.result?.indexed ?? 0)

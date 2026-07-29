@@ -49,6 +49,7 @@ import { generateAptlssPlanForCard } from "./aptlssPlanService";
 import { runTrackedJob, type JobTrigger } from "./scheduledJobsDb";
 import { broadcast } from "./sse";
 import { getAptlssExternalEvidenceByCardIds } from "./workspaceEvidenceDb";
+import type { MaintenanceJobProgressReporter } from "./maintenanceJobProgress";
 
 const CARD_FETCH_INTERVAL_MS = 450;
 let nextCardFetchAt = 0;
@@ -148,12 +149,14 @@ let maintenanceInFlight: Promise<AptlssMaintenanceResult> | null = null;
 export function runAptlssMaintenance(
   source: "scheduled" | "manual" = "scheduled",
   trigger: JobTrigger = source === "manual" ? "manual" : "cron",
+  reportProgress?: MaintenanceJobProgressReporter,
 ): Promise<AptlssMaintenanceResult> {
   if (maintenanceInFlight) return maintenanceInFlight;
+  reportProgress?.("preflight");
   maintenanceInFlight = runTrackedJob({
     jobKey: "aptlss_maintenance",
     trigger,
-    run: () => executeAptlssMaintenance(source),
+    run: () => executeAptlssMaintenance(source, reportProgress),
     summarize: (maintenance) => ({
       recordsProcessed: maintenance.total,
       detail: `${maintenance.refreshed} assessed, ${maintenance.skippedFreshCount} still fresh, ${maintenance.plansGenerated} plans generated, ${maintenance.failed} failed`,
@@ -169,13 +172,17 @@ export function runAptlssMaintenance(
   return maintenanceInFlight;
 }
 
-async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise<AptlssMaintenanceResult> {
+async function executeAptlssMaintenance(
+  source: "scheduled" | "manual",
+  reportProgress?: MaintenanceJobProgressReporter,
+): Promise<AptlssMaintenanceResult> {
     const apiKey = process.env.TrelloAPIKey;
     const apiToken = process.env.TrelloAPIToken;
     if (!apiKey || !apiToken) {
       throw new Error("Trello credentials not configured");
     }
 
+    reportProgress?.("collecting");
     const decisionFlagsRepaired = await repairRobertDecisionStepFlags();
     const intelligenceNow = Date.now();
     const [plans, liveCards, allSteps, existingStates, timeEntries, runningTimers, savedPlan, latestAssessments, assessmentCalibration, activeWaitingReasons] = await Promise.all([
@@ -258,6 +265,7 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
     // ── 1. Refresh all card states and priority scores ────────────────────────
     // Webhooks handle changed cards immediately. Scheduled runs respect each
     // assessment's next evaluation window; manual runs remain exhaustive.
+    reportProgress?.("analyzing", `Preparing to reassess ${candidates.length} active cards.`);
     const assessmentCandidates = candidates.filter((candidate) => assessmentNeedsRefresh(
       {
         ...candidate,
@@ -307,8 +315,18 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
             bottleneckScore: assessment.portfolio.bottleneckScore,
           });
           refreshed++;
+          reportProgress?.(
+            "analyzing",
+            `Reassessed ${refreshed + failed} of ${assessmentCandidates.length} stale cards.`,
+            30 + Math.floor(((refreshed + failed) / Math.max(1, assessmentCandidates.length)) * 40),
+          );
         } catch (error) {
           failed++;
+          reportProgress?.(
+            "analyzing",
+            `Reassessed ${refreshed + failed} of ${assessmentCandidates.length} stale cards.`,
+            30 + Math.floor(((refreshed + failed) / Math.max(1, assessmentCandidates.length)) * 40),
+          );
           console.error(`[APTLSS Maintenance] Assessment failed for ${candidate.cardId}:`, error instanceof Error ? error.message : String(error));
         }
       }
@@ -346,6 +364,7 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
     const lowConfidenceCount = currentCardResults.filter((result) => result.confidenceScore < 60).length;
 
     // Fill plan coverage through the same route used for on-demand generation.
+    reportProgress?.("ai_review");
     const plannedCardIds = new Set(plans.map((plan) => plan.cardId));
     const missingPlanCandidates = candidates.filter((candidate) => !plannedCardIds.has(candidate.cardId));
     const configuredPlanLimit = Math.max(1, Number(process.env.APTLSS_MAINTENANCE_PLAN_LIMIT) || 8);
@@ -532,6 +551,7 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
 
     // ── 7. [GAP 6] Refresh Robert's decision queue count ─────────────────────
     let robertQueueCount = 0;
+    reportProgress?.("persisting");
     try {
       const robertSteps = await getAllRobertDecisionSteps();
       const cardsWithRobertSteps = new Set(robertSteps.map((step) => step.cardId));
@@ -554,6 +574,7 @@ async function executeAptlssMaintenance(source: "scheduled" | "manual"): Promise
     } catch (e) {
       console.error('[APTLSS Maintenance] recordSyncAttempt failed (non-fatal):', e);
     }
+    reportProgress?.("notifications");
     return {
       success: true,
       total: candidates.length,

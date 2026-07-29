@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, Clock, Copy, ExternalLink, FolderOpen, Loader2, Mail, Play, RefreshCw, Unplug } from "lucide-react";
+import { CheckCircle2, Copy, ExternalLink, FolderOpen, Loader2, Mail, RefreshCw, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { trpc } from "@/lib/trpc";
 
 function formatRunTime(value: Date | string | null | undefined): string {
@@ -21,15 +20,6 @@ export default function GmailIngestionSettings() {
   });
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
-  const [enabled, setEnabled] = useState(false);
-  const [intervalMinutes, setIntervalMinutes] = useState(60);
-
-  useEffect(() => {
-    if (!status.data) return;
-    setEnabled(status.data.settings.enabled);
-    setIntervalMinutes(status.data.settings.intervalMinutes);
-  }, [status.data]);
-
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const result = params.get("gmail");
@@ -84,28 +74,8 @@ export default function GmailIngestionSettings() {
     onError: (error) => toast.error("Google Workspace was not disconnected", { description: error.message }),
   });
 
-  const saveSchedule = trpc.settings.setGmailIngestion.useMutation({
-    onSuccess: async ({ settings }) => {
-      await refreshOperationalData();
-      toast.success(settings.enabled ? "Workspace schedule enabled" : "Workspace schedule disabled", {
-        description: settings.enabled ? `The server will index Gmail, Drive, and Trello every ${settings.intervalMinutes} minutes.` : "Automatic workspace ingestion is stopped.",
-      });
-    },
-    onError: (error) => toast.error("Workspace schedule was not saved", { description: error.message }),
-  });
-
-  const runNow = trpc.settings.runGmailIngestion.useMutation({
-    onSuccess: async (result) => {
-      await refreshOperationalData();
-      toast.success("Workspace ingestion completed", {
-        description: `${result.gmail.result?.imported ?? 0} Gmail, ${result.googleDrive.result?.indexed ?? 0} Drive, and ${result.trello.result?.imported ?? 0} Trello records indexed; ${result.linking.linksCreated} card links.`,
-      });
-    },
-    onError: (error) => toast.error("Workspace ingestion failed", { description: error.message }),
-  });
-
   const data = status.data;
-  const busy = saveClient.isPending || beginOauth.isPending || disconnect.isPending || saveSchedule.isPending || runNow.isPending;
+  const busy = saveClient.isPending || beginOauth.isPending || disconnect.isPending;
   const canSaveClient = clientId.trim().length >= 10 && clientSecret.trim().length >= 6 && !busy;
   const callbackUrl = data?.callbackUrl ?? `${window.location.origin}/api/integrations/gmail/callback`;
 
@@ -195,31 +165,12 @@ export default function GmailIngestionSettings() {
           </div>
 
           <div className="py-5 lg:pl-5">
-            <p className="text-xs font-semibold uppercase text-muted-foreground">Internal schedule</p>
-            <div className="mt-3 flex items-center justify-between gap-4 rounded-md border border-border bg-background px-3 py-3">
-              <div>
-                <p className="text-sm font-medium text-foreground">Automatic ingestion</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">Runs only while this server is online.</p>
-              </div>
-              <Switch checked={enabled} disabled={!data.canRun || busy} onCheckedChange={setEnabled} aria-label="Enable automatic workspace ingestion" />
-            </div>
-
-            <label className="mt-3 grid gap-1.5 text-xs font-medium text-foreground">
-              Scan interval
-              <select value={intervalMinutes} disabled={!data.canRun || busy} onChange={(event) => setIntervalMinutes(Number(event.target.value))} className="h-9 rounded-md border border-input bg-background px-3 text-sm font-normal text-foreground outline-none focus:border-primary">
-                {data.intervalOptions.map((minutes) => <option key={minutes} value={minutes}>{minutes < 60 ? `${minutes} minutes` : minutes === 60 ? "Every hour" : minutes < 1_440 ? `Every ${minutes / 60} hours` : "Once a day"}</option>)}
-              </select>
-            </label>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" disabled={!data.canRun || busy} onClick={() => saveSchedule.mutate({ enabled, intervalMinutes: intervalMinutes as 5 | 15 | 30 | 60 | 120 | 240 | 720 | 1440 })}>
-                {saveSchedule.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Clock className="h-3.5 w-3.5" />}
-                Save interval
-              </Button>
-              <Button variant="outline" size="sm" disabled={!data.canRun || busy} onClick={() => runNow.mutate()}>
-                {runNow.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                Run now
-              </Button>
+            <p className="text-xs font-semibold uppercase text-muted-foreground">Maintenance ownership</p>
+            <div className="mt-3 rounded-md border border-border bg-background px-3 py-3">
+              <p className="text-sm font-medium text-foreground">Schedule and manual runs are centralized</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Use Settings &gt; Maintenance &gt; Workspace ingestion to enable automatic indexing, choose its interval, run it manually, and follow its ETA.
+              </p>
             </div>
 
             <dl className="mt-4 divide-y divide-border rounded-md border border-border bg-background text-xs">

@@ -46,6 +46,13 @@ import {
   type DailyPlanPayload,
 } from "./dailyPlan";
 import {
+  completeDailyPlanGeneration,
+  failDailyPlanGeneration,
+  getDailyPlanGenerationProgress,
+  startDailyPlanGeneration,
+  updateDailyPlanGeneration,
+} from "./dailyPlanGenerationProgress";
+import {
   logAuditAction,
   getCardAuditLog,
   getRecentAuditLog,
@@ -1706,6 +1713,11 @@ export const appRouter = router({
         };
       }),
 
+    /** Read the current server-side generation stage without starting work. */
+    getDailyPlanGenerationProgress: protectedProcedure
+      .input(z.object({ dateKey: z.string().optional() }).optional())
+      .query(({ input }) => getDailyPlanGenerationProgress(input?.dateKey ?? getEatDateKey())),
+
     /** Generate and persist a versioned daily operator plan. */
     generateDailyPlan: protectedProcedure
       .input(z.object({
@@ -1714,20 +1726,36 @@ export const appRouter = router({
         constraints: z.record(z.string(), z.unknown()).optional(),
       }).optional())
       .mutation(async ({ input }) => {
-        const autopilotLvl = await getAutopilotLevel();
-        if (autopilotLvl < 2) throw new Error(`Autopilot level ${autopilotLvl} is too low to generate daily plans. Set level >= 2 in Settings > Operational Policies.`);
-        const apiKey = process.env.TrelloAPIKey;
-        const apiToken = process.env.TrelloAPIToken;
-        if (!apiKey || !apiToken) throw new Error("Trello API credentials not configured");
-
         const dateKey = input?.dateKey ?? getEatDateKey();
-        if (!input?.force) {
-          const existing = await getSavedDailyPlan(dateKey);
-          if (existing) return existing;
+        const progress = startDailyPlanGeneration(dateKey);
+        const runId = progress.runId!;
+        try {
+          const autopilotLvl = await getAutopilotLevel();
+          if (autopilotLvl < 2) throw new Error(`Autopilot level ${autopilotLvl} is too low to generate daily plans. Set level >= 2 in Settings > Operational Policies.`);
+          const apiKey = process.env.TrelloAPIKey;
+          const apiToken = process.env.TrelloAPIToken;
+          if (!apiKey || !apiToken) throw new Error("Trello API credentials not configured");
+
+          if (!input?.force) {
+            const existing = await getSavedDailyPlan(dateKey);
+            if (existing) {
+              completeDailyPlanGeneration(dateKey, runId);
+              return existing;
+            }
+          }
+          const plan = await buildDailyPlan(
+            dateKey,
+            "manual",
+            (phase, detail) => updateDailyPlanGeneration(dateKey, runId, phase, detail),
+          );
+          updateDailyPlanGeneration(dateKey, runId, "reconciling");
+          await refreshTimeReconciliation(dateKey);
+          completeDailyPlanGeneration(dateKey, runId);
+          return plan;
+        } catch (error) {
+          failDailyPlanGeneration(dateKey, runId, error);
+          throw error;
         }
-        const plan = await buildDailyPlan(dateKey, "manual");
-        await refreshTimeReconciliation(dateKey);
-        return plan;
       }),
 
     /** Persist cockpit edits such as block status, notes, and ordering. */

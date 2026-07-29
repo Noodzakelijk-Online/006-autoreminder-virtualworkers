@@ -55,8 +55,6 @@ import {
   ChevronDown,
   ChevronUp,
   Shield,
-  RefreshCw,
-  Play,
 } from "lucide-react";
 import { CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -64,6 +62,7 @@ import { WorkQueueDashboard } from "@/components/work-queue/WorkQueueDashboard";
 import type { DashboardReadiness } from "@/lib/readiness";
 import { useOperationalEvents } from "@/hooks/useOperationalEvents";
 import { useEatClock } from "@/hooks/useEatClock";
+import MaintenanceCenter from "@/components/MaintenanceCenter";
 
 const TriagePage = lazy(() => import("./TriagePage"));
 const PlanMyDay = lazy(() => import("./PlanMyDay"));
@@ -855,7 +854,8 @@ function SettingsSection({
   readiness?: DashboardReadiness;
   readinessError?: { message: string } | null;
 }) {
-  const defaultTab = new URLSearchParams(window.location.search).has("gmail") ? "automation" : "workday";
+  const settingsQuery = new URLSearchParams(window.location.search);
+  const defaultTab = settingsQuery.has("maintenance") ? "maintenance" : settingsQuery.has("gmail") ? "automation" : "workday";
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
       <div className="border-b border-border pb-4">
@@ -865,11 +865,12 @@ function SettingsSection({
 
       <Tabs defaultValue={defaultTab} className="gap-5">
         <div className="border-b border-border">
-          <TabsList className="grid h-auto w-full grid-cols-2 rounded-none bg-transparent p-0 sm:grid-cols-5">
+          <TabsList className="grid h-auto w-full grid-cols-2 rounded-none bg-transparent p-0 sm:grid-cols-6">
             <TabsTrigger value="workday" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Workday</TabsTrigger>
             <TabsTrigger value="weekly-reset" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Weekly reset</TabsTrigger>
             <TabsTrigger value="trello" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Trello</TabsTrigger>
             <TabsTrigger value="automation" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Automation</TabsTrigger>
+            <TabsTrigger value="maintenance" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Maintenance</TabsTrigger>
             <TabsTrigger value="system" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">System</TabsTrigger>
           </TabsList>
         </div>
@@ -926,8 +927,11 @@ function SettingsSection({
           <div className="lg:col-span-2"><DefaultActionsSettings /></div>
         </TabsContent>
 
+        <TabsContent value="maintenance" className="mt-0">
+          <MaintenanceCenter />
+        </TabsContent>
+
         <TabsContent value="system" className="mt-0 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
-          <div className="lg:col-span-2"><ScheduledJobFreshnessPanel /></div>
           <SettingsStatusPanel readiness={readiness} readinessError={readinessError} />
           <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Settings className="h-4 w-4 text-primary" />Integration health</h2>
@@ -936,80 +940,6 @@ function SettingsSection({
         </TabsContent>
       </Tabs>
     </div>
-  );
-}
-
-function ScheduledJobFreshnessPanel() {
-  const { data: runs = [], isLoading, error, refetch, isFetching } = trpc.system.scheduledJobFreshness.useQuery(undefined, {
-    retry: false,
-    staleTime: 60_000,
-  });
-  const utils = trpc.useUtils();
-  const runEodCompliance = trpc.system.runEodCompliance.useMutation({
-    onSuccess: async (result) => {
-      await Promise.all([refetch(), utils.system.readiness.invalidate()]);
-      toast.success(result.status === "skipped" ? "EOD check recorded" : "EOD compliance completed", {
-        description: result.detail,
-      });
-    },
-    onError: (mutationError) => toast.error("EOD compliance failed", { description: mutationError.message }),
-  });
-  const runWeeklyAnalysis = trpc.system.runWeeklyAnalysis.useMutation({
-    onSuccess: async (result) => {
-      await Promise.all([
-        refetch(),
-        utils.system.readiness.invalidate(),
-        utils.aptlss.getLatestWeeklyAnalysis.invalidate(),
-        utils.aptlss.getWeeklyAnalysisHistory.invalidate(),
-      ]);
-      toast.success("Weekly analysis completed", { description: result.summary });
-    },
-    onError: (mutationError) => toast.error("Weekly analysis failed", { description: mutationError.message }),
-  });
-
-  return (
-    <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Clock className="h-4 w-4 text-primary" />Scheduled job freshness</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Durable proof of the latest background and external job executions.</p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" size="sm" disabled={runEodCompliance.isPending} onClick={() => runEodCompliance.mutate()}>
-            <Play className="h-3.5 w-3.5" />
-            {runEodCompliance.isPending ? "Running..." : "Run EOD"}
-          </Button>
-          <Button variant="outline" size="sm" disabled={runWeeklyAnalysis.isPending} onClick={() => runWeeklyAnalysis.mutate()}>
-            <Activity className="h-3.5 w-3.5" />
-            {runWeeklyAnalysis.isPending ? "Running..." : "Run weekly"}
-          </Button>
-          <Button variant="outline" size="icon" aria-label="Refresh scheduled job freshness" disabled={isFetching} onClick={() => void refetch()}>
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-          </Button>
-        </div>
-      </div>
-      <div className="mt-4 divide-y divide-border rounded-md border border-border bg-background">
-        {isLoading ? (
-          <p className="px-3 py-5 text-sm text-muted-foreground">Loading recorded job runs...</p>
-        ) : error ? (
-          <p className="px-3 py-5 text-sm text-red-700 dark:text-red-300">Job freshness is unavailable: {error.message}</p>
-        ) : runs.length === 0 ? (
-          <p className="px-3 py-5 text-sm text-muted-foreground">No durable job execution has been recorded yet.</p>
-        ) : runs.map((run) => (
-          <div key={run.jobKey} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-medium capitalize text-foreground">{run.jobKey.replaceAll("_", " ")}</p>
-                <Badge variant="outline" className={run.status === "success" ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-300" : run.status === "error" ? "border-red-500/30 text-red-700 dark:text-red-300" : "border-amber-500/30 text-amber-700 dark:text-amber-300"}>{run.status}</Badge>
-                <span className="text-xs text-muted-foreground">{run.trigger}</span>
-              </div>
-              <p className="mt-1 truncate text-xs text-muted-foreground">{run.detail || run.errorMessage || `${run.recordsProcessed} records processed`}</p>
-            </div>
-            <time className="text-xs text-muted-foreground" dateTime={new Date(run.startedAt).toISOString()}>{new Date(run.startedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</time>
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }
 

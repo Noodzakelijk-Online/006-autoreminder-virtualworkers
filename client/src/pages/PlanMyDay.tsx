@@ -59,6 +59,7 @@ import {
   Target,
 } from "lucide-react";
 import { useEatClock } from "@/hooks/useEatClock";
+import { OperationProgress } from "@/components/OperationProgress";
 
 export default function PlanMyDay() {
   const { dateKey, timeKey } = useEatClock();
@@ -89,12 +90,31 @@ export default function PlanMyDay() {
   const appliedAt = useMemo(() => planAppliedAt(displayPlan), [displayPlan]);
 
   const generatePlan = trpc.aptlss.generateDailyPlan.useMutation({
+    onMutate: () => {
+      void utils.aptlss.getDailyPlanGenerationProgress.invalidate({ dateKey });
+    },
     onSuccess: () => {
       toast.success("Daily plan generated");
       void utils.aptlss.getDailyPlan.invalidate({ dateKey });
+      void utils.aptlss.getDailyPlanGenerationProgress.invalidate({ dateKey });
     },
-    onError: (err) => toast.error("Planner unavailable", { description: err.message }),
+    onError: (err) => {
+      toast.error("Planner unavailable", { description: err.message });
+      void utils.aptlss.getDailyPlanGenerationProgress.invalidate({ dateKey });
+    },
   });
+  const generationProgressQuery = trpc.aptlss.getDailyPlanGenerationProgress.useQuery(
+    { dateKey },
+    {
+      retry: false,
+      staleTime: 0,
+      refetchInterval: (query) => (
+        generatePlan.isPending || query.state.data?.status === "running" ? 750 : false
+      ),
+    },
+  );
+  const generationProgress = generationProgressQuery.data;
+  const isGenerationActive = generatePlan.isPending || generationProgress?.status === "running";
 
   const prepareCardPlan = trpc.aptlss.generate.useMutation();
 
@@ -344,12 +364,21 @@ export default function PlanMyDay() {
         plan={displayPlan}
         isPreview={isPreview}
         isLoading={planQuery.isLoading}
-        isGenerating={generatePlan.isPending}
+        isGenerating={isGenerationActive}
+        generationPercent={generationProgress?.percent ?? 0}
         appliedAt={appliedAt}
         dateKey={dateKey}
         onGenerate={() => generatePlan.mutate({ dateKey, force: true })}
         onOpenControls={() => setControlsOpen(true)}
       />
+
+      {isGenerationActive && generationProgress && (
+        <OperationProgress
+          progress={generationProgress}
+          className="border-b border-primary/25 px-4 md:px-6"
+          testId="plan-generation-progress"
+        />
+      )}
 
       <div className="border-b border-border px-4 md:px-6">
         <div className="grid grid-cols-2 sm:grid-cols-5">
@@ -486,6 +515,7 @@ function PlannerHeader({
   isPreview,
   isLoading,
   isGenerating,
+  generationPercent,
   appliedAt,
   dateKey,
   onGenerate,
@@ -495,6 +525,7 @@ function PlannerHeader({
   isPreview: boolean;
   isLoading: boolean;
   isGenerating: boolean;
+  generationPercent: number;
   appliedAt: string | null;
   dateKey: string;
   onGenerate: () => void;
@@ -529,7 +560,7 @@ function PlannerHeader({
       <div className="flex flex-wrap items-center gap-2">
         <Button className="h-9 bg-primary text-white hover:bg-primary/90" onClick={onGenerate} disabled={isLoading || isGenerating || isOffDay} title={isOffDay ? "Sunday is protected; generate the next working plan on Monday" : undefined}>
           {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-          {isOffDay ? "Protected day" : isPreview ? "Generate Plan" : "Regenerate Plan"}
+          {isOffDay ? "Protected day" : isGenerating ? `Generating ${generationPercent}%` : isPreview ? "Generate Plan" : "Regenerate Plan"}
         </Button>
         <Button variant="outline" className="h-9 border-border" onClick={onOpenControls}><MoreHorizontal className="mr-2 h-4 w-4" />Day controls</Button>
       </div>
