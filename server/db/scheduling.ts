@@ -122,12 +122,14 @@ export interface BatchOperationRecord {
   userId: string;
   operationType: 're_analyze' | 'reschedule' | 'conflict_resolution' | 'optimization';
   taskIds: string[];
+  description?: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   completedTasks: number;
   failedTasks: number;
   currentTaskIndex: number;
   currentTaskName?: string;
+  estimatedTimeSeconds?: number;
   results?: Record<string, any>;
   errorLog?: string[];
   createdAt: Date;
@@ -143,16 +145,20 @@ export async function createBatchOperation(record: Omit<BatchOperationRecord, 'i
   const id = uuidv4();
   const query = `
     INSERT INTO batch_operations (
-      id, userId, operationType, taskIds, status, progress,
-      completedTasks, failedTasks, currentTaskIndex, createdAt
-    ) VALUES (?, ?, ?, ?, 'pending', 0, 0, 0, 0, NOW())
+      id, userId, operationType, description, totalTasks, status, progress,
+      completedTasks, failedTasks, currentTaskIndex, estimatedTimeSeconds,
+      parameters, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, 'pending', 0, 0, 0, 0, ?, ?, NOW(), NOW())
   `;
 
   const values = [
     id,
     record.userId,
     record.operationType,
-    JSON.stringify(record.taskIds)
+    record.description || `Batch ${record.operationType}`,
+    record.taskIds.length,
+    record.taskIds.length * 5,
+    JSON.stringify({ taskIds: record.taskIds })
   ];
 
   const connection = await pool.getConnection();
@@ -176,12 +182,7 @@ export async function getBatchOperation(jobId: string): Promise<BatchOperationRe
     const row = (rows as any[])[0];
     if (!row) return null;
 
-    return {
-      ...row,
-      taskIds: JSON.parse(row.taskIds || '[]'),
-      results: row.results ? JSON.parse(row.results) : undefined,
-      errorLog: row.errorLog ? JSON.parse(row.errorLog) : undefined
-    };
+    return mapBatchOperationRow(row);
   } finally {
     connection.release();
   }
@@ -249,15 +250,51 @@ export async function getBatchOperationHistory(userId: string, limit: number = 5
   const connection = await pool.getConnection();
   try {
     const [rows] = await connection.execute(query, [userId]);
-    return (rows as any[]).map(row => ({
-      ...row,
-      taskIds: JSON.parse(row.taskIds || '[]'),
-      results: row.results ? JSON.parse(row.results) : undefined,
-      errorLog: row.errorLog ? JSON.parse(row.errorLog) : undefined
-    }));
+    return (rows as any[]).map(mapBatchOperationRow);
   } finally {
     connection.release();
   }
+}
+
+function parseJsonObject(value: unknown): Record<string, any> | undefined {
+  if (!value) return undefined;
+  if (typeof value === 'object' && !Buffer.isBuffer(value)) {
+    return value as Record<string, any>;
+  }
+
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === 'object' ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseJsonArray(value: unknown): any[] | undefined {
+  if (!value) return undefined;
+  if (Array.isArray(value)) return value;
+
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function mapBatchOperationRow(row: any): BatchOperationRecord {
+  const parameters = parseJsonObject(row.parameters);
+  const taskIds = Array.isArray(parameters?.taskIds)
+    ? parameters.taskIds.filter((value: unknown): value is string => typeof value === 'string')
+    : [];
+
+  return {
+    ...row,
+    progress: Number(row.progress || 0),
+    taskIds,
+    results: parseJsonObject(row.results),
+    errorLog: parseJsonArray(row.errorLog),
+  };
 }
 
 // ============================================
@@ -331,7 +368,7 @@ export async function updateKeyboardShortcut(id: number, updates: Partial<Keyboa
   const pool = await getPool();
   if (!pool) throw new Error('Database not available');
 
-  const allowedFields = ['action', 'description', 'isEnabled'];
+  const allowedFields = ['shortcutKey', 'action', 'description', 'isCustom', 'isEnabled'];
   const setClauses: string[] = [];
   const values: any[] = [];
 
@@ -373,6 +410,33 @@ export async function deleteKeyboardShortcut(id: number): Promise<void> {
   } finally {
     connection.release();
   }
+}
+
+export async function upsertKeyboardShortcutForUser(
+  userId: string,
+  action: string,
+  shortcutKey: string
+): Promise<void> {
+  const shortcuts = await getKeyboardShortcuts(userId);
+  const existing = shortcuts.find(shortcut => shortcut.action === action);
+
+  if (existing) {
+    await updateKeyboardShortcut(existing.id, {
+      shortcutKey,
+      isCustom: true,
+      isEnabled: true,
+    });
+    return;
+  }
+
+  await createKeyboardShortcut({
+    userId,
+    action,
+    shortcutKey,
+    description: `Custom shortcut for ${action}`,
+    isCustom: true,
+    isEnabled: true,
+  });
 }
 
 export async function getDefaultKeyboardShortcuts(): Promise<KeyboardShortcutRecord[]> {

@@ -2,6 +2,12 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import * as schedulingDb from '../db/scheduling';
 import { batchQueueProcessor } from '../services/batch-queue-processor.js';
+import {
+  buildSchedulingMetrics,
+  normalizeHistoryLimit,
+  toBatchOperationResponse,
+  toShortcutMap,
+} from '../schedulingApi.js';
 
 const router = Router();
 
@@ -257,6 +263,11 @@ router.post('/undo/:taskId', async (req: Request, res: Response) => {
 router.get('/history/:taskId', async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
+    const userOpenId = (req as any).user?.openId;
+    if (!userOpenId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const history = await schedulingDb.getScheduleHistory(taskId);
 
     res.json({
@@ -343,11 +354,17 @@ router.post('/batch-start', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    const validOperationTypes = ['re_analyze', 'reschedule', 'conflict_resolution', 'optimization'];
+    if (!validOperationTypes.includes(operationType)) {
+      return res.status(400).json({ error: 'Invalid operation type' });
+    }
+
     // Create batch operation record
     const jobId = await schedulingDb.createBatchOperation({
       userId: userOpenId,
       operationType,
-      taskIds
+      taskIds,
+      description,
     });
 
     void batchQueueProcessor.enqueueJob(jobId, userOpenId, operationType, taskIds, {
@@ -355,14 +372,17 @@ router.post('/batch-start', async (req: Request, res: Response) => {
       parameters,
     });
 
+    const createdAt = new Date();
     res.json({
       success: true,
       jobId,
+      operationType,
       status: 'pending',
       progress: 0,
       totalTasks: taskIds.length,
       completedTasks: 0,
       failedTasks: 0,
+      createdAt,
       message: 'Batch operation started'
     });
   } catch (error) {
@@ -378,11 +398,20 @@ router.post('/batch-start', async (req: Request, res: Response) => {
 router.get('/batch/:jobId', async (req: Request, res: Response) => {
   try {
     const { jobId } = req.params;
+    const userOpenId = (req as any).user?.openId;
+    if (!userOpenId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     const liveProgress = batchQueueProcessor.getJobProgress(jobId);
     const operation = await schedulingDb.getBatchOperation(jobId);
 
     if (!operation && !liveProgress) {
       return res.status(404).json({ error: 'Batch operation not found' });
+    }
+
+    if (!operation || operation.userId !== userOpenId) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
     const elapsedSeconds = liveProgress?.elapsedSeconds
@@ -417,6 +446,92 @@ router.get('/batch/:jobId', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('[AdvancedScheduling] Error getting batch progress:', error);
     res.status(500).json({ error: 'Failed to get batch progress' });
+  }
+});
+
+/**
+ * GET /api/scheduling/batch-history
+ * Get persisted batch operations for the authenticated user.
+ */
+router.get('/batch-history', async (req: Request, res: Response) => {
+  try {
+    const userOpenId = (req as any).user?.openId;
+    if (!userOpenId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const limit = normalizeHistoryLimit(req.query.limit);
+    const operations = await schedulingDb.getBatchOperationHistory(userOpenId, limit);
+    res.json({
+      success: true,
+      operations: operations.map(toBatchOperationResponse),
+    });
+  } catch (error) {
+    console.error('[AdvancedScheduling] Error getting batch history:', error);
+    res.status(500).json({ error: 'Failed to get batch operations' });
+  }
+});
+
+/**
+ * GET /api/scheduling/shortcuts
+ * Get enabled keyboard shortcuts for the authenticated user.
+ */
+router.get('/shortcuts', async (req: Request, res: Response) => {
+  try {
+    const userOpenId = (req as any).user?.openId;
+    if (!userOpenId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const shortcuts = await schedulingDb.getKeyboardShortcuts(userOpenId);
+    res.json(toShortcutMap(shortcuts));
+  } catch (error) {
+    console.error('[AdvancedScheduling] Error getting keyboard shortcuts:', error);
+    res.status(500).json({ error: 'Failed to get keyboard shortcuts' });
+  }
+});
+
+/**
+ * POST /api/scheduling/shortcuts
+ * Save one keyboard shortcut without affecting unrelated actions.
+ */
+router.post('/shortcuts', async (req: Request, res: Response) => {
+  try {
+    const userOpenId = (req as any).user?.openId;
+    if (!userOpenId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const action = typeof req.body?.action === 'string' ? req.body.action.trim() : '';
+    const keys = typeof req.body?.keys === 'string' ? req.body.keys.trim() : '';
+    if (!action || action.length > 100 || !keys || keys.length > 50) {
+      return res.status(400).json({ error: 'Valid action and keys are required' });
+    }
+
+    await schedulingDb.upsertKeyboardShortcutForUser(userOpenId, action, keys);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[AdvancedScheduling] Error saving keyboard shortcut:', error);
+    res.status(500).json({ error: 'Failed to save keyboard shortcut' });
+  }
+});
+
+/**
+ * GET /api/scheduling/metrics
+ * Derive live scheduling metrics from persisted batch history.
+ */
+router.get('/metrics', async (req: Request, res: Response) => {
+  try {
+    const userOpenId = (req as any).user?.openId;
+    if (!userOpenId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const operations = await schedulingDb.getBatchOperationHistory(userOpenId, 200);
+    res.json(buildSchedulingMetrics(operations));
+  } catch (error) {
+    console.error('[AdvancedScheduling] Error getting scheduling metrics:', error);
+    res.status(500).json({ error: 'Failed to get performance metrics' });
   }
 });
 

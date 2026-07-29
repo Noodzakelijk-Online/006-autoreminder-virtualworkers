@@ -1,6 +1,8 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
+import { useAuth } from '@/_core/hooks/useAuth';
 
-interface BatchOperationUpdate {
+export interface BatchOperationUpdate {
   jobId: string;
   progress: number;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -18,139 +20,123 @@ interface BatchOperationUpdate {
 
 interface UseBatchOperationUpdatesOptions {
   jobId?: string;
+  jobIds?: string[];
   onUpdate?: (update: BatchOperationUpdate) => void;
   onError?: (error: Error) => void;
-  onComplete?: (result: any) => void;
+  onComplete?: (result: BatchOperationUpdate) => void;
   autoReconnect?: boolean;
   reconnectInterval?: number;
   maxReconnectAttempts?: number;
 }
 
-export const useBatchOperationUpdates = (options: UseBatchOperationUpdatesOptions = {}) => {
+const EVENTS = [
+  'batch:progress',
+  'batch:paused',
+  'batch:resumed',
+  'batch:complete',
+  'batch:failed',
+  'batch:cancelled',
+] as const;
+
+export const useBatchOperationUpdates = (
+  options: UseBatchOperationUpdatesOptions = {}
+) => {
   const {
     jobId,
-    onUpdate,
-    onError,
-    onComplete,
+    jobIds = [],
     autoReconnect = true,
     reconnectInterval = 3000,
-    maxReconnectAttempts = 5
+    maxReconnectAttempts = 5,
   } = options;
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectAttemptsRef = useRef(0);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const { user } = useAuth();
+  const socketRef = useRef<Socket | null>(null);
+  const callbacksRef = useRef(options);
+  const trackedJobsRef = useRef<Set<string>>(new Set());
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const connect = useCallback(() => {
-    if (!jobId) return;
-
-    try {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/scheduling/batch/${jobId}/updates`;
-      
-      const ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        console.log(`[BatchOperationUpdates] Connected to job ${jobId}`);
-        setIsConnected(true);
-        setError(null);
-        reconnectAttemptsRef.current = 0;
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const update = JSON.parse(event.data) as BatchOperationUpdate;
-          
-          // Call the update callback
-          onUpdate?.(update);
-
-          // Call complete callback if operation finished
-          if (update.status === 'completed' || update.status === 'failed' || update.status === 'cancelled') {
-            onComplete?.(update);
-          }
-        } catch (err) {
-          console.error('[BatchOperationUpdates] Failed to parse message:', err);
-          const parseError = new Error(`Failed to parse batch operation update: ${err}`);
-          setError(parseError);
-          onError?.(parseError);
-        }
-      };
-
-      ws.onerror = (event) => {
-        console.error('[BatchOperationUpdates] WebSocket error:', event);
-        const wsError = new Error('WebSocket connection error');
-        setError(wsError);
-        onError?.(wsError);
-        setIsConnected(false);
-      };
-
-      ws.onclose = () => {
-        console.log(`[BatchOperationUpdates] Disconnected from job ${jobId}`);
-        setIsConnected(false);
-
-        // Attempt to reconnect if enabled
-        if (autoReconnect && reconnectAttemptsRef.current < maxReconnectAttempts) {
-          reconnectAttemptsRef.current += 1;
-          console.log(
-            `[BatchOperationUpdates] Attempting to reconnect (${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`
-          );
-          
-          reconnectTimeoutRef.current = setTimeout(() => {
-            connect();
-          }, reconnectInterval);
-        } else if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-          const maxAttemptsError = new Error('Max reconnection attempts reached');
-          setError(maxAttemptsError);
-          onError?.(maxAttemptsError);
-        }
-      };
-
-      wsRef.current = ws;
-    } catch (err) {
-      const connectError = err instanceof Error ? err : new Error(String(err));
-      console.error('[BatchOperationUpdates] Connection error:', connectError);
-      setError(connectError);
-      onError?.(connectError);
-    }
-  }, [jobId, onUpdate, onError, onComplete, autoReconnect, reconnectInterval, maxReconnectAttempts]);
-
-  const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    setIsConnected(false);
-  }, []);
-
-  const reconnect = useCallback(() => {
-    disconnect();
-    reconnectAttemptsRef.current = 0;
-    connect();
-  }, [connect, disconnect]);
+  callbacksRef.current = options;
+  trackedJobsRef.current = new Set(
+    [jobId, ...jobIds].filter((value): value is string => Boolean(value))
+  );
+  const hasTrackedJobs = trackedJobsRef.current.size > 0;
 
   useEffect(() => {
-    if (jobId) {
-      connect();
-    }
+    if (!hasTrackedJobs || !user?.id || !user?.openId) return;
+
+    const socket = io({
+      path: '/ws',
+      transports: ['websocket', 'polling'],
+      reconnection: autoReconnect,
+      reconnectionDelay: reconnectInterval,
+      reconnectionDelayMax: Math.max(reconnectInterval, 15000),
+      reconnectionAttempts: maxReconnectAttempts,
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+      setError(null);
+      socket.emit('authenticate', {
+        userId: user.id,
+        userOpenId: user.openId,
+      });
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    socket.on('connect_error', (value: Error) => {
+      setError(value);
+      callbacksRef.current.onError?.(value);
+    });
+
+    const handleUpdate = (rawUpdate: BatchOperationUpdate & { elapsedSeconds?: number }) => {
+      if (!rawUpdate?.jobId || !trackedJobsRef.current.has(rawUpdate.jobId)) return;
+
+      const update: BatchOperationUpdate = {
+        ...rawUpdate,
+        elapsedTimeSeconds: rawUpdate.elapsedTimeSeconds ?? rawUpdate.elapsedSeconds,
+      };
+      callbacksRef.current.onUpdate?.(update);
+      if (['completed', 'failed', 'cancelled'].includes(update.status)) {
+        callbacksRef.current.onComplete?.(update);
+      }
+    };
+
+    EVENTS.forEach(event => socket.on(event, handleUpdate));
 
     return () => {
-      disconnect();
+      EVENTS.forEach(event => socket.off(event, handleUpdate));
+      socket.disconnect();
+      socketRef.current = null;
+      setIsConnected(false);
     };
-  }, [jobId, connect, disconnect]);
+  }, [
+    autoReconnect,
+    hasTrackedJobs,
+    maxReconnectAttempts,
+    reconnectInterval,
+    user?.id,
+    user?.openId,
+  ]);
+
+  const disconnect = () => {
+    socketRef.current?.disconnect();
+    socketRef.current = null;
+    setIsConnected(false);
+  };
+
+  const reconnect = () => {
+    socketRef.current?.connect();
+  };
 
   return {
     isConnected,
     error,
     reconnect,
-    disconnect
+    disconnect,
   };
 };
 

@@ -197,14 +197,14 @@ export const useBatchOperations = (options: UseBatchOperationsOptions = {}) => {
     return () => clearInterval(interval);
   }, [autoLoad, pollInterval, loadOperations]);
 
-  // Set up WebSocket listeners for running operations
-  const runningOps = operations.filter(op => op.status === 'running');
-  runningOps.forEach(op => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    useBatchOperationUpdates({
-      jobId: op.jobId,
-      onUpdate: updateOperationProgress,
-    });
+  // One stable Socket.IO subscription handles all active jobs. Polling remains
+  // as a durable fallback when real-time transport is unavailable.
+  const activeJobIds = operations
+    .filter(op => op.status === 'pending' || op.status === 'running')
+    .map(op => op.jobId);
+  useBatchOperationUpdates({
+    jobIds: activeJobIds,
+    onUpdate: updateOperationProgress,
   });
 
   return {
