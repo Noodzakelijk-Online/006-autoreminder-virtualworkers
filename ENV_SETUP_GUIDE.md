@@ -127,7 +127,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 **Example:**
 ```env
-JWT_SECRET=a7f3k9m2x8q1w5r4t6y9u2i3o4p5l6k7
+JWT_SECRET=<generate-a-unique-random-secret>
 ```
 
 ---
