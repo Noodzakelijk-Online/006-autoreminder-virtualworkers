@@ -318,14 +318,6 @@ function makeOffDayBlock(dateKey: string, constraints: DailyPlanPayload["constra
   };
 }
 
-function isUntrustedGeneratedBreakBlock(
-  block: Pick<DailyPlanBlock, "cardId" | "cardName"> & Partial<Pick<DailyPlanBlock, "action" | "listName" | "state" | "flags">>,
-) {
-  if (block.cardId || block.flags?.includes("Protected") || block.state === "OFF_DAY") return false;
-  const text = [block.cardName, block.action, block.listName].filter(Boolean).join(" ").toLowerCase();
-  return /\b(break|breakfast|lunch|dinner|meal)\b/.test(text);
-}
-
 function isProtectedBreakBlock(block: Pick<DailyPlanBlock, "cardId" | "cardName"> & { flags?: string[] }) {
   const name = block.cardName.toLowerCase();
   return !block.cardId && (block.flags?.includes("Protected") || name.includes("lunch") || name.includes("buffer"));
@@ -368,14 +360,6 @@ function normalizeBlocks(
   const blocks: DailyPlanBlock[] = [];
   for (let index = 0; index < source.length; index += 1) {
     const item = source[index];
-    if (isUntrustedGeneratedBreakBlock({
-      cardId: item.cardId ?? null,
-      cardName: item.cardName ?? "",
-      action: item.action,
-      listName: item.listName,
-      state: item.state,
-      flags: item.flags,
-    })) continue;
     const itemEnd = timeToMinutes(item.endTime);
     if (!item.cardId && item.state === "ROUTINE" && itemEnd !== null && itemEnd <= workStart) continue;
     const summary = item.cardId ? summaryByCard.get(item.cardId) : undefined;
@@ -873,7 +857,7 @@ export function parseDailyPlanPayload(raw: string | null | undefined, dateKey?: 
         })
       : {
           ...payload,
-          blocks: orderSavedPlannedBlocks(payload.blocks.filter((block) => !isUntrustedGeneratedBreakBlock(block))),
+          blocks: orderSavedPlannedBlocks(payload.blocks),
           planHealth: {
             ...payload.planHealth,
             source: payload.planHealth?.source ?? "legacy",

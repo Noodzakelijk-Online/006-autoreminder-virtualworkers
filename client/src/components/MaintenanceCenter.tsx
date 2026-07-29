@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, ChevronDown, ChevronRight, Clock, Loader2, Play, RefreshCw, Save } from "lucide-react";
+import { Activity, Clock, Loader2, Play, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -55,10 +55,6 @@ export default function MaintenanceCenter() {
   });
   const [drafts, setDrafts] = useState<DraftSchedule>({});
   const [now, setNow] = useState(() => Date.now());
-  const [expandedCategories, setExpandedCategories] = useState(
-    () => new Set<string>(["Intelligence", "Communication", "Accountability"]),
-  );
-  const [expandedJobs, setExpandedJobs] = useState(() => new Set<string>());
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -71,37 +67,7 @@ export default function MaintenanceCenter() {
       job.jobKey,
       current[job.jobKey] ?? job.schedule,
     ])));
-    const runningJobs = center.data.jobs.filter((job) => job.progress.status === "running");
-    if (runningJobs.length === 0) return;
-    setExpandedCategories((current) => {
-      const next = new Set(current);
-      runningJobs.forEach((job) => next.add(job.category));
-      return next.size === current.size ? current : next;
-    });
-    setExpandedJobs((current) => {
-      const next = new Set(current);
-      runningJobs.forEach((job) => next.add(job.jobKey));
-      return next.size === current.size ? current : next;
-    });
   }, [center.data]);
-
-  const toggleCategory = (category: string) => {
-    setExpandedCategories((current) => {
-      const next = new Set(current);
-      if (next.has(category)) next.delete(category);
-      else next.add(category);
-      return next;
-    });
-  };
-
-  const toggleJob = (jobKey: string) => {
-    setExpandedJobs((current) => {
-      const next = new Set(current);
-      if (next.has(jobKey)) next.delete(jobKey);
-      else next.add(jobKey);
-      return next;
-    });
-  };
 
   const refreshAfterRun = async () => {
     await Promise.all([
@@ -172,151 +138,106 @@ export default function MaintenanceCenter() {
         </p>
       ) : (
         <div className="divide-y divide-border">
-          {categories.map(({ category, jobs }) => {
-            if (jobs.length === 0) return null;
-            const categoryExpanded = expandedCategories.has(category);
-            const runningCount = jobs.filter((job) => job.progress.status === "running").length;
-            return (
-              <div key={category} className="px-5 py-4">
-                <section className="overflow-hidden rounded-md border border-border bg-background">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
-                    aria-expanded={categoryExpanded}
-                    aria-controls={`maintenance-category-${category.toLowerCase()}`}
-                    onClick={() => toggleCategory(category)}
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      {categoryExpanded
-                        ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                      <span className="text-xs font-semibold uppercase text-foreground">{category}</span>
-                      <Badge variant="outline" className="text-[10px] text-muted-foreground">{jobs.length}</Badge>
-                    </span>
-                    {runningCount > 0 && <Badge className="border-0 bg-primary/10 text-primary">{runningCount} running</Badge>}
-                  </button>
-
-                  {categoryExpanded && (
-                    <div id={`maintenance-category-${category.toLowerCase()}`} className="divide-y divide-border border-t border-border">
-                      {jobs.map((job) => {
-                        const draft = drafts[job.jobKey] ?? job.schedule;
-                        const running = job.progress.status === "running";
-                        const jobExpanded = expandedJobs.has(job.jobKey);
-                        const savingThis = saveSchedule.isPending && saveSchedule.variables?.jobKey === job.jobKey;
-                        const runningThis = runJob.isPending && runJob.variables?.jobKey === job.jobKey;
-                        const changed = draft.enabled !== job.schedule.enabled
-                          || draft.intervalMinutes !== job.schedule.intervalMinutes;
-                        return (
-                          <div key={job.jobKey} className="min-w-0">
-                            <div className="flex items-center gap-2 px-4 py-3">
-                              <button
-                                type="button"
-                                className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-left"
-                                aria-expanded={jobExpanded}
-                                aria-controls={`maintenance-job-${job.jobKey}`}
-                                onClick={() => toggleJob(job.jobKey)}
-                              >
-                                {jobExpanded
-                                  ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                                  : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                                <span className="text-sm font-semibold text-foreground">{job.title}</span>
-                                <Badge variant="outline" className={job.schedule.enabled ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}>
-                                  {job.schedule.enabled ? "Automatic" : "Manual only"}
-                                </Badge>
-                                {running && <Badge className="border-0 bg-primary/10 text-primary">Running {job.progress.percent}%</Badge>}
-                                <span className="ml-auto text-[11px] text-muted-foreground" title={draft.enabled ? formatDateTime(job.nextRunAt) : undefined}>
-                                  Next: {draft.enabled ? formatTimeUntil(job.nextRunAt, now) : "Disabled"}
-                                </span>
-                              </button>
-                              <InfoTooltip content={job.detail} side="right" maxWidth={340} />
-                            </div>
-
-                            {jobExpanded && (
-                              <div id={`maintenance-job-${job.jobKey}`} className="border-t border-border">
-                                <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,auto)] lg:items-center">
-                                  <div className="min-w-0">
-                                    <p className="text-xs leading-relaxed text-muted-foreground">{job.description}</p>
-                                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-                                      <span>Last: {formatDateTime(job.latestRun?.startedAt)}</span>
-                                      <span>Duration: {formatDuration(job.latestRun?.durationMs ?? job.typicalDurationMs)}</span>
-                                    </div>
-                                  </div>
-                                  <div className="grid gap-2 sm:grid-cols-[auto_minmax(150px,1fr)_auto_auto] sm:items-center">
-                                    <div className="flex items-center gap-2">
-                                      <Switch
-                                        checked={draft.enabled}
-                                        disabled={savingThis || running}
-                                        onCheckedChange={(enabled) => setDrafts((current) => ({
-                                          ...current,
-                                          [job.jobKey]: { ...draft, enabled },
-                                        }))}
-                                        aria-label={`Enable automatic ${job.title}`}
-                                      />
-                                      <span className="text-xs text-muted-foreground">Auto</span>
-                                    </div>
-                                    <label className="sr-only" htmlFor={`maintenance-interval-${job.jobKey}`}>Interval for {job.title}</label>
-                                    <select
-                                      id={`maintenance-interval-${job.jobKey}`}
-                                      value={draft.intervalMinutes}
-                                      disabled={savingThis || running}
-                                      onChange={(event) => setDrafts((current) => ({
-                                        ...current,
-                                        [job.jobKey]: { ...draft, intervalMinutes: Number(event.target.value) },
-                                      }))}
-                                      className="h-9 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-primary"
-                                    >
-                                      {job.intervalOptions.map((minutes) => (
-                                        <option key={minutes} value={minutes}>{intervalLabel(minutes)}</option>
-                                      ))}
-                                    </select>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      disabled={!changed || savingThis || running}
-                                      onClick={() => saveSchedule.mutate({
-                                        jobKey: job.jobKey,
-                                        enabled: draft.enabled,
-                                        intervalMinutes: draft.intervalMinutes,
-                                      })}
-                                      title="Save this job's automatic interval"
-                                    >
-                                      {savingThis ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                                      Save
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      disabled={running || runJob.isPending}
-                                      onClick={() => {
-                                        setExpandedJobs((current) => new Set(current).add(job.jobKey));
-                                        runJob.mutate({ jobKey: job.jobKey });
-                                      }}
-                                    >
-                                      {runningThis || running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                                      {running
-                                        ? `${job.progress.percent}% - ${job.progress.etaUpperSeconds == null ? "estimating" : `${formatEtaDuration(job.progress.etaUpperSeconds)} left`}`
-                                        : "Run now"}
-                                    </Button>
-                                  </div>
-                                </div>
-                                {running && (
-                                  <OperationProgress
-                                    progress={job.progress}
-                                    name={job.title}
-                                    className="border-t border-primary/20"
-                                    testId={`maintenance-progress-${job.jobKey}`}
-                                  />
-                                )}
-                              </div>
-                            )}
+          {categories.map(({ category, jobs }) => jobs.length > 0 && (
+            <div key={category} className="px-5 py-4">
+              <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{category}</p>
+              <div className="divide-y divide-border rounded-md border border-border bg-background">
+                {jobs.map((job) => {
+                  const draft = drafts[job.jobKey] ?? job.schedule;
+                  const running = job.progress.status === "running";
+                  const savingThis = saveSchedule.isPending && saveSchedule.variables?.jobKey === job.jobKey;
+                  const runningThis = runJob.isPending && runJob.variables?.jobKey === job.jobKey;
+                  const changed = draft.enabled !== job.schedule.enabled
+                    || draft.intervalMinutes !== job.schedule.intervalMinutes;
+                  return (
+                    <div key={job.jobKey} className="min-w-0">
+                      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,auto)] lg:items-center">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-foreground">{job.title}</p>
+                            <InfoTooltip content={job.detail} side="right" maxWidth={340} />
+                            <Badge variant="outline" className={job.schedule.enabled ? "border-emerald-500/30 text-emerald-700 dark:text-emerald-300" : "text-muted-foreground"}>
+                              {job.schedule.enabled ? "Automatic" : "Manual only"}
+                            </Badge>
+                            {running && <Badge className="border-0 bg-primary/10 text-primary">Running {job.progress.percent}%</Badge>}
                           </div>
-                        );
-                      })}
+                          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{job.description}</p>
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+                            <span>Last: {formatDateTime(job.latestRun?.startedAt)}</span>
+                            <span>Duration: {formatDuration(job.latestRun?.durationMs ?? job.typicalDurationMs)}</span>
+                            <span title={draft.enabled ? formatDateTime(job.nextRunAt) : undefined}>
+                              Next: {draft.enabled ? formatTimeUntil(job.nextRunAt, now) : "Disabled"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-[auto_minmax(150px,1fr)_auto_auto] sm:items-center">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={draft.enabled}
+                              disabled={savingThis || running}
+                              onCheckedChange={(enabled) => setDrafts((current) => ({
+                                ...current,
+                                [job.jobKey]: { ...draft, enabled },
+                              }))}
+                              aria-label={`Enable automatic ${job.title}`}
+                            />
+                            <span className="text-xs text-muted-foreground">Auto</span>
+                          </div>
+                          <label className="sr-only" htmlFor={`maintenance-interval-${job.jobKey}`}>Interval for {job.title}</label>
+                          <select
+                            id={`maintenance-interval-${job.jobKey}`}
+                            value={draft.intervalMinutes}
+                            disabled={savingThis || running}
+                            onChange={(event) => setDrafts((current) => ({
+                              ...current,
+                              [job.jobKey]: { ...draft, intervalMinutes: Number(event.target.value) },
+                            }))}
+                            className="h-9 rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-primary"
+                          >
+                            {job.intervalOptions.map((minutes) => (
+                              <option key={minutes} value={minutes}>{intervalLabel(minutes)}</option>
+                            ))}
+                          </select>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={!changed || savingThis || running}
+                            onClick={() => saveSchedule.mutate({
+                              jobKey: job.jobKey,
+                              enabled: draft.enabled,
+                              intervalMinutes: draft.intervalMinutes,
+                            })}
+                            title="Save this job's automatic interval"
+                          >
+                            {savingThis ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                            Save
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={running || runJob.isPending}
+                            onClick={() => runJob.mutate({ jobKey: job.jobKey })}
+                          >
+                            {runningThis || running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                            {running
+                              ? `${job.progress.percent}% · ${job.progress.etaUpperSeconds == null ? "estimating" : `${formatEtaDuration(job.progress.etaUpperSeconds)} left`}`
+                              : "Run now"}
+                          </Button>
+                        </div>
+                      </div>
+                      {running && (
+                        <OperationProgress
+                          progress={job.progress}
+                          name={job.title}
+                          className="border-t border-primary/20"
+                          testId={`maintenance-progress-${job.jobKey}`}
+                        />
+                      )}
                     </div>
-                  )}
-                </section>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
 
