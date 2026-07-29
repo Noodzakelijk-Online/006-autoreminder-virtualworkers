@@ -46,6 +46,31 @@ export type MaintenanceJobProgress = {
   errorMessage: string | null;
 };
 
+export function calibrateMaintenanceProgressEta(
+  progress: MaintenanceJobProgress,
+  averageDurationMs: number | null,
+): MaintenanceJobProgress {
+  if (
+    progress.status !== "running"
+    || averageDurationMs == null
+    || !Number.isFinite(averageDurationMs)
+    || averageDurationMs <= 0
+  ) {
+    return progress;
+  }
+
+  const historicalSeconds = Math.max(1, Math.round(averageDurationMs / 1_000));
+  const lowerCompletionSeconds = Math.max(1, Math.round(historicalSeconds * 0.75));
+  const upperCompletionSeconds = Math.max(lowerCompletionSeconds, Math.round(historicalSeconds * 1.25));
+
+  return {
+    ...progress,
+    etaLowerSeconds: Math.max(0, lowerCompletionSeconds - progress.elapsedSeconds),
+    etaUpperSeconds: Math.max(0, upperCompletionSeconds - progress.elapsedSeconds),
+    isTakingLongerThanExpected: progress.elapsedSeconds > upperCompletionSeconds,
+  };
+}
+
 type PhaseDefinition = {
   percent: number;
   step: number;
