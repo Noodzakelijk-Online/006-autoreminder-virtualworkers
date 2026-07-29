@@ -198,6 +198,96 @@ describe("daily plan normalization", () => {
     expect(workBlocks).toHaveLength(2);
     expect(minutes(workBlocks[1].startTime)).toBeGreaterThanOrEqual(minutes(workBlocks[0].endTime));
   });
+
+  it("does not move a planner-invented breakfast break into an evening slot", () => {
+    const payload = parseDailyPlanPayload(
+      JSON.stringify({
+        schedule: [
+          {
+            time: "21:00",
+            startTime: "21:00",
+            endTime: "22:00",
+            cardId: "evening-card",
+            cardName: "Evening client review",
+            action: "Review the client response",
+            priority: "High",
+            notes: "",
+          },
+          {
+            time: "22:00",
+            startTime: "22:00",
+            endTime: "22:30",
+            cardId: null,
+            cardName: "Breakfast Break",
+            action: "Break",
+            priority: "Medium",
+            notes: "Scheduled breakfast break.",
+          },
+        ],
+      }),
+      "2026-07-04",
+    );
+
+    expect(payload?.blocks.some((block) => block.cardName === "Breakfast Break")).toBe(false);
+    expect(payload?.blocks.some((block) => block.cardId === "evening-card")).toBe(true);
+  });
+
+  it("removes the same invalid break from an already saved cockpit plan", () => {
+    const payload = parseDailyPlanPayload(JSON.stringify({
+      version: 1,
+      dateKey: "2026-07-29",
+      generatedAt: "2026-07-29T16:46:00.000Z",
+      generatedBy: "manual",
+      blocks: [
+        {
+          id: "bad-break",
+          startTime: "22:00",
+          endTime: "22:30",
+          cardId: null,
+          cardName: "Breakfast Break",
+          cardUrl: null,
+          boardName: "Routine",
+          listName: "Unknown list",
+          action: "Break",
+          stepIds: [],
+          priority: "Medium",
+          score: 0,
+          state: "READY_TO_WORK",
+          status: "planned",
+          notes: "Scheduled breakfast break.",
+          flags: [],
+        },
+        {
+          id: "protected-dinner",
+          startTime: "19:15",
+          endTime: "20:45",
+          cardId: null,
+          cardName: "Dinner",
+          cardUrl: null,
+          boardName: "Routine",
+          listName: "Protected time",
+          action: "Step away from desk",
+          stepIds: [],
+          priority: "Low",
+          score: 0,
+          state: "ROUTINE",
+          status: "planned",
+          notes: "Protected schedule block",
+          flags: ["Protected"],
+        },
+      ],
+      totalScheduledMinutes: 0,
+      dailySummary: "Plan",
+      topPriority: "Plan",
+      robertItems: [],
+      unscheduledCards: [],
+      planHealth: { workloadMinutes: 0, focusMinutes: 0, bufferMinutes: 0, overlaps: 0, gaps: 0, confidence: 80, status: "good" },
+      constraints: { timezone: "EAT", workStart: "08:00", workEnd: "23:00", isWorkday: true, dayType: "workday", breaks: [] },
+      audit: [],
+    }));
+
+    expect(payload?.blocks.map((block) => block.cardName)).toEqual(["Dinner"]);
+  });
 });
 
 describe("live Trello daily plan fallback", () => {
