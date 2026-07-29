@@ -18,6 +18,7 @@ import RobertDashboard from "./pages/manus/RobertDashboard";
 import PriorityCommandCenter from "./pages/manus/PriorityCommandCenter";
 import AdminMonitor from "./pages/manus/AdminMonitor";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import JoyceWorkControl from "./pages/worker/JoyceWorkControl";
 
 
 function Router() {
@@ -37,7 +38,11 @@ function Router() {
         <Route path={"/robert"} component={() => <ProtectedRoute component={RobertDashboard} allowedRoles={["admin"]} />} />
         <Route path={"/command-center"} component={() => <ProtectedRoute component={PriorityCommandCenter} allowedRoles={["admin"]} />} />
         <Route path={"/admin"} component={() => <ProtectedRoute component={AdminMonitor} allowedRoles={["admin"]} />} />
-        <Route path={"/worker"} component={() => <ProtectedRoute component={WorkerDashboard} allowedRoles={["worker"]} />} />
+        <Route path={"/worker/operations"} component={() => <ProtectedRoute component={WorkerDashboard} allowedRoles={["worker"]} />} />
+        <Route path={"/worker/plan"} component={() => <ProtectedRoute component={() => <JoyceWorkControl view="plan" />} allowedRoles={["worker"]} />} />
+        <Route path={"/worker/decisions"} component={() => <ProtectedRoute component={() => <JoyceWorkControl view="decisions" />} allowedRoles={["worker"]} />} />
+        <Route path={"/worker/evidence"} component={() => <ProtectedRoute component={() => <JoyceWorkControl view="evidence" />} allowedRoles={["worker"]} />} />
+        <Route path={"/worker"} component={() => <ProtectedRoute component={JoyceWorkControl} allowedRoles={["worker"]} />} />
         <Route path={"/404"} component={NotFound} />
         {/* Final fallback route */}
         <Route component={NotFound} />
@@ -55,8 +60,8 @@ function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider
-        defaultTheme="light"
-        // switchable
+        defaultTheme="dark"
+        switchable
       >
         <LoadingQueueProvider>
           <TooltipProvider>

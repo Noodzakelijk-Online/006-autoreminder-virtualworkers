@@ -257,6 +257,43 @@ function ComplianceTrendChip() {
 }
 
 // ─── Trello Comment Token Settings ──────────────────────────────────────────
+function useTrelloClientKey() {
+  const [clientApiKey, setClientApiKey] = useState("");
+
+  useEffect(() => {
+    fetch("/api/auth/trello/client-key")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.apiKey) setClientApiKey(data.apiKey);
+      })
+      .catch(err => console.error("Failed to load Trello client key:", err));
+  }, []);
+
+  return clientApiKey;
+}
+
+function TrelloClientKeyCopyField() {
+  const clientApiKey = useTrelloClientKey();
+
+  if (!clientApiKey) {
+    return (
+      <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        Configure <code>TRELLO_API_KEY</code> on the server before completing this step.
+      </p>
+    );
+  }
+
+  return (
+    <code
+      className="block cursor-pointer select-all break-all rounded border border-border bg-background px-2 py-1.5 text-xs text-amber-400 transition-colors hover:border-amber-500/50"
+      onClick={() => { void navigator.clipboard.writeText(clientApiKey); }}
+      title="Click to copy"
+    >
+      {clientApiKey}
+    </code>
+  );
+}
+
 function TrelloCommentTokenSettings() {
   const { data: tokenData, refetch } = trpc.trello.getCommentToken.useQuery(undefined, {
     // Token rarely changes; 5-min stale time (was 30 s). Mutation already calls refetch() on save.
@@ -274,16 +311,7 @@ function TrelloCommentTokenSettings() {
 
   const [tokenInput, setTokenInput] = useState("");
   const [isEditing, setIsEditing] = useState(false);
-  const [clientApiKey, setClientApiKey] = useState("");
-
-  useEffect(() => {
-    fetch("/api/auth/trello/client-key")
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data?.apiKey) setClientApiKey(data.apiKey);
-      })
-      .catch(err => console.error("Failed to load Trello client key:", err));
-  }, []);
+  const clientApiKey = useTrelloClientKey();
 
   const handleSave = () => {
     const trimmed = tokenInput.trim();
@@ -323,14 +351,20 @@ function TrelloCommentTokenSettings() {
 
       <p className="text-xs text-muted-foreground mb-4">
         To get Worker's token: go to{" "}
-        <a
-          href={`https://trello.com/1/authorize?expiration=never&scope=read,write&response_type=token&key=${clientApiKey || '080b27d4a815fa368e0a5f004dca9718'}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-500 hover:underline"
-        >
-          this Trello authorization page
-        </a>
+        {clientApiKey ? (
+          <a
+            href={`https://trello.com/1/authorize?expiration=never&scope=read,write&response_type=token&key=${encodeURIComponent(clientApiKey)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-500 hover:underline"
+          >
+            this Trello authorization page
+          </a>
+        ) : (
+          <span className="font-medium text-amber-600 dark:text-amber-300">
+            the authorization page after the server API key is configured
+          </span>
+        )}
         {" "}while logged in as Worker, click <strong>Allow</strong>, and paste the token below.
       </p>
       <div className="flex items-center gap-3 mb-4">
@@ -1683,13 +1717,7 @@ function HomeInner() {
                       {window.location.origin}/powerup/index.html
                     </code>
                     <p className="text-xs text-muted-foreground mt-2 mb-1.5">In the <em>API Key</em> field, paste (click to copy):</p>
-                    <code
-                      className="block text-xs bg-background border border-border rounded px-2 py-1.5 text-amber-400 break-all select-all cursor-pointer hover:border-amber-500/50 transition-colors"
-                      onClick={() => { navigator.clipboard.writeText('080b27d4a815fa368e0a5f004dca9718'); }}
-                      title="Click to copy"
-                    >
-                      080b27d4a815fa368e0a5f004dca9718
-                    </code>
+                    <TrelloClientKeyCopyField />
                   </div>
                   <div className="bg-muted/40 rounded-lg p-3">
                     <p className="text-xs font-semibold text-foreground mb-1">Step 3 — Enable on your boards</p>

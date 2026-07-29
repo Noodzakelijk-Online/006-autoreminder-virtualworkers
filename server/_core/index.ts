@@ -40,8 +40,10 @@ import { warmUpCache, scheduleCacheRefresh } from "../services/cache-warming.js"
 import { initializeRedis, closeRedis } from "../services/redis.js";
 import { startBriefingScheduler } from "../services/briefing-scheduler.js";
 import { startManusScheduler } from "../services/manus-scheduler.js";
-import { apiRateLimiter, authRateLimiter, aptlssRateLimiter, atisRateLimiter } from "../middleware/rate-limiter.js";
+import { apiRateLimiter, authRateLimiter, aptlssGenerationRateLimiter } from "../middleware/rate-limiter.js";
 import { log } from "../utils/logger.js";
+import { registerBrowserTabRoutes } from "../browserTabRoutes.js";
+import { assertLocalAuthBypassConfiguration } from "./localAuthBypass.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -132,6 +134,7 @@ function concurrencyLimiter(
 }
 
 async function startServer() {
+  assertLocalAuthBypassConfiguration();
   const app = express();
   app.set("trust proxy", true);
   const server = createServer(app);
@@ -142,7 +145,10 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  
+
+  // Health probes must remain public and must not consume the UI/API rate budget.
+  app.use("/api/health", healthRoutes);
+
   // Global rate limiting for all API routes
   app.use('/api', apiRateLimiter);
   
@@ -159,10 +165,13 @@ async function startServer() {
   
   // OAuth callback under /api/oauth/callback (Manus OAuth - kept for compatibility)
   registerOAuthRoutes(app);
+  // Browser-extension collector uses its own scoped bearer token.
+  registerBrowserTabRoutes(app);
   // Local auth routes (username/password login - works without Manus) with strict rate limiting
   app.use('/api/auth', authRateLimiter, localAuthRoutes);
-  // APTLSS Management API with strict rate limiting
-  app.use("/api", aptlssRateLimiter, aptlssRoutes);
+  // Only APTLSS mutations are generation-limited; reads and unrelated APIs
+  // must not share the five-per-minute generation budget.
+  app.use("/api", aptlssGenerationRateLimiter, aptlssRoutes);
   // Working Hours Settings API
   app.use("/api/working-hours", workingHoursRoutes);
   // VA Management API
@@ -211,8 +220,6 @@ async function startServer() {
   app.use("/api/atis/phases", atisPhasesRoutes);
   // Batch Operations API
   app.use("/api/batch-operations", batchOperationsRoutes);
-  // Health Check API (no rate limiting for health checks)
-  app.use("/api/health", healthRoutes);
   // tRPC API
   app.use(
     "/api/trpc",
@@ -261,9 +268,11 @@ async function startServer() {
     log.error('Cache warming failed', error as Error);
   }
 
-  server.listen(port, async () => {
-    log.info(`Server running on http://localhost:${port}/`, {
+  const host = process.env.HOST ?? "127.0.0.1";
+  server.listen(port, host, async () => {
+    log.info(`Server running on http://${host}:${port}/`, {
       port,
+      host,
       environment: process.env.NODE_ENV,
     });
   });

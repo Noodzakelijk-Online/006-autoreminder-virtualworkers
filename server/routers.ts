@@ -27,6 +27,7 @@ import { getDb } from "./db";
 import { taskAssignments } from "../drizzle/schema";
 import { eq, inArray, and } from "drizzle-orm";
 import { z } from "zod";
+import { operatorRouter } from "./operatorRouter";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -68,6 +69,7 @@ export const appRouter = router({
   }),
   aptlss: aptlssRouter,
   replyMonitor: replyMonitorRouter,
+  operator: operatorRouter,
 
   interview: interviewRouter,
   settings: settingsRouter,

@@ -220,6 +220,19 @@ export const aptlssRateLimiter = createRateLimiter({
   message: 'Too many APTLSS generation requests, please wait before retrying',
 });
 
+export function isAptlssExpensiveRequest(method: string, path: string) {
+  return method.toUpperCase() !== 'GET' && path.startsWith('/aptlss/');
+}
+
+export const aptlssGenerationRateLimiter = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (!isAptlssExpensiveRequest(req.method, req.path)) return next();
+  return aptlssRateLimiter(req, res, next);
+};
+
 // Strict rate limit for ATIS analysis
 export const atisRateLimiter = createRateLimiter({
   windowMs: 60 * 1000, // 1 minute

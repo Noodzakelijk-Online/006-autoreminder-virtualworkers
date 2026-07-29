@@ -1,6 +1,8 @@
 import axios from "axios";
 
 const TRELLO_API_BASE = "https://api.trello.com/1";
+const WORKER_CARDS_CACHE_TTL_MS = 10_000;
+const WORKER_ACTIONS_CACHE_TTL_MS = 15_000;
 
 // List names filters
 const DONE_LIST_NAMES = new Set(["done", "completed", "finished", "archived", "closed"]);
@@ -73,6 +75,32 @@ interface BoardListCacheEntry {
 }
 const boardListCache = new Map<string, BoardListCacheEntry>();
 const BOARD_LIST_CACHE_TTL_MS = 5 * 60 * 1000;
+const workerCardsCache = new Map<string, { cards: TrelloCard[]; expiresAt: number }>();
+const workerCardsInFlight = new Map<string, Promise<TrelloCard[]>>();
+const workerActionsCache = new Map<string, { actions: TrelloAction[]; expiresAt: number }>();
+const workerActionsInFlight = new Map<string, Promise<TrelloAction[]>>();
+
+export function summarizeTrelloError(error: unknown) {
+  if (!axios.isAxiosError(error)) {
+    return { type: error instanceof Error ? error.name : typeof error };
+  }
+
+  const providerCode = typeof error.response?.data?.error === "string"
+    ? error.response.data.error.slice(0, 80)
+    : undefined;
+  const retryAfter = error.response?.headers?.["retry-after"];
+  return {
+    type: "TrelloApiError",
+    status: error.response?.status,
+    providerCode,
+    retryAfter: typeof retryAfter === "string" ? retryAfter : undefined,
+    transportCode: error.code,
+  };
+}
+
+function logTrelloFailure(operation: string, error: unknown) {
+  console.error(`[Trello] ${operation}`, summarizeTrelloError(error));
+}
 
 async function getBoardListsCached(
   boardId: string,
@@ -108,7 +136,14 @@ async function getBoardListsCached(
  * Get worker's open cards assigned, excluding DONE lists
  */
 export async function getWorkerCards(apiKey: string, apiToken: string, trelloMemberId: string): Promise<TrelloCard[]> {
-  try {
+  const cached = workerCardsCache.get(trelloMemberId);
+  if (cached && Date.now() < cached.expiresAt) return cached.cards;
+
+  const inFlight = workerCardsInFlight.get(trelloMemberId);
+  if (inFlight) return inFlight;
+
+  const request = (async () => {
+    try {
     const response = await axios.get(
       `${TRELLO_API_BASE}/members/me/cards`,
       {
@@ -148,9 +183,22 @@ export async function getWorkerCards(apiKey: string, apiToken: string, trelloMem
       if (card.list && isDoneList(card.list.name)) return false;
       return true;
     });
-  } catch (error) {
-    console.error(`[Trello] Failed to fetch worker cards for ${trelloMemberId}:`, error);
-    throw new Error("Failed to fetch Trello cards");
+    } catch (error) {
+      logTrelloFailure("Failed to fetch worker cards", error);
+      throw new Error("Failed to fetch Trello cards");
+    }
+  })();
+
+  workerCardsInFlight.set(trelloMemberId, request);
+  try {
+    const cards = await request;
+    workerCardsCache.set(trelloMemberId, {
+      cards,
+      expiresAt: Date.now() + WORKER_CARDS_CACHE_TTL_MS,
+    });
+    return cards;
+  } finally {
+    workerCardsInFlight.delete(trelloMemberId);
   }
 }
 
@@ -182,7 +230,14 @@ export async function getWorkerRecentActions(
   trelloMemberId: string,
   limit: number = 10
 ): Promise<TrelloAction[]> {
-  try {
+  const cached = workerActionsCache.get(trelloMemberId);
+  if (cached && Date.now() < cached.expiresAt) return cached.actions.slice(0, limit);
+
+  const existing = workerActionsInFlight.get(trelloMemberId);
+  if (existing) return (await existing).slice(0, limit);
+
+  const request = (async () => {
+    try {
     const cards = await getWorkerCards(apiKey, apiToken, trelloMemberId);
     if (cards.length === 0) return [];
 
@@ -204,13 +259,25 @@ export async function getWorkerRecentActions(
     const allActionArrays = await Promise.all(actionRequests);
     const allActions = allActionArrays
       .flat()
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, limit);
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     return allActions;
-  } catch (error) {
-    console.error("[Trello] Failed to fetch worker actions:", error);
-    throw new Error("Failed to fetch Trello actions");
+    } catch (error) {
+      logTrelloFailure("Failed to fetch worker actions", error);
+      throw new Error("Failed to fetch Trello actions");
+    }
+  })();
+
+  workerActionsInFlight.set(trelloMemberId, request);
+  try {
+    const actions = await request;
+    workerActionsCache.set(trelloMemberId, {
+      actions,
+      expiresAt: Date.now() + WORKER_ACTIONS_CACHE_TTL_MS,
+    });
+    return actions.slice(0, limit);
+  } finally {
+    workerActionsInFlight.delete(trelloMemberId);
   }
 }
 
@@ -294,7 +361,7 @@ export async function getWorkerCommentedCardIdsToday(
 
     return commentedCardIds;
   } catch (error) {
-    console.error("[Trello] Failed to fetch commented cards:", error);
+    logTrelloFailure("Failed to fetch commented cards", error);
     return new Set();
   }
 }
@@ -312,7 +379,7 @@ export async function getCardsDueToday(apiKey: string, apiToken: string, trelloM
       return dueDateEAT === todayEAT;
     });
   } catch (error) {
-    console.error("[Trello] Failed to fetch cards due today:", error);
+    logTrelloFailure("Failed to fetch cards due today", error);
     return [];
   }
 }
@@ -326,7 +393,7 @@ export async function getOverdueCards(apiKey: string, apiToken: string, trelloMe
       return new Date(card.due).getTime() < now;
     });
   } catch (error) {
-    console.error("[Trello] Failed to fetch overdue cards:", error);
+    logTrelloFailure("Failed to fetch overdue cards", error);
     return [];
   }
 }
@@ -346,7 +413,7 @@ export async function getWorkerBoards(apiKey: string, apiToken: string): Promise
     );
     return res.data;
   } catch (error) {
-    console.error("[Trello] Failed to fetch boards:", error);
+    logTrelloFailure("Failed to fetch boards", error);
     return [];
   }
 }
@@ -396,7 +463,7 @@ export async function getRegisteredWebhooks(apiKey: string, apiToken: string): P
     );
     return response.data as TrelloWebhook[];
   } catch (error) {
-    console.error("[Trello] Failed to fetch registered webhooks:", error);
+    logTrelloFailure("Failed to fetch registered webhooks", error);
     return [];
   }
 }

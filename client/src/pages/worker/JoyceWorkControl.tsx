@@ -1,0 +1,490 @@
+import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
+import {
+  Activity,
+  Archive,
+  BrainCircuit,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock3,
+  ExternalLink,
+  FileCheck2,
+  Gauge,
+  History,
+  Inbox,
+  LayoutDashboard,
+  ListTodo,
+  Loader2,
+  LogOut,
+  Menu,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Play,
+  RefreshCw,
+  Settings,
+  ShieldCheck,
+  Sun,
+  Timer,
+} from "lucide-react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
+import { useTheme } from "@/contexts/ThemeContext";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { getWorkLaneRank } from "@shared/workLanePriority";
+import { dateKeyInEat } from "@shared/eatTime";
+import { toast } from "sonner";
+
+type OperatorCard = {
+  cardId: string;
+  cardName: string;
+  cardUrl: string;
+  boardName: string;
+  listName: string;
+  nextBestAction: string | null;
+  planSummary: string | null;
+  primaryState: string | null;
+  stateReason: string | null;
+  actionability: string | null;
+  priorityScore: number;
+  priorityTier: string;
+  confidenceScore: number | null;
+  confidenceReason: string | null;
+  recommendations: string[];
+  uncertainties: string[];
+  waitingReason: {
+    waitingOn: string;
+    nextAction: string;
+    confidenceScore: number;
+    followUpAt: Date | string | null;
+  } | null;
+  steps: Array<{
+    id: number;
+    stepNumber: number;
+    title: string;
+    status: string;
+    category: string;
+    requiresRobert: boolean;
+    completionCriteria: string | null;
+    riskIfSkipped: string | null;
+  }>;
+};
+
+const NAVIGATION = [
+  { path: "/worker", label: "Today", description: "Now and next", icon: LayoutDashboard },
+  { path: "/worker/plan", label: "Plan My Day", description: "Time blocks", icon: CalendarDays },
+  { path: "/worker/decisions", label: "Decisions", description: "Required outcomes", icon: BrainCircuit },
+  { path: "/worker/evidence", label: "Evidence", description: "Connected facts", icon: FileCheck2 },
+  { path: "/worker/operations", label: "Operations", description: "Full legacy tools", icon: Archive },
+] as const;
+
+function priorityTone(tier: string) {
+  if (tier === "CRITICAL" || tier === "HIGH") return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300";
+  if (tier === "BLOCKED") return "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300";
+  if (tier === "MEDIUM") return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+}
+
+export default function JoyceWorkControl({ view = "today" }: { view?: "today" | "plan" | "decisions" | "evidence" }) {
+  const [, navigate] = useLocation();
+  const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <aside className={`fixed inset-y-0 left-0 z-50 flex border-r bg-background transition-[width,transform] duration-200 ${collapsed ? "w-16" : "w-60"} ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}>
+        <div className="flex w-full flex-col">
+          <div className="flex h-16 items-center gap-3 border-b px-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-blue-600 font-semibold text-white">J</div>
+            {!collapsed && <div className="min-w-0"><div className="font-semibold">Joyce</div><div className="truncate text-xs text-muted-foreground">Work control room</div></div>}
+          </div>
+          <nav className="flex-1 space-y-1 p-2">
+            {NAVIGATION.map((item) => {
+              const active = item.path === "/worker" ? view === "today" : item.path.endsWith(view);
+              return (
+                <button
+                  key={item.path}
+                  type="button"
+                  onClick={() => { navigate(item.path); setMobileOpen(false); }}
+                  title={collapsed ? item.label : undefined}
+                  className={`flex h-12 w-full items-center gap-3 rounded-md px-3 text-left transition-colors ${active ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"}`}
+                >
+                  <item.icon className={`size-4 shrink-0 ${active ? "text-blue-500" : ""}`} />
+                  {!collapsed && <span className="min-w-0"><span className="block text-sm font-medium">{item.label}</span><span className="block truncate text-[11px] text-muted-foreground">{item.description}</span></span>}
+                </button>
+              );
+            })}
+          </nav>
+          <div className="border-t p-2">
+            <button type="button" onClick={() => navigate("/settings")} className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+              <Settings className="size-4" />{!collapsed && "Settings"}
+            </button>
+            <button type="button" onClick={logout} className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+              <LogOut className="size-4" />{!collapsed && "Sign out"}
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCollapsed((value) => !value)}
+            className="hidden h-10 items-center justify-center border-t text-muted-foreground hover:text-foreground md:flex"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </button>
+        </div>
+      </aside>
+      {mobileOpen && <button type="button" aria-label="Close navigation" className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setMobileOpen(false)} />}
+
+      <div className={`transition-[padding] duration-200 ${collapsed ? "md:pl-16" : "md:pl-60"}`}>
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background/95 px-4 backdrop-blur md:px-6">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu className="size-4" /></Button>
+            <div><div className="text-sm font-semibold">Joyce Work Control</div><div className="text-xs text-muted-foreground">{user?.name ?? "Worker"} · {new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "2-digit", month: "short", timeZone: "Africa/Nairobi" }).format(new Date())}</div></div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle theme">{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</Button>
+        </header>
+        <main className="mx-auto w-full max-w-[1280px] p-4 md:p-6">
+          {view === "today" && <TodayView onOpenPlan={() => navigate("/worker/plan")} onOpenDecisions={() => navigate("/worker/decisions")} />}
+          {view === "plan" && <PlanView />}
+          {view === "decisions" && <DecisionsView />}
+          {view === "evidence" && <EvidenceView />}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function TodayView({ onOpenPlan, onOpenDecisions }: { onOpenPlan: () => void; onOpenDecisions: () => void }) {
+  const utils = trpc.useUtils();
+  const [selected, setSelected] = useState<OperatorCard | null>(null);
+  const actionQuery = trpc.trello.actionAlerts.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const intelligenceQuery = trpc.operator.getWorkQueueContext.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const timerQuery = trpc.timer.getActive.useQuery(undefined, { staleTime: 15_000 });
+  const planQuery = trpc.operator.getDailyPlan.useQuery(undefined, { staleTime: 60_000 });
+  const browserQuery = trpc.operator.getBrowserTabStatus.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const startTimer = trpc.timer.start.useMutation({
+    onSuccess: () => { void utils.timer.getActive.invalidate(); toast.success("Timer started"); },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const cards = useMemo(() => {
+    const alertCards = [
+      ...(actionQuery.data?.onHoldCards ?? []),
+      ...(actionQuery.data?.doingCards ?? []),
+      ...(actionQuery.data?.overdueCards ?? []),
+    ];
+    const alerts = new Map(alertCards.map((card) => [card.id, card]));
+    return [...(intelligenceQuery.data?.cards ?? [])]
+      .map((card) => {
+        const alert = alerts.get(card.cardId);
+        return {
+          ...card,
+          boardName: card.boardName || alert?.boardName || "Unknown board",
+          listName: card.listName || alert?.listName || "Unknown list",
+        } as OperatorCard;
+      })
+      .sort((left, right) => {
+        const lane = getWorkLaneRank(left.listName) - getWorkLaneRank(right.listName);
+        return lane || right.priorityScore - left.priorityScore;
+      });
+  }, [actionQuery.data, intelligenceQuery.data]);
+  const now = cards[0] ?? null;
+  const next = cards.slice(1, 4);
+  const openDecisions = cards.reduce((total, card) => total + card.steps.filter((step) => step.requiresRobert && step.status !== "complete").length, 0);
+  const plan = planQuery.data?.schedule;
+
+  const begin = (card: OperatorCard) => startTimer.mutate({
+    cardId: card.cardId,
+    cardName: card.cardName,
+    cardUrl: card.cardUrl,
+    boardName: card.boardName,
+    listName: card.listName,
+  });
+
+  return (
+    <div className="space-y-5">
+      <PageHeading title="Today" description="Work from one trusted sequence. Context and deeper actions stay out of the execution path." />
+      {browserQuery.data?.shouldWarn && (
+        <Alert className="border-amber-500/40 bg-amber-500/5">
+          <Archive className="size-4 text-amber-500" />
+          <AlertTitle>Close excess browser tabs before end of day</AlertTitle>
+          <AlertDescription>{browserQuery.data.actionableTabs} actionable tabs are open; the limit is {browserQuery.data.allowedTabs}.</AlertDescription>
+        </Alert>
+      )}
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="space-y-4">
+          <Card className="gap-0 rounded-lg border-blue-500/30 py-0">
+            <CardHeader className="border-b py-4">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase text-emerald-500"><span className="size-2 rounded-full bg-emerald-500" />Now</div>
+            </CardHeader>
+            <CardContent className="p-5">
+              {intelligenceQuery.isLoading ? <QueueSkeleton /> : now ? (
+                <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_180px]">
+                  <button type="button" className="min-w-0 text-left" onClick={() => setSelected(now)}>
+                    <div className="mb-2 flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold">{now.cardName}</h2><Badge variant="outline" className={priorityTone(now.priorityTier)}>{now.priorityTier}</Badge></div>
+                    <p className="text-sm text-muted-foreground">{now.boardName} · {now.listName}</p>
+                    <div className="mt-4 border-l-2 border-blue-500 pl-3"><div className="text-[11px] font-semibold uppercase text-muted-foreground">Exactly next</div><p className="mt-1 text-sm font-medium">{now.nextBestAction || "Review the card and define the next concrete action."}</p></div>
+                    {now.waitingReason && <p className="mt-3 text-xs text-amber-600 dark:text-amber-300">Waiting evidence: {now.waitingReason.nextAction}</p>}
+                  </button>
+                  <div className="flex flex-col justify-end gap-2">
+                    <Button onClick={() => begin(now)} disabled={startTimer.isPending || timerQuery.data?.cardId === now.cardId}>
+                      {startTimer.isPending ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
+                      {timerQuery.data?.cardId === now.cardId ? "Timer running" : "Start timer"}
+                    </Button>
+                    <Button variant="outline" onClick={() => setSelected(now)}>Open details</Button>
+                  </div>
+                </div>
+              ) : (
+                <EmptyState title="No trusted work item yet" detail={intelligenceQuery.error?.message ?? "Generate APTLSS plans or connect Trello to build the queue."} />
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="gap-0 rounded-lg py-0">
+            <CardHeader className="border-b py-4"><CardTitle className="text-sm">Next up</CardTitle><CardDescription>Only the next three cards are shown.</CardDescription></CardHeader>
+            <CardContent className="p-0">
+              {next.length ? next.map((card, index) => (
+                <button key={card.cardId} type="button" onClick={() => setSelected(card)} className="grid w-full grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-3 border-b px-4 py-3 text-left last:border-b-0 hover:bg-accent/40">
+                  <span className="flex size-6 items-center justify-center rounded border text-xs text-muted-foreground">{index + 1}</span>
+                  <span className="min-w-0"><span className="block truncate text-sm font-medium">{card.cardName}</span><span className="block truncate text-xs text-muted-foreground">{card.listName} · {card.nextBestAction ?? "Review next action"}</span></span>
+                  <Badge variant="outline" className={priorityTone(card.priorityTier)}>{card.priorityTier}</Badge>
+                </button>
+              )) : <div className="p-5 text-sm text-muted-foreground">No additional cards queued.</div>}
+            </CardContent>
+          </Card>
+
+          <QueueLanes cards={cards} onSelect={setSelected} />
+        </div>
+
+        <aside className="space-y-3">
+          <ContextMetric icon={CalendarDays} label="Plan health" value={plan ? `${plan.planHealth.confidence}%` : "Not generated"} detail={plan ? `${plan.planHealth.scheduledMinutes} min scheduled` : "Create today's time blocks"} onClick={onOpenPlan} />
+          <ContextMetric icon={Timer} label="Time now" value={timerQuery.data ? "Tracking" : "Stopped"} detail={timerQuery.data?.cardName ?? "No active timer"} />
+          <ContextMetric icon={BrainCircuit} label="Decisions" value={`${openDecisions} open`} detail="Outcome required to close" onClick={onOpenDecisions} />
+          <ContextMetric icon={Archive} label="Browser hygiene" value={browserQuery.data?.connected ? `${browserQuery.data.actionableTabs} tabs` : "Disconnected"} detail={browserQuery.data?.connected ? `Limit ${browserQuery.data.allowedTabs}` : "Collector has not reported"} />
+        </aside>
+      </div>
+      <CardInspector card={selected} onClose={() => setSelected(null)} onStart={begin} />
+    </div>
+  );
+}
+
+function QueueLanes({ cards, onSelect }: { cards: OperatorCard[]; onSelect: (card: OperatorCard) => void }) {
+  const lanes = [
+    { key: "on-hold", label: "On-hold first", cards: cards.filter((card) => getWorkLaneRank(card.listName) === 0) },
+    { key: "doing", label: "Doing second", cards: cards.filter((card) => getWorkLaneRank(card.listName) === 1) },
+    { key: "todo", label: "To-do third", cards: cards.filter((card) => getWorkLaneRank(card.listName) === 2) },
+  ];
+  return (
+    <Card className="gap-0 rounded-lg py-0">
+      <CardHeader className="border-b py-4"><CardTitle className="text-sm">Queue lanes</CardTitle><CardDescription>Collapsed by default to keep the sequence readable.</CardDescription></CardHeader>
+      <CardContent className="p-0">
+        {lanes.map((lane) => <Lane key={lane.key} label={lane.label} cards={lane.cards} onSelect={onSelect} />)}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Lane({ label, cards, onSelect }: { label: string; cards: OperatorCard[]; onSelect: (card: OperatorCard) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex w-full items-center justify-between border-b px-4 py-3 text-sm hover:bg-accent/40">
+        <span className="font-medium">{label}</span><span className="flex items-center gap-2 text-muted-foreground">{cards.length}{open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}</span>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        {cards.length ? cards.map((card) => (
+          <button key={card.cardId} type="button" onClick={() => onSelect(card)} className="flex w-full items-center justify-between gap-3 border-b bg-muted/20 px-6 py-2.5 text-left text-sm hover:bg-accent/50">
+            <span className="truncate">{card.cardName}</span><span className="shrink-0 text-xs text-muted-foreground">{card.priorityScore}</span>
+          </button>
+        )) : <div className="border-b bg-muted/20 px-6 py-3 text-xs text-muted-foreground">No cards in this lane.</div>}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function CardInspector({ card, onClose, onStart }: { card: OperatorCard | null; onClose: () => void; onStart: (card: OperatorCard) => void }) {
+  return (
+    <Sheet open={Boolean(card)} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <SheetContent className="w-[min(440px,calc(100vw-1rem))] overflow-y-auto sm:max-w-[440px]">
+        {card && <>
+          <SheetHeader>
+            <SheetTitle className="pr-8">{card.cardName}</SheetTitle>
+            <SheetDescription>{card.boardName} · {card.listName}</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-5 px-4 pb-6">
+            <section><InspectorLabel>Next action</InspectorLabel><p className="text-sm font-medium">{card.nextBestAction ?? "No next action recorded."}</p></section>
+            <section><InspectorLabel>Assessment</InspectorLabel><p className="text-sm">{card.stateReason ?? card.planSummary ?? "No assessment context available."}</p><div className="mt-2 flex flex-wrap gap-2"><Badge variant="outline">{card.primaryState ?? "Unknown state"}</Badge><Badge variant="outline" className={priorityTone(card.priorityTier)}>{card.priorityTier} · {card.priorityScore}</Badge>{card.confidenceScore !== null && <Badge variant="outline">{card.confidenceScore}% confidence</Badge>}</div></section>
+            {card.uncertainties.length > 0 && <section><InspectorLabel>Uncertainties</InspectorLabel><ul className="space-y-1 text-sm text-muted-foreground">{card.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul></section>}
+            <section><InspectorLabel>APTLSS steps</InspectorLabel><div className="space-y-2">{card.steps.length ? card.steps.map((step) => <div key={step.id} className="flex gap-2 rounded-md border p-3 text-sm"><span className="text-muted-foreground">{step.stepNumber}.</span><span className="flex-1">{step.title}</span>{step.requiresRobert && <Badge variant="outline">Decision</Badge>}</div>) : <p className="text-sm text-muted-foreground">No structured steps recorded.</p>}</div></section>
+            <div className="grid gap-2 sm:grid-cols-2"><Button onClick={() => onStart(card)}><Play className="size-4" />Start timer</Button><Button variant="outline" asChild><a href={card.cardUrl} target="_blank" rel="noreferrer">Open Trello <ExternalLink className="size-4" /></a></Button></div>
+          </div>
+        </>}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function PlanView() {
+  const utils = trpc.useUtils();
+  const query = trpc.operator.getDailyPlan.useQuery(undefined, { staleTime: 60_000 });
+  const mutation = trpc.operator.generateDailyPlan.useMutation({
+    onSuccess: () => { void utils.operator.getDailyPlan.invalidate(); toast.success("Day plan generated"); },
+    onError: (error) => toast.error(error.message),
+  });
+  const [elapsed, setElapsed] = useState(0);
+  const run = (force: boolean) => {
+    setElapsed(0);
+    const timer = window.setInterval(() => setElapsed((value) => value + 1), 1_000);
+    mutation.mutate({ force }, { onSettled: () => window.clearInterval(timer) });
+  };
+  const plan = query.data?.schedule;
+  const progress = mutation.isPending ? Math.min(92, 15 + elapsed * 8) : 0;
+  const stage = elapsed < 2 ? "Loading APTLSS state" : elapsed < 5 ? "Protecting breaks and ranking lanes" : "Validating and saving blocks";
+  return (
+    <div className="space-y-5">
+      <PageHeading title="Plan My Day" description="One agenda. Detail remains available inside each block instead of separate duplicate views." actions={<Button onClick={() => run(Boolean(plan))} disabled={mutation.isPending}>{mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}{plan ? "Regenerate plan" : "Generate plan"}</Button>} />
+      {mutation.isPending && <Card className="gap-3 rounded-lg p-5"><div className="flex justify-between text-sm"><span className="font-medium">{stage}</span><span className="text-muted-foreground">about {Math.max(1, 12 - elapsed)}s left</span></div><Progress value={progress} /><p className="text-xs text-muted-foreground">{progress}% complete · live estimate adjusts as validation runs</p></Card>}
+      {query.isLoading ? <QueueSkeleton /> : !plan ? <Alert><Inbox className="size-4" /><AlertTitle>No saved plan</AlertTitle><AlertDescription>Generate from the current APTLSS plans, states, priorities, and configured schedule.</AlertDescription></Alert> : (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+          <Card className="gap-0 rounded-lg py-0">
+            <CardHeader className="border-b py-4"><CardTitle className="text-sm">Today’s agenda</CardTitle><CardDescription>{plan.constraints.startTime}–{plan.constraints.endTime} EAT · configured breaks protected</CardDescription></CardHeader>
+            <CardContent className="p-0">
+              {plan.blocks.length ? plan.blocks.map((block) => (
+                <div key={block.id} className="grid gap-3 border-b p-4 last:border-b-0 sm:grid-cols-[72px_minmax(0,1fr)_auto]">
+                  <div className="text-sm font-medium">{block.startTime}<div className="text-xs font-normal text-muted-foreground">{block.endTime}</div></div>
+                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{block.cardName}</span><Badge variant="outline" className={priorityTone(block.priority)}>{block.priority}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{block.action}</p></div>
+                  <Badge variant="outline">{block.status}</Badge>
+                </div>
+              )) : <div className="p-6 text-sm text-muted-foreground">No work blocks are scheduled for this protected day.</div>}
+            </CardContent>
+          </Card>
+          <div className="space-y-3">
+            <ContextMetric icon={Gauge} label="Confidence" value={`${plan.planHealth.confidence}%`} detail="Evidence-backed, capped below certainty" />
+            <ContextMetric icon={Clock3} label="Scheduled" value={`${Math.round(plan.planHealth.scheduledMinutes / 60 * 10) / 10}h`} detail={`${plan.planHealth.gaps} min remains available`} />
+            <ContextMetric icon={BrainCircuit} label="Robert items" value={`${plan.robertItems.length}`} detail="Visible even when unscheduled" />
+            <ContextMetric icon={ListTodo} label="Unscheduled" value={`${plan.unscheduledCards.length}`} detail="Retained for replanning" />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DecisionsView() {
+  const utils = trpc.useUtils();
+  const queue = trpc.aptlss.getDecisionQueue.useQuery(undefined, { staleTime: 30_000 });
+  const history = trpc.operator.getDecisionHistory.useQuery({ limit: 20 }, { staleTime: 30_000 });
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [outcome, setOutcome] = useState("");
+  const selected = queue.data?.items.find((item) => item.stepId === selectedId) ?? queue.data?.items[0] ?? null;
+  const mutation = trpc.operator.recordDecisionOutcome.useMutation({
+    onSuccess: () => {
+      setOutcome("");
+      setSelectedId(null);
+      void utils.aptlss.getDecisionQueue.invalidate();
+      void utils.operator.getDecisionHistory.invalidate();
+      toast.success("Outcome recorded");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  return (
+    <div className="space-y-5">
+      <PageHeading title="Decisions" description="Close a decision only by recording what was decided. Nothing is posted or moved in Trello." />
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-4">
+          <Card className="gap-0 rounded-lg py-0">
+            <CardHeader className="border-b py-4"><CardTitle className="text-sm">Decision inbox</CardTitle><CardDescription>Highest-priority unresolved decision first.</CardDescription></CardHeader>
+            <CardContent className="p-0">
+              {queue.isLoading ? <div className="p-4"><QueueSkeleton /></div> : queue.data?.items.length ? queue.data.items.map((item, index) => (
+                <button key={item.stepId} type="button" onClick={() => setSelectedId(item.stepId)} className={`grid w-full grid-cols-[28px_minmax(0,1fr)_auto] gap-3 border-b px-4 py-3 text-left last:border-b-0 hover:bg-accent/40 ${selected?.stepId === item.stepId ? "bg-accent/50" : ""}`}>
+                  <span className="flex size-6 items-center justify-center rounded border text-xs">{index + 1}</span>
+                  <span className="min-w-0"><span className="block truncate text-sm font-medium">{item.cardName}</span><span className="block truncate text-xs text-muted-foreground">{item.stepTitle}</span></span>
+                  <Badge variant="outline" className={priorityTone(item.tier)}>{item.tier}</Badge>
+                </button>
+              )) : <EmptyState title="Decision inbox is clear" detail="New Robert-required APTLSS steps will appear here." />}
+            </CardContent>
+          </Card>
+          <RecentOutcomes rows={history.data ?? []} />
+        </div>
+        <Card className="h-fit gap-4 rounded-lg p-5 lg:sticky lg:top-20">
+          {selected ? <>
+            <div><div className="text-xs font-semibold uppercase text-muted-foreground">Selected decision</div><h2 className="mt-1 font-semibold">{selected.cardName}</h2><p className="mt-1 text-sm text-muted-foreground">{selected.stepTitle}</p></div>
+            <div className="rounded-md border bg-muted/30 p-3"><div className="text-[11px] font-semibold uppercase text-muted-foreground">Recommendation</div><p className="mt-1 text-sm">{selected.recommendedDecision || "No recommendation recorded; use the linked Trello context."}</p></div>
+            <div><label htmlFor="decision-outcome" className="text-sm font-medium">Outcome <span className="text-destructive">*</span></label><Textarea id="decision-outcome" className="mt-2 min-h-28" value={outcome} onChange={(event) => setOutcome(event.target.value)} placeholder="Record the exact decision and any condition that affects the next step." /></div>
+            <Button onClick={() => mutation.mutate({ stepId: selected.stepId, outcome })} disabled={outcome.trim().length < 3 || mutation.isPending}>{mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}Record outcome</Button>
+            <Button variant="outline" asChild><a href={selected.cardUrl} target="_blank" rel="noreferrer">Open Trello context <ExternalLink className="size-4" /></a></Button>
+          </> : <EmptyState title="Select a decision" detail="The outcome inspector stays separate from the ordered inbox." />}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function RecentOutcomes({ rows }: { rows: Array<{ id: number; cardName: string; outcome: string; resolvedAt: Date; recommendedDecision: string | null }> }) {
+  const [open, setOpen] = useState(false);
+  return <Card className="gap-0 rounded-lg py-0"><Collapsible open={open} onOpenChange={setOpen}><CollapsibleTrigger className="flex w-full items-center justify-between p-4 text-left"><span><span className="block text-sm font-semibold">Recent outcomes</span><span className="block text-xs text-muted-foreground">Durable resolution history</span></span>{open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}</CollapsibleTrigger><CollapsibleContent className="border-t">{rows.length ? rows.map((row) => <div key={row.id} className="border-b p-4 last:border-b-0"><div className="flex justify-between gap-3"><span className="text-sm font-medium">{row.cardName}</span><span className="shrink-0 text-xs text-muted-foreground">{new Date(row.resolvedAt).toLocaleDateString()}</span></div><p className="mt-1 text-sm">{row.outcome}</p>{row.recommendedDecision && <p className="mt-1 text-xs text-muted-foreground">Recommended: {row.recommendedDecision}</p>}</div>) : <div className="p-4 text-sm text-muted-foreground">No recorded outcomes yet.</div>}</CollapsibleContent></Collapsible></Card>;
+}
+
+function EvidenceView() {
+  const status = trpc.operator.getBrowserTabStatus.useQuery(undefined, { retry: false, staleTime: 30_000 });
+  const history = trpc.operator.getBrowserTabEvidenceHistory.useQuery({ limit: 30 }, { retry: false, staleTime: 60_000 });
+  const waiting = trpc.operator.getWaitingReasons.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const intelligence = trpc.operator.getWorkQueueContext.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  return (
+    <div className="space-y-5">
+      <PageHeading title="Evidence" description="Connected facts are visible here; execution actions remain in Today and Decisions." />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <ContextMetric icon={ShieldCheck} label="APTLSS cards" value={`${intelligence.data?.cards.length ?? 0}`} detail="Plans joined to states and scores" />
+        <ContextMetric icon={Clock3} label="Waiting reasons" value={`${waiting.data?.length ?? 0}`} detail="Free-flow reasons interpreted" />
+        <ContextMetric icon={Archive} label="Browser collector" value={status.data?.connected ? "Connected" : "Disconnected"} detail={status.data?.capturedAt ? `Last seen ${new Date(status.data.capturedAt).toLocaleTimeString()}` : "No inventory received"} />
+        <ContextMetric icon={History} label="Tab evidence" value={`${history.data?.length ?? 0} days`} detail="End-of-day snapshots retained" />
+      </div>
+      <Card className="gap-0 rounded-lg py-0">
+        <CardHeader className="border-b py-4"><CardTitle className="text-sm">Evidence boundaries</CardTitle><CardDescription>What the consolidated layer knows and what it still needs.</CardDescription></CardHeader>
+        <CardContent className="divide-y p-0">
+          <EvidenceRow label="Trello and APTLSS" status={intelligence.error ? "Needs attention" : "Connected"} detail={intelligence.error?.message ?? "Plans, card state, priority and open steps are joined by card ID."} />
+          <EvidenceRow label="Waiting reasons" status="Operational" detail="Free-text is classified into actor, missing item, follow-up and next action with confidence and missing-information flags." />
+          <EvidenceRow label="Browser tabs" status={status.data?.connected ? "Connected" : "Setup required"} detail={status.data?.connected ? `${status.data.actionableTabs} actionable tabs are currently visible.` : "Install and authorize the local collector before tab compliance can be trusted."} />
+          <EvidenceRow label="Gmail and Drive" status="Preserved" detail="Developer integrations remain authoritative; cross-source evidence tables are additive and do not mutate external data." />
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function EvidenceRow({ label, status, detail }: { label: string; status: string; detail: string }) {
+  return <div className="grid gap-2 p-4 sm:grid-cols-[180px_130px_minmax(0,1fr)] sm:items-center"><span className="text-sm font-medium">{label}</span><Badge variant="outline">{status}</Badge><span className="text-sm text-muted-foreground">{detail}</span></div>;
+}
+
+function PageHeading({ title, description, actions }: { title: string; description: string; actions?: React.ReactNode }) {
+  return <div className="flex flex-col justify-between gap-3 border-b pb-4 sm:flex-row sm:items-end"><div><h1 className="text-2xl font-semibold">{title}</h1><p className="mt-1 text-sm text-muted-foreground">{description}</p></div>{actions}</div>;
+}
+
+function ContextMetric({ icon: Icon, label, value, detail, onClick }: { icon: typeof Activity; label: string; value: string; detail: string; onClick?: () => void }) {
+  const content = <><div className="flex items-center justify-between text-xs font-semibold uppercase text-muted-foreground"><span>{label}</span><Icon className="size-4" /></div><div className="mt-2 text-lg font-semibold">{value}</div><div className="mt-1 text-xs text-muted-foreground">{detail}</div></>;
+  return onClick ? <button type="button" onClick={onClick} className="w-full rounded-lg border bg-card p-4 text-left hover:border-blue-500/40 hover:bg-accent/20">{content}</button> : <div className="rounded-lg border bg-card p-4">{content}</div>;
+}
+
+function InspectorLabel({ children }: { children: React.ReactNode }) {
+  return <div className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">{children}</div>;
+}
+
+function QueueSkeleton() {
+  return <div className="space-y-3"><Skeleton className="h-5 w-2/3" /><Skeleton className="h-4 w-1/3" /><Skeleton className="h-16 w-full" /></div>;
+}
+
+function EmptyState({ title, detail }: { title: string; detail: string }) {
+  return <div className="p-6 text-center"><Inbox className="mx-auto size-5 text-muted-foreground" /><div className="mt-2 text-sm font-medium">{title}</div><div className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">{detail}</div></div>;
+}

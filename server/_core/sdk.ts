@@ -14,6 +14,7 @@ import type {
   GetUserInfoWithJwtRequest,
   GetUserInfoWithJwtResponse,
 } from "./types/manusTypes";
+import { resolveLocalBypassUser } from "./localAuthBypass";
 // Utility function
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
@@ -257,6 +258,9 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<User> {
+    const bypassUser = await resolveLocalBypassUser(req);
+    if (bypassUser) return bypassUser;
+
     // Regular authentication flow
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);
