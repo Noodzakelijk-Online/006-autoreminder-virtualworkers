@@ -110,3 +110,8 @@ temp/
 
 # Manus AI runtime artifacts
 .manus/db/
+
+# Generated browser test artifacts
+.playwright-cli/
+playwright-report/
+test-results/
