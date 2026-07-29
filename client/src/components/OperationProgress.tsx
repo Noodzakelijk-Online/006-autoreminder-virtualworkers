@@ -14,29 +14,11 @@ export type OperationProgressValue = {
   isTakingLongerThanExpected: boolean;
 };
 
-export function formatEtaDuration(seconds: number) {
-  const safeSeconds = Math.max(0, Math.ceil(seconds));
-  if (safeSeconds < 60) return `${safeSeconds}s`;
-  const days = Math.floor(safeSeconds / 86_400);
-  const hours = Math.floor(safeSeconds / 3_600);
-  const minutes = Math.floor((safeSeconds % 3_600) / 60);
-  const remainder = safeSeconds % 60;
-  if (days > 0) {
-    const remainingHours = Math.floor((safeSeconds % 86_400) / 3_600);
-    return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
-  }
-  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
-}
-
-export function formatEtaRange(lowerSeconds: number | null, upperSeconds: number | null) {
-  if (upperSeconds == null) return "Estimating completion time";
-  if (upperSeconds <= 10) return "Under 10s remaining";
-  const lower = Math.max(0, lowerSeconds ?? 0);
-  if (lower === 0 || upperSeconds - lower <= 5) {
-    return `${formatEtaDuration(upperSeconds)} remaining`;
-  }
-  return `${formatEtaDuration(lower)}-${formatEtaDuration(upperSeconds)} remaining`;
+function formatExpectedTime(seconds: number) {
+  if (seconds < 10) return "under 10 sec";
+  if (seconds < 60) return `about ${Math.ceil(seconds / 5) * 5} sec`;
+  const minutes = Math.ceil(seconds / 60);
+  return `about ${minutes} min`;
 }
 
 function formatElapsedTime(seconds: number) {
@@ -71,7 +53,7 @@ export function OperationProgress({
     ? "Estimating completion time"
     : progress.isTakingLongerThanExpected
       ? "Taking longer than usual; the run is still active"
-      : formatEtaRange(progress.etaLowerSeconds, progress.etaUpperSeconds);
+      : `Expected in ${formatExpectedTime(progress.etaUpperSeconds)}`;
   const accessibleName = name ? `${name}: ${progress.label}` : progress.label;
 
   return (

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { InfoTooltip } from "@/components/InfoTooltip";
-import { OperationProgress, formatEtaDuration } from "@/components/OperationProgress";
+import { OperationProgress } from "@/components/OperationProgress";
 
 function intervalLabel(minutes: number) {
   if (minutes < 60) return `Every ${minutes} minutes`;
@@ -34,14 +34,6 @@ function formatDuration(milliseconds: number | null | undefined) {
   return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
 }
 
-function formatTimeUntil(value: Date | string | null | undefined, now: number) {
-  if (!value) return "Not scheduled";
-  const target = new Date(value).getTime();
-  if (!Number.isFinite(target)) return "Unknown";
-  const remainingSeconds = Math.max(0, Math.ceil((target - now) / 1_000));
-  return remainingSeconds === 0 ? "Due now" : `in ${formatEtaDuration(remainingSeconds)}`;
-}
-
 type DraftSchedule = Record<string, { enabled: boolean; intervalMinutes: number }>;
 
 export default function MaintenanceCenter() {
@@ -54,12 +46,6 @@ export default function MaintenanceCenter() {
     ),
   });
   const [drafts, setDrafts] = useState<DraftSchedule>({});
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     if (!center.data) return;
@@ -164,10 +150,8 @@ export default function MaintenanceCenter() {
                           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{job.description}</p>
                           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
                             <span>Last: {formatDateTime(job.latestRun?.startedAt)}</span>
-                            <span>Duration: {formatDuration(job.latestRun?.durationMs ?? job.typicalDurationMs)}</span>
-                            <span title={draft.enabled ? formatDateTime(job.nextRunAt) : undefined}>
-                              Next: {draft.enabled ? formatTimeUntil(job.nextRunAt, now) : "Disabled"}
-                            </span>
+                            <span>Duration: {formatDuration(job.latestRun?.durationMs ?? job.averageDurationMs)}</span>
+                            <span>Next: {draft.enabled ? formatDateTime(job.nextRunAt) : "Disabled"}</span>
                           </div>
                         </div>
                         <div className="grid gap-2 sm:grid-cols-[auto_minmax(150px,1fr)_auto_auto] sm:items-center">
@@ -218,9 +202,7 @@ export default function MaintenanceCenter() {
                             onClick={() => runJob.mutate({ jobKey: job.jobKey })}
                           >
                             {runningThis || running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                            {running
-                              ? `${job.progress.percent}% · ${job.progress.etaUpperSeconds == null ? "estimating" : `${formatEtaDuration(job.progress.etaUpperSeconds)} left`}`
-                              : "Run now"}
+                            {running ? `${job.progress.percent}%` : "Run now"}
                           </Button>
                         </div>
                       </div>

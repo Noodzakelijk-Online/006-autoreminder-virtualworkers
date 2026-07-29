@@ -28,7 +28,6 @@ import {
 } from "../maintenanceSchedules";
 import {
   calibrateMaintenanceProgressEta,
-  estimateTypicalDurationMs,
   getMaintenanceJobProgress,
   trackMaintenanceJobProgress,
 } from "../maintenanceJobProgress";
@@ -75,7 +74,9 @@ async function getMaintenanceCenter() {
         .filter((run) => run.jobKey === jobKey && run.status === "success" && Number(run.durationMs) > 0)
         .map((run) => Number(run.durationMs))
         .slice(0, 10);
-      const typicalDurationMs = estimateTypicalDurationMs(completedDurations);
+      const averageDurationMs = completedDurations.length
+        ? Math.round(completedDurations.reduce((sum, duration) => sum + duration, 0) / completedDurations.length)
+        : null;
       const nextRunAt = schedule.enabled
         ? new Date((latestRun ? new Date(latestRun.startedAt).getTime() : maintenanceCenterStartedAt) + schedule.intervalMinutes * 60_000)
         : null;
@@ -84,9 +85,9 @@ async function getMaintenanceCenter() {
         ...MAINTENANCE_JOB_CATALOG[jobKey],
         schedule,
         latestRun,
-        typicalDurationMs,
+        averageDurationMs,
         nextRunAt,
-        progress: calibrateMaintenanceProgressEta(progressByJob[jobKey], typicalDurationMs),
+        progress: calibrateMaintenanceProgressEta(progressByJob[jobKey], averageDurationMs),
       };
     }),
   };
