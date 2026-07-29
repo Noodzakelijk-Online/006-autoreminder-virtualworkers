@@ -46,6 +46,17 @@ export type MaintenanceJobProgress = {
   errorMessage: string | null;
 };
 
+export function estimateTypicalDurationMs(durations: number[]): number | null {
+  const validDurations = durations
+    .filter((duration) => Number.isFinite(duration) && duration > 0)
+    .sort((left, right) => left - right);
+  if (validDurations.length === 0) return null;
+  const midpoint = Math.floor(validDurations.length / 2);
+  return validDurations.length % 2 === 0
+    ? Math.round((validDurations[midpoint - 1] + validDurations[midpoint]) / 2)
+    : Math.round(validDurations[midpoint]);
+}
+
 export function calibrateMaintenanceProgressEta(
   progress: MaintenanceJobProgress,
   averageDurationMs: number | null,

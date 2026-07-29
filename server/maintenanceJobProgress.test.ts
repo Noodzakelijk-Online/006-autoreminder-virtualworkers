@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   calibrateMaintenanceProgressEta,
   completeMaintenanceJobProgress,
+  estimateTypicalDurationMs,
   failMaintenanceJobProgress,
   getMaintenanceJobProgress,
   resetMaintenanceJobProgressForTests,
@@ -92,5 +93,11 @@ describe("maintenance job progress", () => {
       isTakingLongerThanExpected: true,
     });
     expect(calibrateMaintenanceProgressEta(started, null)).toEqual(started);
+  });
+
+  it("uses the median successful duration so outliers do not distort the ETA", () => {
+    expect(estimateTypicalDurationMs([1_000, 1_100, 1_200, 90_000])).toBe(1_150);
+    expect(estimateTypicalDurationMs([1_000, Number.NaN, -1, 2_000, 3_000])).toBe(2_000);
+    expect(estimateTypicalDurationMs([])).toBeNull();
   });
 });
