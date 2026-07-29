@@ -1,143 +1,181 @@
-import { and, asc, desc, eq, inArray, isNull, like } from "drizzle-orm";
-import {
-  replyMonitorStatus,
-  replyThreads,
-  unsignedMessageFlags,
-  vagueReplyFlags,
-} from "../drizzle/schema";
-import { getDb } from "./db";
-import { upsertCommunicationEvidence } from "./communicationEvidenceDb";
+/**
+ * DB helper functions for the Reply Monitor feature.
+ * Covers: reply_threads, vague_reply_flags, unsigned_message_flags
+ */
 
-async function requireDb() {
-  const db = await getDb();
-  if (!db) throw new Error("Reply Monitor database is unavailable.");
-  return db;
+import { getDb, incrementPayLogD1 } from "./db";
+
+/** Get today's date in EAT (UTC+3) as YYYY-MM-DD */
+function todayEAT(): string {
+  return new Date(Date.now() + 3 * 3600000).toISOString().slice(0, 10);
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
+// ─── Shared types ─────────────────────────────────────────────────────────────
 
 export type ReplySource = "trello" | "upwork";
 
+// ─── Reply Threads ────────────────────────────────────────────────────────────
+
 export interface ReplyThreadRow {
   id: number;
+  vaId: number;
   source: string;
   cardId: string;
   cardName: string;
   cardUrl: string;
   boardName: string;
   listName: string;
-  lastNonJoyceMsgAt: Date | null;
-  lastNonJoyceAuthor: string;
-  lastNonJoyceText: string;
-  lastJoyceReplyAt: Date | null;
+  lastNonWorkerMsgAt: Date | null;
+  lastNonWorkerAuthor: string;
+  lastNonWorkerText: string;
+  lastWorkerReplyAt: Date | null;
   status: string;
   demerited: boolean;
   updatedAt: Date;
 }
 
-export async function upsertReplyThread(data: {
+/**
+ * Upsert a reply thread row. Matches on (source, cardId, vaId).
+ */
+export async function upsertReplyThread(vaId: number, data: {
   source: ReplySource;
   cardId: string;
   cardName: string;
   cardUrl: string;
   boardName: string;
   listName: string;
-  lastNonJoyceMsgAt: Date | null;
-  lastNonJoyceAuthor: string;
-  lastNonJoyceText: string;
-  lastJoyceReplyAt: Date | null;
+  lastNonWorkerMsgAt: Date | null;
+  lastNonWorkerAuthor: string;
+  lastNonWorkerText: string;
+  lastWorkerReplyAt: Date | null;
   status: "pending" | "replied" | "overdue" | "ok";
   demerited: boolean;
-  evidenceItemId?: number | null;
 }): Promise<void> {
-  if (!data.lastNonJoyceMsgAt) {
-    throw new Error(`Reply thread ${data.cardId} has no external message timestamp.`);
+  const db = await getDb();
+  if (!db) return;
+  const toStr = (d: Date | null) =>
+    d ? d.toISOString().slice(0, 19).replace("T", " ") : null;
+  try {
+    await (db as any).execute(
+      `INSERT INTO reply_threads
+         (vaId, source, cardId, cardName, cardUrl, boardName, listName,
+          lastNonWorkerMsgAt, lastNonWorkerAuthor, lastNonWorkerText,
+          lastWorkerReplyAt, status, demerited)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         cardName = VALUES(cardName),
+         cardUrl = VALUES(cardUrl),
+         boardName = VALUES(boardName),
+         listName = VALUES(listName),
+         lastNonWorkerMsgAt = VALUES(lastNonWorkerMsgAt),
+         lastNonWorkerAuthor = VALUES(lastNonWorkerAuthor),
+         lastNonWorkerText = VALUES(lastNonWorkerText),
+         lastWorkerReplyAt = VALUES(lastWorkerReplyAt),
+         status = VALUES(status),
+         demerited = VALUES(demerited),
+         updatedAt = NOW()`,
+      [
+        vaId, data.source, data.cardId, data.cardName, data.cardUrl,
+        data.boardName, data.listName,
+        toStr(data.lastNonWorkerMsgAt), data.lastNonWorkerAuthor,
+        (data.lastNonWorkerText || "").slice(0, 2000),
+        toStr(data.lastWorkerReplyAt), data.status, data.demerited ? 1 : 0,
+      ]
+    );
+  } catch (e) {
+    console.error("[DB] upsertReplyThread failed:", e);
   }
-  const db = await requireDb();
-  const status = data.status === "ok" ? "replied" : data.status;
-  const values = {
-    source: data.source,
-    cardId: data.cardId,
-    cardName: data.cardName,
-    cardUrl: data.cardUrl,
-    boardName: data.boardName,
-    listName: data.listName,
-    lastNonJoyceMsgAt: data.lastNonJoyceMsgAt,
-    lastNonJoyceAuthor: data.lastNonJoyceAuthor,
-    lastNonJoyceText: (data.lastNonJoyceText || "").slice(0, 2000),
-    lastJoyceReplyAt: data.lastJoyceReplyAt,
-    status,
-    demerited: data.demerited,
-  } as const;
-  await db.insert(replyThreads).values(values).onDuplicateKeyUpdate({
-    set: { ...values, updatedAt: new Date() },
-  });
-  const validReplyAt = data.lastJoyceReplyAt && data.lastJoyceReplyAt.getTime() > data.lastNonJoyceMsgAt.getTime()
-    ? data.lastJoyceReplyAt
-    : null;
-  await upsertCommunicationEvidence({
-    channel: data.source,
-    externalId: `${data.cardId}:${data.lastNonJoyceMsgAt.toISOString()}`,
-    threadId: data.cardId,
-    direction: "inbound",
-    sender: data.lastNonJoyceAuthor,
-    subject: data.cardName,
-    summary: data.lastNonJoyceText,
-    occurredAt: data.lastNonJoyceMsgAt,
-    responseRequired: true,
-    respondedAt: validReplyAt,
-    linkedCardId: data.cardId,
-    evidenceItemId: data.evidenceItemId ?? null,
-    metadata: {
-      cardUrl: data.cardUrl,
-      boardName: data.boardName,
-      listName: data.listName,
-      responseWindowHours: 12,
-    },
-  });
 }
 
+// Alias for Upwork
 export const upsertUpworkThread = upsertReplyThread;
 
-function toReplyThreadRows(rows: Array<typeof replyThreads.$inferSelect>): ReplyThreadRow[] {
-  return rows.map((row) => ({
-    ...row,
-    lastNonJoyceText: row.lastNonJoyceText ?? "",
-  }));
+export async function getPendingReplyThreads(vaId: number): Promise<ReplyThreadRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await (db as any).execute(
+      `SELECT id, vaId, source, cardId, cardName, cardUrl, boardName, listName,
+              lastNonWorkerMsgAt, lastNonWorkerAuthor, lastNonWorkerText,
+              lastWorkerReplyAt, status, demerited, updatedAt
+       FROM reply_threads
+       WHERE status IN ('pending', 'overdue') AND vaId = ?
+       ORDER BY lastNonWorkerMsgAt ASC`,
+      [vaId]
+    );
+    const data = Array.isArray(rows) ? rows[0] : rows;
+    return (Array.isArray(data) ? data : []).map((r: any) => ({
+      ...r,
+      lastNonWorkerMsgAt: r.lastNonWorkerMsgAt ? new Date(r.lastNonWorkerMsgAt) : null,
+      lastWorkerReplyAt: r.lastWorkerReplyAt ? new Date(r.lastWorkerReplyAt) : null,
+      updatedAt: new Date(r.updatedAt),
+      demerited: Boolean(r.demerited),
+    }));
+  } catch {
+    return [];
+  }
 }
 
-export async function getPendingReplyThreads(): Promise<ReplyThreadRow[]> {
-  const db = await requireDb();
-  const rows = await db.select().from(replyThreads)
-    .where(inArray(replyThreads.status, ["pending", "overdue"]))
-    .orderBy(asc(replyThreads.lastNonJoyceMsgAt));
-  return toReplyThreadRows(rows);
+export async function getAllReplyThreads(vaId: number, limit = 100): Promise<ReplyThreadRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await (db as any).execute(
+      `SELECT id, vaId, source, cardId, cardName, cardUrl, boardName, listName,
+              lastNonWorkerMsgAt, lastNonWorkerAuthor, lastNonWorkerText,
+              lastWorkerReplyAt, status, demerited, updatedAt
+       FROM reply_threads
+       WHERE vaId = ?
+       ORDER BY lastNonWorkerMsgAt DESC
+       LIMIT ${limit}`,
+      [vaId]
+    );
+    const data = Array.isArray(rows) ? rows[0] : rows;
+    return (Array.isArray(data) ? data : []).map((r: any) => ({
+      ...r,
+      lastNonWorkerMsgAt: r.lastNonWorkerMsgAt ? new Date(r.lastNonWorkerMsgAt) : null,
+      lastWorkerReplyAt: r.lastWorkerReplyAt ? new Date(r.lastWorkerReplyAt) : null,
+      updatedAt: new Date(r.updatedAt),
+      demerited: Boolean(r.demerited),
+    }));
+  } catch {
+    return [];
+  }
 }
 
-export async function getAllReplyThreads(limit = 100): Promise<ReplyThreadRow[]> {
-  const db = await requireDb();
-  const rows = await db.select().from(replyThreads)
-    .orderBy(desc(replyThreads.lastNonJoyceMsgAt))
-    .limit(Math.max(1, Math.min(limit, 500)));
-  return toReplyThreadRows(rows);
+export async function markReplyThreadReplied(vaId: number, cardId: string, source: ReplySource): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await (db as any).execute(
+      `UPDATE reply_threads SET status = 'replied', updatedAt = NOW()
+       WHERE cardId = ? AND source = ? AND vaId = ?`,
+      [cardId, source, vaId]
+    );
+  } catch (e) {
+    console.error("[DB] markReplyThreadReplied failed:", e);
+  }
 }
 
-export async function markReplyThreadReplied(cardId: string, source: ReplySource): Promise<void> {
-  const db = await requireDb();
-  await db.update(replyThreads).set({ status: "replied", updatedAt: new Date() })
-    .where(and(eq(replyThreads.cardId, cardId), eq(replyThreads.source, source)));
+export async function markReplyThreadDemerited(vaId: number, cardId: string, source: ReplySource): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await (db as any).execute(
+      `UPDATE reply_threads SET demerited = 1, updatedAt = NOW()
+       WHERE cardId = ? AND source = ? AND vaId = ?`,
+      [cardId, source, vaId]
+    );
+  } catch (e) {
+    console.error("[DB] markReplyThreadDemerited failed:", e);
+  }
 }
 
-export async function markReplyThreadDemerited(cardId: string, source: ReplySource): Promise<void> {
-  const db = await requireDb();
-  await db.update(replyThreads).set({ demerited: true, updatedAt: new Date() })
-    .where(and(eq(replyThreads.cardId, cardId), eq(replyThreads.source, source)));
-}
+// ─── Vague Reply Flags ────────────────────────────────────────────────────────
 
 export interface VagueFlagRow {
   id: number;
+  vaId: number;
   source: string;
   cardId: string;
   cardName: string;
@@ -151,7 +189,10 @@ export interface VagueFlagRow {
   demeritIssuedAt: Date | null;
 }
 
-export async function insertVagueReplyFlag(data: {
+/**
+ * Insert or ignore a vague reply flag (deduped by actionId).
+ */
+export async function insertVagueReplyFlag(vaId: number, data: {
   source: ReplySource;
   cardId: string;
   cardName: string;
@@ -160,49 +201,153 @@ export async function insertVagueReplyFlag(data: {
   messageText: string;
   flaggedAt: Date;
 }): Promise<number | null> {
-  const db = await requireDb();
-  const existing = await db.select({ id: vagueReplyFlags.id }).from(vagueReplyFlags)
-    .where(eq(vagueReplyFlags.actionId, data.actionId)).limit(1);
-  if (existing.length) return null;
+  const db = await getDb();
+  if (!db) return null;
+  const flaggedAtStr = data.flaggedAt.toISOString().slice(0, 19).replace("T", " ");
   try {
-    const inserted = await db.insert(vagueReplyFlags).values({
-      ...data,
-      messageText: data.messageText.slice(0, 2000),
-    }).$returningId();
-    return inserted[0]?.id ?? null;
-  } catch (error) {
-    if (errorMessage(error).toLowerCase().includes("duplicate")) return null;
-    throw error;
+    const result = await (db as any).execute(
+      `INSERT IGNORE INTO vague_reply_flags
+         (vaId, source, cardId, cardName, cardUrl, actionId, messageText, flaggedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        vaId, data.source, data.cardId, data.cardName, data.cardUrl,
+        data.actionId, data.messageText.slice(0, 2000), flaggedAtStr,
+      ]
+    );
+    const res = Array.isArray(result) ? result[0] : result;
+    return (res as any)?.insertId ?? null;
+  } catch (e) {
+    console.error("[DB] insertVagueReplyFlag failed:", e);
+    return null;
   }
 }
 
+// Alias for Upwork
 export const upsertUpworkVagueFlag = insertVagueReplyFlag;
 
-export async function getActiveVagueReplyFlags(): Promise<VagueFlagRow[]> {
-  const db = await requireDb();
-  return db.select().from(vagueReplyFlags)
-    .where(isNull(vagueReplyFlags.resolvedAt))
-    .orderBy(asc(vagueReplyFlags.flaggedAt));
+export async function getActiveVagueReplyFlags(vaId: number): Promise<VagueFlagRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await (db as any).execute(
+      `SELECT id, vaId, source, cardId, cardName, cardUrl, actionId, messageText,
+              flaggedAt, resolvedAt, resolvedBy, demeritIssued, demeritIssuedAt
+       FROM vague_reply_flags
+       WHERE resolvedAt IS NULL AND vaId = ?
+       ORDER BY flaggedAt ASC`,
+      [vaId]
+    );
+    const data = Array.isArray(rows) ? rows[0] : rows;
+    return (Array.isArray(data) ? data : []).map((r: any) => ({
+      ...r,
+      flaggedAt: new Date(r.flaggedAt),
+      resolvedAt: r.resolvedAt ? new Date(r.resolvedAt) : null,
+      demeritIssued: Boolean(r.demeritIssued),
+      demeritIssuedAt: r.demeritIssuedAt ? new Date(r.demeritIssuedAt) : null,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function resolveVagueReplyFlag(id: number): Promise<void> {
-  const db = await requireDb();
-  await db.update(vagueReplyFlags).set({ resolvedAt: new Date(), resolvedBy: "manual", updatedAt: new Date() })
-    .where(eq(vagueReplyFlags.id, id));
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await (db as any).execute(
+      `UPDATE vague_reply_flags
+       SET resolvedAt = NOW(), resolvedBy = 'manual', updatedAt = NOW()
+       WHERE id = ?`,
+      [id]
+    );
+  } catch (e) {
+    console.error("[DB] resolveVagueReplyFlag failed:", e);
+  }
 }
 
-export async function getAllVagueReplyFlags(limit = 50): Promise<VagueFlagRow[]> {
-  const db = await requireDb();
-  return db.select().from(vagueReplyFlags)
-    .orderBy(desc(vagueReplyFlags.flaggedAt))
-    .limit(Math.max(1, Math.min(limit, 500)));
+export async function autoDemeritVagueReplyFlag(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await (db as any).execute(
+      `UPDATE vague_reply_flags
+       SET resolvedAt = NOW(), resolvedBy = 'auto_demerit',
+           demeritIssued = 1, demeritIssuedAt = NOW(), updatedAt = NOW()
+       WHERE id = ?`,
+      [id]
+    );
+  } catch (e) {
+    console.error("[DB] autoDemeritVagueReplyFlag failed:", e);
+  }
 }
 
+export async function getAllVagueReplyFlags(vaId: number, limit = 50): Promise<VagueFlagRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await (db as any).execute(
+      `SELECT id, vaId, source, cardId, cardName, cardUrl, actionId, messageText,
+              flaggedAt, resolvedAt, resolvedBy, demeritIssued, demeritIssuedAt
+       FROM vague_reply_flags
+       WHERE vaId = ?
+       ORDER BY flaggedAt DESC
+       LIMIT ${limit}`,
+      [vaId]
+    );
+    const data = Array.isArray(rows) ? rows[0] : rows;
+    return (Array.isArray(data) ? data : []).map((r: any) => ({
+      ...r,
+      flaggedAt: new Date(r.flaggedAt),
+      resolvedAt: r.resolvedAt ? new Date(r.resolvedAt) : null,
+      demeritIssued: Boolean(r.demeritIssued),
+      demeritIssuedAt: r.demeritIssuedAt ? new Date(r.demeritIssuedAt) : null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Auto-demerit any vague reply flags that have been unresolved for >1 hour.
+ */
+export async function autoDemeriteExpiredVagueFlags(vaId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const ONE_HOUR_AGO = new Date(Date.now() - 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
+  try {
+    const rows = await (db as any).execute(
+      `SELECT id FROM vague_reply_flags
+       WHERE resolvedAt IS NULL AND demeritIssued = 0 AND flaggedAt <= ? AND vaId = ?`,
+      [ONE_HOUR_AGO, vaId]
+    );
+    const data = Array.isArray(rows) ? rows[0] : rows;
+    const expired: Array<{ id: number }> = Array.isArray(data) ? data : [];
+    for (const row of expired) {
+      await autoDemeritVagueReplyFlag(row.id);
+      await incrementPayLogD1(vaId, todayEAT(), 1).catch(() => {});
+    }
+    return expired.length;
+  } catch (e) {
+    console.error("[DB] autoDemeriteExpiredVagueFlags failed:", e);
+    return 0;
+  }
+}
+
+// Alias used by upworkMonitor
+export const autoDemeriteExpiredUpworkFlags = autoDemeriteExpiredVagueFlags;
+
+// Stubs for any legacy imports
 export const getUpworkPendingThreads = getPendingReplyThreads;
 export const getUpworkActiveVagueFlags = getActiveVagueReplyFlags;
 
+// ─── Unsigned Message Flags ───────────────────────────────────────────────────
+
 export interface UnsignedFlagRow {
   id: number;
+  vaId: number;
   source: string;
   cardId: string;
   cardName: string;
@@ -216,7 +361,10 @@ export interface UnsignedFlagRow {
   demeritIssuedAt: Date | null;
 }
 
-export async function insertUnsignedFlag(data: {
+/**
+ * Insert or ignore an unsigned message flag (deduped by actionId).
+ */
+export async function insertUnsignedFlag(vaId: number, data: {
   source: ReplySource;
   cardId: string;
   cardName: string;
@@ -225,174 +373,135 @@ export async function insertUnsignedFlag(data: {
   messageText: string;
   flaggedAt: Date;
 }): Promise<number | null> {
-  const db = await requireDb();
-  const existing = await db.select({ id: unsignedMessageFlags.id }).from(unsignedMessageFlags)
-    .where(eq(unsignedMessageFlags.actionId, data.actionId)).limit(1);
-  if (existing.length) return null;
+  const db = await getDb();
+  if (!db) return null;
+  const flaggedAtStr = data.flaggedAt.toISOString().slice(0, 19).replace("T", " ");
   try {
-    const inserted = await db.insert(unsignedMessageFlags).values({
-      ...data,
-      messageText: data.messageText.slice(0, 2000),
-    }).$returningId();
-    return inserted[0]?.id ?? null;
-  } catch (error) {
-    if (errorMessage(error).toLowerCase().includes("duplicate")) return null;
-    throw error;
+    const result = await (db as any).execute(
+      `INSERT IGNORE INTO unsigned_message_flags
+         (vaId, source, cardId, cardName, cardUrl, actionId, messageText, flaggedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        vaId, data.source, data.cardId, data.cardName, data.cardUrl,
+        data.actionId, data.messageText.slice(0, 2000), flaggedAtStr,
+      ]
+    );
+    const res = Array.isArray(result) ? result[0] : result;
+    return (res as any)?.insertId ?? null;
+  } catch (e) {
+    console.error("[DB] insertUnsignedFlag failed:", e);
+    return null;
   }
 }
 
-export async function getActiveUnsignedFlags(): Promise<UnsignedFlagRow[]> {
-  const db = await requireDb();
-  return db.select().from(unsignedMessageFlags)
-    .where(isNull(unsignedMessageFlags.resolvedAt))
-    .orderBy(asc(unsignedMessageFlags.flaggedAt));
+export async function getActiveUnsignedFlags(vaId: number): Promise<UnsignedFlagRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await (db as any).execute(
+      `SELECT id, vaId, source, cardId, cardName, cardUrl, actionId, messageText,
+              flaggedAt, resolvedAt, resolvedBy, demeritIssued, demeritIssuedAt
+       FROM unsigned_message_flags
+       WHERE resolvedAt IS NULL AND vaId = ?
+       ORDER BY flaggedAt ASC`,
+      [vaId]
+    );
+    const data = Array.isArray(rows) ? rows[0] : rows;
+    return (Array.isArray(data) ? data : []).map((r: any) => ({
+      ...r,
+      flaggedAt: new Date(r.flaggedAt),
+      resolvedAt: r.resolvedAt ? new Date(r.resolvedAt) : null,
+      demeritIssued: Boolean(r.demeritIssued),
+      demeritIssuedAt: r.demeritIssuedAt ? new Date(r.demeritIssuedAt) : null,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function resolveUnsignedFlag(id: number, note?: string): Promise<void> {
-  const db = await requireDb();
-  await db.update(unsignedMessageFlags).set({
-    resolvedAt: new Date(),
-    resolvedBy: "manual",
-    resolutionNote: note?.trim() || null,
-    updatedAt: new Date(),
-  }).where(eq(unsignedMessageFlags.id, id));
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await (db as any).execute(
+      `UPDATE unsigned_message_flags
+       SET resolvedAt = NOW(), resolvedBy = 'manual',
+           resolutionNote = ?, updatedAt = NOW()
+       WHERE id = ?`,
+      [note ?? null, id]
+    );
+  } catch (e) {
+    console.error("[DB] resolveUnsignedFlag failed:", e);
+  }
 }
 
-/** Resolve historical flags created from internal APTLSS system notes. */
-export async function resolveSystemGeneratedUnsignedFlags(): Promise<void> {
-  const db = await requireDb();
-  await db.update(unsignedMessageFlags).set({
-    resolvedAt: new Date(),
-    resolvedBy: "system",
-    resolutionNote: "Internal APTLSS system comments do not require a Joyce signature.",
-    updatedAt: new Date(),
-  }).where(and(
-    isNull(unsignedMessageFlags.resolvedAt),
-    like(unsignedMessageFlags.messageText, "[APTLSS System]%"),
-  ));
+export async function autoDemeritUnsignedFlag(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await (db as any).execute(
+      `UPDATE unsigned_message_flags
+       SET resolvedAt = NOW(), resolvedBy = 'auto_demerit',
+           demeritIssued = 1, demeritIssuedAt = NOW(), updatedAt = NOW()
+       WHERE id = ?`,
+      [id]
+    );
+  } catch (e) {
+    console.error("[DB] autoDemeritUnsignedFlag failed:", e);
+  }
 }
 
-export async function getAllUnsignedFlags(limit = 50): Promise<UnsignedFlagRow[]> {
-  const db = await requireDb();
-  return db.select().from(unsignedMessageFlags)
-    .orderBy(desc(unsignedMessageFlags.flaggedAt))
-    .limit(Math.max(1, Math.min(limit, 500)));
+export async function getAllUnsignedFlags(vaId: number, limit = 50): Promise<UnsignedFlagRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await (db as any).execute(
+      `SELECT id, vaId, source, cardId, cardName, cardUrl, actionId, messageText,
+              flaggedAt, resolvedAt, resolvedBy, demeritIssued, demeritIssuedAt
+       FROM unsigned_message_flags
+       WHERE vaId = ?
+       ORDER BY flaggedAt DESC
+       LIMIT ${limit}`,
+      [vaId]
+    );
+    const data = Array.isArray(rows) ? rows[0] : rows;
+    return (Array.isArray(data) ? data : []).map((r: any) => ({
+      ...r,
+      flaggedAt: new Date(r.flaggedAt),
+      resolvedAt: r.resolvedAt ? new Date(r.resolvedAt) : null,
+      demeritIssued: Boolean(r.demeritIssued),
+      demeritIssuedAt: r.demeritIssuedAt ? new Date(r.demeritIssuedAt) : null,
+    }));
+  } catch {
+    return [];
+  }
 }
 
-export async function markReplyMonitorScanStarted(): Promise<void> {
-  const db = await requireDb();
-  const now = new Date();
-  await db.insert(replyMonitorStatus).values({ id: 1, state: "running", lastStartedAt: now })
-    .onDuplicateKeyUpdate({ set: { state: "running", lastStartedAt: now, errorMessage: null, updatedAt: now } });
-}
-
-export async function markReplyMonitorScanSucceeded(threadsScanned: number): Promise<void> {
-  const db = await requireDb();
-  const now = new Date();
-  await db.insert(replyMonitorStatus).values({
-    id: 1,
-    state: "success",
-    lastStartedAt: now,
-    lastCompletedAt: now,
-    lastSuccessfulAt: now,
-    threadsScanned,
-  }).onDuplicateKeyUpdate({
-    set: {
-      state: "success",
-      lastCompletedAt: now,
-      lastSuccessfulAt: now,
-      threadsScanned,
-      errorMessage: null,
-      updatedAt: now,
-    },
-  });
-}
-
-export async function markReplyMonitorScanFailed(error: unknown): Promise<void> {
-  const db = await requireDb();
-  const now = new Date();
-  const message = errorMessage(error).slice(0, 2000);
-  await db.insert(replyMonitorStatus).values({
-    id: 1,
-    state: "error",
-    lastStartedAt: now,
-    lastCompletedAt: now,
-    errorMessage: message,
-  }).onDuplicateKeyUpdate({
-    set: { state: "error", lastCompletedAt: now, errorMessage: message, updatedAt: now },
-  });
-}
-
-export async function markUpworkScanStarted(): Promise<void> {
-  const db = await requireDb();
-  const now = new Date();
-  await db.insert(replyMonitorStatus).values({ id: 1, upworkState: "running", upworkLastStartedAt: now })
-    .onDuplicateKeyUpdate({ set: { upworkState: "running", upworkLastStartedAt: now, upworkErrorMessage: null, updatedAt: now } });
-}
-
-export async function markUpworkScanSucceeded(result: { scanned: number; pending: number; overdue: number }): Promise<void> {
-  const db = await requireDb();
-  const now = new Date();
-  await db.insert(replyMonitorStatus).values({
-    id: 1,
-    upworkState: "success",
-    upworkLastStartedAt: now,
-    upworkLastSuccessfulAt: now,
-    upworkRoomsScanned: result.scanned,
-    upworkPending: result.pending,
-    upworkOverdue: result.overdue,
-  }).onDuplicateKeyUpdate({
-    set: {
-      upworkState: "success",
-      upworkLastSuccessfulAt: now,
-      upworkRoomsScanned: result.scanned,
-      upworkPending: result.pending,
-      upworkOverdue: result.overdue,
-      upworkErrorMessage: null,
-      updatedAt: now,
-    },
-  });
-}
-
-export async function markUpworkScanFailed(error: unknown): Promise<void> {
-  const db = await requireDb();
-  const now = new Date();
-  const message = errorMessage(error).slice(0, 2000);
-  await db.insert(replyMonitorStatus).values({
-    id: 1,
-    upworkState: "error",
-    upworkLastStartedAt: now,
-    upworkErrorMessage: message,
-  }).onDuplicateKeyUpdate({
-    set: { upworkState: "error", upworkErrorMessage: message, updatedAt: now },
-  });
-}
-
-export async function markUpworkScanDisabled(): Promise<void> {
-  const db = await requireDb();
-  const now = new Date();
-  await db.insert(replyMonitorStatus).values({ id: 1, upworkState: "disabled" })
-    .onDuplicateKeyUpdate({ set: { upworkState: "disabled", upworkErrorMessage: null, updatedAt: now } });
-}
-
-export async function getReplyMonitorStatus() {
-  const db = await requireDb();
-  const rows = await db.select().from(replyMonitorStatus).where(eq(replyMonitorStatus.id, 1)).limit(1);
-  return rows[0] ?? {
-    id: 1,
-    state: "never" as const,
-    lastStartedAt: null,
-    lastCompletedAt: null,
-    lastSuccessfulAt: null,
-    threadsScanned: 0,
-    errorMessage: null,
-    upworkState: "never" as const,
-    upworkLastStartedAt: null,
-    upworkLastSuccessfulAt: null,
-    upworkRoomsScanned: 0,
-    upworkPending: 0,
-    upworkOverdue: 0,
-    upworkErrorMessage: null,
-    updatedAt: new Date(0),
-  };
+/**
+ * Auto-demerit any unsigned message flags that have been unresolved for >1 hour.
+ */
+export async function autoDemeriteExpiredUnsignedFlags(vaId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const ONE_HOUR_AGO = new Date(Date.now() - 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
+  try {
+    const rows = await (db as any).execute(
+      `SELECT id FROM unsigned_message_flags
+       WHERE resolvedAt IS NULL AND demeritIssued = 0 AND flaggedAt <= ? AND vaId = ?`,
+      [ONE_HOUR_AGO, vaId]
+    );
+    const data = Array.isArray(rows) ? rows[0] : rows;
+    const expired: Array<{ id: number }> = Array.isArray(data) ? data : [];
+    for (const row of expired) {
+      await autoDemeritUnsignedFlag(row.id);
+      await incrementPayLogD1(vaId, todayEAT(), 1).catch(() => {});
+    }
+    return expired.length;
+  } catch (e) {
+    console.error("[DB] autoDemeriteExpiredUnsignedFlags failed:", e);
+    return 0;
+  }
 }

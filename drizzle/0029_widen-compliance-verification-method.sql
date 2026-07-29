@@ -1,1 +1,0 @@
-ALTER TABLE `daily_compliance_snapshots` MODIFY COLUMN `verificationMethod` varchar(255);

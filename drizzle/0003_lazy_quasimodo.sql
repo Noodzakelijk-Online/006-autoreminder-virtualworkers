@@ -1,0 +1,23 @@
+CREATE TABLE `user_working_hours` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`userId` int NOT NULL,
+	`userOpenId` varchar(64) NOT NULL,
+	`workStartHour` int NOT NULL DEFAULT 9,
+	`workStartMinute` int NOT NULL DEFAULT 0,
+	`workEndHour` int NOT NULL DEFAULT 18,
+	`workEndMinute` int NOT NULL DEFAULT 0,
+	`breakfastTime` varchar(5) DEFAULT '09:00',
+	`breakfastDuration` int NOT NULL DEFAULT 45,
+	`lunchTime` varchar(5) DEFAULT '15:00',
+	`lunchDuration` int NOT NULL DEFAULT 45,
+	`dinnerTime` varchar(5) DEFAULT '20:00',
+	`dinnerDuration` int NOT NULL DEFAULT 120,
+	`enableBreaks` int NOT NULL DEFAULT 1,
+	`shortBreakInterval` int NOT NULL DEFAULT 120,
+	`shortBreakDuration` int NOT NULL DEFAULT 10,
+	`longBreakInterval` int NOT NULL DEFAULT 240,
+	`longBreakDuration` int NOT NULL DEFAULT 30,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `user_working_hours_id` PRIMARY KEY(`id`)
+);

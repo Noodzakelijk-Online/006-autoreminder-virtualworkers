@@ -1,1 +1,0 @@
-ALTER TABLE `scheduled_job_runs` MODIFY COLUMN `status` enum('running','success','error','abandoned') NOT NULL DEFAULT 'running';

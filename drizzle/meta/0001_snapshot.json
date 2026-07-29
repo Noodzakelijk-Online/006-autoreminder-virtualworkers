@@ -1,121 +1,83 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "c7bfa4db-4a49-4def-9e22-69112ced5d0d",
-  "prevId": "89177821-49a0-49ca-89fd-5d10c8b88057",
+  "id": "28cab5af-02a9-4623-92d6-98eacf2314c5",
+  "prevId": "52544d2f-77c0-477b-aff6-f6c335adeb67",
   "tables": {
-    "daily_triage_state": {
-      "name": "daily_triage_state",
+    "generation_items": {
+      "name": "generation_items",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "triageDate": {
-          "name": "triageDate",
-          "type": "date",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "step1Done": {
-          "name": "step1Done",
-          "type": "boolean",
+        "jobId": {
+          "name": "jobId",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": false
+          "autoincrement": false
         },
-        "step2Done": {
-          "name": "step2Done",
-          "type": "boolean",
+        "cardId": {
+          "name": "cardId",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": false
+          "autoincrement": false
         },
-        "step3Done": {
-          "name": "step3Done",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "step4Done": {
-          "name": "step4Done",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "step5Done": {
-          "name": "step5Done",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "focusTasks": {
-          "name": "focusTasks",
+        "cardName": {
+          "name": "cardName",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "('[]')"
+          "autoincrement": false
         },
-        "eveningStep1Done": {
-          "name": "eveningStep1Done",
-          "type": "boolean",
+        "boardName": {
+          "name": "boardName",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": false
+          "default": 0
         },
-        "eveningStep2Done": {
-          "name": "eveningStep2Done",
-          "type": "boolean",
+        "maxAttempts": {
+          "name": "maxAttempts",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": false
+          "default": 3
         },
-        "eveningStep3Done": {
-          "name": "eveningStep3Done",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "eveningStep4Done": {
-          "name": "eveningStep4Done",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "eodReport": {
-          "name": "eodReport",
+        "error": {
+          "name": "error",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "('')"
+          "notNull": false,
+          "autoincrement": false
         },
-        "currentView": {
-          "name": "currentView",
-          "type": "varchar(32)",
+        "result": {
+          "name": "result",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'overview'"
+          "notNull": false,
+          "autoincrement": false
         },
         "createdAt": {
           "name": "createdAt",
@@ -138,79 +100,58 @@
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "daily_triage_state_id": {
-          "name": "daily_triage_state_id",
+        "generation_items_id": {
+          "name": "generation_items_id",
           "columns": [
             "id"
           ]
         }
       },
-      "uniqueConstraints": {
-        "daily_triage_state_triageDate_unique": {
-          "name": "daily_triage_state_triageDate_unique",
-          "columns": [
-            "triageDate"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "payment_cycles": {
-      "name": "payment_cycles",
+    "generation_jobs": {
+      "name": "generation_jobs",
       "columns": {
         "id": {
           "name": "id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "totalCards": {
+          "name": "totalCards",
           "type": "int",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": true
-        },
-        "cycleStart": {
-          "name": "cycleStart",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true,
           "autoincrement": false
         },
-        "cycleEnd": {
-          "name": "cycleEnd",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "baseAmount": {
-          "name": "baseAmount",
-          "type": "decimal(8,2)",
+        "completedCards": {
+          "name": "completedCards",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "'90.00'"
+          "default": 0
         },
-        "isPaid": {
-          "name": "isPaid",
-          "type": "boolean",
+        "failedCards": {
+          "name": "failedCards",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": false
+          "default": 0
         },
-        "paidAt": {
-          "name": "paidAt",
-          "type": "timestamp",
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
-        "paidBy": {
-          "name": "paidBy",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "notes": {
-          "name": "notes",
+        "settings": {
+          "name": "settings",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -223,13 +164,27 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(now())"
+        },
+        "completedAt": {
+          "name": "completedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "payment_cycles_id": {
-          "name": "payment_cycles_id",
+        "generation_jobs_id": {
+          "name": "generation_jobs_id",
           "columns": [
             "id"
           ]
@@ -328,227 +283,6 @@
           ]
         }
       },
-      "checkConstraint": {}
-    },
-    "weekly_pay_log": {
-      "name": "weekly_pay_log",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "weekStart": {
-          "name": "weekStart",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "weekEnd": {
-          "name": "weekEnd",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "paymentCycleId": {
-          "name": "paymentCycleId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "baseAmount": {
-          "name": "baseAmount",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'90.00'"
-        },
-        "meritM1": {
-          "name": "meritM1",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "meritM2": {
-          "name": "meritM2",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "meritM3": {
-          "name": "meritM3",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "meritStreak": {
-          "name": "meritStreak",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD1": {
-          "name": "demeritD1",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD2": {
-          "name": "demeritD2",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD3": {
-          "name": "demeritD3",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD4": {
-          "name": "demeritD4",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD5": {
-          "name": "demeritD5",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD6": {
-          "name": "demeritD6",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD7": {
-          "name": "demeritD7",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD8": {
-          "name": "demeritD8",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD9": {
-          "name": "demeritD9",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD10": {
-          "name": "demeritD10",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "demeritD11": {
-          "name": "demeritD11",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "totalMerits": {
-          "name": "totalMerits",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "totalDemerits": {
-          "name": "totalDemerits",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'0.00'"
-        },
-        "projectedPay": {
-          "name": "projectedPay",
-          "type": "decimal(8,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'90.00'"
-        },
-        "notes": {
-          "name": "notes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "weekly_pay_log_id": {
-          "name": "weekly_pay_log_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
       "checkConstraint": {}
     }
   },

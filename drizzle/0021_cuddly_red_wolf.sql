@@ -1,0 +1,1 @@
+ALTER TABLE `task_assignments` MODIFY COLUMN `status` enum('assigned','in_progress','completed','blocked') NOT NULL DEFAULT 'assigned';

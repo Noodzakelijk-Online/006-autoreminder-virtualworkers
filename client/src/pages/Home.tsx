@@ -1,1279 +1,901 @@
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { Timeline } from "@/components/Timeline";
+import { OverflowTasks } from "@/components/OverflowTasks";
+import { StatsPanel } from "@/components/StatsPanel";
+import { WeeklyProgressDashboard } from "@/components/WeeklyProgressDashboard";
+import { WorkloadHeatmap } from "@/components/WorkloadHeatmap";
+import { Task, WeeklyStats } from "@/types";
+import { CalendarDays, Bell, Search, RefreshCw, Settings, ListTodo, LogOut, User, Menu, X, Users, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Link } from "wouter";
 import { toast } from "sonner";
-import TimeTracker from "@/components/TimeTracker";
-import WebhookHealthPanel from "@/components/WebhookHealthPanel";
-import GmailIngestionSettings from "@/components/GmailIngestionSettings";
-import UpworkIntegrationSettings from "@/components/UpworkIntegrationSettings";
-import { BrowserExtensionSetupBanner, BrowserTabHygieneSettings } from "@/components/BrowserTabHygiene";
-import { useTriageCounts } from "./useTriageCounts";
-import { trpc } from "@/lib/trpc";
-import {
-  ACTIVE_SECTION_KEY,
-  TODAY_MODE_KEY,
-  isAppSection,
-  readTodayMode,
-  serializeTodayMode,
-  type AppSection,
-  type TodayMode,
-} from "@/lib/navigationState";
-import { workQueueSourceFromPlan, type WorkQueueCard, type WorkQueueSourceData } from "@/lib/workQueue";
-import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarInset,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-  SidebarTrigger,
-  useSidebar,
-} from "@/components/ui/sidebar";
-import { useTheme } from "@/contexts/ThemeContext";
-import {
-  Clock,
-  MessageSquare,
-  Moon,
-  Sun,
-  Keyboard,
-  CheckCircle,
-  AlertTriangle,
-  Activity,
-  Award,
-  Zap,
-  Timer,
-  CalendarDays,
-  ArrowRight,
-  GitBranch,
-  Settings,
-  BookOpen,
-  Target,
-  ChevronDown,
-  ChevronUp,
-  Shield,
-} from "lucide-react";
-import { CSSProperties, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useHotkeys } from "react-hotkeys-hook";
-import { WorkQueueDashboard } from "@/components/work-queue/WorkQueueDashboard";
-import type { DashboardReadiness } from "@/lib/readiness";
-import { useOperationalEvents } from "@/hooks/useOperationalEvents";
-import { useEatClock } from "@/hooks/useEatClock";
-import MaintenanceCenter from "@/components/MaintenanceCenter";
-
-const TriagePage = lazy(() => import("./TriagePage"));
-const PlanMyDay = lazy(() => import("./PlanMyDay"));
-const DecisionsTab = lazy(() => import("./RulesTab"));
-const StandardsTab = lazy(() => import("./StandardsTab"));
-const PaymentTracker = lazy(() => import("./PaymentTracker"));
-const SundayChecklist = lazy(() => import("./SundayChecklist"));
-const WeeklyPayCalculator = lazy(() => import("./WeeklyPayCalculator"));
-const ComplianceTracker = lazy(() => import("./ComplianceTracker"));
-
-function SectionFallback() {
-  return (
-    <div className="rounded-md border border-border/60 bg-card p-6 text-sm font-medium text-muted-foreground">
-      Loading section...
-    </div>
-  );
-}
-
-// ─── Today's compliance chip for the header ─────────────────────────────────
-// ─── Compliance badge for the Performance sidebar item ───────────────────────
-function ComplianceBadge() {
-  const { data } = trpc.compliance.getRollingAvg.useQuery({ days: 7 });
-  const { data: counts } = trpc.system.navigationCounts.useQuery(undefined, {
-    staleTime: 5 * 60_000,
-  });
-  if ((counts?.timeExceptionCount ?? 0) > 0) {
-    return (
-      <span className="ml-auto flex h-[18px] min-w-[28px] items-center justify-center rounded-full bg-red-500 px-1.5 text-[9px] font-bold leading-none text-white" title="Open time reconciliation items">
-        {counts!.timeExceptionCount}
-      </span>
-    );
-  }
-  const avg = data?.avg;
-  if (avg === undefined) return null;
-  const color = avg >= 90
-    ? "bg-emerald-500"
-    : avg >= 70
-    ? "bg-amber-500"
-    : "bg-red-500";
-  return (
-    <span className={`ml-auto min-w-[28px] h-[18px] px-1.5 rounded-full text-[9px] font-bold text-white flex items-center justify-center leading-none ${color}`}>
-      {avg}%
-    </span>
-  );
-}
-
-// ─── No-due-date badge for the Triage sidebar item ───────────────────────────
-function InboxAttentionDot() {
-  const { total } = useTriageCounts();
-  if (total === 0) return null;
-  return (
-    <span className="ml-auto flex h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" title="Inbox has work requiring attention">
-      <span className="sr-only">Inbox has work requiring attention</span>
-    </span>
-  );
-}
-// ─── Projected pay chip for the sidebar footer ───────────────────────────────
-// ─── Compliance trend arrow for the Overview ─────────────────────────────────
-// ─── Trello Comment Token Settings ──────────────────────────────────────────
-function TrelloCommentTokenSettings() {
-  const { data: tokenData, refetch } = trpc.trello.getCommentToken.useQuery(undefined, {
-    // Token rarely changes; 5-min stale time (was 30 s). Mutation already calls refetch() on save.
-    staleTime: 5 * 60_000,
-  });
-  const setTokenMutation = trpc.trello.setCommentToken.useMutation({
-    onSuccess: () => {
-      toast.success(tokenInput.trim() ? "Comment token saved — comments will now post as Joyce" : "Comment token cleared — using default board token");
-      setTokenInput("");
-      setIsEditing(false);
-      refetch();
-    },
-    onError: (e) => toast.error(`Failed to save token: ${e.message}`),
-  });
-
-  const [tokenInput, setTokenInput] = useState("");
-  const [isEditing, setIsEditing] = useState(false);
-
-  const handleSave = () => {
-    const trimmed = tokenInput.trim();
-    if (!trimmed) {
-      toast.error("Token cannot be empty. Use Clear to remove the token.");
-      return;
-    }
-    setTokenMutation.mutate({ token: trimmed });
-  };
-
-  const handleClear = () => {
-    if (!confirm("Remove the custom comment token? Comments will revert to posting as the board owner.")) return;
-    setTokenMutation.mutate({ token: null });
-  };
-
-  return (
-    <div className={`rounded-xl border p-5 ${tokenData?.isSet ? 'border-blue-500/30 bg-blue-500/5' : 'border-amber-500/40 bg-amber-500/10'}`}>
-      <h3 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-2">
-        <MessageSquare className="w-4 h-4 text-blue-500" />
-        Trello Comment Token
-        {!tokenData?.isSet && (
-          <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/40">
-            <AlertTriangle className="w-3 h-3" />
-            Action required
-          </span>
-        )}
-      </h3>
-
-      {/* Banner when token is not set */}
-      {!tokenData?.isSet && (
-        <div className="mb-3 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-          <strong>Comments are currently posting as the board owner.</strong> This means comment detection
-          relies on the <code className="font-mono text-[10px] bg-amber-500/20 px-1 rounded">@joyjemimajj1</code> mention workaround.
-          Set Joyce's personal token below so comments post directly under her account — this is the most reliable setup.
-        </div>
-      )}
-
-      <p className="text-xs text-muted-foreground mb-4">
-        To get Joyce's token: go to{" "}
-        <a
-          href="/api/trello/authorize"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-blue-500 hover:underline"
-        >
-          this Trello authorization page
-        </a>
-        {" "}while logged in as Joyce, click <strong>Allow</strong>, and paste the token below.
-      </p>
-      <div className="flex items-center gap-3 mb-4">
-        {tokenData?.isSet ? (
-          <>
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-              <CheckCircle className="w-3.5 h-3.5" />
-              Joyce's personal token active — comments post as Joyce
-            </span>
-            <code className="text-xs text-muted-foreground bg-muted/50 px-2 py-0.5 rounded font-mono">
-              {tokenData.preview}
-            </code>
-          </>
-        ) : (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            No personal token — posting as board owner
-          </span>
-        )}
-      </div>
-      {isEditing ? (
-        <div className="space-y-3">
-          <input
-            type="password"
-            placeholder="Paste Joyce's Trello token here…"
-            value={tokenInput}
-            onChange={(e) => setTokenInput(e.target.value)}
-            className="w-full h-9 text-sm border border-border rounded-md bg-background text-foreground px-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono"
-            autoFocus
-          />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={handleSave}
-              disabled={setTokenMutation.isPending || !tokenInput.trim()}
-            >
-              {setTokenMutation.isPending ? "Saving…" : "Save Token"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => { setIsEditing(false); setTokenInput(""); }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-blue-500/40 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
-            onClick={() => setIsEditing(true)}
-          >
-            {tokenData?.isSet ? "Replace Token" : "Set Token"}
-          </Button>
-          {tokenData?.isSet && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10"
-              onClick={handleClear}
-              disabled={setTokenMutation.isPending}
-            >
-              Clear Token
-            </Button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Daily Goal Settings ─────────────────────────────────────────────────────
-function DailyGoalSettings() {
-  const { data: goalData, refetch } = trpc.settings.getDailyGoal.useQuery(undefined, {
-    staleTime: 5 * 60 * 1000,
-  });
-  const setGoalMutation = trpc.settings.setDailyGoal.useMutation({
-    onSuccess: (data) => {
-      toast.success(`Daily goal updated to ${data.hours}h`);
-      refetch();
-    },
-    onError: (e) => toast.error(`Failed to save: ${e.message}`),
-  });
-
-  const currentHours = goalData?.hours ?? 9;
-  const [localHours, setLocalHours] = useState<number>(currentHours);
-
-  useEffect(() => {
-    setLocalHours(currentHours);
-  }, [currentHours]);
-
-  const handleSave = () => {
-    if (localHours < 1 || localHours > 24) {
-      toast.error("Daily goal must be between 1 and 24 hours");
-      return;
-    }
-    setGoalMutation.mutate({ hours: localHours });
-  };
-
-  return (
-    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-5">
-      <h3 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-2">
-        <Target className="w-4 h-4 text-emerald-500" />
-        Daily Hour Goal
-      </h3>
-      <p className="text-xs text-muted-foreground mb-4">
-        Choose the daily target that matches Joyce's current agreement and schedule. Progress indicators update automatically, and overtime remains visible.
-      </p>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-        <div className="flex-1">
-          <input
-            type="range"
-            min={1}
-            max={14}
-            step={0.5}
-            value={localHours}
-            onChange={(e) => setLocalHours(parseFloat(e.target.value))}
-            className="w-full accent-emerald-500"
-            aria-label="Daily hour goal"
-          />
-          <div className="flex justify-between text-xs text-muted-foreground mt-1">
-            <span>1h</span>
-            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">9–10h recommended</span>
-            <span>14h</span>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
-          <input
-            type="number"
-            min={1}
-            max={14}
-            step={0.5}
-            value={localHours}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (!isNaN(v)) setLocalHours(v);
-            }}
-            className="w-16 h-9 text-center text-sm font-bold border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-            aria-label="Daily hour goal value"
-          />
-          <span className="text-sm text-muted-foreground">h/day</span>
-          <Button
-            size="sm"
-            className="bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={handleSave}
-            disabled={setGoalMutation.isPending || localHours === currentHours}
-          >
-            {setGoalMutation.isPending ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      </div>
-      {localHours !== currentHours && (
-        <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-          Unsaved change: {localHours}h/day (currently {currentHours}h)
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ─── Daily Schedule Settings ───────────────────────────────────────────────
-interface BreakSlot { name: string; startTime: string; durationMinutes: number; icon?: string; }
-interface ScheduleSettings { startTime: string; endTime: string; breaks: BreakSlot[]; typingPractice?: boolean; typingPracticeMinutes?: number; }
-
-const BREAK_ICONS = ["☕", "🍽️", "🌙", "🍵", "🥤", "🪴", "🧃", "🍎", "🍪", "🍺"];
-
-function DailyScheduleSettings({ onGoToSchedule }: { onGoToSchedule?: () => void }) {
-  const { data: saved, refetch } = trpc.settings.getSchedule.useQuery(undefined, { staleTime: 5 * 60 * 1000 });
-  const setScheduleMutation = trpc.settings.setSchedule.useMutation({
-    onSuccess: () => { toast.success("Schedule saved"); refetch(); },
-    onError: (e) => toast.error(`Failed to save: ${e.message}`),
-  });
-
-  const [local, setLocal] = useState<ScheduleSettings | null>(null);
-  const [iconPickerOpen, setIconPickerOpen] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (saved && !local) setLocal(saved as ScheduleSettings);
-  }, [saved]);
-
-  const s: ScheduleSettings = local ?? (saved as ScheduleSettings) ?? { startTime: "08:00", endTime: "23:00", breaks: [], typingPractice: true, typingPracticeMinutes: 30 };
-  const typingOn = s.typingPractice !== false;
-  const typingMins = s.typingPracticeMinutes ?? 30;
-  const [startHours, startMinutes] = s.startTime.split(":").map(Number);
-  const [endHours, endMinutes] = s.endTime.split(":").map(Number);
-  const windowMinutes = Math.max(0, endHours * 60 + endMinutes - (startHours * 60 + startMinutes));
-  const protectedMinutes = s.breaks.reduce((sum, item) => sum + item.durationMinutes, 0) + (typingOn ? typingMins : 0);
-  const availableMinutes = Math.max(0, windowMinutes - protectedMinutes);
-
-  const updateBreak = (idx: number, field: keyof BreakSlot, value: string | number) => {
-    const breaks = [...s.breaks];
-    breaks[idx] = { ...breaks[idx], [field]: value };
-    setLocal({ ...s, breaks });
-  };
-
-  const addBreak = () => setLocal({ ...s, breaks: [...s.breaks, { name: "Break", startTime: "12:00", durationMinutes: 30, icon: "☕" }] });
-  const removeBreak = (idx: number) => { setIconPickerOpen(null); setLocal({ ...s, breaks: s.breaks.filter((_, i) => i !== idx) }); };
-
-  const isDirty = JSON.stringify(local) !== JSON.stringify(saved);
-
-  return (
-    <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-5">
-      <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <Clock className="w-4 h-4 text-sky-500" />
-          Planning Window
-        </h3>
-        {onGoToSchedule && (
-          <button onClick={onGoToSchedule} className="text-xs text-sky-500 hover:text-sky-400 flex items-center gap-1 transition-colors">
-            Open Day Plan <ArrowRight className="w-3 h-3" />
-          </button>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground mb-4">
-          Set Joyce's available planning window and protected breaks. The Day Plan uses these constraints automatically.
-      </p>
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label htmlFor="schedule-work-start" className="text-xs font-medium text-muted-foreground block mb-1">Work Start</label>
-            <input id="schedule-work-start" type="time" value={s.startTime} onChange={e => setLocal({ ...s, startTime: e.target.value })}
-              className="w-full h-9 px-3 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-sky-500/50" />
-          </div>
-          <div>
-            <label htmlFor="schedule-log-off" className="text-xs font-medium text-muted-foreground block mb-1">Log Off</label>
-            <input id="schedule-log-off" type="time" value={s.endTime} onChange={e => setLocal({ ...s, endTime: e.target.value })}
-              className="w-full h-9 px-3 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-sky-500/50" />
-          </div>
-        </div>
-        <div className={`rounded-md border px-3 py-2 text-xs ${windowMinutes > 12 * 60 ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300" : "border-border bg-background text-muted-foreground"}`}>
-          Planning span: {formatHoursValue(windowMinutes / 60)}. After protected time, up to {formatHoursValue(availableMinutes / 60)} remains available. {windowMinutes > 12 * 60 ? "This is a long availability window; the generated plan should still stay within the daily hour goal." : "The generated plan remains capped by the daily hour goal."}
-        </div>
-
-        {/* Typing Practice */}
-        <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-3">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-xs font-semibold text-foreground flex items-center gap-2">
-              <Keyboard className="w-3.5 h-3.5 text-purple-500" />
-              Typing Practice (EOD)
-            </label>
-            <button
-              type="button"
-              onClick={() => setLocal({ ...s, typingPractice: !typingOn })}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                typingOn ? 'bg-purple-500' : 'bg-muted'
-              }`}
-              role="switch"
-              aria-checked={typingOn}
-              aria-label="Enable end-of-day typing practice"
-            >
-              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-                typingOn ? 'translate-x-4' : 'translate-x-0.5'
-              }`} />
-            </button>
-          </div>
-          {typingOn && (
-            <div className="flex items-center gap-2">
-              <label htmlFor="typing-practice-duration" className="text-xs text-muted-foreground">Duration:</label>
-              <input id="typing-practice-duration" type="number" min={5} max={120} step={5} value={typingMins}
-                onChange={e => setLocal({ ...s, typingPracticeMinutes: parseInt(e.target.value) || 30 })}
-                className="w-16 h-7 px-2 text-xs text-center border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-purple-500/50" />
-              <span className="text-xs text-muted-foreground">min</span>
-            </div>
-          )}
-        </div>
-
-        {/* Breaks */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-xs font-semibold text-foreground">Breaks</label>
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={addBreak}>+ Add Break</Button>
-          </div>
-          <div className="space-y-2">
-            {s.breaks.map((brk, idx) => (
-              <div key={idx} className="space-y-1.5 rounded-md border border-border/60 bg-background/40 p-2 sm:border-0 sm:bg-transparent sm:p-0">
-                <div className="grid grid-cols-[32px_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[32px_minmax(120px,1fr)_110px_92px_32px]">
-                  {/* Icon picker trigger */}
-                  <button
-                    type="button"
-                    onClick={() => setIconPickerOpen(iconPickerOpen === idx ? null : idx)}
-                    className="w-8 h-8 rounded-md border border-border bg-background hover:bg-muted flex items-center justify-center text-base transition-colors"
-                    title="Pick icon"
-                    aria-label={`Choose icon for ${brk.name}`}
-                  >
-                    {brk.icon || "☕"}
-                  </button>
-                  <input type="text" placeholder="Name" value={brk.name}
-                    aria-label={`Break ${idx + 1} name`}
-                    onChange={e => updateBreak(idx, "name", e.target.value)}
-                    className="h-8 px-2 text-xs border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500/50" />
-                  <input type="time" value={brk.startTime}
-                    aria-label={`${brk.name} start time`}
-                    onChange={e => updateBreak(idx, "startTime", e.target.value)}
-                    className="col-start-2 h-8 w-full px-2 text-xs border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500/50 sm:col-start-auto" />
-                  <div className="col-start-2 flex items-center gap-1 sm:col-start-auto">
-                    <input type="number" min={5} max={480} step={5} value={brk.durationMinutes}
-                      aria-label={`${brk.name} duration in minutes`}
-                      onChange={e => updateBreak(idx, "durationMinutes", parseInt(e.target.value) || 30)}
-                      className="w-16 h-8 px-2 text-xs text-center border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-sky-500/50" />
-                    <span className="text-xs text-muted-foreground">min</span>
-                  </div>
-                  <Button size="sm" variant="ghost" className="col-start-2 h-8 w-8 justify-self-end p-0 text-red-500 hover:text-red-600 hover:bg-red-500/10 sm:col-start-auto" onClick={() => removeBreak(idx)} aria-label={`Remove ${brk.name}`}>
-                    <span className="text-sm">×</span>
-                  </Button>
-                </div>
-                {/* Icon picker popover */}
-                {iconPickerOpen === idx && (
-                  <div className="flex flex-wrap gap-1.5 p-2 bg-card border border-border rounded-lg shadow-md">
-                    {BREAK_ICONS.map(em => (
-                      <button key={em} type="button" aria-label={`Use ${em} for ${brk.name}`} onClick={() => { updateBreak(idx, "icon", em); setIconPickerOpen(null); }}
-                        className={`w-8 h-8 text-base rounded-md hover:bg-muted flex items-center justify-center transition-colors ${
-                          brk.icon === em ? 'bg-sky-500/20 ring-1 ring-sky-500' : ''
-                        }`}>
-                        {em}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-            {s.breaks.length === 0 && <p className="text-xs text-muted-foreground italic">No breaks configured.</p>}
-          </div>
-        </div>
-
-        <div className="flex justify-end">
-          <Button size="sm" className="bg-sky-600 hover:bg-sky-700 text-white"
-            onClick={() => setScheduleMutation.mutate(s)}
-            disabled={setScheduleMutation.isPending || !isDirty}>
-            {setScheduleMutation.isPending ? "Saving…" : "Save Schedule"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Reply Monitor Badge Settings ──────────────────────────────────────────
-function ReplyMonitorBadgeSettings() {
-  const utils = trpc.useUtils();
-  const { data: badgeSetting, isLoading } = trpc.settings.getReplyMonitorBadge.useQuery(undefined, {
-    staleTime: 5 * 60 * 1000,
-  });
-  const setMutation = trpc.settings.setReplyMonitorBadge.useMutation({
-    onSuccess: (data) => {
-      toast.success(data.enabled ? "Reply Monitor badge enabled" : "Reply Monitor badge disabled");
-      utils.settings.getReplyMonitorBadge.invalidate();
-      utils.system.navigationCounts.invalidate();
-    },
-    onError: (e) => toast.error(`Failed to update: ${e.message}`),
-  });
-
-  const enabled = badgeSetting?.enabled ?? true;
-
-  return (
-    <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-5">
-      <div className="flex items-center justify-between">
-        <div className="flex-1 mr-4">
-          <h3 className="text-sm font-semibold text-foreground mb-1 flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-red-500" />
-            Reply Monitor Sidebar Badge
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            Show a red count badge on the Reply Monitor nav item when there are active unanswered threads, vague flags, or unsigned message flags.
-          </p>
-        </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={(checked) => setMutation.mutate({ enabled: checked })}
-          disabled={isLoading || setMutation.isPending}
-          aria-label="Toggle Reply Monitor sidebar badge"
-        />
-      </div>
-    </div>
-  );
-}
-
-// ─── Operational Policies Settings ─────────────────────────────────────────
-const POLICY_CATEGORY_LABELS: Record<string, string> = {
-  stall: "Stall Detection",
-  follow_up: "Auto Follow-Up Drafts",
-  escalation: "Escalation Rules",
-  autopilot: "Autopilot Level",
-  done_gate: "Done Quality Gate",
-  scheduling: "Confidence Thresholds",
-  default_action: "Default Action Rules (per APTLSS State)",
-  general: "General",
-};
-
-function OperationalPoliciesSettings() {
-  const utils = trpc.useUtils();
-  const { data: policies, isLoading } = trpc.aptlss.getPolicies.useQuery(undefined, { staleTime: 60_000 });
-  const updateMutation = trpc.aptlss.updatePolicy.useMutation({
-    onSuccess: () => { utils.aptlss.getPolicies.invalidate(); toast.success("Policy updated"); },
-    onError: (e) => toast.error(`Failed: ${e.message}`),
-  });
-  const toggleMutation = trpc.aptlss.togglePolicy.useMutation({
-    onSuccess: () => utils.aptlss.getPolicies.invalidate(),
-    onError: (e) => toast.error(`Failed: ${e.message}`),
-  });
-  const [editing, setEditing] = useState<Record<string, string>>({});
-
-  if (isLoading) return <div className="rounded-xl border border-border/50 bg-card/50 p-5"><p className="text-xs text-muted-foreground">Loading policies…</p></div>;
-
-  const grouped = (policies ?? []).reduce((acc, p) => {
-    const cat = p.category ?? "general";
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(p);
-    return acc;
-  }, {} as Record<string, typeof policies>);
-
-  return (
-    <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-5 space-y-5">
-      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-        <Shield className="w-4 h-4 text-indigo-500" />
-        APTLSS Operational Policies
-      </h3>
-      <p className="text-xs text-muted-foreground -mt-3">
-        Configure thresholds, autopilot level, done-gate rules, and follow-up timing. Changes take effect immediately.
-      </p>
-      {Object.entries(grouped).map(([cat, catPolicies]) => (
-        <div key={cat} className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{POLICY_CATEGORY_LABELS[cat] ?? cat}</p>
-          {(catPolicies ?? []).map(policy => (
-            <div key={policy.ruleKey} className="flex items-start gap-3 bg-background/50 rounded-lg p-3 border border-border/30">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-foreground">{policy.label}</p>
-                {policy.description && <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{policy.description}</p>}
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <input
-                  type="text"
-                  value={editing[policy.ruleKey] ?? policy.value ?? ""}
-                  onChange={(e) => setEditing(prev => ({ ...prev, [policy.ruleKey]: e.target.value }))}
-                  onBlur={() => {
-                    const val = editing[policy.ruleKey];
-                    if (val !== undefined && val !== policy.value) {
-                      updateMutation.mutate({ ruleKey: policy.ruleKey, value: val });
-                    }
-                  }}
-                  className="w-20 text-xs bg-background border border-border rounded px-2 py-1 text-right font-mono focus:outline-none focus:border-indigo-500"
-                />
-                <Switch
-                  checked={policy.enabled === 1}
-                  onCheckedChange={(checked) => toggleMutation.mutate({ ruleKey: policy.ruleKey, enabled: checked })}
-                  aria-label={`Toggle ${policy.label}`}
-                />
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Default Action Rules Settings (GAP E) ─────────────────────────────────
-const APTLSS_STATES = [
-  "NEW_UNTRIAGED", "READY_TO_START", "IN_PROGRESS", "WAITING_FOR_JOYCE",
-  "WAITING_FOR_ROBERT", "WAITING_FOR_EXTERNAL_PARTY", "BLOCKED_BY_OTHER_CARD",
-  "STALLED", "OVERDUE", "READY_FOR_REVIEW", "READY_FOR_DONE",
-  "DONE_CONFIRMED", "NEEDS_RESTRUCTURING", "NEEDS_ARCHIVE",
-] as const;
-
-const BUILT_IN_DEFAULT_ACTIONS: Record<string, string> = {
-  NEW_UNTRIAGED: "Generate an APTLSS plan to break this card into actionable steps.",
-  READY_TO_START: "Pick the highest-priority open step and start working on it.",
-  IN_PROGRESS: "Continue the current open step. Update checklist when done.",
-  WAITING_FOR_JOYCE: "Answer the pending question in the card comments.",
-  WAITING_FOR_ROBERT: "Notify Robert that a decision is needed on this card.",
-  WAITING_FOR_EXTERNAL_PARTY: "Check if the follow-up deadline has passed. If yes, send a follow-up message.",
-  BLOCKED_BY_OTHER_CARD: "Check the blocking card. If resolved, unblock and resume.",
-  STALLED: "Leave a comment explaining why progress has stalled. Escalate if needed.",
-  OVERDUE: "Immediately prioritise this card. Notify Robert if it cannot be completed today.",
-  READY_FOR_REVIEW: "Ask Robert to review and approve before moving to Done.",
-  READY_FOR_DONE: "Verify all done-gate criteria are met, then move the card to Done.",
-  DONE_CONFIRMED: "Archive this card at the end of the week.",
-  NEEDS_RESTRUCTURING: "Open the card and fix the flagged issue (add description, due date, or split into smaller cards).",
-  NEEDS_ARCHIVE: "Mark the card as complete in Trello and move it to the Archive list.",
-};
-
-function DefaultActionsSettings() {
-  const utils = trpc.useUtils();
-  const { data: customActions } = trpc.aptlss.getAllDefaultActions.useQuery(undefined, { staleTime: 60_000 });
-  const updateMutation = trpc.aptlss.updatePolicy.useMutation({
-    onSuccess: () => { utils.aptlss.getAllDefaultActions.invalidate(); toast.success("Default action updated"); },
-    onError: (e) => toast.error(`Failed: ${e.message}`),
-  });
-  const [editing, setEditing] = useState<Record<string, string>>({});
-  const [expanded, setExpanded] = useState(false);
-
-  const customMap = (customActions ?? []).reduce((acc, p) => {
-    acc[p.ruleKey] = p.value ?? "";
-    return acc;
-  }, {} as Record<string, string>);
-
-  return (
-    <div className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-5 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <Zap className="w-4 h-4 text-violet-500" />
-          Default Action Rules
-        </h3>
-        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setExpanded(v => !v)}>
-          {expanded ? <ChevronUp className="w-3.5 h-3.5 mr-1" /> : <ChevronDown className="w-3.5 h-3.5 mr-1" />}
-          {expanded ? "Collapse" : "Expand all 14 states"}
-        </Button>
-      </div>
-      <p className="text-xs text-muted-foreground -mt-1">
-        Customise the recommended action shown in the Daily Actions banner for each APTLSS state. Leave blank to use the built-in default.
-      </p>
-      {expanded && (
-        <div className="space-y-2">
-          {APTLSS_STATES.map(state => {
-            const ruleKey = `default_action_${state.toLowerCase()}`;
-            const customVal = customMap[ruleKey] ?? "";
-            const builtIn = BUILT_IN_DEFAULT_ACTIONS[state] ?? "";
-            const displayVal = editing[ruleKey] ?? customVal;
-            return (
-              <div key={state} className="bg-background/50 rounded-lg p-3 border border-border/30 space-y-1.5">
-                <p className="text-xs font-mono font-semibold text-foreground">{state}</p>
-                <p className="text-[10px] text-muted-foreground italic">{builtIn}</p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="Custom override (leave blank for built-in default)…"
-                    value={displayVal}
-                    onChange={(e) => setEditing(prev => ({ ...prev, [ruleKey]: e.target.value }))}
-                    onBlur={() => {
-                      const val = editing[ruleKey];
-                      if (val !== undefined && val !== customVal) {
-                        updateMutation.mutate({ ruleKey, value: val });
-                      }
-                    }}
-                    className="flex-1 text-xs bg-background border border-border rounded px-2 py-1 focus:outline-none focus:border-violet-500"
-                  />
-                  {customVal && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs text-muted-foreground hover:text-red-500"
-                      onClick={() => {
-                        setEditing(prev => ({ ...prev, [ruleKey]: "" }));
-                        updateMutation.mutate({ ruleKey, value: "" });
-                      }}
-                    >
-                      Reset
-                    </Button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Ready for Done Panel (GAP H) ─────────────────────────────────────────────
-function ReadyForDonePanel() {
-  const { data: cards } = trpc.aptlss.getReadyForDone.useQuery(undefined, { staleTime: 5 * 60_000 });
-  if (!cards || cards.length === 0) return null;
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <div className="h-px flex-1 bg-border" />
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">Ready for Done ({cards.length})</span>
-        <div className="h-px flex-1 bg-border" />
-      </div>
-      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4 space-y-2">
-        <p className="text-xs text-muted-foreground mb-2">These cards have passed all done-gate checks. Verify and move them to Done in Trello.</p>
-        {cards.map(card => (
-          <div key={card.cardId} className="flex items-center gap-2 p-2.5 bg-background/50 rounded-lg border border-emerald-500/20">
-            <CheckCircle className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-foreground truncate">{card.cardName}</p>
-              {card.stateReason && <p className="text-[10px] text-muted-foreground">{card.stateReason}</p>}
-            </div>
-            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold flex-shrink-0">
-              {new Date(card.calculatedAt).toLocaleDateString()}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Worker Performance Panel ───────────────────────────────────────────────
-
-// ─── Weekly Analysis Panel ───────────────────────────────────────────────────
-
-//// ─── Routine Section (Daily Schedule tab) ───────────────────────────────────
-type Section = AppSection;
-
-const NAV_ITEMS: {
-  id: Section;
-  label: string;
-  detail: string;
-  icon: React.ElementType;
-  shortcut: string;
-  badge?: "compliance" | "triage";
-}[] = [
-  { id: "overview", label: "Today", detail: "Now and day plan", icon: Activity, shortcut: "O" },
-  { id: "triage", label: "Inbox", detail: "Intake and replies", icon: Zap, shortcut: "T", badge: "triage" },
-  { id: "decisions", label: "Decisions", detail: "Prepared choices", icon: GitBranch, shortcut: "D" },
-  { id: "performance", label: "Time & Pay", detail: "Hours and payment", icon: Award, shortcut: "P", badge: "compliance" },
-  { id: "standards", label: "Standards", detail: "Work rules", icon: BookOpen, shortcut: "R" },
-  { id: "settings", label: "Settings", detail: "Controls", icon: Settings, shortcut: "G" },
-];
-
-const SIDEBAR_WIDTH_KEY = "joyce-sidebar-width";
-const DEFAULT_WIDTH = 220;
-const MIN_WIDTH = 180;
-const MAX_WIDTH = 320;
-function formatHoursValue(hours?: number | null) {
-  if (hours === undefined || hours === null || Number.isNaN(hours)) return "0h";
-  const whole = Math.floor(hours);
-  const mins = Math.round((hours - whole) * 60);
-  return mins > 0 ? `${whole}h ${mins}m` : `${whole}h`;
-}
-
-function TimeAndPaySection() {
-  return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <div className="border-b border-border pb-4">
-        <h1 className="text-xl font-semibold text-foreground">Time &amp; Pay</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Keep daily time, payment administration, and quality history in separate views.</p>
-      </div>
-      <Tabs defaultValue="time" className="gap-5">
-        <div className="border-b border-border">
-          <TabsList className="grid h-auto w-full grid-cols-3 rounded-none bg-transparent p-0">
-            <TabsTrigger value="time" className="h-11 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Time</TabsTrigger>
-            <TabsTrigger value="pay" className="h-11 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Pay</TabsTrigger>
-            <TabsTrigger value="quality" className="h-11 rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Quality history</TabsTrigger>
-          </TabsList>
-        </div>
-        <TabsContent value="time" className="mt-0 flex flex-col gap-4">
-          <TimeTracker />
-        </TabsContent>
-        <TabsContent value="pay" className="mt-0 flex flex-col gap-4">
-          <Suspense fallback={<SectionFallback />}><PaymentTracker /></Suspense>
-          <Suspense fallback={<SectionFallback />}><WeeklyPayCalculator /></Suspense>
-        </TabsContent>
-        <TabsContent value="quality" className="mt-0 flex flex-col gap-4">
-          <ReadyForDonePanel />
-          <Suspense fallback={<SectionFallback />}><ComplianceTracker /></Suspense>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
-// ─── Inner layout (needs useSidebar) ────────────────────────────────────────
-
-function SettingsSection({
-  onGoToSchedule,
-  readiness,
-  readinessError,
-}: {
-  onGoToSchedule: () => void;
-  readiness?: DashboardReadiness;
-  readinessError?: { message: string } | null;
-}) {
-  const settingsQuery = new URLSearchParams(window.location.search);
-  const defaultTab = settingsQuery.has("maintenance") ? "maintenance" : settingsQuery.has("gmail") ? "automation" : "workday";
-  return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
-      <div className="border-b border-border pb-4">
-        <h1 className="text-xl font-semibold text-foreground">Settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Choose one configuration area at a time. System health stays separate from workday controls.</p>
-      </div>
-
-      <Tabs defaultValue={defaultTab} className="gap-5">
-        <div className="border-b border-border">
-          <TabsList className="grid h-auto w-full grid-cols-2 rounded-none bg-transparent p-0 sm:grid-cols-6">
-            <TabsTrigger value="workday" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Workday</TabsTrigger>
-            <TabsTrigger value="weekly-reset" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Weekly reset</TabsTrigger>
-            <TabsTrigger value="trello" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Trello</TabsTrigger>
-            <TabsTrigger value="automation" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Automation</TabsTrigger>
-            <TabsTrigger value="maintenance" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">Maintenance</TabsTrigger>
-            <TabsTrigger value="system" className="h-11 rounded-none border-b-2 border-transparent px-4 text-sm data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none">System</TabsTrigger>
-          </TabsList>
-        </div>
-
-        <TabsContent value="workday" className="mt-0 grid gap-4 lg:grid-cols-2">
-          <DailyGoalSettings />
-          <DailyScheduleSettings onGoToSchedule={onGoToSchedule} />
-          <BrowserTabHygieneSettings />
-        </TabsContent>
-
-        <TabsContent value="weekly-reset" className="mt-0">
-          <Suspense fallback={<SectionFallback />}><SundayChecklist /></Suspense>
-        </TabsContent>
-
-        <TabsContent value="trello" className="mt-0 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
-          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Timer className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold text-foreground">Trello Power-Up</h2>
-            </div>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Install the custom Power-Up on a Trello board to expose the dashboard timer on cards.</p>
-            <div className="mt-4 space-y-3">
-              <div className="rounded-md border border-border bg-background p-3">
-                <p className="text-xs font-semibold text-foreground">1. Create the Power-Up</p>
-                <a href="https://trello.com/power-ups/admin" target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex text-xs font-medium text-primary hover:underline">Open Trello Power-Up Admin</a>
-              </div>
-              <div className="rounded-md border border-border bg-background p-3">
-                <p className="text-xs font-semibold text-foreground">2. Add the connector URL</p>
-                <code className="mt-2 block cursor-pointer select-all break-all rounded-md border border-border bg-muted px-2 py-1.5 text-xs text-foreground" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/powerup/index.html`)} title="Click to copy">{window.location.origin}/powerup/index.html</code>
-              </div>
-              <div className="rounded-md border border-border bg-background p-3">
-                <p className="text-xs font-semibold text-foreground">3. Copy the configured API key</p>
-                <Button variant="outline" size="sm" className="mt-2" onClick={async () => {
-                  const response = await fetch("/api/powerup/key");
-                  const key = await response.text();
-                  if (!response.ok || !key.trim()) {
-                    toast.error("Power-Up API key is not configured.");
-                    return;
-                  }
-                  await navigator.clipboard.writeText(key.trim());
-                  toast.success("Power-Up API key copied.");
-                }}>Copy Power-Up key</Button>
-              </div>
-            </div>
-          </section>
-          <TrelloCommentTokenSettings />
-        </TabsContent>
-
-        <TabsContent value="automation" className="mt-0 grid gap-4 lg:grid-cols-2">
-          <GmailIngestionSettings />
-          <UpworkIntegrationSettings />
-          <ReplyMonitorBadgeSettings />
-          <OperationalPoliciesSettings />
-          <div className="lg:col-span-2"><DefaultActionsSettings /></div>
-        </TabsContent>
-
-        <TabsContent value="maintenance" className="mt-0">
-          <MaintenanceCenter />
-        </TabsContent>
-
-        <TabsContent value="system" className="mt-0 grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(300px,0.85fr)]">
-          <SettingsStatusPanel readiness={readiness} readinessError={readinessError} />
-          <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Settings className="h-4 w-4 text-primary" />Integration health</h2>
-            <div className="mt-4"><WebhookHealthPanel readiness={readiness} readinessError={readinessError} /></div>
-          </section>
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
-function SettingsStatusPanel({ readiness, readinessError }: { readiness?: DashboardReadiness; readinessError?: { message: string } | null }) {
-  const items = readiness?.items.filter((item) => item.status !== "ready") ?? [];
-  const statusLabel = readinessError ? "Unavailable" : readiness ? (items.length ? `${items.length} open` : "Ready") : "Checking...";
-  return (
-    <section className="rounded-lg border border-border bg-card p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground"><Shield className="h-4 w-4 text-primary" />System status</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{readinessError ? `Health check failed: ${readinessError.message}` : readiness?.summary ?? "Checking connected services."}</p>
-        </div>
-        <Badge variant="outline" className={items.length || readinessError ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300" : readiness ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300" : "border-border text-muted-foreground"}>{statusLabel}</Badge>
-      </div>
-      <div className="mt-4 divide-y divide-border rounded-md border border-border bg-background">
-        {!readiness && !readinessError ? <p className="px-3 py-5 text-sm text-muted-foreground">Checking database, Trello, planning, and monitor status.</p> : items.length ? items.map((item) => (
-          <div key={item.id} className="px-3 py-3">
-            <div className="flex items-center justify-between gap-3"><p className="text-sm font-medium text-foreground">{item.label}</p><Badge variant="outline" className="shrink-0 text-[10px] capitalize">{item.status}</Badge></div>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.message}</p>
-            <p className="mt-1 text-xs font-medium text-foreground">{item.action}</p>
-          </div>
-        )) : <p className="px-3 py-5 text-sm text-muted-foreground">All configured services are ready.</p>}
-      </div>
-      <Button variant="outline" size="sm" className="mt-4" asChild><a href="/admin"><Shield className="h-3.5 w-3.5" />Open readiness report</a></Button>
-    </section>
-  );
-}
-
-function HomeInner() {
-  const { theme, toggleTheme } = useTheme();
-  const utils = trpc.useUtils();
-  const { state, setOpenMobile } = useSidebar();
-  const isCollapsed = state === "collapsed";
-  useOperationalEvents();
-  const eatClock = useEatClock();
-
-  const [activeSection, setActiveSection] = useState<Section>(() => {
-    const saved = localStorage.getItem(ACTIVE_SECTION_KEY);
-    if (saved === "routine") return "overview";
-    if (saved === "sunday") return "settings";
-    return isAppSection(saved) ? saved : "overview";
-  });
-  const [todayMode, setTodayMode] = useState<TodayMode>(() => {
-    if (localStorage.getItem(ACTIVE_SECTION_KEY) === "routine") return "plan";
-    return readTodayMode(localStorage.getItem(TODAY_MODE_KEY), eatClock.dateKey, eatClock.isSunday);
-  });
-  const workQueueQueriesEnabled = activeSection === "overview" && todayMode === "queue";
-  const readinessQueryEnabled = workQueueQueriesEnabled || activeSection === "settings";
-  const previousEatDateRef = useRef(eatClock.dateKey);
-
-  useEffect(() => {
-    if (previousEatDateRef.current === eatClock.dateKey) return;
-    previousEatDateRef.current = eatClock.dateKey;
-    const nextMode: TodayMode = eatClock.isSunday ? "plan" : "queue";
-    setTodayMode(nextMode);
-    localStorage.setItem(TODAY_MODE_KEY, serializeTodayMode(eatClock.dateKey, nextMode));
-  }, [eatClock.dateKey, eatClock.isSunday]);
-
-  const { data: readiness, error: readinessError } = trpc.system.readiness.useQuery(
-    { probeDatabase: true, probeTrello: activeSection === "settings" },
-    {
-      enabled: readinessQueryEnabled,
-      retry: false,
-      staleTime: 5 * 60_000,
-      refetchInterval: 15 * 60_000,
-    },
-  );
-  const trelloAccessStatus = readiness?.items.find((item) => item.id === "trello-api-access")?.status;
-  const trelloReady = Boolean(
-    readiness?.items.find((item) => item.id === "trello-api-key")?.status === "ready" &&
-    readiness?.items.find((item) => item.id === "trello-api-token")?.status === "ready" &&
-    trelloAccessStatus !== "blocked",
-  );
-  const trelloUnavailable = Boolean(readiness) && !trelloReady;
-  const trelloQueryEnabled = workQueueQueriesEnabled && !trelloUnavailable;
-  const trelloDisabledReason = trelloUnavailable
-    ? "Configure and verify TrelloAPIKey and TrelloAPIToken before live Trello activity can load."
-    : undefined;
-  const { data: actionAlertsData, error: actionAlertsError } = trpc.trello.actionAlerts.useQuery(undefined, {
-    enabled: trelloQueryEnabled,
-    retry: false,
-    staleTime: 5 * 60_000,
-  });
-  const { data: activeWaitingReasons = [] } = trpc.aptlss.getActiveWaitingReasons.useQuery(undefined, {
-    enabled: workQueueQueriesEnabled,
-    retry: false,
-    staleTime: 60_000,
-  });
-  const todayDateKey = eatClock.dateKey;
-  const savedPlanFallback = trpc.aptlss.getDailyPlan.useQuery(
-    { dateKey: todayDateKey },
-    { enabled: workQueueQueriesEnabled, retry: false, staleTime: 60_000 },
-  );
-  const fallbackQueueData = useMemo<WorkQueueSourceData | undefined>(() => {
-    if (!actionAlertsError || !savedPlanFallback.data?.plan) return undefined;
-    const plan = savedPlanFallback.data.plan as {
-      blocks?: Array<{ cardId?: string | null; cardName: string; cardUrl?: string | null; boardName: string; listName: string; flags?: string[] }>;
-    };
-    return workQueueSourceFromPlan(plan.blocks ?? []);
-  }, [actionAlertsError, savedPlanFallback.data?.plan]);
-  const workQueueDataNotice = fallbackQueueData
-    ? "Live Trello is unavailable. Showing cards from the most recently saved Day Plan."
-    : actionAlertsData?.freshness.stale
-      ? `Trello is rate-limited or offline. Showing cached cards from ${actionAlertsData.freshness.fetchedAt ? new Date(actionAlertsData.freshness.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "the last successful sync"}.`
-      : undefined;
-  const preferredPlanCardId = useMemo(() => {
-    const plan = savedPlanFallback.data?.plan as { blocks?: Array<{ cardId?: string | null; startTime: string; endTime: string; status?: string }> } | null | undefined;
-    const blocks = (plan?.blocks ?? []).filter((block) => block.cardId && (block.status === "planned" || block.status === "active"));
-    const eatTime = eatClock.timeKey;
-    const toMinute = (value: string) => { const [hour, minute] = value.split(":").map(Number); return hour * 60 + minute; };
-    const now = toMinute(eatTime);
-    const active = blocks.find((block) => block.status === "active");
-    const current = blocks.find((block) => toMinute(block.startTime) <= now && toMinute(block.endTime) > now);
-    const future = blocks.filter((block) => toMinute(block.startTime) >= now).sort((a, b) => toMinute(a.startTime) - toMinute(b.startTime))[0];
-    return active?.cardId ?? current?.cardId ?? future?.cardId ?? null;
-  }, [eatClock.timeKey, savedPlanFallback.data?.plan]);
-  const activeTimer = trpc.timer.getActive.useQuery(undefined, {
-    enabled: workQueueQueriesEnabled,
-    staleTime: 30 * 60_000,
-  });
-  const startTimer = trpc.timer.start.useMutation({
-    onSuccess: async () => {
-      await Promise.all([
-        utils.timer.getActive.invalidate(),
-        utils.timer.getDailySummary.invalidate(),
-        utils.timer.getWeeklyTotal.invalidate(),
-        utils.timer.getWeeklyBreakdown.invalidate(),
-        utils.timer.getWorkspace.invalidate(),
-      ]);
-      toast.success("Timer started");
-    },
-    onError: (err) => toast.error("Timer failed", { description: err.message }),
-  });
-  const handleNav = (id: Section) => {
-    setActiveSection(id);
-    localStorage.setItem(ACTIVE_SECTION_KEY, id);
-    setOpenMobile(false);
-  };
-
-  const openTodayMode = (mode: TodayMode) => {
-    setTodayMode(mode);
-    localStorage.setItem(TODAY_MODE_KEY, serializeTodayMode(eatClock.dateKey, mode));
-    handleNav("overview");
-  };
-
-  const handleWorkQueueStartTimer = (card: WorkQueueCard) => {
-    if (startTimer.isPending) return;
-    startTimer.mutate({
-      cardId: card.id,
-      cardName: card.title,
-      cardUrl: card.url,
-      boardName: card.boardName,
-      listName: card.listName,
-      source: "work_queue",
-      category: "client_work",
-    });
-  };
-
-  useHotkeys("o", () => handleNav("overview"), { preventDefault: true });
-  useHotkeys("t", () => handleNav("triage"), { preventDefault: true });
-  useHotkeys("d", () => handleNav("decisions"), { preventDefault: true });
-  useHotkeys("s", () => openTodayMode("plan"), { preventDefault: true });
-  useHotkeys("p", () => handleNav("performance"), { preventDefault: true });
-  useHotkeys("r", () => handleNav("standards"), { preventDefault: true });
-  useHotkeys("g", () => handleNav("settings"), { preventDefault: true });
-
-  return (
-    <>
-      <Sidebar collapsible="icon" className="border-r border-sidebar-border bg-sidebar">
-        <SidebarHeader className="h-16 justify-center border-b border-sidebar-border">
-          <div className="flex min-w-0 items-center gap-2.5 px-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">
-              <span className="text-sm font-bold">J</span>
-            </div>
-            {!isCollapsed && (
-              <div className="min-w-0">
-                <span className="block truncate text-sm font-semibold tracking-normal text-sidebar-foreground">Joyce</span>
-                <span className="block truncate text-[11px] text-muted-foreground">Work control room</span>
-              </div>
-            )}
-          </div>
-        </SidebarHeader>
-
-        <SidebarContent className="gap-0 py-3">
-          <SidebarMenu className="px-2">
-            {NAV_ITEMS.map((item) => {
-              const isActive = activeSection === item.id;
-              return (
-                <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton
-                    isActive={isActive}
-                    onClick={() => handleNav(item.id)}
-                    tooltip={item.label}
-                    className="h-11 rounded-md font-normal"
-                  >
-                    <item.icon className={`h-4 w-4 shrink-0 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-sm leading-tight">{item.label}</span>
-                      {!isCollapsed && isActive && <span className="truncate text-[10px] leading-tight text-muted-foreground">{item.detail}</span>}
-                    </span>
-                    {item.badge === "compliance" && <ComplianceBadge />}
-                    {item.badge === "triage" && (
-                      <InboxAttentionDot />
-                    )}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              );
-            })}
-          </SidebarMenu>
-        </SidebarContent>
-
-        <SidebarFooter className="border-t border-sidebar-border p-3">
-          <div className="flex items-center gap-2 px-2 py-1.5">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">J</div>
-            {!isCollapsed && <span className="truncate text-sm font-medium text-sidebar-foreground">Joyce</span>}
-          </div>
-        </SidebarFooter>
-      </Sidebar>
-
-      <SidebarInset className="flex min-h-screen flex-col">
-        <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border/60 bg-background/95 px-4 backdrop-blur lg:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <SidebarTrigger className="h-8 w-8 rounded-md" />
-            <div className="hidden min-w-0 items-center gap-3 md:flex">
-              <span className="text-sm font-semibold text-foreground">Joyce Work Control</span>
-              <span className="h-4 w-px bg-border" />
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><CalendarDays className="h-3.5 w-3.5" />{new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Nairobi", weekday: "short", day: "numeric", month: "short" }).format(new Date(eatClock.nowMs))}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={toggleTheme} className="h-9 w-9 rounded-md" aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-          </div>
-        </header>
-
-        <main className="flex-1 overflow-auto bg-muted/20 p-4 lg:p-6">
-          {activeSection === "overview" && (
-            <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
-              <div className="flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-end sm:justify-between">
-                <div><h1 className="text-xl font-semibold text-foreground">Today</h1><p className="mt-1 text-sm text-muted-foreground">Work from one trusted queue, then use the same live context to plan the day.</p></div>
-                <Tabs value={todayMode} onValueChange={(value) => { const mode = value as TodayMode; setTodayMode(mode); localStorage.setItem(TODAY_MODE_KEY, serializeTodayMode(eatClock.dateKey, mode)); }}>
-                  <TabsList><TabsTrigger value="queue">Work queue</TabsTrigger><TabsTrigger value="plan" data-testid="today-day-plan">Day plan</TabsTrigger></TabsList>
-                </Tabs>
-              </div>
-              <BrowserExtensionSetupBanner onOpenSettings={() => handleNav("settings")} />
-              {todayMode === "queue" ? (
-                <WorkQueueDashboard
-                  trelloDisabledReason={trelloDisabledReason}
-                  actionData={trelloUnavailable ? undefined : actionAlertsData ?? fallbackQueueData}
-                  actionsLoading={!trelloUnavailable && !actionAlertsData && !fallbackQueueData && (!actionAlertsError || savedPlanFallback.isLoading)}
-                  actionsError={fallbackQueueData ? undefined : actionAlertsError}
-                  dataNotice={workQueueDataNotice}
-                  dayPlan={savedPlanFallback.data?.plan ?? null}
-                  dayPlanLoading={savedPlanFallback.isLoading}
-                  activeTimerCardId={activeTimer.data?.cardId ?? null}
-                  activeTimerCardName={activeTimer.data?.cardName ?? null}
-                  activeTimerStartedAt={activeTimer.data?.startedAt ?? null}
-                  activeTimerLoading={activeTimer.isLoading}
-                  timerBusy={startTimer.isPending}
-                  preferredCardId={preferredPlanCardId}
-                  readiness={readiness
-                    ? { status: readiness.status, counts: readiness.counts }
-                    : readinessError
-                      ? { status: "unavailable", counts: { warning: 1 } }
-                      : undefined}
-                  waitingReasons={activeWaitingReasons}
-                  protectedDay={eatClock.isSunday}
-                  onNavigate={handleNav}
-                  onOpenPlan={() => openTodayMode("plan")}
-                  onStartTimer={handleWorkQueueStartTimer}
-                />
-              ) : <Suspense fallback={<SectionFallback />}><PlanMyDay /></Suspense>}
-            </div>
-          )}
-
-          {activeSection === "triage" && <Suspense fallback={<SectionFallback />}><TriagePage /></Suspense>}
-          {activeSection === "decisions" && <Suspense fallback={<SectionFallback />}><DecisionsTab /></Suspense>}
-          {activeSection === "performance" && <TimeAndPaySection />}
-
-          {activeSection === "standards" && <Suspense fallback={<SectionFallback />}><StandardsTab /></Suspense>}
-          {activeSection === "settings" && (
-            <SettingsSection
-              onGoToSchedule={() => openTodayMode("plan")}
-              readiness={readiness}
-              readinessError={readinessError}
-            />
-          )}
-        </main>
-
-        <footer className="border-t border-border/50 bg-background px-5 py-3 text-xs text-muted-foreground">Joyce Work Control</footer>
-      </SidebarInset>
-    </>
-  );
-}
+import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { MobileNav } from "@/components/MobileNav";
+import { NotificationBell } from "@/components/NotificationBell";
+import { TaskFilters, TaskFiltersState } from "@/components/TaskFilters";
+import { LoadingQueueIndicator } from "@/components/LoadingQueueIndicator";
+import { ConversationDialog } from "@/components/ConversationDialog";
+import { BulkTaskActions } from "@/components/BulkTaskActions";
+import { GoalInterviewDialog } from "@/components/GoalInterviewDialog";
+import { taskCache, CACHE_KEYS } from "@/lib/taskCache";
+
+// No longer using mock data - fetch from Trello API
 
 export default function Home() {
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
+  // The userAuth hooks provides authentication state
+  // To implement login/logout functionality, simply call logout() or redirect to getLoginUrl()
+  let { user, loading, error, isAuthenticated, logout } = useAuth({ redirectOnUnauthenticated: true });
+
+  // Get current date for display
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
   });
-  const isResizing = useRef(false);
 
-  useEffect(() => {
-    localStorage.setItem(SIDEBAR_WIDTH_KEY, sidebarWidth.toString());
-  }, [sidebarWidth]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isLoadingTasks, setIsLoadingTasks] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [taskTypes, setTaskTypes] = useState<{ taskType: string; count: number }[]>([]);
+  const [clients, setClients] = useState<{ client: string; count: number }[]>([]);
+  const [filters, setFilters] = useState<TaskFiltersState>({
+    filter: 'all',
+    completionStatus: 'incomplete',
+    taskType: null,
+    complexity: null,
+    client: null,
+    sortBy: 'dueDate',
+    sortOrder: 'asc',
+  });
+  const [overflowTasks, setOverflowTasks] = useState<any[]>([]);
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [conversationCard, setConversationCard] = useState<{ cardId: string; cardName: string } | null>(null);
+  const [interviewTask, setInterviewTask] = useState<Task | null>(null);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [workers, setWorkers] = useState<Array<{ id: string; name: string; email: string }>>([]);
+  const [workerFilter, setWorkerFilter] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'all'>('all');
 
+  // Listen for conversation dialog events from TaskCard
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing.current) return;
-      const newWidth = e.clientX;
-      if (newWidth >= MIN_WIDTH && newWidth <= MAX_WIDTH) {
-        setSidebarWidth(newWidth);
+    const handleOpenConversations = (e: CustomEvent<{ cardId: string; cardName: string }>) => {
+      setConversationCard(e.detail);
+    };
+    window.addEventListener('openConversations', handleOpenConversations as EventListener);
+    return () => window.removeEventListener('openConversations', handleOpenConversations as EventListener);
+  }, []);
+  
+  // Filter and sort tasks based on search query and filters
+  const filteredTasks = useMemo(() => {
+    let result = [...tasks];
+    
+    // Exclude tasks from inactive lists (Done, Completed, Archive, Info)
+    const inactiveKeywords = ['done', 'completed', 'complete', 'archive', 'archived', 'info'];
+    result = result.filter(task => {
+      if (!task.listName) return true;
+      const normalized = task.listName.toLowerCase().trim();
+      return !inactiveKeywords.some(kw => normalized === kw || normalized.includes(kw));
+    });
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(task => 
+        task.description?.toLowerCase().includes(query) ||
+        task.cardName?.toLowerCase().includes(query) ||
+        task.goal?.toLowerCase().includes(query) ||
+        (task.isPriority ? 'priority high' : '').toLowerCase().includes(query)
+      );
+    }
+    
+    // Apply status filter
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+    
+    if (filters.filter === 'overdue') {
+      result = result.filter(t => t.date && new Date(t.date) < now);
+    } else if (filters.filter === 'today') {
+      result = result.filter(t => t.date && new Date(t.date) >= todayStart && new Date(t.date) < todayEnd);
+    } else if (filters.filter === 'upcoming') {
+      result = result.filter(t => t.date && new Date(t.date) >= now);
+    } else if (filters.filter === 'on-hold') {
+      result = result.filter(t => t.listName && t.listName.toLowerCase() === 'on-hold');
+    }
+    
+    // Apply task type filter
+    if (filters.completionStatus === 'completed') {
+      result = result.filter(t => t.isCompleted);
+    } else if (filters.completionStatus === 'incomplete') {
+      result = result.filter(t => !t.isCompleted);
+    }
+
+    // Apply task type filter
+    if (filters.taskType) {
+      result = result.filter(t => t.taskType === filters.taskType);
+    }
+    
+    // Apply complexity filter
+    if (filters.complexity) {
+      result = result.filter(t => t.complexity === filters.complexity);
+    }
+    
+    // Apply client filter
+    if (filters.client) {
+      result = result.filter(t => t.client === filters.client);
+    }
+    
+    // Apply worker filter — match against Trello memberIds array
+    if (workerFilter) {
+      result = result.filter(t => Array.isArray((t as any).memberIds) && (t as any).memberIds.includes(workerFilter));
+    }
+    
+    // Apply sorting
+    result.sort((a, b) => {
+      let comparison = 0;
+      
+      if (filters.sortBy === 'dueDate') {
+        const dateA = a.date ? new Date(a.date).getTime() : Infinity;
+        const dateB = b.date ? new Date(b.date).getTime() : Infinity;
+        comparison = dateA - dateB;
+      } else if (filters.sortBy === 'estimatedTime') {
+        comparison = (a.durationHours || 0) - (b.durationHours || 0);
+      } else if (filters.sortBy === 'complexity') {
+        const complexityOrder = { simple: 1, medium: 2, complex: 3 };
+        const orderA = a.complexity ? complexityOrder[a.complexity] : 2;
+        const orderB = b.complexity ? complexityOrder[b.complexity] : 2;
+        comparison = orderA - orderB;
+      } else if (filters.sortBy === 'client') {
+        const clientA = a.client || 'zzz'; // Put tasks without client at end
+        const clientB = b.client || 'zzz';
+        comparison = clientA.localeCompare(clientB);
       }
-    };
-    const handleMouseUp = () => {
-      isResizing.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
+      
+      return filters.sortOrder === 'asc' ? comparison : -comparison;
+    });
+    
+    return result;
+  }, [tasks, searchQuery, filters, workerFilter]);
+  const [isRescheduling, setIsRescheduling] = useState(false);
+  const [stats, setStats] = useState<WeeklyStats>({
+    totalTasks: 0,
+    completedTasks: 0,
+    totalHours: 0,
+    completedHours: 0,
+    accuracy: 100
+  });
+
+  // Stable WebSocket callbacks — must be useCallback so their references don't change on every render.
+  // If they were inline arrow functions, useWebSocket's useEffect dependency array would see a new function
+  // reference on every render and disconnect/reconnect the socket in an infinite loop.
+  const handleTaskCompleted = useCallback((data: any) => {
+    console.log('Received task completion from WebSocket:', data);
+    taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+    setTasks(prevTasks =>
+      prevTasks.map(task =>
+        task.id === data.taskId
+          ? { ...task, isCompleted: data.isCompleted }
+          : task
+      )
+    );
+    toast.info(`Task ${data.isCompleted ? 'completed' : 'uncompleted'} by another client`);
   }, []);
 
+  const handleCacheInvalidated = useCallback(() => {
+    console.log('Cache invalidated, reloading tasks');
+    taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+    toast.info('Tasks updated, reloading...');
+    window.location.reload();
+  }, []);
+
+  // WebSocket connection for real-time updates
+  const { status: wsStatus } = useWebSocket({
+    onTaskCompleted: handleTaskCompleted,
+    onCacheInvalidated: handleCacheInvalidated,
+  });
+
+  const applyReschedule = async () => {
+    if (isRescheduling) return;
+
+    setIsRescheduling(true);
+    try {
+      const response = await fetch('/api/reschedule/apply', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to reschedule tasks');
+      }
+
+      toast.success(data.message || 'Tasks will be rescheduled on next refresh');
+      window.location.reload();
+    } catch (error) {
+      toast.error(`Rescheduling failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsRescheduling(false);
+    }
+  };
+
+  const fetchTasks = useCallback(async () => {
+    setIsLoadingTasks(true);
+    try {
+      // Check cache first
+      const cachedTasks = taskCache.get(CACHE_KEYS.TIMELINE_TASKS);
+      if (cachedTasks) {
+        console.log('[TaskCache] Using cached tasks');
+        setTasks(cachedTasks.tasks);
+        setClients(cachedTasks.clients);
+        setStats(cachedTasks.stats);
+        setOverflowTasks(cachedTasks.overflowTasks);
+        setIsLoadingTasks(false);
+        return;
+      }
+
+      const atisResponse = await fetch(`/api/atis/timeline-tasks?filter=all`, {
+        credentials: 'include',
+      });
+      if (atisResponse.ok) {
+        const atisData = await atisResponse.json();
+        const scheduledTasks = atisData.scheduled || atisData.tasks || [];
+        const overflowTasks = atisData.overflow || [];
+        if (scheduledTasks && scheduledTasks.length > 0) {
+          const atisTasks: Task[] = scheduledTasks.map((t: any) => ({
+            id: `atis-${t.id}`,
+            cardId: t.trelloId,
+            cardName: t.name,
+            stepIndex: 0,
+            description: t.goal || t.description || t.name,
+            durationHours: (t.estimatedMinutes || 30) / 60,
+            startTime: '',
+            endTime: '',
+            date: t.dueDate ? new Date(t.dueDate).toISOString().split('T')[0] : '',
+            isCompleted: false,
+            isArchived: false,
+            isBlocker: t.status === 'overdue',
+            isPriority: t.complexity === 'complex' || t.status === 'overdue',
+            priorityLevel: t.status === 'overdue' ? 'CRITICAL' : t.complexity === 'complex' ? 'HIGH' : 'NORMAL',
+            hasDutch: false,
+            attachments: [],
+            goal: t.goal,
+            deliverable: t.deliverable,
+            taskType: t.taskType,
+            complexity: t.complexity,
+            boardName: t.boardName,
+            listName: t.listName,
+            url: t.url,
+            checklist: t.checklist || [],
+            hasUnderstanding: t.hasUnderstanding,
+            confidenceScore: t.confidenceScore,
+            atisCardId: t.atisCardId || t.id,
+            memberIds: t.memberIds || [],
+            synced: false,
+          }));
+          setTasks(atisTasks);
+
+          const clientCounts = new Map<string, number>();
+          atisTasks.forEach(t => {
+            if (t.client) {
+              clientCounts.set(t.client, (clientCounts.get(t.client) || 0) + 1);
+            }
+          });
+          const clientsList = Array.from(clientCounts.entries())
+            .map(([client, count]) => ({ client, count }))
+            .sort((a, b) => b.count - a.count);
+          setClients(clientsList);
+
+          const metrics = atisData.metrics || {};
+          const totalTasksCount = metrics.totalScheduled || atisData.total || atisTasks.length;
+          const completedTasks = atisTasks.filter(t => t.isCompleted).length;
+          const totalHours = (metrics.totalScheduledMinutes || 0) / 60;
+          const completedHours = atisTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
+
+          setOverflowTasks(overflowTasks && overflowTasks.length > 0 ? overflowTasks : []);
+          const stats = {
+            totalTasks: totalTasksCount,
+            completedTasks,
+            totalHours,
+            completedHours,
+            accuracy: 100
+          };
+          setStats(stats);
+
+          // Cache the fetched data for 5 minutes
+          const cacheData = {
+            tasks: atisTasks,
+            clients: clientsList,
+            stats,
+            overflowTasks: overflowTasks && overflowTasks.length > 0 ? overflowTasks : [],
+          };
+          taskCache.set(CACHE_KEYS.TIMELINE_TASKS, cacheData);
+          console.log('[TaskCache] Cached tasks for 5 minutes');
+
+          // Auto-refresh when background AI analysis completes for cards missing breakdowns
+          const pendingCount = atisData.pendingAnalysis || 0;
+          if (pendingCount > 0) {
+            console.log(`[AutoAnalysis] ${pendingCount} cards are being auto-analyzed in the background. Will refresh in 15s...`);
+            // The server auto-triggered analysis when it saw cards without breakdowns.
+            // We just need to wait a bit and refresh to show the new detailed steps.
+            setTimeout(() => {
+              taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+              void fetchTasks();
+            }, 15000); // Refresh after 15 seconds to pick up new breakdowns
+          }
+
+          try {
+            const typesResponse = await fetch('/api/atis/task-types', {
+              credentials: 'include',
+            });
+            if (typesResponse.ok) {
+              const types = await typesResponse.json();
+              setTaskTypes(types);
+            }
+          } catch (e) {
+            console.error('Failed to fetch task types:', e);
+          }
+          return;
+        }
+      }
+
+      const response = await fetch('/api/trello/tasks');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Error fetching tasks:', errorData);
+        if (response.status !== 401) {
+          toast.error(`Failed to load tasks: ${errorData.error || response.statusText}`);
+        }
+        return;
+      }
+      const data = await response.json();
+
+      if (data.error) {
+        console.error('Error fetching tasks:', data.error);
+        toast.error(`Failed to load tasks: ${data.error}`);
+        return;
+      }
+
+      const tasksArray = Array.isArray(data) ? data : (data.tasks || []);
+      if (!Array.isArray(tasksArray)) {
+        console.error('Invalid tasks data:', data);
+        toast.error('Invalid tasks data received from server');
+        return;
+      }
+
+      const loadedTasks = (tasksArray as Task[]).filter(t => !t.isArchived);
+      setTasks(loadedTasks);
+      const totalTasks = loadedTasks.length;
+      const completedTasks = loadedTasks.filter(t => t.isCompleted).length;
+      const totalHours = loadedTasks.reduce((acc, t) => acc + t.durationHours, 0);
+      const completedHours = loadedTasks.filter(t => t.isCompleted).reduce((acc, t) => acc + t.durationHours, 0);
+
+      setStats({
+        totalTasks,
+        completedTasks,
+        totalHours,
+        completedHours,
+        accuracy: 100
+      });
+    } catch (error) {
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        console.error('Error fetching tasks:', error.message, error.stack);
+      } else if (typeof error === 'object' && error !== null) {
+        // Handle object errors (like response errors)
+        errorMessage = JSON.stringify(error);
+        console.error('Error fetching tasks:', errorMessage);
+      } else {
+        errorMessage = String(error);
+        console.error('Error fetching tasks:', errorMessage);
+      }
+      setTasks([]);
+      toast.error(`Failed to load tasks: ${errorMessage}`);
+    } finally {
+      setIsLoadingTasks(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      void fetchTasks();
+    }
+  }, [fetchTasks, isAuthenticated, user]);
+
+  const syncFromTrello = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch('/api/atis/sync', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(`Sync failed: ${data.error || res.statusText}`);
+        return;
+      }
+      toast.success(
+        `Synced ${data.totalBoards} boards and ${data.totalCards} cards from Trello`,
+        { description: `${data.newBoards} new boards, ${data.newCards} new cards added.` }
+      );
+      // Clear client-side cache so fetchTasks re-fetches fresh data
+      taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+      await fetchTasks();
+
+      // Automatically trigger AI analysis for all cards without understanding (background, non-blocking)
+      const analysisToastId = 'auto-analysis';
+      toast.loading('AI is analyzing your cards in the background...', { id: analysisToastId, duration: 60000 });
+      fetch('/api/atis/understanding/process', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limit: 50 }),
+      })
+        .then(r => r.json())
+        .then(result => {
+          if (result.processed > 0) {
+            toast.success(`AI analyzed ${result.processed} cards`, {
+              id: analysisToastId,
+              description: result.failed > 0 ? `${result.failed} failed — will retry on next sync.` : 'All cards analyzed successfully.',
+            });
+            // Refresh tasks to show newly analyzed cards
+            taskCache.invalidate(CACHE_KEYS.TIMELINE_TASKS);
+            void fetchTasks();
+          } else {
+            toast.dismiss(analysisToastId);
+          }
+        })
+        .catch(err => {
+          console.warn('[Auto-Analysis] Background analysis failed:', err);
+          toast.dismiss(analysisToastId);
+        });
+    } catch (err) {
+      toast.error('Sync failed — is the server running?');
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [fetchTasks]);
+
+  const handleOpenInterview = (task: Task) => {
+    setInterviewTask(task);
+  };
+
+  const handleInterviewComplete = async (finalGoal: any) => {
+    if (!interviewTask) {
+      return;
+    }
+
+    const targetTask = interviewTask;
+    setTasks((prevTasks) => prevTasks.map((task) => (
+      task.id === targetTask.id
+        ? {
+            ...task,
+            goal: finalGoal?.goal || task.goal,
+            deliverable: finalGoal?.deliverable || task.deliverable,
+            confidenceScore: finalGoal?.confidence || task.confidenceScore,
+          }
+        : task
+    )));
+
+    const reanalysisToastId = `interview-reanalysis-${targetTask.id}`;
+    toast.loading('Applying clarified goal to task analysis...', { id: reanalysisToastId });
+
+    try {
+      if (targetTask.cardId) {
+        await fetch(`/api/atis/cards/${targetTask.cardId}/reingest`, {
+          credentials: 'include',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      let atisCardId = targetTask.atisCardId;
+      if (!atisCardId && targetTask.cardId) {
+        const lookupResponse = await fetch(`/api/atis/cards/by-trello/${encodeURIComponent(targetTask.cardId)}`, {
+          credentials: 'include',
+        });
+        if (lookupResponse.ok) {
+          const lookupData = await lookupResponse.json();
+          atisCardId = lookupData.id;
+        }
+      }
+
+      if (atisCardId) {
+        const reprocessResponse = await fetch(`/api/atis/understanding/reprocess/${atisCardId}`, {
+          credentials: 'include',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            interviewGoal: finalGoal?.goal,
+            interviewDeliverable: finalGoal?.deliverable,
+            interviewSuccessCriteria: finalGoal?.successCriteria,
+          }),
+        });
+
+        if (!reprocessResponse.ok) {
+          const errorData = await reprocessResponse.json().catch(() => ({ error: 'Failed to re-analyze task' }));
+          throw new Error(errorData.error || 'Failed to re-analyze task');
+        }
+      }
+
+      await fetchTasks();
+      toast.success('Goal clarified and task analysis refreshed.', { id: reanalysisToastId });
+    } catch (error) {
+      console.error('Failed to apply interview result:', error);
+      toast.error(`Goal saved, but refresh failed: ${error instanceof Error ? error.message : 'Unknown error'}`, {
+        id: reanalysisToastId,
+      });
+    } finally {
+      setInterviewTask(null);
+    }
+  };
+
+  const handleToggleTask = async (id: string) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+
+    const newCompletedState = !task.isCompleted;
+
+    // Optimistically update UI
+    setTasks(tasks.map(t => 
+      t.id === id ? { ...t, isCompleted: newCompletedState } : t
+    ));
+
+    try {
+      // Check if we have required Trello fields
+      if (!task.cardId) {
+        console.warn('Task missing cardId, updating locally only');
+        toast.success(newCompletedState ? 'Task completed!' : 'Task marked incomplete');
+        return;
+      }
+
+      // If we have checklist fields, sync to Trello
+      if (task.checklistId && task.checkItemId) {
+        const response = await fetch(`/api/trello/tasks/${id}/complete`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            isCompleted: newCompletedState,
+            cardId: task.cardId,
+            checklistId: task.checklistId,
+            checkItemId: task.checkItemId,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to update task in Trello');
+        }
+      } else {
+        // Fallback: update card status directly if no checklist
+        console.warn('Task missing checklist fields, updating card status directly');
+        const response = await fetch(`/api/trello/cards/${task.cardId}/status`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            isCompleted: newCompletedState,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to update card status');
+        }
+      }
+
+      toast.success(newCompletedState ? 'Task completed!' : 'Task marked incomplete');
+    } catch (error) {
+      console.error('Error syncing task status:', error);
+      // Revert on error
+      setTasks(tasks.map(t => 
+        t.id === id ? { ...t, isCompleted: !newCompletedState } : t
+      ));
+      toast.error(`Failed to sync with Trello: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   return (
-    <SidebarProvider
-      style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
-    >
-      <HomeInner />
-    </SidebarProvider>
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Header */}
+      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+        <div className="container py-3 md:py-4 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-4">
+            <div className="h-8 w-8 md:h-10 md:w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold text-sm md:text-xl">
+              VA
+            </div>
+            <div className="hidden md:block flex-1">
+              <h2 className="font-bold text-base md:text-lg leading-tight">
+                {new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening'}, {user?.name?.split(' ')[0] || 'there'}! {new Date().getHours() < 12 ? '☀️' : new Date().getHours() < 17 ? '🌤️' : '🌙'}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                You have <span className="font-bold text-primary">{tasks.filter(t => !t.isCompleted).length} tasks</span> remaining.
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="hidden md:flex"
+              title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            >
+              {sidebarOpen ? <ChevronLeft className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+            </Button>
+          </div>
+          
+          <div className="flex items-center gap-2 md:gap-4">
+            {/* Search - hidden on mobile */}
+            <div className="relative hidden lg:block">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input 
+                placeholder="Search tasks..." 
+                className="pl-9 w-64 bg-secondary/50 border-none" 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="absolute right-1 top-1 h-6 w-6"
+                  onClick={() => setSearchQuery('')}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
+            
+            {/* Desktop navigation */}
+            <div className="hidden md:flex items-center gap-2">
+              <Link href="/aptlss">
+                <Button variant="ghost" size="icon" title="APTLSS Management">
+                  <ListTodo className="h-5 w-5" />
+                </Button>
+              </Link>
+              <Link href="/founder">
+                <Button variant="ghost" size="icon" title="VA Management">
+                  <Users className="h-5 w-5" />
+                </Button>
+              </Link>
+              <Link href="/settings">
+                <Button variant="ghost" size="icon" title="Settings">
+                  <Settings className="h-5 w-5" />
+              </Button>
+              </Link>
+            </div>
+            
+            {/* Mobile menu button */}
+            <MobileNav user={user} onLogout={logout} />
+            
+            {/* Loading Queue Indicator */}
+            <div className="hidden md:flex">
+              <LoadingQueueIndicator />
+            </div>
+            
+            {/* Notification Bell with history */}
+            <div className="hidden md:flex">
+              <NotificationBell />
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                  <Avatar>
+                    <AvatarImage src={user?.email ? `https://www.gravatar.com/avatar/${user.email}?d=mp` : undefined} />
+                    <AvatarFallback>{user?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}</AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56" align="end" forceMount>
+                <DropdownMenuLabel className="font-normal">
+                  <div className="flex flex-col space-y-1">
+                    <p className="text-sm font-medium leading-none">{user?.name || 'User'}</p>
+                    <p className="text-xs leading-none text-muted-foreground">{user?.email || ''}</p>
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <Link href="/settings">
+                  <DropdownMenuItem>
+                    <Settings className="mr-2 h-4 w-4" />
+                    <span>Settings</span>
+                  </DropdownMenuItem>
+                </Link>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => logout()} className="text-destructive">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Log out</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 container py-4 md:py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-8">
+          {/* Left Sidebar - Stats - Collapsible */}
+          <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:col-span-4' : 'lg:col-span-0'} ${sidebarOpen ? 'block' : 'hidden'} space-y-4 md:space-y-8 order-2 lg:order-1`}>
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2">
+              <Button 
+                className="w-full"
+                onClick={() => window.scrollTo({ top: document.querySelector('.timeline-section')?.getBoundingClientRect().top! + window.scrollY - 100, behavior: 'smooth' })}
+              >
+                View Weekly Schedule
+              </Button>
+              <Button 
+                variant="outline" 
+                className="w-full"
+                onClick={applyReschedule}
+                disabled={isRescheduling}
+              >
+                {isRescheduling ? (
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                <span className="ml-2">Reschedule</span>
+              </Button>
+            </div>
+            
+            <StatsPanel stats={stats} />
+            
+            {/* Weekly Progress Dashboard */}
+            <WeeklyProgressDashboard />
+            
+
+          </div>
+
+          {/* Main Content - Timeline */}
+          <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:col-span-8' : 'lg:col-span-12'} order-1 lg:order-2`}>
+            <div className="timeline-section bg-card rounded-2xl shadow-sm border min-h-[400px] md:min-h-[600px] relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-20 md:h-32 bg-[url('https://files.manuscdn.com/user_upload_by_module/session_file/90835377/juXmFpmTtEuXvBVT.png')] bg-cover opacity-20" />
+              <div className="relative z-10 p-4 md:p-6">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4 mb-4">
+                  <h2 className="text-lg md:text-xl font-bold">Workload Timeline</h2>
+                  <div className="flex gap-1 md:gap-2">
+                    <Button 
+                      variant={viewMode === 'all' ? 'outline' : 'ghost'} 
+                      size="sm" 
+                      className="text-xs md:text-sm"
+                      onClick={() => setViewMode('all')}
+                    >
+                      All
+                    </Button>
+                    <Button 
+                      variant={viewMode === 'day' ? 'outline' : 'ghost'} 
+                      size="sm" 
+                      className="text-xs md:text-sm"
+                      onClick={() => setViewMode('day')}
+                    >
+                      Day
+                    </Button>
+                    <Button 
+                      variant={viewMode === 'week' ? 'outline' : 'ghost'} 
+                      size="sm" 
+                      className="text-xs md:text-sm"
+                      onClick={() => setViewMode('week')}
+                    >
+                      Week
+                    </Button>
+                  </div>
+                </div>
+                
+
+
+                {/* Original Task Filters */}
+                <div className="mb-4">
+                  <TaskFilters
+                    filters={filters}
+                    onFiltersChange={setFilters}
+                    taskTypes={taskTypes}
+                    clients={clients}
+                    totalTasks={tasks.length}
+                    filteredCount={filteredTasks.length}
+                  />
+                </div>
+                
+                {/* Search results info */}
+                {searchQuery && (
+                  <div className="mb-4 p-3 bg-secondary/50 rounded-lg flex items-center justify-between">
+                    <span className="text-sm">
+                      {filteredTasks.length === 0 
+                        ? `No tasks found for "${searchQuery}"`
+                        : `Found ${filteredTasks.length} task${filteredTasks.length === 1 ? '' : 's'} matching "${searchQuery}"`
+                      }
+                    </span>
+                    <Button variant="ghost" size="sm" onClick={() => setSearchQuery('')}>
+                      Clear search
+                    </Button>
+                  </div>
+                )}
+                
+                {/* Overflow Tasks Alert */}
+                {overflowTasks.length > 0 && (
+                  <div className="mb-4">
+                    <OverflowTasks tasks={overflowTasks} />
+                  </div>
+                )}
+                
+                {/* Expand All / Collapse All buttons */}
+                {filteredTasks.length > 0 && (
+                  <div className="flex items-center justify-end gap-2 mb-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAllExpanded(true)}
+                      disabled={allExpanded}
+                      className="text-xs"
+                    >
+                      Expand All
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAllExpanded(false)}
+                      disabled={!allExpanded}
+                      className="text-xs"
+                    >
+                      Collapse All
+                    </Button>
+                  </div>
+                )}
+                
+                <Timeline 
+                  tasks={filteredTasks} 
+                  onToggleTask={handleToggleTask} 
+                  isLoading={isLoadingTasks}
+                  onRefresh={() => void fetchTasks()}
+                  onSync={() => void syncFromTrello()}
+                  isSyncing={isSyncing}
+                  allExpanded={allExpanded}
+                  onExpandChange={(expanded: boolean) => setAllExpanded(expanded)}
+                  onStartInterview={handleOpenInterview}
+                  viewMode={viewMode}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* Conversation Dialog */}
+      <ConversationDialog
+        open={!!conversationCard}
+        onOpenChange={(open) => !open && setConversationCard(null)}
+        cardId={conversationCard?.cardId || null}
+        cardName={conversationCard?.cardName || null}
+      />
+
+      <GoalInterviewDialog
+        open={!!interviewTask}
+        onOpenChange={(open) => {
+          if (!open) {
+            setInterviewTask(null);
+          }
+        }}
+        cardId={interviewTask?.cardId || ''}
+        cardName={interviewTask?.cardName || ''}
+        onComplete={handleInterviewComplete}
+      />
+    </div>
   );
 }

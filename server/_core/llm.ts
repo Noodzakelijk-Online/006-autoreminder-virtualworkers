@@ -1,5 +1,7 @@
 import { ENV } from "./env";
-
+import { getDb } from "../db";
+import { appSettings } from "../../drizzle/schema";
+import { inArray } from "drizzle-orm";
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
 export type TextContent = {
@@ -66,32 +68,6 @@ export type InvokeParams = {
   output_schema?: OutputSchema;
   responseFormat?: ResponseFormat;
   response_format?: ResponseFormat;
-  temperature?: number;
-};
-
-export type LlmTier = "free" | "open_source" | "freemium" | "paid";
-export type LlmStagePurpose = "generate" | "review" | "repair";
-
-export type LlmRoutingAttempt = {
-  stageId: string;
-  providerId: string;
-  tier: LlmTier;
-  model: string;
-  reasoningEffort: string | null;
-  purpose: LlmStagePurpose;
-  status: "success" | "failed" | "skipped";
-  latencyMs: number;
-  error?: string;
-  usage?: InvokeResult["usage"];
-};
-
-export type LlmRoutingTrace = {
-  correlationId: string;
-  purpose: string;
-  outcome: "generated" | "verified" | "repaired" | "unverified";
-  selectedStageId: string;
-  verifiedByStageId: string | null;
-  attempts: LlmRoutingAttempt[];
 };
 
 export type ToolCall = {
@@ -120,10 +96,7 @@ export type InvokeResult = {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
-    prompt_tokens_details?: { cached_tokens?: number };
-    completion_tokens_details?: { reasoning_tokens?: number };
   };
-  routing?: LlmRoutingTrace;
 };
 
 export type JsonSchema = {
@@ -238,13 +211,74 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  `${ENV.openAiApiUrl.replace(/\/$/, "").replace(/\/chat\/completions$/i, "")}/chat/completions`;
+interface ProviderConfig {
+  id: string;
+  url: string;
+  key: string;
+  model: string;
+}
 
-const assertApiKey = () => {
-  if (!ENV.openAiApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+const getProviders = async (): Promise<ProviderConfig[]> => {
+  const providers: ProviderConfig[] = [];
+  let dbSettings = new Map<string, string>();
+  
+  try {
+    const db = await getDb();
+    if (db) {
+      const keys = ['ai_provider', 'ai_model', 'ai_groq_key', 'ai_together_key', 'ai_openrouter_key', 'ai_ollama_url'];
+      const settings = await db.select().from(appSettings).where(inArray(appSettings.key, keys));
+      dbSettings = new Map(settings.map(s => [s.key, s.value]));
+    }
+  } catch (e) {
+    console.error("[LLM] Failed to read settings from DB, falling back to ENV", e);
   }
+
+  const selectedProvider = dbSettings.get('ai_provider');
+  const selectedModel = dbSettings.get('ai_model');
+  
+  if (selectedProvider && selectedModel) {
+    let key = '';
+    let url = '';
+    if (selectedProvider === 'groq') {
+      key = dbSettings.get('ai_groq_key') || process.env.GROQ_API_KEY || '';
+      url = 'https://api.groq.com/openai/v1/chat/completions';
+    } else if (selectedProvider === 'together') {
+      key = dbSettings.get('ai_together_key') || process.env.TOGETHER_API_KEY || '';
+      url = 'https://api.together.xyz/v1/chat/completions';
+    } else if (selectedProvider === 'openrouter') {
+      key = dbSettings.get('ai_openrouter_key') || process.env.OPENROUTER_API_KEY || '';
+      url = 'https://openrouter.ai/api/v1/chat/completions';
+    } else if (selectedProvider === 'ollama') {
+      key = 'ollama'; // No auth needed
+      url = `${(dbSettings.get('ai_ollama_url') || 'http://localhost:11434').replace(/\/$/, '')}/v1/chat/completions`;
+    }
+    
+    if (key) {
+      providers.push({ id: selectedProvider, url, key, model: selectedModel });
+    }
+  }
+
+  // Fallbacks
+  const groqEnv = process.env.GROQ_API_KEY;
+  if (groqEnv && !providers.find(p => p.id === 'groq')) {
+    providers.push({ id: 'groq', url: 'https://api.groq.com/openai/v1/chat/completions', key: groqEnv, model: 'llama-3.3-70b-versatile' });
+  }
+
+  const forgeEnv = ENV.forgeApiKey;
+  if (forgeEnv && !providers.find(p => p.id === 'forge')) {
+    const forgeUrl = ENV.forgeApiUrl ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions` : "https://forge.manus.im/v1/chat/completions";
+    providers.push({ id: 'forge', url: forgeUrl, key: forgeEnv, model: 'gemini-2.5-flash' });
+  }
+  
+  const openaiEnv = process.env.OPENAI_API_KEY;
+  if (openaiEnv && !providers.find(p => p.id === 'openai')) {
+    providers.push({ id: 'openai', url: 'https://api.openai.com/v1/chat/completions', key: openaiEnv, model: 'gpt-4o-mini' });
+  }
+
+  if (providers.length === 0) {
+    throw new Error("No LLM API keys configured. Set GROQ_API_KEY, OPENAI_API_KEY, or use the Settings UI.");
+  }
+  return providers;
 };
 
 const normalizeResponseFormat = ({
@@ -292,117 +326,94 @@ const normalizeResponseFormat = ({
   };
 };
 
-export class LlmHttpError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly retryAfterSeconds: number | null,
-  ) {
-    super(message);
-    this.name = "LlmHttpError";
-  }
-}
-
-export type OpenAiCompatibleOptions = {
-  endpoint: string;
-  apiKey?: string;
-  model: string;
-  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-  maxTokenField?: "max_tokens" | "max_completion_tokens";
-  supportsJsonSchema?: boolean;
-  timeoutMs?: number;
-  headers?: Record<string, string>;
-  extraPayload?: Record<string, unknown>;
-};
-
-/** Invoke one OpenAI-compatible chat-completions endpoint. Routing lives above this transport. */
-export async function invokeOpenAiCompatible(
-  params: InvokeParams,
-  options: OpenAiCompatibleOptions,
-): Promise<InvokeResult> {
-  const {
-    messages,
-    tools,
-    toolChoice,
-    tool_choice,
-    outputSchema,
-    output_schema,
-    responseFormat,
-    response_format,
-  } = params;
-
-  const payload: Record<string, unknown> = {
-    model: options.model,
-    messages: messages.map(normalizeMessage),
-    ...(options.extraPayload ?? {}),
-  };
-  if (tools && tools.length > 0) payload.tools = tools;
-
-  const normalizedToolChoice = normalizeToolChoice(toolChoice || tool_choice, tools);
-  if (normalizedToolChoice) payload.tool_choice = normalizedToolChoice;
-
-  const tokenField = options.maxTokenField ?? "max_tokens";
-  payload[tokenField] = params.maxTokens ?? params.max_tokens ?? 32768;
-  if (typeof params.temperature === "number") payload.temperature = params.temperature;
-  if (options.reasoningEffort) payload.reasoning_effort = options.reasoningEffort;
-
-  const normalizedFormat = normalizeResponseFormat({
-    responseFormat,
-    response_format,
-    outputSchema,
-    output_schema,
-  });
-  if (normalizedFormat) {
-    payload.response_format = normalizedFormat.type === "json_schema" && options.supportsJsonSchema === false
-      ? { type: "json_object" }
-      : normalizedFormat;
-  }
-
-  const controller = new AbortController();
-  const timeoutMs = options.timeoutMs ?? 60_000;
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(options.endpoint, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {}),
-        ...(options.headers ?? {}),
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const errorText = (await response.text()).slice(0, 2_000);
-      const retryAfter = Number(response.headers.get("retry-after"));
-      throw new LlmHttpError(
-        `LLM invoke failed: ${response.status} ${response.statusText} - ${errorText}`,
-        response.status,
-        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null,
-      );
-    }
-
-    return (await response.json()) as InvokeResult;
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`LLM invoke timed out after ${timeoutMs}ms`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  assertApiKey();
-  return invokeOpenAiCompatible(params, {
-    endpoint: resolveApiUrl(),
-    apiKey: ENV.openAiApiKey,
-    model: ENV.openAiDefaultModel,
-    maxTokenField: "max_completion_tokens",
-    supportsJsonSchema: true,
-    timeoutMs: 180_000,
-  });
+  const providers = await getProviders();
+  const errors: string[] = [];
 
+  for (const provider of providers) {
+    try {
+      const {
+        messages,
+        tools,
+        toolChoice,
+        tool_choice,
+        outputSchema,
+        output_schema,
+        responseFormat,
+        response_format,
+      } = params;
+
+      const payload: Record<string, unknown> = {
+        model: provider.model,
+        messages: messages.map(normalizeMessage),
+      };
+
+      if (tools && tools.length > 0) {
+        payload.tools = tools;
+      }
+
+      const normalizedToolChoice = normalizeToolChoice(
+        toolChoice || tool_choice,
+        tools
+      );
+      if (normalizedToolChoice) {
+        payload.tool_choice = normalizedToolChoice;
+      }
+
+      const maxOut = params.maxTokens ?? params.max_tokens;
+      if (provider.id === 'groq') {
+        payload.max_tokens = Math.min(maxOut ?? 2048, 2048);
+      } else {
+        payload.max_tokens = maxOut ?? 32768;
+        if (provider.id === 'forge') {
+          (payload as any).thinking = { budget_tokens: 128 };
+        }
+      }
+
+      const normalizedResponseFormat = normalizeResponseFormat({
+        responseFormat,
+        response_format,
+        outputSchema,
+        output_schema,
+      });
+
+      if (normalizedResponseFormat) {
+        payload.response_format = normalizedResponseFormat;
+      }
+
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+      };
+      
+      if (provider.key !== 'ollama') {
+        headers.authorization = `Bearer ${provider.key}`;
+      }
+
+      // OpenRouter specific headers
+      if (provider.id === 'openrouter') {
+        headers['HTTP-Referer'] = 'http://localhost:3000';
+        headers['X-Title'] = 'VA Dashboard';
+      }
+
+      const response = await fetch(provider.url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`${response.status} ${response.statusText} – ${errorText}`);
+      }
+
+      return (await response.json()) as InvokeResult;
+      
+    } catch (error: any) {
+      console.warn(`[LLM] Provider '${provider.id}' failed: ${error.message}`);
+      errors.push(`[${provider.id}] ${error.message}`);
+      // Continue loop to try fallback provider
+    }
+  }
+
+  throw new Error(`All LLM providers failed:\n${errors.join('\n')}`);
 }

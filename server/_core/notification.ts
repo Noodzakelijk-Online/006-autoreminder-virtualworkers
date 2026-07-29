@@ -1,6 +1,5 @@
 import { TRPCError } from "@trpc/server";
 import { ENV } from "./env";
-import { createOperatorNotification, updateOperatorNotificationDelivery } from "../operatorRecordsDb";
 
 export type NotificationPayload = {
   title: string;
@@ -9,7 +8,6 @@ export type NotificationPayload = {
 
 const TITLE_MAX_LENGTH = 1200;
 const CONTENT_MAX_LENGTH = 20000;
-let missingConfigurationLogged = false;
 
 const trimValue = (value: string): string => value.trim();
 const isNonEmptyString = (value: unknown): value is string =>
@@ -69,28 +67,29 @@ export async function notifyOwner(
   payload: NotificationPayload
 ): Promise<boolean> {
   const { title, content } = validatePayload(payload);
-  const recordId = await createOperatorNotification({ title, content, provider: "manus" }).catch(() => null);
 
-  if (!ENV.notificationApiUrl || !ENV.notificationApiKey) {
-    if (!missingConfigurationLogged) {
-      console.warn("[Notification] Delivery skipped because the optional notification service is not configured.");
-      missingConfigurationLogged = true;
-    }
-    await updateOperatorNotificationDelivery(recordId, "skipped", {
-      provider: "local",
-      errorMessage: "Optional notification provider is not configured",
-    }).catch(() => undefined);
-    return false;
+  if (!ENV.forgeApiUrl) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Notification service URL is not configured.",
+    });
   }
 
-  const endpoint = buildEndpointUrl(ENV.notificationApiUrl);
+  if (!ENV.forgeApiKey) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Notification service API key is not configured.",
+    });
+  }
+
+  const endpoint = buildEndpointUrl(ENV.forgeApiUrl);
 
   try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         accept: "application/json",
-        authorization: `Bearer ${ENV.notificationApiKey}`,
+        authorization: `Bearer ${ENV.forgeApiKey}`,
         "content-type": "application/json",
         "connect-protocol-version": "1",
       },
@@ -104,21 +103,12 @@ export async function notifyOwner(
           detail ? `: ${detail}` : ""
         }`
       );
-      await updateOperatorNotificationDelivery(recordId, "failed", {
-        provider: "manus",
-        errorMessage: `${response.status} ${response.statusText}${detail ? `: ${detail}` : ""}`.slice(0, 2_000),
-      }).catch(() => undefined);
       return false;
     }
 
-    await updateOperatorNotificationDelivery(recordId, "delivered", { provider: "manus" }).catch(() => undefined);
     return true;
   } catch (error) {
     console.warn("[Notification] Error calling notification service:", error);
-    await updateOperatorNotificationDelivery(recordId, "failed", {
-      provider: "manus",
-      errorMessage: error instanceof Error ? error.message : String(error),
-    }).catch(() => undefined);
     return false;
   }
 }

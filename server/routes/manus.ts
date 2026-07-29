@@ -1,0 +1,914 @@
+import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { protectedProcedure, router, publicProcedure } from "../_core/trpc";
+import { getDb } from "../db";
+import {
+  timeEntries,
+  paymentCycles,
+  weeklyPayLog,
+  dailyTriageState,
+  sundayChecklist,
+  dailyDueDateAssignments,
+  dailyCardUpdates,
+  onHoldDailyChecks,
+  dailyUpdateStreak,
+  appSettings,
+  dailyComplianceSnapshots,
+  replyThreads,
+  vagueReplyFlags,
+  emailTasks,
+  cardSnoozes,
+} from "../../drizzle/schema";
+import { eq, and, desc, asc, gte, lte, sql, isNull, isNotNull } from "drizzle-orm";
+
+// ─── Payment Cycles Router ──────────────────────────────────────────────────
+export const paymentRouter = router({
+  getAllCycles: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return [];
+    const founderId = Number(ctx.user.id);
+    return db.select().from(paymentCycles)
+      .where(eq(paymentCycles.founderId, founderId))
+      .orderBy(asc(paymentCycles.cycleStart));
+  }),
+
+  getCurrentCycle: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return null;
+    const founderId = Number(ctx.user.id);
+    const all = await db
+      .select()
+      .from(paymentCycles)
+      .where(and(eq(paymentCycles.isPaid, false), eq(paymentCycles.founderId, founderId)))
+      .orderBy(asc(paymentCycles.cycleStart))
+      .limit(1);
+    return all[0] ?? null;
+  }),
+
+  markPaid: protectedProcedure
+    .input(z.object({ cycleId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const founderId = Number(ctx.user.id);
+
+      await db
+        .update(paymentCycles)
+        .set({ isPaid: true, paidAt: new Date(), paidBy: String(ctx.user.openId) })
+        .where(and(eq(paymentCycles.id, input.cycleId), eq(paymentCycles.founderId, founderId)));
+
+      // Fetch current cycle
+      const cycle = await db
+        .select()
+        .from(paymentCycles)
+        .where(eq(paymentCycles.id, input.cycleId))
+        .limit(1);
+
+      if (cycle[0]) {
+        const currentEnd = new Date(cycle[0].cycleEnd);
+        const nextStart = new Date(currentEnd);
+        nextStart.setDate(nextStart.getDate() + 1);
+        const nextEnd = new Date(nextStart);
+        nextEnd.setDate(nextStart.getDate() + 13); // 14-day cycle
+
+        // Advance to next Friday
+        while (nextEnd.getDay() !== 5) {
+          nextEnd.setDate(nextEnd.getDate() + 1);
+        }
+
+        await db.insert(paymentCycles).values({
+          founderId,
+          cycleStart: nextStart,
+          cycleEnd: nextEnd,
+          baseAmount: "90.00",
+          isPaid: false,
+        });
+      }
+      return { success: true };
+    }),
+});
+
+// ─── Weekly Pay Log Router ──────────────────────────────────────────────────
+export const payLogRouter = router({
+  getAll: protectedProcedure
+    .input(z.object({ limit: z.number().optional(), vaId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const userId = Number(ctx.user.id);
+      const isWorker = ctx.user.role === "worker";
+      const vaId = isWorker ? userId : input.vaId;
+      if (!vaId) return [];
+
+      return db.select().from(weeklyPayLog)
+        .where(eq(weeklyPayLog.vaId, vaId))
+        .orderBy(desc(weeklyPayLog.weekStart))
+        .limit(input.limit ?? 10);
+    }),
+
+  getByWeek: protectedProcedure
+    .input(z.object({ weekStart: z.string(), vaId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const userId = Number(ctx.user.id);
+      const isWorker = ctx.user.role === "worker";
+      const vaId = isWorker ? userId : input.vaId;
+      if (!vaId) return null;
+
+      const results = await db.select().from(weeklyPayLog).where(
+        and(eq(weeklyPayLog.weekStart, input.weekStart), eq(weeklyPayLog.vaId, vaId))
+      ).limit(1);
+      return results[0] ?? null;
+    }),
+
+  upsert: protectedProcedure
+    .input(z.object({
+      vaId: z.number().optional(),
+      weekStart: z.string(),
+      weekEnd: z.string(),
+      paymentCycleId: z.number().optional(),
+      meritM1: z.number().default(0),
+      meritM2: z.number().default(0),
+      meritM3: z.number().default(0),
+      meritStreak: z.number().default(0),
+      demeritD1: z.number().default(0),
+      demeritD2: z.number().default(0),
+      demeritD3: z.number().default(0),
+      demeritD4: z.number().default(0),
+      demeritD5: z.number().default(0),
+      demeritD6: z.number().default(0),
+      demeritD7: z.number().default(0),
+      demeritD8: z.number().default(0),
+      demeritD9: z.number().default(0),
+      demeritD10: z.number().default(0),
+      demeritD11: z.number().default(0),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const founderId = Number(ctx.user.id);
+      const isWorker = ctx.user.role === "worker";
+      const vaId = isWorker ? founderId : (input.vaId || founderId);
+
+      const totalMerits = input.meritM1 + input.meritM2 + input.meritM3 + input.meritStreak;
+      const totalDemerits = input.demeritD1 + input.demeritD2 + input.demeritD3 + input.demeritD4 +
+        input.demeritD5 + input.demeritD6 + input.demeritD7 + input.demeritD8 +
+        input.demeritD9 + input.demeritD10 + input.demeritD11;
+      const baseVal = 90;
+      const projectedVal = baseVal - totalDemerits + totalMerits;
+
+      const values = {
+        vaId,
+        founderId,
+        weekStart: input.weekStart,
+        weekEnd: input.weekEnd,
+        paymentCycleId: input.paymentCycleId || null,
+        baseAmount: String(baseVal),
+        meritM1: String(input.meritM1),
+        meritM2: String(input.meritM2),
+        meritM3: String(input.meritM3),
+        meritStreak: String(input.meritStreak),
+        demeritD1: String(input.demeritD1),
+        demeritD2: String(input.demeritD2),
+        demeritD3: String(input.demeritD3),
+        demeritD4: String(input.demeritD4),
+        demeritD5: String(input.demeritD5),
+        demeritD6: String(input.demeritD6),
+        demeritD7: String(input.demeritD7),
+        demeritD8: String(input.demeritD8),
+        demeritD9: String(input.demeritD9),
+        demeritD10: String(input.demeritD10),
+        demeritD11: String(input.demeritD11),
+        totalMerits: String(totalMerits),
+        totalDemerits: String(totalDemerits),
+        projectedPay: String(projectedVal),
+        notes: input.notes || null,
+      };
+
+      const existing = await db.select().from(weeklyPayLog).where(
+        and(eq(weeklyPayLog.weekStart, input.weekStart), eq(weeklyPayLog.vaId, vaId))
+      ).limit(1);
+
+      if (existing[0]) {
+        await db.update(weeklyPayLog).set(values).where(eq(weeklyPayLog.id, existing[0].id));
+        return { ...existing[0], ...values };
+      } else {
+        const [result] = await db.insert(weeklyPayLog).values(values);
+        return { id: (result as any).insertId, ...values };
+      }
+    }),
+});
+
+// ─── Daily Triage Router ──────────────────────────────────────────────────────
+export const triageRouter = router({
+  getByDate: protectedProcedure
+    .input(z.object({ date: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const vaId = Number(ctx.user.id);
+      const rows = await db.select().from(dailyTriageState).where(
+        and(eq(dailyTriageState.triageDate, input.date), eq(dailyTriageState.vaId, vaId))
+      ).limit(1);
+      return rows[0] ?? null;
+    }),
+
+  upsert: protectedProcedure
+    .input(z.object({
+      triageDate: z.string(),
+      step1Done: z.boolean().optional(),
+      step2Done: z.boolean().optional(),
+      step3Done: z.boolean().optional(),
+      step4Done: z.boolean().optional(),
+      step5Done: z.boolean().optional(),
+      focusTasks: z.string().nullable().optional(),
+      eveningStep1Done: z.boolean().optional(),
+      eveningStep2Done: z.boolean().optional(),
+      eveningStep3Done: z.boolean().optional(),
+      eveningStep4Done: z.boolean().optional(),
+      eodReport: z.string().nullable().optional(),
+      currentView: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+
+      const values: any = {
+        vaId,
+        triageDate: input.triageDate,
+        ...(input.step1Done !== undefined && { step1Done: input.step1Done }),
+        ...(input.step2Done !== undefined && { step2Done: input.step2Done }),
+        ...(input.step3Done !== undefined && { step3Done: input.step3Done }),
+        ...(input.step4Done !== undefined && { step4Done: input.step4Done }),
+        ...(input.step5Done !== undefined && { step5Done: input.step5Done }),
+        ...(input.focusTasks !== undefined && { focusTasks: input.focusTasks }),
+        ...(input.eveningStep1Done !== undefined && { eveningStep1Done: input.eveningStep1Done }),
+        ...(input.eveningStep2Done !== undefined && { eveningStep2Done: input.eveningStep2Done }),
+        ...(input.eveningStep3Done !== undefined && { eveningStep3Done: input.eveningStep3Done }),
+        ...(input.eveningStep4Done !== undefined && { eveningStep4Done: input.eveningStep4Done }),
+        ...(input.eodReport !== undefined && { eodReport: input.eodReport }),
+        ...(input.currentView !== undefined && { currentView: input.currentView }),
+      };
+
+      const existing = await db.select().from(dailyTriageState).where(
+        and(eq(dailyTriageState.triageDate, input.triageDate), eq(dailyTriageState.vaId, vaId))
+      ).limit(1);
+
+      if (existing[0]) {
+        await db.update(dailyTriageState).set(values).where(eq(dailyTriageState.id, existing[0].id));
+        return { ...existing[0], ...values };
+      } else {
+        const [result] = await db.insert(dailyTriageState).values(values);
+        return { id: (result as any).insertId, ...values };
+      }
+    }),
+
+  getRecent: protectedProcedure
+    .input(z.object({ limit: z.number().optional(), vaId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const isWorker = ctx.user.role === "worker";
+      const vaId = isWorker ? Number(ctx.user.id) : input.vaId;
+      if (!vaId) return [];
+
+      return db.select().from(dailyTriageState)
+        .where(and(eq(dailyTriageState.vaId, vaId), isNotNull(dailyTriageState.eodReport)))
+        .orderBy(desc(dailyTriageState.triageDate))
+        .limit(input.limit ?? 7);
+    }),
+});
+
+// ─── ON-HOLD Daily Checks Router ─────────────────────────────────────────────
+export const onHoldChecksRouter = router({
+  getByDate: protectedProcedure
+    .input(z.object({ date: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const vaId = Number(ctx.user.id);
+      return db.select().from(onHoldDailyChecks).where(
+        and(eq(onHoldDailyChecks.date, input.date), eq(onHoldDailyChecks.vaId, vaId))
+      );
+    }),
+
+  markChecked: protectedProcedure
+    .input(z.object({
+      cardId: z.string(),
+      cardName: z.string(),
+      cardUrl: z.string(),
+      date: z.string(),
+      checked: z.boolean(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+
+      const existing = await db.select().from(onHoldDailyChecks).where(
+        and(
+          eq(onHoldDailyChecks.cardId, input.cardId),
+          eq(onHoldDailyChecks.date, input.date),
+          eq(onHoldDailyChecks.vaId, vaId)
+        )
+      ).limit(1);
+
+      const values = {
+        vaId,
+        cardId: input.cardId,
+        cardName: input.cardName,
+        cardUrl: input.cardUrl,
+        date: input.date,
+        checked: input.checked,
+        checkedAt: input.checked ? new Date() : null,
+      };
+
+      if (existing[0]) {
+        await db.update(onHoldDailyChecks).set(values).where(eq(onHoldDailyChecks.id, existing[0].id));
+        return { success: true };
+      } else {
+        await db.insert(onHoldDailyChecks).values(values);
+        return { success: true };
+      }
+    }),
+});
+
+// ─── Streak Router ──────────────────────────────────────────────────────────
+export const streakRouter = router({
+  get: protectedProcedure
+    .input(z.object({ vaId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { currentStreak: 0, longestStreak: 0 };
+      const isWorker = ctx.user.role === "worker";
+      const vaId = isWorker ? Number(ctx.user.id) : input.vaId;
+      if (!vaId) return { currentStreak: 0, longestStreak: 0 };
+
+      const rows = await db.select().from(dailyUpdateStreak)
+        .where(and(eq(dailyUpdateStreak.vaId, vaId), eq(dailyUpdateStreak.completedBeforeDeadline, true)))
+        .orderBy(desc(dailyUpdateStreak.streakDate));
+
+      if (rows.length === 0) return { currentStreak: 0, longestStreak: 0 };
+
+      let currentStreak = 0;
+      let longestStreak = 0;
+      let tempStreak = 0;
+      let lastDate: Date | null = null;
+
+      for (let i = 0; i < rows.length; i++) {
+        const d = new Date(rows[i].streakDate);
+        if (!lastDate) {
+          tempStreak = 1;
+        } else {
+          const diff = Math.round((lastDate.getTime() - d.getTime()) / (1000 * 3600 * 24));
+          if (diff === 1) {
+            tempStreak++;
+          } else if (diff > 1) {
+            if (tempStreak > longestStreak) longestStreak = tempStreak;
+            tempStreak = 1;
+          }
+        }
+        lastDate = d;
+      }
+      if (tempStreak > longestStreak) longestStreak = tempStreak;
+      currentStreak = tempStreak;
+
+      return { currentStreak, longestStreak };
+    }),
+
+  record: protectedProcedure
+    .input(z.object({
+      streakDate: z.string(),
+      completedBeforeDeadline: z.boolean(),
+      doingCardCount: z.number(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+
+      const existing = await db.select().from(dailyUpdateStreak).where(
+        and(eq(dailyUpdateStreak.streakDate, input.streakDate), eq(dailyUpdateStreak.vaId, vaId))
+      ).limit(1);
+
+      const values = {
+        vaId,
+        streakDate: input.streakDate,
+        completedBeforeDeadline: input.completedBeforeDeadline,
+        doingCardCount: input.doingCardCount,
+        completedAt: new Date(),
+      };
+
+      if (existing[0]) {
+        await db.update(dailyUpdateStreak).set(values).where(eq(dailyUpdateStreak.id, existing[0].id));
+      } else {
+        await db.insert(dailyUpdateStreak).values(values);
+      }
+      return { success: true };
+    }),
+});
+
+// ─── Sunday Checklist Router ───────────────────────────────────────────────
+export const sundayRouter = router({
+  getByDate: protectedProcedure
+    .input(z.object({ date: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const vaId = Number(ctx.user.id);
+      const rows = await db.select().from(sundayChecklist).where(
+        and(eq(sundayChecklist.sundayDate, input.date), eq(sundayChecklist.vaId, vaId))
+      ).limit(1);
+      return rows[0] ?? null;
+    }),
+
+  upsert: protectedProcedure
+    .input(z.object({
+      sundayDate: z.string(),
+      trelloArchived: z.boolean().optional(),
+      trelloLabels: z.boolean().optional(),
+      trelloDeadlines: z.boolean().optional(),
+      trelloTimers: z.boolean().optional(),
+      emailInbox: z.boolean().optional(),
+      whatsappCleared: z.boolean().optional(),
+      upworkArchived: z.boolean().optional(),
+      downloadsCleared: z.boolean().optional(),
+      desktopCleared: z.boolean().optional(),
+      browserTabsClosed: z.boolean().optional(),
+      weekReviewed: z.boolean().optional(),
+      nextWeekPlanned: z.boolean().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+
+      const { sundayDate, ...fields } = input;
+      const existing = await db.select().from(sundayChecklist).where(
+        and(eq(sundayChecklist.sundayDate, sundayDate), eq(sundayChecklist.vaId, vaId))
+      ).limit(1);
+
+      const values = {
+        vaId,
+        sundayDate,
+        ...fields,
+      };
+
+      if (existing[0]) {
+        await db.update(sundayChecklist).set(values).where(eq(sundayChecklist.id, existing[0].id));
+        return { ...existing[0], ...values };
+      } else {
+        const [result] = await db.insert(sundayChecklist).values(values);
+        return { id: (result as any).insertId, ...values };
+      }
+    }),
+});
+
+// ─── Time Tracker Router ────────────────────────────────────────────────────
+export const timerRouter = router({
+  start: protectedProcedure
+    .input(z.object({
+      cardId: z.string(),
+      cardName: z.string(),
+      cardUrl: z.string(),
+      boardName: z.string().default("Unknown Board"),
+      listName: z.string().default("Unknown"),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+      const founderId = ctx.user.founderId || 1;
+
+      const running = await db.select().from(timeEntries).where(
+        and(eq(timeEntries.vaId, vaId), isNull(timeEntries.endTime))
+      ).limit(1);
+      if (running[0]) {
+        const now = new Date();
+        const durationSeconds = Math.round((now.getTime() - running[0].startTime.getTime()) / 1000);
+        const durationMinutes = Math.round(durationSeconds / 60);
+        await db.update(timeEntries).set({
+          endTime: now,
+          durationSeconds,
+          durationMinutes,
+        }).where(eq(timeEntries.id, running[0].id));
+      }
+
+      const startTime = new Date();
+      const [result] = await db.insert(timeEntries).values({
+        taskId: input.cardId,
+        vaId,
+        founderId,
+        cardId: input.cardId,
+        cardName: input.cardName,
+        cardUrl: input.cardUrl,
+        boardName: input.boardName,
+        listName: input.listName,
+        startTime,
+      });
+
+      return { id: (result as any).insertId, cardId: input.cardId, cardName: input.cardName, startedAt: startTime };
+    }),
+
+  stop: protectedProcedure
+    .input(z.object({ cardId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+
+      const running = await db.select().from(timeEntries).where(
+        and(eq(timeEntries.cardId, input.cardId), eq(timeEntries.vaId, vaId), isNull(timeEntries.endTime))
+      ).limit(1);
+
+      if (!running[0]) return null;
+
+      const now = new Date();
+      const durationSeconds = Math.round((now.getTime() - running[0].startTime.getTime()) / 1000);
+      const durationMinutes = Math.round(durationSeconds / 60);
+
+      await db.update(timeEntries).set({
+        endTime: now,
+        durationSeconds,
+        durationMinutes,
+      }).where(eq(timeEntries.id, running[0].id));
+
+      return { ...running[0], stoppedAt: now, durationSeconds };
+    }),
+
+  getActive: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return null;
+    const vaId = Number(ctx.user.id);
+    const rows = await db.select().from(timeEntries).where(
+      and(eq(timeEntries.vaId, vaId), isNull(timeEntries.endTime))
+    ).orderBy(desc(timeEntries.startTime)).limit(1);
+    return rows[0] ?? null;
+  }),
+
+  getByCard: protectedProcedure
+    .input(z.object({ cardId: z.string(), limit: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const vaId = Number(ctx.user.id);
+      return db.select().from(timeEntries).where(
+        and(eq(timeEntries.cardId, input.cardId), eq(timeEntries.vaId, vaId), isNotNull(timeEntries.endTime))
+      ).orderBy(desc(timeEntries.startTime)).limit(input.limit ?? 20);
+    }),
+
+  getDailySummary: protectedProcedure
+    .input(z.object({ date: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const vaId = Number(ctx.user.id);
+      const startUTC = new Date(input.date + "T00:00:00+03:00");
+      const endUTC = new Date(input.date + "T23:59:59+03:00");
+
+      const rows = await db.select().from(timeEntries).where(
+        and(
+          eq(timeEntries.vaId, vaId),
+          isNotNull(timeEntries.endTime),
+          gte(timeEntries.startTime, startUTC),
+          lte(timeEntries.startTime, endUTC)
+        )
+      ).orderBy(desc(timeEntries.startTime));
+
+      const map = new Map<string, any>();
+      for (const row of rows) {
+        const cardId = row.cardId || row.taskId;
+        const existing = map.get(cardId);
+        const secs = row.durationSeconds ?? 0;
+        if (existing) {
+          existing.totalSeconds += secs;
+          existing.entryCount++;
+        } else {
+          map.set(cardId, {
+            cardId,
+            cardName: row.cardName || "Unknown Card",
+            cardUrl: row.cardUrl || "#",
+            boardName: row.boardName || "Unknown Board",
+            listName: row.listName || "Unknown List",
+            totalSeconds: secs,
+            entryCount: 1,
+          });
+        }
+      }
+      return Array.from(map.values()).sort((a, b) => b.totalSeconds - a.totalSeconds);
+    }),
+
+  getWeeklyTotal: protectedProcedure
+    .input(z.object({ startDate: z.string(), endDate: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { totalSeconds: 0, totalMinutes: 0, totalHours: 0 };
+      const vaId = Number(ctx.user.id);
+      const startUTC = new Date(input.startDate + "T00:00:00+03:00");
+      const endUTC = new Date(input.endDate + "T23:59:59+03:00");
+
+      const rows = await db.select({ durationSeconds: timeEntries.durationSeconds }).from(timeEntries).where(
+        and(
+          eq(timeEntries.vaId, vaId),
+          isNotNull(timeEntries.endTime),
+          gte(timeEntries.startTime, startUTC),
+          lte(timeEntries.startTime, endUTC)
+        )
+      );
+
+      const totalSeconds = rows.reduce((sum, r) => sum + (r.durationSeconds ?? 0), 0);
+      return {
+        totalSeconds,
+        totalMinutes: Math.floor(totalSeconds / 60),
+        totalHours: Math.round((totalSeconds / 3600) * 10) / 10,
+      };
+    }),
+
+  delete: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+      await db.delete(timeEntries).where(and(eq(timeEntries.id, input.id), eq(timeEntries.vaId, vaId)));
+      return { success: true };
+    }),
+
+  updateEntry: protectedProcedure
+    .input(z.object({
+      id: z.number(),
+      durationSeconds: z.number().int().min(0).max(86400),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+
+      const rows = await db.select().from(timeEntries).where(
+        and(eq(timeEntries.id, input.id), eq(timeEntries.vaId, vaId))
+      ).limit(1);
+
+      if (rows.length === 0) throw new TRPCError({ code: "NOT_FOUND", message: "Time entry not found" });
+      const entry = rows[0];
+      const newStoppedAt = new Date(new Date(entry.startTime).getTime() + input.durationSeconds * 1000);
+
+      await db.update(timeEntries).set({
+        durationSeconds: input.durationSeconds,
+        durationMinutes: Math.round(input.durationSeconds / 60),
+        endTime: newStoppedAt,
+      }).where(eq(timeEntries.id, input.id));
+
+      return { success: true, id: input.id, durationSeconds: input.durationSeconds, stoppedAt: newStoppedAt };
+    }),
+
+  getEntriesForCard: protectedProcedure
+    .input(z.object({ cardId: z.string(), date: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const vaId = Number(ctx.user.id);
+      const startUTC = new Date(input.date + "T00:00:00+03:00");
+      const endUTC = new Date(input.date + "T23:59:59+03:00");
+
+      return db.select().from(timeEntries).where(
+        and(
+          eq(timeEntries.cardId, input.cardId),
+          eq(timeEntries.vaId, vaId),
+          isNotNull(timeEntries.endTime),
+          gte(timeEntries.startTime, startUTC),
+          lte(timeEntries.startTime, endUTC)
+        )
+      ).orderBy(desc(timeEntries.startTime));
+    }),
+
+  getWeeklyBreakdown: protectedProcedure
+    .input(z.object({ startDate: z.string(), endDate: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const vaId = Number(ctx.user.id);
+
+      const days: any[] = [];
+      const start = new Date(input.startDate + "T00:00:00Z");
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(start);
+        d.setUTCDate(start.getUTCDate() + i);
+        days.push({ date: d.toISOString().slice(0, 10), totalSeconds: 0 });
+      }
+
+      const rows = await db.select({
+        startTime: timeEntries.startTime,
+        durationSeconds: timeEntries.durationSeconds,
+      }).from(timeEntries).where(
+        and(
+          eq(timeEntries.vaId, vaId),
+          isNotNull(timeEntries.endTime),
+          gte(timeEntries.startTime, new Date(input.startDate + "T00:00:00Z")),
+          lte(timeEntries.startTime, new Date(input.endDate + "T23:59:59Z"))
+        )
+      );
+
+      for (const row of rows) {
+        const eatDate = new Date(row.startTime.getTime() + 3 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+        const slot = days.find(d => d.date === eatDate);
+        if (slot) slot.totalSeconds += row.durationSeconds ?? 0;
+      }
+      return days;
+    }),
+});
+
+// ─── Compliance Snapshots Router ────────────────────────────────────────────
+export const complianceRouter = router({
+  getHistory: protectedProcedure
+    .input(z.object({ limit: z.number().optional(), vaId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return [];
+      const isWorker = ctx.user.role === "worker";
+      const vaId = isWorker ? Number(ctx.user.id) : input.vaId;
+      if (!vaId) return [];
+
+      return db.select().from(dailyComplianceSnapshots)
+        .where(eq(dailyComplianceSnapshots.vaId, vaId))
+        .orderBy(desc(dailyComplianceSnapshots.snapshotDate))
+        .limit(input.limit ?? 30);
+    }),
+});
+
+// ─── Email Inbox Router ──────────────────────────────────────────────────────
+export const emailInboxRouter = router({
+  getAll: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return [];
+    const vaId = Number(ctx.user.id);
+    return db.select().from(emailTasks).where(eq(emailTasks.vaId, vaId)).orderBy(desc(emailTasks.receivedAt));
+  }),
+
+  getPending: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return [];
+    const vaId = Number(ctx.user.id);
+    return db.select().from(emailTasks).where(
+      and(eq(emailTasks.vaId, vaId), eq(emailTasks.status, "pending"))
+    ).orderBy(desc(emailTasks.receivedAt));
+  }),
+
+  getPendingCount: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return { count: 0 };
+    const vaId = Number(ctx.user.id);
+    const results = await db.select({ count: sql<number>`count(*)` }).from(emailTasks).where(
+      and(eq(emailTasks.vaId, vaId), eq(emailTasks.status, "pending"))
+    );
+    return { count: Number(results[0]?.count || 0) };
+  }),
+
+  updateStatus: protectedProcedure
+    .input(z.object({
+      id: z.number().int(),
+      status: z.enum(["pending", "processed", "archived"]),
+      trelloCardId: z.string().optional(),
+      trelloCardName: z.string().optional(),
+      trelloCardUrl: z.string().optional(),
+      suggestedNextAction: z.string().optional(),
+      llmSummary: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+      const { id, status, ...extra } = input;
+      await db.update(emailTasks).set({
+        status,
+        ...(status === "processed" && { processedAt: new Date() }),
+        ...(status === "archived" && { archivedAt: new Date() }),
+        ...extra,
+      }).where(and(eq(emailTasks.id, id), eq(emailTasks.vaId, vaId)));
+      return { success: true };
+    }),
+
+  archiveAll: protectedProcedure.mutation(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+    const vaId = Number(ctx.user.id);
+    const result = await db.update(emailTasks)
+      .set({ status: "archived", archivedAt: new Date() })
+      .where(and(eq(emailTasks.vaId, vaId), eq(emailTasks.status, "pending")));
+    return { success: true, archived: (result as any).affectedRows || 0 };
+  }),
+
+  upsertBatch: protectedProcedure
+    .input(z.array(z.object({
+      gmailMessageId: z.string(),
+      gmailThreadId: z.string(),
+      subject: z.string().default("(no subject)"),
+      fromAddress: z.string().default(""),
+      fromName: z.string().default(""),
+      snippet: z.string().optional(),
+      receivedAt: z.date(),
+      category: z.enum(["financial", "non_financial"]).default("non_financial"),
+      status: z.enum(["pending", "processed", "archived"]).default("pending"),
+      deadlineAt: z.date().optional(),
+      trelloCardId: z.string().optional(),
+      trelloCardName: z.string().optional(),
+      trelloCardUrl: z.string().optional(),
+      suggestedNextAction: z.string().optional(),
+      llmSummary: z.string().optional(),
+    })))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+      let upserted = 0;
+      for (const task of input) {
+        await db.insert(emailTasks).values({
+          vaId,
+          ...task,
+        }).onDuplicateKeyUpdate({
+          set: {
+            ...task,
+          }
+        });
+        upserted++;
+      }
+      return { success: true, upserted };
+    }),
+});
+
+// ─── Card Snoozes Router ─────────────────────────────────────────────────────
+export const cardSnoozeRouter = router({
+  snooze: protectedProcedure
+    .input(z.object({
+      cardId: z.string(),
+      cardName: z.string(),
+      cardUrl: z.string(),
+      snoozedUntil: z.date(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+      await db.insert(cardSnoozes).values({
+        vaId,
+        cardId: input.cardId,
+        cardName: input.cardName,
+        cardUrl: input.cardUrl,
+        snoozedUntil: input.snoozedUntil,
+        isActive: true,
+      }).onDuplicateKeyUpdate({
+        set: {
+          snoozedUntil: input.snoozedUntil,
+          isActive: true,
+        }
+      });
+      return { success: true };
+    }),
+
+  cancel: protectedProcedure
+    .input(z.object({ cardId: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      const vaId = Number(ctx.user.id);
+      await db.update(cardSnoozes)
+        .set({ isActive: false })
+        .where(and(eq(cardSnoozes.cardId, input.cardId), eq(cardSnoozes.vaId, vaId)));
+      return { success: true };
+    }),
+
+  getActive: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return [];
+    const vaId = Number(ctx.user.id);
+    return db.select().from(cardSnoozes).where(
+      and(eq(cardSnoozes.vaId, vaId), eq(cardSnoozes.isActive, true))
+    );
+  }),
+
+  getForCard: protectedProcedure
+    .input(z.object({ cardId: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return null;
+      const vaId = Number(ctx.user.id);
+      const results = await db.select().from(cardSnoozes).where(
+        and(eq(cardSnoozes.cardId, input.cardId), eq(cardSnoozes.vaId, vaId), eq(cardSnoozes.isActive, true))
+      ).limit(1);
+      return results[0] ?? null;
+    }),
+
+  getSnoozedIds: protectedProcedure.query(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) return { cardIds: [] };
+    const vaId = Number(ctx.user.id);
+    const results = await db.select({ cardId: cardSnoozes.cardId }).from(cardSnoozes).where(
+      and(eq(cardSnoozes.vaId, vaId), eq(cardSnoozes.isActive, true))
+    );
+    return { cardIds: results.map(r => r.cardId) };
+  }),
+});
