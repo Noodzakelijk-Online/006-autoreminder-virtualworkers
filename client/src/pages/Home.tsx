@@ -590,6 +590,8 @@ function OperationalPoliciesSettings() {
     onError: (e) => toast.error(`Failed: ${e.message}`),
   });
   const [editing, setEditing] = useState<Record<string, string>>({});
+  const [expanded, setExpanded] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(() => new Set());
 
   if (isLoading) return <div className="rounded-xl border border-border/50 bg-card/50 p-5"><p className="text-xs text-muted-foreground">Loading policies…</p></div>;
 
@@ -599,49 +601,113 @@ function OperationalPoliciesSettings() {
     acc[cat].push(p);
     return acc;
   }, {} as Record<string, typeof policies>);
+  const policyCount = policies?.length ?? 0;
+  const enabledCount = policies?.filter((policy) => policy.enabled === 1).length ?? 0;
+
+  const toggleCategory = (category: string) => {
+    setExpandedCategories((current) => {
+      const next = new Set(current);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
 
   return (
-    <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 p-5 space-y-5">
-      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-        <Shield className="w-4 h-4 text-indigo-500" />
-        APTLSS Operational Policies
-      </h3>
-      <p className="text-xs text-muted-foreground -mt-3">
-        Configure thresholds, autopilot level, done-gate rules, and follow-up timing. Changes take effect immediately.
-      </p>
-      {Object.entries(grouped).map(([cat, catPolicies]) => (
-        <div key={cat} className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{POLICY_CATEGORY_LABELS[cat] ?? cat}</p>
-          {(catPolicies ?? []).map(policy => (
-            <div key={policy.ruleKey} className="flex items-start gap-3 bg-background/50 rounded-lg p-3 border border-border/30">
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-foreground">{policy.label}</p>
-                {policy.description && <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{policy.description}</p>}
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <input
-                  type="text"
-                  value={editing[policy.ruleKey] ?? policy.value ?? ""}
-                  onChange={(e) => setEditing(prev => ({ ...prev, [policy.ruleKey]: e.target.value }))}
-                  onBlur={() => {
-                    const val = editing[policy.ruleKey];
-                    if (val !== undefined && val !== policy.value) {
-                      updateMutation.mutate({ ruleKey: policy.ruleKey, value: val });
-                    }
-                  }}
-                  className="w-20 text-xs bg-background border border-border rounded px-2 py-1 text-right font-mono focus:outline-none focus:border-indigo-500"
-                />
-                <Switch
-                  checked={policy.enabled === 1}
-                  onCheckedChange={(checked) => toggleMutation.mutate({ ruleKey: policy.ruleKey, enabled: checked })}
-                  aria-label={`Toggle ${policy.label}`}
-                />
-              </div>
-            </div>
-          ))}
+    <section className="overflow-hidden rounded-lg border border-indigo-500/30 bg-indigo-500/5">
+      <button
+        type="button"
+        className="flex w-full items-start justify-between gap-4 p-5 text-left transition-colors hover:bg-indigo-500/5"
+        aria-expanded={expanded}
+        aria-controls="aptlss-operational-policies-content"
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className="flex min-w-0 items-start gap-2">
+          <Shield className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-foreground">APTLSS Operational Policies</span>
+            <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+              Configure thresholds, autopilot level, done-gate rules, and follow-up timing.
+            </span>
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          <Badge variant="outline" className="text-[10px] text-muted-foreground">
+            {enabledCount}/{policyCount} enabled
+          </Badge>
+          {expanded
+            ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </span>
+      </button>
+
+      {expanded && (
+        <div id="aptlss-operational-policies-content" className="space-y-3 border-t border-indigo-500/20 p-4">
+          {Object.entries(grouped).map(([cat, catPolicies]) => {
+            const categoryExpanded = expandedCategories.has(cat);
+            const categoryPolicies = catPolicies ?? [];
+            const categoryEnabledCount = categoryPolicies.filter((policy) => policy.enabled === 1).length;
+            return (
+              <section key={cat} className="overflow-hidden rounded-md border border-border/50 bg-background/40">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                  aria-expanded={categoryExpanded}
+                  aria-controls={`aptlss-policy-category-${cat}`}
+                  onClick={() => toggleCategory(cat)}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    {categoryExpanded
+                      ? <ChevronUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+                    <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                      {POLICY_CATEGORY_LABELS[cat] ?? cat}
+                    </span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {categoryEnabledCount}/{categoryPolicies.length} enabled
+                  </span>
+                </button>
+
+                {categoryExpanded && (
+                  <div id={`aptlss-policy-category-${cat}`} className="divide-y divide-border/40 border-t border-border/40">
+                    {categoryPolicies.map((policy) => (
+                      <div key={policy.ruleKey} className="flex items-start gap-3 p-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-foreground">{policy.label}</p>
+                          {policy.description && <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{policy.description}</p>}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <input
+                            type="text"
+                            value={editing[policy.ruleKey] ?? policy.value ?? ""}
+                            onChange={(e) => setEditing(prev => ({ ...prev, [policy.ruleKey]: e.target.value }))}
+                            onBlur={() => {
+                              const val = editing[policy.ruleKey];
+                              if (val !== undefined && val !== policy.value) {
+                                updateMutation.mutate({ ruleKey: policy.ruleKey, value: val });
+                              }
+                            }}
+                            className="w-20 rounded border border-border bg-background px-2 py-1 text-right font-mono text-xs focus:border-indigo-500 focus:outline-none"
+                            aria-label={`${policy.label} value`}
+                          />
+                          <Switch
+                            checked={policy.enabled === 1}
+                            onCheckedChange={(checked) => toggleMutation.mutate({ ruleKey: policy.ruleKey, enabled: checked })}
+                            aria-label={`Toggle ${policy.label}`}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+          <p className="px-1 text-[11px] text-muted-foreground">Changes take effect immediately.</p>
         </div>
-      ))}
-    </div>
+      )}
+    </section>
   );
 }
 
