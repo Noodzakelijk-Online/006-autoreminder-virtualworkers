@@ -677,7 +677,7 @@ export default function TriageTab() {
                   <AccordionContent className="px-5 pb-4">
                     <div className="space-y-3">
                       {recentReports.map((report) => (
-                        <div key={report.triageDate} className="border border-border/50 rounded-lg p-3">
+                        <div key={new Date(report.triageDate).toISOString()} className="border border-border/50 rounded-lg p-3">
                           <p className="text-xs font-semibold text-muted-foreground mb-1.5">
                             {new Date(report.triageDate).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
                           </p>

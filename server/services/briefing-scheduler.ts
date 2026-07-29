@@ -1,6 +1,6 @@
 import { getDb } from '../db';
-import { vaProfiles, users } from '../../drizzle/schema';
-import { eq, isNotNull } from 'drizzle-orm';
+import { taskAssignments, timeEntries, vaProfiles, users } from '../../drizzle/schema';
+import { and, eq, gte, isNotNull } from 'drizzle-orm';
 import { sendMorningBriefing, sendEODReport } from './email';
 
 let schedulerInterval: NodeJS.Timeout | null = null;
@@ -65,18 +65,80 @@ async function checkAndSendReports() {
         const founder = await db.select().from(users).where(eq(users.id, worker.founderId)).limit(1);
         if (!founder || founder.length === 0) continue;
 
-        const founderOpenId = founder[0].openId;
+        const assignments = await db.select().from(taskAssignments).where(and(
+          eq(taskAssignments.vaId, worker.id),
+          eq(taskAssignments.founderId, worker.founderId),
+        ));
+        const tasks = assignments.map(assignment => {
+          const startTime = assignment.startTime?.toISOString();
+          const endTime = assignment.endTime?.toISOString();
+          const durationHours = assignment.startTime && assignment.endTime
+            ? Math.max(0, (assignment.endTime.getTime() - assignment.startTime.getTime()) / 3_600_000)
+            : 1;
+          return {
+            title: assignment.notes || `Task ${assignment.taskId.split(":").pop()}`,
+            cardName: assignment.taskId.split(":")[0] || "Project",
+            startTime,
+            endTime,
+            durationHours,
+            priority: "normal",
+          };
+        });
+        const reportDate = new Intl.DateTimeFormat("en-US", {
+          timeZone: workerTimezone,
+          weekday: "long",
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        }).format(new Date());
 
-        if (currentHour === worker.workStartHour) {
+        if (currentHour === worker.workStartHour && worker.email) {
           console.log(`[Scheduler] Triggering Morning Briefing for ${worker.name} (${workerTimezone})`);
-          await sendMorningBriefing(founderOpenId, worker.id).catch(err => {
+          await sendMorningBriefing(worker.email, {
+            workerName: worker.name,
+            date: reportDate,
+            tasks,
+            totalHours: tasks.reduce((sum, task) => sum + task.durationHours, 0),
+            highPriorityCount: 0,
+          }).catch(err => {
             console.error(`[Scheduler] Failed to send morning briefing for ${worker.name}:`, err);
           });
         }
 
-        if (currentHour === worker.workEndHour) {
+        if (currentHour === worker.workEndHour && founder[0].email) {
           console.log(`[Scheduler] Triggering EOD Report for ${worker.name} (${workerTimezone})`);
-          await sendEODReport(founderOpenId, worker.id).catch(err => {
+          const dayStart = new Date();
+          dayStart.setHours(0, 0, 0, 0);
+          const entries = await db.select().from(timeEntries).where(and(
+            eq(timeEntries.vaId, worker.userId),
+            gte(timeEntries.startTime, dayStart),
+            isNotNull(timeEntries.endTime),
+          ));
+          const totalHoursWorked = entries.reduce(
+            (sum, entry) => sum + (entry.durationSeconds ?? 0) / 3600,
+            0,
+          );
+          const completedTasks = assignments
+            .filter(assignment => assignment.status === "completed")
+            .map(assignment => tasks.find(task => task.cardName === assignment.taskId.split(":")[0])!);
+          const incompleteTasks = assignments
+            .filter(assignment => assignment.status === "assigned" || assignment.status === "in_progress")
+            .map(assignment => tasks.find(task => task.cardName === assignment.taskId.split(":")[0])!);
+          const blockedTasks = assignments
+            .filter(assignment => assignment.status === "blocked")
+            .map(assignment => tasks.find(task => task.cardName === assignment.taskId.split(":")[0])!);
+          const completionRate = assignments.length === 0
+            ? 0
+            : Math.round((completedTasks.length / assignments.length) * 100);
+          await sendEODReport(founder[0].email, {
+            workerName: worker.name,
+            date: reportDate,
+            completedTasks,
+            incompleteTasks,
+            blockedTasks,
+            totalHoursWorked,
+            completionRate,
+          }).catch(err => {
             console.error(`[Scheduler] Failed to send EOD report for ${worker.name}:`, err);
           });
         }

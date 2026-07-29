@@ -10,6 +10,17 @@ const router = Router();
 // Documentation: https://date.nager.at/Api
 const HOLIDAY_API_BASE = 'https://date.nager.at/api/v3';
 
+export const SUPPORTED_HOLIDAY_COUNTRIES = [
+  { countryCode: 'US', name: 'United States' },
+  { countryCode: 'GB', name: 'United Kingdom' },
+  { countryCode: 'DE', name: 'Germany' },
+  { countryCode: 'FR', name: 'France' },
+  { countryCode: 'NL', name: 'Netherlands' },
+  { countryCode: 'PH', name: 'Philippines' },
+  { countryCode: 'PK', name: 'Pakistan' },
+  { countryCode: 'IN', name: 'India' },
+] as const;
+
 /**
  * GET /api/holidays/fetch/:country/:year
  * Fetch holidays from external API and store in database
@@ -233,21 +244,8 @@ router.post('/toggle/:id', async (req: any, res: Response) => {
  * GET /api/holidays/countries
  * Get list of supported countries
  */
-router.get('/countries', async (req: any, res: Response) => {
-  try {
-    // Fetch available countries from Nager.Date API
-    const response = await fetch(`${HOLIDAY_API_BASE}/AvailableCountries`);
-    
-    if (!response.ok) {
-      throw new Error(`Holiday API error: ${response.statusText}`);
-    }
-
-    const countries = await response.json();
-    res.json(countries);
-  } catch (error) {
-    console.error('Error fetching countries:', error);
-    res.status(500).json({ error: 'Failed to fetch countries' });
-  }
+router.get('/countries', (_req: Request, res: Response) => {
+  res.json(SUPPORTED_HOLIDAY_COUNTRIES);
 });
 
 export default router;

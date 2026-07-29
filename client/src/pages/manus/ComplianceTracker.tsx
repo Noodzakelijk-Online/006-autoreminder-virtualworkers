@@ -43,6 +43,10 @@ function getWeekStart(dateStr: string): string {
   return monday.toISOString().slice(0, 10);
 }
 
+function dateKey(value: string | Date): string {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : value.slice(0, 10);
+}
+
 // ─── MiniBar chart ────────────────────────────────────────────────────────────
 function MiniBar({ pct, label }: { pct: number; label: string }) {
   return (
@@ -137,7 +141,7 @@ export default function ComplianceTracker() {
                 <div className="flex items-end gap-1.5 overflow-x-auto pb-1">
                   {chartRows.map((row) => (
                     <MiniBar
-                      key={row.snapshotDate}
+                      key={dateKey(row.snapshotDate)}
                       pct={row.compliancePct}
                       label={new Date(row.snapshotDate).toLocaleDateString("en-US", { month: "numeric", day: "numeric" })}
                     />
@@ -158,7 +162,7 @@ export default function ComplianceTracker() {
                 {displayRows.map((row) => {
                   const total = row.onHoldTotal + row.doingTotal;
                   const done = row.onHoldReviewed + row.doingUpdated;
-                  const weekStart = getWeekStart(row.snapshotDate);
+                  const weekStart = getWeekStart(dateKey(row.snapshotDate));
 
                   return (
                     <div

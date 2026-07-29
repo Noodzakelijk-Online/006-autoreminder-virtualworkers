@@ -41,9 +41,9 @@ export async function getAresConfiguration(
   configId: string
 ): Promise<AresConfiguration | null> {
   const db = await getDatabase();
-  return db.query.aresConfigurations.findFirst({
+  return (await db.query.aresConfigurations.findFirst({
     where: eq(aresConfigurations.id, configId),
-  });
+  })) ?? null;
 }
 
 export async function getUserAresConfigurations(
@@ -59,12 +59,12 @@ export async function getDefaultAresConfiguration(
   userId: number
 ): Promise<AresConfiguration | null> {
   const db = await getDatabase();
-  return db.query.aresConfigurations.findFirst({
+  return (await db.query.aresConfigurations.findFirst({
     where: and(
       eq(aresConfigurations.userId, userId),
       eq(aresConfigurations.isDefault, true)
     ),
-  });
+  })) ?? null;
 }
 
 export async function updateAresConfiguration(
@@ -139,9 +139,9 @@ export async function getAresValidationRule(
   ruleId: string
 ): Promise<AresValidationRule | null> {
   const db = await getDatabase();
-  return db.query.aresValidationRules.findFirst({
+  return ((await db.query.aresValidationRules.findFirst({
     where: eq(aresValidationRules.id, ruleId),
-  });
+  })) ?? null) as AresValidationRule | null;
 }
 
 export async function updateAresValidationRule(

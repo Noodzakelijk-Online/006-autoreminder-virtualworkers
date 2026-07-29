@@ -310,9 +310,9 @@ export default function AdminDashboard() {
                               </span>
                             )}
                           </div>
-                          {item.AdminDecision && (
+                          {item.founderDecision && (
                             <p className="text-[11px] text-red-700 dark:text-red-300 mt-1 font-medium">
-                              ❓ {item.AdminDecision}
+                              ❓ {item.founderDecision}
                             </p>
                           )}
                           {item.confidenceReason && (

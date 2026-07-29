@@ -1,11 +1,12 @@
 import { eq, and } from "drizzle-orm";
-import { drizzle as drizzleMySQL } from "drizzle-orm/mysql2";
+import { drizzle as drizzleMySQL, type MySql2Database } from "drizzle-orm/mysql2";
 import mysql2 from "mysql2/promise";
 import { InsertUser, users } from "../drizzle/schema";
 import * as schema from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { parseDateKey } from "./utils/date-only";
 
-let _db: any = null;
+let _db: MySql2Database<typeof schema> | null = null;
 let _migrationRan = false;
 
 /**
@@ -220,7 +221,7 @@ export async function incrementPayLogD1(vaId: number, dateEAT: string, d1Count: 
   const founderId = profileRows[0]?.founderId ?? 1;
 
   const existingRows = await db.select().from(schema.weeklyPayLog).where(
-    and(eq(schema.weeklyPayLog.weekStart, weekStart), eq(schema.weeklyPayLog.vaId, vaId))
+    and(eq(schema.weeklyPayLog.weekStart, parseDateKey(weekStart)), eq(schema.weeklyPayLog.vaId, vaId))
   ).limit(1);
   
   const existing = existingRows[0];
@@ -243,8 +244,8 @@ export async function incrementPayLogD1(vaId: number, dateEAT: string, d1Count: 
   const values = {
     vaId,
     founderId,
-    weekStart,
-    weekEnd,
+    weekStart: parseDateKey(weekStart),
+    weekEnd: parseDateKey(weekEnd),
     demeritD1: String(newD1),
     projectedPay: String(projectedPay),
     meritM1: existing ? existing.meritM1 : "0.00",

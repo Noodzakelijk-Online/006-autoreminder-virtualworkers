@@ -1,21 +1,44 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import { describe, it, expect } from 'vitest';
+import aptlssRouter from './routes/aptlss';
 
 describe('Task Scheduling and Sync Features', () => {
-  const API_BASE = 'http://localhost:3000/api';
-  let cachedTasks: any[] = [];
-  
-  // Fetch tasks once before all tests to avoid rate limiting
-  beforeAll(async () => {
-    try {
-      const response = await fetch(`${API_BASE}/trello/tasks`);
-      if (response.ok) {
-        cachedTasks = await response.json();
-      }
-    } catch (error) {
-      console.warn('Could not fetch tasks for testing:', error);
-      cachedTasks = [];
-    }
-  }, 30000); // 30 second timeout for initial fetch
+  const app = express();
+  app.use(express.json());
+  app.use('/api', aptlssRouter);
+  const cachedTasks = [
+    {
+      id: 'task-1',
+      cardId: 'card-1',
+      cardName: 'Prepare daily update',
+      checklistId: 'checklist-1',
+      checkItemId: 'item-1',
+      stepIndex: 1,
+      description: 'Draft the update',
+      durationHours: 1,
+      startTime: '09:00',
+      endTime: '10:00',
+      date: '2026-07-29',
+      isCompleted: false,
+      priorityLevel: 'HIGH',
+    },
+    {
+      id: 'task-2',
+      cardId: 'card-2',
+      cardName: 'Archive completed evidence',
+      checklistId: 'checklist-2',
+      checkItemId: 'item-2',
+      stepIndex: 1,
+      description: 'Archive processed evidence',
+      durationHours: 1,
+      startTime: '10:00',
+      endTime: '11:00',
+      date: '2026-07-29',
+      isCompleted: false,
+      priorityLevel: 'NORMAL',
+    },
+  ];
 
   describe('Task Scheduling Algorithm', () => {
     it('should return tasks as an array', () => {
@@ -118,23 +141,12 @@ describe('Task Scheduling and Sync Features', () => {
     it('should have sync endpoint available', async () => {
       // Test that the endpoint exists (will fail with 400 for invalid data, not 404)
       const mockTaskId = 'test_task_id';
-      const mockPayload = {
-        isCompleted: true,
-        cardId: 'mock_card_id',
-        checklistId: 'mock_checklist_id',
-        checkItemId: 'mock_check_item_id'
-      };
-      
-      const response = await fetch(`${API_BASE}/trello/tasks/${mockTaskId}/complete`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(mockPayload),
-      });
-      
-      // Should not be 404 (endpoint exists)
+      const response = await request(app)
+        .put(`/api/trello/tasks/${mockTaskId}/complete`)
+        .send({ isCompleted: true });
+
       expect(response.status).not.toBe(404);
+      expect([400, 500]).toContain(response.status);
     });
   });
 

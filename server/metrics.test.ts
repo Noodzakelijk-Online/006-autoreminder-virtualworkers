@@ -1,4 +1,7 @@
+import express from 'express';
+import request from 'supertest';
 import { describe, it, expect } from 'vitest';
+import metricsRouter from './routes/metrics';
 
 /**
  * Performance Metrics API Tests
@@ -8,23 +11,22 @@ import { describe, it, expect } from 'vitest';
  */
 
 describe('Performance Metrics API', () => {
+  const app = express();
+  app.use('/api', metricsRouter);
+
   describe('Authentication', () => {
     it('should require authentication for metrics endpoint', async () => {
-      const response = await fetch('http://localhost:3000/api/metrics/performance');
+      const response = await request(app).get('/api/metrics/performance');
+
       expect(response.status).toBe(401);
-      
-      const data = await response.json();
-      expect(data).toHaveProperty('error');
-      expect(data.error).toBe('Unauthorized');
+      expect(response.body).toEqual({ error: 'Unauthorized' });
     });
 
     it('should require authentication for history endpoint', async () => {
-      const response = await fetch('http://localhost:3000/api/metrics/history');
+      const response = await request(app).get('/api/metrics/history');
+
       expect(response.status).toBe(401);
-      
-      const data = await response.json();
-      expect(data).toHaveProperty('error');
-      expect(data.error).toBe('Unauthorized');
+      expect(response.body).toEqual({ error: 'Unauthorized' });
     });
   });
 

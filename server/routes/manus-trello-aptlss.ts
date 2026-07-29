@@ -223,17 +223,28 @@ export const trelloRouter = router({
   getCommentToken: protectedProcedure.query(async ({ ctx }) => {
     const vaId = Number(ctx.user.id);
     const db = await getDb();
-    if (!db) return "";
+    if (!db) return { isSet: false, preview: "" };
     const rows = await db.select().from(appSettings).where(and(eq(appSettings.vaId, vaId), eq(appSettings.key, "trello_comment_token"))).limit(1);
-    return rows[0]?.value ?? "";
+    const value = rows[0]?.value ?? "";
+    return {
+      isSet: value.length > 0,
+      preview: value.length > 8 ? `${value.slice(0, 4)}...${value.slice(-4)}` : "",
+    };
   }),
 
   setCommentToken: protectedProcedure
-    .input(z.object({ token: z.string() }))
+    .input(z.object({ token: z.string().min(1).nullable() }))
     .mutation(async ({ input, ctx }) => {
       const vaId = Number(ctx.user.id);
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+      if (input.token === null) {
+        await db.delete(appSettings).where(and(
+          eq(appSettings.vaId, vaId),
+          eq(appSettings.key, "trello_comment_token"),
+        ));
+        return { success: true, isSet: false };
+      }
       await db.insert(appSettings)
         .values({ vaId, key: "trello_comment_token", value: input.token })
         .onDuplicateKeyUpdate({ set: { value: input.token, updatedAt: new Date() } });
@@ -607,7 +618,7 @@ export const aptlssRouter = router({
     });
     const content = response.choices[0]?.message?.content;
     if (!content) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: 'No schedule generated' });
-    return JSON.parse(typeof content === 'string' ? content : JSON.stringify(content)) as {
+    const parsed = JSON.parse(typeof content === 'string' ? content : JSON.stringify(content)) as {
       schedule: Array<{ time: string; cardId: string | null; cardName: string; action: string; estimatedMinutes: number; priority: string; notes: string }>;
       totalScheduledMinutes: number;
       unscheduledCards: Array<{ cardId: string; cardName: string; reason: string }>;
@@ -615,6 +626,7 @@ export const aptlssRouter = router({
       topPriority: string;
       founderItems: Array<{ cardId: string; cardName: string; decision: string }>;
     };
+    return { ...parsed, robertItems: parsed.founderItems };
   }),
 
   doneGateCheck: protectedProcedure
@@ -1045,12 +1057,15 @@ export const aptlssRouter = router({
         checklistProgress: { completed: completedSteps, total: totalSteps, pct },
         nextBestAction,
         confidenceScore,
+        confidenceLabel: confidenceLabel(confidenceScore),
         confidenceReason,
         scoreBreakdown,
         escalationCategory,
         founderDecision,
+        AdminDecision: founderDecision,
         urgencyLabel,
         openFounderSteps: openSteps.filter((st: any) => st.requiresRobert).length,
+        openAdminSteps: openSteps.filter((st: any) => st.requiresRobert).length,
         whyShown: buildWhyShown(s, score, planData),
         onHoldClassification: s.listName && s.listName.toLowerCase().includes('hold')
           ? classifyOnHold(s, planData)

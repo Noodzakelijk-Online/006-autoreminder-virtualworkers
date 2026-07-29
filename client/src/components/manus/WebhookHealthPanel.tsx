@@ -98,13 +98,8 @@ export default function WebhookHealthPanel() {
                     <XCircle className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                   )}
                   <span className="font-semibold text-sm text-foreground truncate">
-                    {wh.boardName ?? wh.description ?? "Unknown Board"}
+                    {wh.description || "Unknown Board"}
                   </span>
-                  {wh.boardName && wh.description && wh.description !== wh.boardName && (
-                    <span className="text-[10px] text-muted-foreground truncate hidden sm:inline">
-                      ({wh.description})
-                    </span>
-                  )}
                 </div>
                 <span
                   className={`flex-shrink-0 text-xs px-2 py-0.5 rounded-full border font-medium ${

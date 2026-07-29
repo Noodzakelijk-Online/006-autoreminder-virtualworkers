@@ -18,8 +18,11 @@ import {
   vagueReplyFlags,
   emailTasks,
   cardSnoozes,
+  vaProfiles,
 } from "../../drizzle/schema";
 import { eq, and, desc, asc, gte, lte, sql, isNull, isNotNull } from "drizzle-orm";
+import { collectComplianceSnapshot } from "../services/manus-scheduler";
+import { parseDateKey } from "../utils/date-only";
 
 // ─── Payment Cycles Router ──────────────────────────────────────────────────
 export const paymentRouter = router({
@@ -117,7 +120,7 @@ export const payLogRouter = router({
       if (!vaId) return null;
 
       const results = await db.select().from(weeklyPayLog).where(
-        and(eq(weeklyPayLog.weekStart, input.weekStart), eq(weeklyPayLog.vaId, vaId))
+        and(eq(weeklyPayLog.weekStart, parseDateKey(input.weekStart)), eq(weeklyPayLog.vaId, vaId))
       ).limit(1);
       return results[0] ?? null;
     }),
@@ -162,8 +165,8 @@ export const payLogRouter = router({
       const values = {
         vaId,
         founderId,
-        weekStart: input.weekStart,
-        weekEnd: input.weekEnd,
+        weekStart: parseDateKey(input.weekStart),
+        weekEnd: parseDateKey(input.weekEnd),
         paymentCycleId: input.paymentCycleId || null,
         baseAmount: String(baseVal),
         meritM1: String(input.meritM1),
@@ -188,7 +191,7 @@ export const payLogRouter = router({
       };
 
       const existing = await db.select().from(weeklyPayLog).where(
-        and(eq(weeklyPayLog.weekStart, input.weekStart), eq(weeklyPayLog.vaId, vaId))
+        and(eq(weeklyPayLog.weekStart, parseDateKey(input.weekStart)), eq(weeklyPayLog.vaId, vaId))
       ).limit(1);
 
       if (existing[0]) {
@@ -210,7 +213,7 @@ export const triageRouter = router({
       if (!db) return null;
       const vaId = Number(ctx.user.id);
       const rows = await db.select().from(dailyTriageState).where(
-        and(eq(dailyTriageState.triageDate, input.date), eq(dailyTriageState.vaId, vaId))
+        and(eq(dailyTriageState.triageDate, parseDateKey(input.date)), eq(dailyTriageState.vaId, vaId))
       ).limit(1);
       return rows[0] ?? null;
     }),
@@ -238,7 +241,7 @@ export const triageRouter = router({
 
       const values: any = {
         vaId,
-        triageDate: input.triageDate,
+        triageDate: parseDateKey(input.triageDate),
         ...(input.step1Done !== undefined && { step1Done: input.step1Done }),
         ...(input.step2Done !== undefined && { step2Done: input.step2Done }),
         ...(input.step3Done !== undefined && { step3Done: input.step3Done }),
@@ -254,7 +257,7 @@ export const triageRouter = router({
       };
 
       const existing = await db.select().from(dailyTriageState).where(
-        and(eq(dailyTriageState.triageDate, input.triageDate), eq(dailyTriageState.vaId, vaId))
+        and(eq(dailyTriageState.triageDate, parseDateKey(input.triageDate)), eq(dailyTriageState.vaId, vaId))
       ).limit(1);
 
       if (existing[0]) {
@@ -291,7 +294,7 @@ export const onHoldChecksRouter = router({
       if (!db) return [];
       const vaId = Number(ctx.user.id);
       return db.select().from(onHoldDailyChecks).where(
-        and(eq(onHoldDailyChecks.date, input.date), eq(onHoldDailyChecks.vaId, vaId))
+        and(eq(onHoldDailyChecks.date, parseDateKey(input.date)), eq(onHoldDailyChecks.vaId, vaId))
       );
     }),
 
@@ -311,7 +314,7 @@ export const onHoldChecksRouter = router({
       const existing = await db.select().from(onHoldDailyChecks).where(
         and(
           eq(onHoldDailyChecks.cardId, input.cardId),
-          eq(onHoldDailyChecks.date, input.date),
+          eq(onHoldDailyChecks.date, parseDateKey(input.date)),
           eq(onHoldDailyChecks.vaId, vaId)
         )
       ).limit(1);
@@ -321,7 +324,7 @@ export const onHoldChecksRouter = router({
         cardId: input.cardId,
         cardName: input.cardName,
         cardUrl: input.cardUrl,
-        date: input.date,
+        date: parseDateKey(input.date),
         checked: input.checked,
         checkedAt: input.checked ? new Date() : null,
       };
@@ -391,12 +394,12 @@ export const streakRouter = router({
       const vaId = Number(ctx.user.id);
 
       const existing = await db.select().from(dailyUpdateStreak).where(
-        and(eq(dailyUpdateStreak.streakDate, input.streakDate), eq(dailyUpdateStreak.vaId, vaId))
+        and(eq(dailyUpdateStreak.streakDate, parseDateKey(input.streakDate)), eq(dailyUpdateStreak.vaId, vaId))
       ).limit(1);
 
       const values = {
         vaId,
-        streakDate: input.streakDate,
+        streakDate: parseDateKey(input.streakDate),
         completedBeforeDeadline: input.completedBeforeDeadline,
         doingCardCount: input.doingCardCount,
         completedAt: new Date(),
@@ -420,7 +423,7 @@ export const sundayRouter = router({
       if (!db) return null;
       const vaId = Number(ctx.user.id);
       const rows = await db.select().from(sundayChecklist).where(
-        and(eq(sundayChecklist.sundayDate, input.date), eq(sundayChecklist.vaId, vaId))
+        and(eq(sundayChecklist.sundayDate, parseDateKey(input.date)), eq(sundayChecklist.vaId, vaId))
       ).limit(1);
       return rows[0] ?? null;
     }),
@@ -448,12 +451,12 @@ export const sundayRouter = router({
 
       const { sundayDate, ...fields } = input;
       const existing = await db.select().from(sundayChecklist).where(
-        and(eq(sundayChecklist.sundayDate, sundayDate), eq(sundayChecklist.vaId, vaId))
+        and(eq(sundayChecklist.sundayDate, parseDateKey(sundayDate)), eq(sundayChecklist.vaId, vaId))
       ).limit(1);
 
       const values = {
         vaId,
-        sundayDate,
+        sundayDate: parseDateKey(sundayDate),
         ...fields,
       };
 
@@ -481,7 +484,11 @@ export const timerRouter = router({
       const db = await getDb();
       if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
       const vaId = Number(ctx.user.id);
-      const founderId = ctx.user.founderId || 1;
+      const profiles = await db.select({ founderId: vaProfiles.founderId })
+        .from(vaProfiles)
+        .where(eq(vaProfiles.userId, vaId))
+        .limit(1);
+      const founderId = profiles[0]?.founderId ?? vaId;
 
       const running = await db.select().from(timeEntries).where(
         and(eq(timeEntries.vaId, vaId), isNull(timeEntries.endTime))
@@ -546,7 +553,16 @@ export const timerRouter = router({
     const rows = await db.select().from(timeEntries).where(
       and(eq(timeEntries.vaId, vaId), isNull(timeEntries.endTime))
     ).orderBy(desc(timeEntries.startTime)).limit(1);
-    return rows[0] ?? null;
+    const active = rows[0];
+    return active
+      ? {
+          ...active,
+          cardId: active.cardId ?? active.taskId,
+          cardName: active.cardName ?? "Unknown Card",
+          cardUrl: active.cardUrl ?? "#",
+          startedAt: active.startTime,
+        }
+      : null;
   }),
 
   getByCard: protectedProcedure
@@ -673,7 +689,7 @@ export const timerRouter = router({
       const startUTC = new Date(input.date + "T00:00:00+03:00");
       const endUTC = new Date(input.date + "T23:59:59+03:00");
 
-      return db.select().from(timeEntries).where(
+      const rows = await db.select().from(timeEntries).where(
         and(
           eq(timeEntries.cardId, input.cardId),
           eq(timeEntries.vaId, vaId),
@@ -682,6 +698,14 @@ export const timerRouter = router({
           lte(timeEntries.startTime, endUTC)
         )
       ).orderBy(desc(timeEntries.startTime));
+      return rows.map(entry => ({
+        ...entry,
+        cardId: entry.cardId ?? entry.taskId,
+        cardName: entry.cardName ?? "Unknown Card",
+        cardUrl: entry.cardUrl ?? "#",
+        startedAt: entry.startTime,
+        stoppedAt: entry.endTime,
+      }));
     }),
 
   getWeeklyBreakdown: protectedProcedure
@@ -723,6 +747,42 @@ export const timerRouter = router({
 });
 
 // ─── Compliance Snapshots Router ────────────────────────────────────────────
+type ComplianceSnapshot = typeof dailyComplianceSnapshots.$inferSelect;
+
+function parseComplianceCards(value: string | null): Array<{ id: string; name: string; url: string }> {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((card): card is { id: string; name: string; url: string } =>
+      typeof card === "object" &&
+      card !== null &&
+      typeof card.id === "string" &&
+      typeof card.name === "string" &&
+      typeof card.url === "string"
+    );
+  } catch {
+    return [];
+  }
+}
+
+function compliancePercentage(row: ComplianceSnapshot): number {
+  const total = row.onHoldTotal + row.doingTotal;
+  return total === 0
+    ? 100
+    : Math.round(((row.onHoldReviewed + row.doingUpdated) / total) * 100);
+}
+
+function normalizeComplianceSnapshot(row: ComplianceSnapshot) {
+  return {
+    ...row,
+    estimatedPenalty: Number(row.estimatedPenalty),
+    onHoldMissedCards: parseComplianceCards(row.onHoldMissedCards),
+    doingMissedCards: parseComplianceCards(row.doingMissedCards),
+    compliancePct: compliancePercentage(row),
+  };
+}
+
 export const complianceRouter = router({
   getHistory: protectedProcedure
     .input(z.object({ limit: z.number().optional(), vaId: z.number().optional() }))
@@ -733,11 +793,71 @@ export const complianceRouter = router({
       const vaId = isWorker ? Number(ctx.user.id) : input.vaId;
       if (!vaId) return [];
 
-      return db.select().from(dailyComplianceSnapshots)
+      const rows = await db.select().from(dailyComplianceSnapshots)
         .where(eq(dailyComplianceSnapshots.vaId, vaId))
         .orderBy(desc(dailyComplianceSnapshots.snapshotDate))
         .limit(input.limit ?? 30);
+      return rows.map(normalizeComplianceSnapshot);
     }),
+
+  getRollingAvg: protectedProcedure
+    .input(z.object({ days: z.number().int().min(1).max(365).default(7) }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { avg: 100, days: 0 };
+      const vaId = Number(ctx.user.id);
+      const rows = await db.select().from(dailyComplianceSnapshots)
+        .where(eq(dailyComplianceSnapshots.vaId, vaId))
+        .orderBy(desc(dailyComplianceSnapshots.snapshotDate))
+        .limit(input.days);
+      const percentages = rows.map(compliancePercentage);
+      return {
+        avg: percentages.length === 0
+          ? 100
+          : Math.round(percentages.reduce((sum, value) => sum + value, 0) / percentages.length),
+        days: percentages.length,
+      };
+    }),
+
+  getWeekAvg: protectedProcedure
+    .input(z.object({ weekStart: z.string() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) return { avg: null, days: 0 };
+      const vaId = Number(ctx.user.id);
+      const start = parseDateKey(input.weekStart);
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 6);
+      const rows = await db.select().from(dailyComplianceSnapshots).where(and(
+        eq(dailyComplianceSnapshots.vaId, vaId),
+        gte(dailyComplianceSnapshots.snapshotDate, start),
+        lte(dailyComplianceSnapshots.snapshotDate, end),
+      ));
+      const percentages = rows.map(compliancePercentage);
+      return {
+        avg: percentages.length === 0
+          ? null
+          : Math.round(percentages.reduce((sum, value) => sum + value, 0) / percentages.length),
+        days: percentages.length,
+      };
+    }),
+
+  recordNow: protectedProcedure.mutation(async ({ ctx }) => {
+    const db = await getDb();
+    if (!db) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB not available" });
+    }
+    const vaId = Number(ctx.user.id);
+    const profiles = await db.select().from(vaProfiles)
+      .where(eq(vaProfiles.userId, vaId))
+      .limit(1);
+    const profile = profiles[0];
+    if (!profile) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Worker profile not found" });
+    }
+    const snapshot = await collectComplianceSnapshot(profile, "manual");
+    return normalizeComplianceSnapshot(snapshot);
+  }),
 });
 
 // ─── Email Inbox Router ──────────────────────────────────────────────────────

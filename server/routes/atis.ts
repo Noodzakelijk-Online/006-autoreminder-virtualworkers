@@ -728,9 +728,8 @@ router.post('/sync', async (req: Request, res: Response) => {
           trelloId: board.id,
           workspaceId,
           name: board.name,
-          description: board.desc || null,
           url: board.url || null,
-          isActive: 1,
+          isOpen: 1,
         }).$returningId();
         totalBoards++;
         return inserted.id;
@@ -750,7 +749,8 @@ router.post('/sync', async (req: Request, res: Response) => {
         const [insertedWs] = await db.insert(atisWorkspaces).values({
           trelloId: ws.id,
           name: ws.displayName || ws.name,
-          description: ws.desc || null,
+          displayName: ws.displayName || null,
+          url: ws.url || null,
         }).$returningId();
         wsDbId = insertedWs.id;
       }
