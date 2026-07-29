@@ -204,6 +204,20 @@
       "when": 1785358421754,
       "tag": "0028_add_task_assignment_schedule",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "5",
+      "when": 1785358824199,
+      "tag": "0029_operator_evidence_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1785361200000,
+      "tag": "0030_restore_schema_parity",
+      "breakpoints": true
     }
   ]
 }
