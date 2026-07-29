@@ -27,7 +27,6 @@ import {
   type MaintenanceScheduleJobKey,
 } from "../maintenanceSchedules";
 import {
-  calibrateMaintenanceProgressEta,
   getMaintenanceJobProgress,
   trackMaintenanceJobProgress,
 } from "../maintenanceJobProgress";
@@ -87,7 +86,7 @@ async function getMaintenanceCenter() {
         latestRun,
         averageDurationMs,
         nextRunAt,
-        progress: calibrateMaintenanceProgressEta(progressByJob[jobKey], averageDurationMs),
+        progress: progressByJob[jobKey],
       };
     }),
   };

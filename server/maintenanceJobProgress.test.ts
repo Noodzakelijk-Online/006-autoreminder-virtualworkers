@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  calibrateMaintenanceProgressEta,
   completeMaintenanceJobProgress,
   failMaintenanceJobProgress,
   getMaintenanceJobProgress,
@@ -74,23 +73,5 @@ describe("maintenance job progress", () => {
     expect(getMaintenanceJobProgress().weeklyAnalysis.runId).toBe(started.runId);
 
     failMaintenanceJobProgress("weekly_analysis", started.runId!, new Error("stopped for test"));
-  });
-
-  it("calibrates a running ETA from successful historical durations", () => {
-    const started = startMaintenanceJobProgress("reply_monitor");
-    vi.advanceTimersByTime(15_000);
-    const running = getMaintenanceJobProgress().replyMonitor;
-
-    expect(calibrateMaintenanceProgressEta(running, 20_000)).toMatchObject({
-      etaLowerSeconds: 0,
-      etaUpperSeconds: 10,
-      isTakingLongerThanExpected: false,
-    });
-    expect(calibrateMaintenanceProgressEta(running, 8_000)).toMatchObject({
-      etaLowerSeconds: 0,
-      etaUpperSeconds: 0,
-      isTakingLongerThanExpected: true,
-    });
-    expect(calibrateMaintenanceProgressEta(started, null)).toEqual(started);
   });
 });

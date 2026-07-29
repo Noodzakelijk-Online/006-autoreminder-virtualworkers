@@ -13,8 +13,8 @@ APTLSS is the intelligence layer beneath the dashboard. It continuously combines
 - **Decisions**: active Robert decisions, operational exceptions, recorded outcomes, and recent decision history.
 - **Time & Pay**: timers, weekly hours, payment administration, worker-performance signals, and source-backed compliance evidence.
 - **Standards**: operating rules, the priority playbook, task classification, and execution guidance.
-- **Settings**: integrations, a categorized Maintenance Center with independent job intervals and live ETAs, production readiness, webhook health, and the protected Sunday workflow.
-- **Admin monitor**: assessment audit records, scheduled-job history, and deeper system diagnostics.
+- **Settings**: integrations, automation intervals, production readiness, webhook health, and the protected Sunday workflow.
+- **Admin monitor**: maintenance controls, assessment audit records, scheduled-job history, and deeper system diagnostics.
 
 ## Operating Principles
 
@@ -85,9 +85,9 @@ Start with [`.env.example`](./.env.example). The main values are:
 | `TRELLO_POWERUP_API_KEY`           | Power-Up only                   | Trello Power-Up authorization                         |
 | `TRELLO_POWERUP_SECRET`            | Power-Up only                   | Power-Up and webhook-signature fallback               |
 
-The Google account can be connected from **Settings > Integrations**. Gmail ingestion is read-only. Google Drive evidence ingestion uses the same authorized account and does not modify Drive files. Configure all recurring ingestion and analysis intervals independently in **Settings > Maintenance**.
+The Google account can be connected from **Settings > Automation**. Gmail ingestion is read-only and runs inside the application at the selected interval. Google Drive evidence ingestion uses the same authorized account and does not modify Drive files.
 
-Upwork can be connected from **Settings > Integrations** after an approved API key has the `Messaging - Read-Only Access` and `Common Entities - Read-Only Access` permissions. Register the callback URL shown in Settings with the Upwork key, save the client credentials, connect the account, and then enable the monitor. The integration reads official GraphQL message data only; it does not reuse browser cookies, internal session tokens, or undocumented endpoints, and it cannot send or archive Upwork messages.
+Upwork can be connected from **Settings > Automation** after an approved API key has the `Messaging - Read-Only Access` and `Common Entities - Read-Only Access` permissions. Register the callback URL shown in Settings with the Upwork key, save the client credentials, connect the account, and then enable the 15-minute monitor. The integration reads official GraphQL message data only; it does not reuse browser cookies, internal session tokens, or undocumented endpoints, and it cannot send or archive Upwork messages.
 
 ## Database
 
