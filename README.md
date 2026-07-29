@@ -1,0 +1,76 @@
+# Joyce Work Schedule Platform
+
+This repository combines the developer platform with the Joyce operator workspace while preserving the developer architecture, authentication, RBAC, database lineage, and deployment services.
+
+## Application Surfaces
+
+| Route | Role | Purpose |
+| --- | --- | --- |
+| `/` | admin | Developer administration dashboard |
+| `/founder` | admin | Founder and worker management |
+| `/aptlss` | admin | APTLSS management |
+| `/settings` | admin | Platform settings |
+| `/calendar` | admin | Calendar |
+| `/advanced-scheduling` | admin | Advanced scheduling |
+| `/atis-phases` | admin | ATIS analysis |
+| `/robert` | admin | Robert oversight |
+| `/command-center` | admin | Priority command center |
+| `/admin` | admin | System monitor |
+| `/worker` | worker | Joyce work queue |
+| `/worker/plan` | worker | Persisted Plan My Day |
+| `/worker/decisions` | worker | Decision inbox and recorded outcomes |
+| `/worker/evidence` | worker | Evidence and integration state |
+| `/worker/operations` | worker | Preserved full worker operations dashboard |
+
+## Local Setup
+
+1. Install Node.js 20 or newer and pnpm 10.4.1.
+2. Copy `.env.example` to `.env` and supply the required database, session, and Trello settings.
+3. Start MySQL and optional Redis with `docker compose up -d mysql redis`.
+4. Apply migrations with `pnpm db:push`.
+5. Run `pnpm dev`.
+
+The server binds to `127.0.0.1` by default. Set `HOST` explicitly for a deployed environment.
+
+## Authentication
+
+Production uses the restored user table, signed sessions, and role checks. Admin and worker routes are independent.
+
+For loopback development only, `LOCAL_AUTH_BYPASS=true` can select one existing worker account. The server refuses to start when this flag is enabled in production or when `HOST` is not loopback. If more than one worker exists, set `LOCAL_AUTH_BYPASS_OPEN_ID` to the exact worker `openId`.
+
+## Operator Data
+
+The canonical migration lineage is the developer sequence through `0027_glorious_epoch`. Consolidated migrations are additive:
+
+- `0028_add_task_assignment_schedule`
+- `0029_operator_evidence_foundation`
+- `0030_restore_schema_parity`
+
+`0029` adds evidence-backed assessments, waiting reasons, decision outcomes, cross-source evidence, communication and compliance evidence, time reconciliation, maintenance run history, and browser-tab evidence. It does not drop or rename developer tables.
+
+`0030` repairs three schema/migration parity gaps found during the fresh-database rehearsal. It adds the Trello member identifier, backfills generic reply-thread columns while retaining their legacy Joyce-named sources, and creates the unsigned-message table expected by the restored application.
+
+Use the transfer utility before importing a Joyce database:
+
+```powershell
+node scripts/operator-data-transfer.mjs export --out .local/operator-export.json
+node scripts/operator-data-transfer.mjs import --in .local/operator-export.json --target $env:TARGET_DATABASE_URL --worker-id 42 --founder-id 1
+node scripts/operator-data-transfer.mjs reconcile --in .local/operator-export.json --target $env:TARGET_DATABASE_URL
+```
+
+The utility never prints connection strings and produces row-count, identity-map, and conflict reports. It imports compatible APTLSS, daily-plan, compliance, time, and operator history, but deliberately excludes `users`, VA identity, founder identity, authentication, scheduling, ATIS, and ARES records because the developer database remains authoritative for those domains. `--worker-id` and `--founder-id` must reference existing target identities; legacy rows are never attached by guessing.
+
+## External Actions
+
+Trello comments, card moves, outbound messages, and similar external effects remain explicit and policy-gated. Recording a decision outcome or waiting reason only updates local platform data. The browser collector uses a dedicated bearer token and stores sanitized URLs without query strings or fragments.
+
+## Verification
+
+```powershell
+npx.cmd pnpm@10.4.1 check
+npx.cmd pnpm@10.4.1 test
+npx.cmd pnpm@10.4.1 build
+npx.cmd pnpm@10.4.1 test:e2e
+```
+
+See [docs/CONSOLIDATION_LEDGER.md](docs/CONSOLIDATION_LEDGER.md) for source ownership and compatibility decisions.
