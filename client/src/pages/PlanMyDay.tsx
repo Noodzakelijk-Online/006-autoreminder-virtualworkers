@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,7 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -31,12 +30,14 @@ import {
   formatGeneratedAt,
   planAppliedAt,
   plannerErrorMessage,
+  planViews,
   priorityTone,
   toMinutes,
   type BlockStatus,
   type DailyPlanBlock,
   type DailyPlanPayload,
   type HandoffDraft,
+  type PlanView,
 } from "@/lib/planMyDayModel";
 import {
   Activity,
@@ -44,14 +45,13 @@ import {
   CalendarDays,
   Check,
   CheckCircle2,
-  ChevronDown,
   ChevronRight,
   Clock,
   ClipboardList,
   ExternalLink,
   Loader2,
   Lock,
-  PanelRightOpen,
+  MoreHorizontal,
   Play,
   RefreshCw,
   ShieldCheck,
@@ -63,6 +63,7 @@ import { OperationProgress } from "@/components/OperationProgress";
 
 export default function PlanMyDay() {
   const { dateKey, timeKey } = useEatClock();
+  const [activeView, setActiveView] = useState<PlanView>("Day Plan");
   const [handoff, setHandoff] = useState<HandoffDraft | null>(null);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [localChecks, setLocalChecks] = useState<Record<string, boolean>>({});
@@ -73,6 +74,7 @@ export default function PlanMyDay() {
   const utils = trpc.useUtils();
 
   useEffect(() => {
+    setActiveView("Day Plan");
     setHandoff(null);
     setControlsOpen(false);
     setLocalChecks({});
@@ -378,6 +380,22 @@ export default function PlanMyDay() {
         />
       )}
 
+      <div className="border-b border-border px-4 md:px-6">
+        <div className="grid grid-cols-2 sm:grid-cols-5">
+          {planViews.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              aria-pressed={activeView === tab}
+              onClick={() => setActiveView(tab)}
+              className={`min-h-11 border-b-2 px-2 py-2 text-sm font-medium leading-snug ${activeView === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <main className="mx-auto w-full max-w-6xl space-y-4 p-3 md:p-4">
         {!isInitialLoading && <PlannerFocusPanel
           nowBlock={nowBlock}
@@ -389,7 +407,6 @@ export default function PlanMyDay() {
           onStop={queueStopTimer}
           onDone={queueMarkDone}
         />}
-        {!isInitialLoading && !isPreview && <DaySummaryStrip plan={displayPlan} />}
         <section className="min-w-0">
           {!isInitialLoading && (planQuery.error || isPreview) && (
             <Alert className="mb-3 border-primary/30 bg-primary/10 text-foreground">
@@ -435,7 +452,8 @@ export default function PlanMyDay() {
               </CardContent>
             </Card>
           ) : isPreview ? null : (
-            <AgendaPanel
+            <PlannerMainView
+              activeView={activeView}
               plan={displayPlan}
               focusBlockId={nowBlock?.id}
               runningCardId={runningCardId}
@@ -451,9 +469,9 @@ export default function PlanMyDay() {
 
       <Sheet open={controlsOpen} onOpenChange={setControlsOpen}>
         <SheetContent side="right" className="w-[min(460px,calc(100vw-1rem))] overflow-y-auto p-0 sm:max-w-[460px]">
-          <SheetTitle className="sr-only">Plan details</SheetTitle>
-          <SheetDescription className="sr-only">Review plan health, exceptions, workload evidence, history, handoff, and approval-gated controls.</SheetDescription>
-          <div className="border-b border-border px-4 py-4"><p className="text-sm font-semibold text-foreground">Plan details</p><p className="mt-1 text-xs text-muted-foreground">Context and secondary actions, available when you need them.</p></div>
+          <SheetTitle className="sr-only">Day controls</SheetTitle>
+          <SheetDescription className="sr-only">Review plan context, the end-of-day handoff, and approval-gated controls.</SheetDescription>
+          <div className="border-b border-border px-4 py-4"><p className="text-sm font-semibold text-foreground">Day controls</p><p className="mt-1 text-xs text-muted-foreground">Plan context, handoff, and approval-gated actions.</p></div>
           <div className="p-4"><CommandRail
             plan={displayPlan}
             isPreview={isPreview}
@@ -530,9 +548,11 @@ function PlannerHeader({
           <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5" />{formatDate(dateKey)}</span>
             <span>{isLoading ? "Loading saved plan" : isPreview ? "Waiting for a trusted plan" : `Generated: ${formatGeneratedAt(plan.generatedAt)} EAT`}</span>
-            {!isLoading && !isPreview && confidenceVerified && <Badge className={`border-0 ${plan.planHealth.confidence >= 80 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : plan.planHealth.confidence >= 60 ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-red-500/10 text-red-700 dark:text-red-300"}`}>{plan.planHealth.confidence}% confidence</Badge>}
+            {!isLoading && !isPreview && confidenceVerified && <span className="inline-flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${plan.planHealth.confidence >= 80 ? "bg-emerald-500" : plan.planHealth.confidence >= 60 ? "bg-amber-500" : "bg-red-500"}`} />{isOffDay ? "Off-day" : plan.planHealth.confidence >= 80 ? "High" : plan.planHealth.confidence >= 60 ? "Medium" : "Low"} confidence</span>}
+            {!isLoading && !isPreview && confidenceVerified && <Badge className={`border-0 ${plan.planHealth.confidence >= 80 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : plan.planHealth.confidence >= 60 ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-red-500/10 text-red-700 dark:text-red-300"}`}>{plan.planHealth.confidence}%</Badge>}
             {!isLoading && !isPreview && !confidenceVerified && <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-amber-500" />Unverified confidence</span>}
-            {!isLoading && <span>{isOffDay ? "Protected window" : "Scheduled"}: {formatDuration(timelineMinutes)}</span>}
+            {!isLoading && <span>Focus work: {formatDuration(plan.planHealth.workloadMinutes)}</span>}
+            {!isLoading && <span>{isOffDay ? "Protected window" : "Full timeline"}: {formatDuration(timelineMinutes)}</span>}
             {isOffDay && plan.constraints.offDayReason && <span>{plan.constraints.offDayReason}</span>}
           </div>
         </div>
@@ -542,7 +562,7 @@ function PlannerHeader({
           {isGenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
           {isOffDay ? "Protected day" : isGenerating ? `Generating ${generationPercent}%` : isPreview ? "Generate Plan" : "Regenerate Plan"}
         </Button>
-        <Button variant="outline" className="h-9 border-border" onClick={onOpenControls}><PanelRightOpen className="mr-2 h-4 w-4" />Plan details</Button>
+        <Button variant="outline" className="h-9 border-border" onClick={onOpenControls}><MoreHorizontal className="mr-2 h-4 w-4" />Day controls</Button>
       </div>
     </header>
   );
@@ -576,7 +596,7 @@ function PlannerFocusPanel({
       <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_220px]">
         <div className="min-w-0">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0"><h2 className="break-words text-lg font-semibold text-foreground">{nowBlock.cardName}</h2><p className="mt-1 text-sm text-muted-foreground">{nowBlock.boardName} / {nowBlock.listName}</p></div>
+            <div className="min-w-0"><h2 className="truncate text-lg font-semibold text-foreground">{nowBlock.cardName}</h2><p className="mt-1 text-sm text-muted-foreground">{nowBlock.boardName} / {nowBlock.listName}</p></div>
             <Badge className={`border-0 ${priorityTone(nowBlock.priority)}`}>{nowBlock.priority}</Badge>
           </div>
           <div className="mt-4 border-l-2 border-primary pl-3"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Exactly next</p><p className="mt-1 text-sm font-medium text-foreground">{nowBlock.action}</p><p className="mt-1 text-xs text-muted-foreground">{nowBlock.notes}</p></div>
@@ -597,32 +617,221 @@ function PlannerFocusPanel({
   );
 }
 
-function DaySummaryStrip({ plan }: { plan: DailyPlanPayload }) {
-  const protectedMinutes = plan.blocks
-    .filter((block) => block.flags.includes("Protected"))
-    .reduce((sum, block) => sum + durationMinutes(block), 0);
-  const decisionCount = plan.robertItems.length
-    || plan.blocks.filter((block) => block.flags.includes("Robert") || block.priority.toLowerCase().includes("robert")).length;
+function PlannerMainView({
+  activeView,
+  plan,
+  focusBlockId,
+  runningCardId,
+  timerBusyBlockId,
+  onStart,
+  onStop,
+  onDone,
+  onSkip,
+}: {
+  activeView: PlanView;
+  plan: DailyPlanPayload;
+  focusBlockId?: string;
+  runningCardId: string | null;
+  timerBusyBlockId: string | null;
+  onStart: (block: DailyPlanBlock) => void;
+  onStop: (block: DailyPlanBlock) => void;
+  onDone: (block: DailyPlanBlock) => void;
+  onSkip: (block: DailyPlanBlock) => void;
+}) {
+  if (activeView === "Board View") return <BoardViewPanel plan={plan} focusBlockId={focusBlockId} runningCardId={runningCardId} timerBusyBlockId={timerBusyBlockId} onStart={onStart} onStop={onStop} onDone={onDone} />;
+  if (activeView === "Timeline (Compact)") return <CompactTimelinePanel plan={plan} runningCardId={runningCardId} />;
+  if (activeView === "Workload") return <WorkloadPanel plan={plan} />;
+  if (activeView === "Plan History") return <PlanHistoryPanel plan={plan} />;
+
   return (
-    <section className="grid grid-cols-2 divide-x divide-y divide-border overflow-hidden rounded-md border border-border bg-card sm:grid-cols-4 sm:divide-y-0">
-      <SummaryMetric label="Focus time" value={formatDuration(plan.planHealth.focusMinutes)} tone="text-emerald-600 dark:text-emerald-400" />
-      <SummaryMetric label="Protected time" value={formatDuration(protectedMinutes)} tone="text-blue-600 dark:text-blue-400" />
-      <SummaryMetric label="Decisions" value={String(decisionCount)} tone={decisionCount ? "text-violet-600 dark:text-violet-400" : "text-foreground"} />
-      <SummaryMetric label="Unscheduled" value={String(plan.unscheduledCards.length)} tone={plan.unscheduledCards.length ? "text-amber-600 dark:text-amber-400" : "text-foreground"} />
-    </section>
+    <TimelineTable
+      plan={plan}
+      focusBlockId={focusBlockId}
+      runningCardId={runningCardId}
+      timerBusyBlockId={timerBusyBlockId}
+      onStart={onStart}
+      onStop={onStop}
+      onDone={onDone}
+      onSkip={onSkip}
+    />
   );
 }
 
-function SummaryMetric({ label, value, tone }: { label: string; value: string; tone: string }) {
+function BoardViewPanel({
+  plan,
+  focusBlockId,
+  runningCardId,
+  timerBusyBlockId,
+  onStart,
+  onStop,
+  onDone,
+}: {
+  plan: DailyPlanPayload;
+  focusBlockId?: string;
+  runningCardId: string | null;
+  timerBusyBlockId: string | null;
+  onStart: (block: DailyPlanBlock) => void;
+  onStop: (block: DailyPlanBlock) => void;
+  onDone: (block: DailyPlanBlock) => void;
+}) {
+  const columns = [
+    { id: "high", title: "High Focus", blocks: plan.blocks.filter((block) => block.priority.toLowerCase().includes("high")) },
+    { id: "robert", title: "Robert Decisions", blocks: plan.blocks.filter((block) => block.priority.toLowerCase().includes("robert") || block.flags.includes("Robert")) },
+    { id: "medium", title: "Medium / Ops", blocks: plan.blocks.filter((block) => block.priority.toLowerCase().includes("medium")) },
+    { id: "protected", title: "Protected / Buffer", blocks: plan.blocks.filter((block) => block.flags.includes("Protected") || block.priority.toLowerCase().includes("low")) },
+  ];
+
   return (
-    <div className="px-4 py-3">
-      <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-sm font-semibold tabular-nums ${tone}`}>{value}</p>
+    <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-4">
+      {columns.map((column) => (
+        <Card key={column.id} className="rounded-md border-border bg-card py-0 text-foreground shadow-none">
+          <CardHeader className="border-b border-border p-4">
+            <CardTitle className="flex items-center justify-between text-sm">
+              <span>{column.title}</span>
+              <Badge variant="outline" className="rounded-md border-border bg-muted/40">{column.blocks.length}</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 p-3">
+            {column.blocks.length ? column.blocks.map((block) => (
+              <div key={block.id} className="rounded-md border border-border bg-card p-3">
+                {(() => {
+                  const running = runningCardId === block.cardId;
+                  const switching = Boolean(runningCardId && !running);
+                  const busy = timerBusyBlockId === block.id;
+                  return (
+                    <>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-foreground">{block.cardName}</div>
+                    <div className="mt-1 text-xs tabular-nums text-muted-foreground">{block.startTime} - {block.endTime}</div>
+                  </div>
+                  <Badge className={`shrink-0 border-0 ${priorityTone(block.priority)}`}>{block.priority}</Badge>
+                </div>
+                <div className="mt-3 text-xs text-muted-foreground">{block.action}</div>
+                {block.id === focusBlockId ? <Badge variant="outline" className="mt-3">Use Now controls</Badge> : <div className="mt-3 flex items-center gap-2">
+                  <Button
+                    variant={running ? "default" : "outline"}
+                    size="sm"
+                    className={`h-8 ${running ? "bg-foreground text-white hover:bg-foreground/90" : "border-border"}`}
+                    onClick={() => running ? onStop(block) : onStart(block)}
+                    disabled={!block.cardId || busy}
+                  >
+                    {running ? <StopCircle className="mr-1.5 h-3.5 w-3.5" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
+                    {running ? "Stop" : switching ? "Switch" : "Timer"}
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-8 border-border" onClick={() => onDone(block)} disabled={block.status === "done"}>
+                    <Check className="mr-1.5 h-3.5 w-3.5" />{block.stepIds.length > 0 ? "Step" : "Block"}
+                  </Button>
+                </div>}
+                    </>
+                  );
+                })()}
+              </div>
+            )) : <EmptyLine text="Nothing in this lane" />}
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
 
-function AgendaPanel({
+function CompactTimelinePanel({ plan, runningCardId }: { plan: DailyPlanPayload; runningCardId: string | null }) {
+  return (
+    <Card className="rounded-md border-border bg-card py-0 text-foreground shadow-none">
+      <CardContent className="p-0">
+        {plan.blocks.map((block) => (
+          <div key={block.id} className={`grid gap-3 border-b border-border px-4 py-3 text-sm md:grid-cols-[120px_minmax(0,1fr)_120px_90px] ${runningCardId === block.cardId ? "bg-primary/10" : "bg-card"}`}>
+            <div className="font-medium tabular-nums text-muted-foreground">{block.startTime} - {block.endTime}</div>
+            <div className="min-w-0">
+              <div className="truncate font-semibold text-foreground">{block.cardName}</div>
+              <div className="mt-1 truncate text-xs text-muted-foreground">{block.action}</div>
+            </div>
+            <Badge className={`w-fit border-0 ${priorityTone(block.priority)}`}>{block.priority}</Badge>
+            <div className="text-right text-xs tabular-nums text-muted-foreground">{formatDuration(durationMinutes(block))}</div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function WorkloadPanel({ plan }: { plan: DailyPlanPayload }) {
+  const focusBlocks = plan.blocks.filter((block) => !block.flags.includes("Protected") && block.cardId);
+  const robertMinutes = plan.blocks.filter((block) => block.priority.toLowerCase().includes("robert")).reduce((sum, block) => sum + durationMinutes(block), 0);
+  const highMinutes = plan.blocks.filter((block) => block.priority.toLowerCase().includes("high")).reduce((sum, block) => sum + durationMinutes(block), 0);
+  const protectedMinutes = plan.blocks.filter((block) => block.flags.includes("Protected")).reduce((sum, block) => sum + durationMinutes(block), 0);
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <Card className="rounded-md border-border bg-card py-0 text-foreground shadow-none">
+        <CardHeader className="border-b border-border p-4">
+          <CardTitle className="text-sm">Workload Mix</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 p-4">
+          <WorkloadBar label="High priority" value={highMinutes} total={plan.totalScheduledMinutes} tone="bg-red-500" />
+          <WorkloadBar label="Robert windows" value={robertMinutes} total={plan.totalScheduledMinutes} tone="bg-violet-500" />
+          <WorkloadBar label="Protected time" value={protectedMinutes} total={plan.totalScheduledMinutes} tone="bg-emerald-500" />
+          <WorkloadBar label="Focused cards" value={plan.planHealth.focusMinutes} total={plan.totalScheduledMinutes} tone="bg-blue-600" />
+        </CardContent>
+      </Card>
+      <Card className="rounded-md border-border bg-card py-0 text-foreground shadow-none">
+        <CardHeader className="border-b border-border p-4">
+          <CardTitle className="text-sm">Scheduled Work</CardTitle>
+        </CardHeader>
+        <CardContent className="divide-y divide-border p-0">
+          {focusBlocks.map((block) => (
+            <div key={block.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+              <div className="min-w-0">
+                <div className="truncate font-medium text-foreground">{block.cardName}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{block.boardName} - {block.listName}</div>
+              </div>
+              <div className="shrink-0 text-right">
+                <Badge className={`border-0 ${priorityTone(block.priority)}`}>{block.priority}</Badge>
+                <div className="mt-1 text-xs tabular-nums text-muted-foreground">{formatDuration(durationMinutes(block))}</div>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function WorkloadBar({ label, value, total, tone }: { label: string; value: number; total: number; tone: string }) {
+  const pct = total > 0 ? Math.min(100, Math.round((value / total) * 100)) : 0;
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium text-muted-foreground">{label}</span>
+        <span className="tabular-nums text-muted-foreground">{formatDuration(value)}</span>
+      </div>
+      <div className="mt-2 h-2 rounded-full bg-muted">
+        <div className={`h-2 rounded-full ${tone}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function PlanHistoryPanel({ plan }: { plan: DailyPlanPayload }) {
+  return (
+    <Card className="rounded-md border-border bg-card py-0 text-foreground shadow-none">
+      <CardHeader className="border-b border-border p-4">
+        <CardTitle className="text-sm">Plan History</CardTitle>
+      </CardHeader>
+      <CardContent className="divide-y divide-border p-0">
+        {plan.audit.length ? plan.audit.map((event, index) => (
+          <div key={`${event.at}-${index}`} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[150px_140px_minmax(0,1fr)]">
+            <div className="text-xs tabular-nums text-muted-foreground">{formatGeneratedAt(event.at)} EAT</div>
+            <Badge variant="outline" className="w-fit rounded-md border-border bg-muted/40">{event.action}</Badge>
+            <div className="text-muted-foreground">{event.detail}</div>
+          </div>
+        )) : <div className="p-4"><EmptyLine text="No audit events saved for this plan" /></div>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TimelineTable({
   plan,
   focusBlockId,
   runningCardId,
@@ -641,158 +850,156 @@ function AgendaPanel({
   onDone: (block: DailyPlanBlock) => void;
   onSkip: (block: DailyPlanBlock) => void;
 }) {
-  const [expandedBlockIds, setExpandedBlockIds] = useState<Set<string>>(() => new Set());
   const isOffDay = plan.constraints.dayType === "off_day" || plan.constraints.isWorkday === false;
-  const toggleBlock = (blockId: string) => {
-    setExpandedBlockIds((current) => {
-      const next = new Set(current);
-      if (next.has(blockId)) next.delete(blockId);
-      else next.add(blockId);
-      return next;
-    });
-  };
+  const gridColumns = isOffDay
+    ? "grid-cols-[64px_minmax(145px,200px)_minmax(0,1fr)_76px]"
+    : "min-w-[860px] grid-cols-[72px_220px_minmax(260px,1fr)_92px_172px_72px]";
   return (
-    <section className="overflow-hidden rounded-md border border-border bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Today's agenda</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">Open a block only when you need its context or controls.</p>
+    <Card className="overflow-hidden rounded-md border-border bg-card py-0 text-foreground shadow-none">
+      <div className={`grid ${gridColumns} border-b border-border bg-muted/40 text-xs font-semibold text-muted-foreground`}>
+        <div className="px-4 py-3">Time</div>
+        <div className="px-4 py-3">Block</div>
+        <div className="px-4 py-3">Focus & Next Action</div>
+        <div className="px-4 py-3">Priority</div>
+        {!isOffDay && <div className="px-4 py-3">Actions</div>}
+        {!isOffDay && <div className="px-4 py-3 text-right">Est.</div>}
+      </div>
+      <div className={isOffDay ? "overflow-hidden" : "overflow-x-auto"}>
+        <div className={isOffDay ? "" : "min-w-[860px]"}>
+          {plan.blocks.map((block, index) => (
+            <TimelineRow
+              key={block.id}
+              block={block}
+              isFocusBlock={block.id === focusBlockId}
+              index={index}
+              isOffDay={isOffDay}
+              running={runningCardId === block.cardId}
+              switching={Boolean(runningCardId && runningCardId !== block.cardId)}
+              busy={timerBusyBlockId === block.id}
+              onStart={onStart}
+              onStop={onStop}
+              onDone={onDone}
+              onSkip={onSkip}
+            />
+          ))}
+          <div className="grid grid-cols-[72px_1fr] border-t border-border bg-muted/40 text-xs text-muted-foreground">
+            <div className="px-4 py-3 font-medium">{plan.constraints.workEnd}</div>
+            <div className="px-4 py-3">End of Day - system handoff</div>
+          </div>
         </div>
-        <span className="text-xs tabular-nums text-muted-foreground">{plan.constraints.workStart}-{plan.constraints.workEnd} EAT</span>
       </div>
-      <div className="divide-y divide-border">
-        {plan.blocks.map((block) => (
-          <AgendaRow
-            key={block.id}
-            block={block}
-            expanded={expandedBlockIds.has(block.id)}
-            isFocusBlock={block.id === focusBlockId}
-            isOffDay={isOffDay}
-            running={runningCardId === block.cardId}
-            switching={Boolean(runningCardId && runningCardId !== block.cardId)}
-            busy={timerBusyBlockId === block.id}
-            onToggle={() => toggleBlock(block.id)}
-            onStart={onStart}
-            onStop={onStop}
-            onDone={onDone}
-            onSkip={onSkip}
-          />
-        ))}
-      </div>
-      <div className="flex flex-wrap items-center gap-2 border-t border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
         <Clock className="h-3.5 w-3.5" />
-        <span>{isOffDay ? plan.constraints.offDayReason ?? "Protected off day" : "Protected breaks and decision windows are included in the agenda."}</span>
+        <span>All times in EAT</span>
+        <span>-</span>
+        <span>{isOffDay ? plan.constraints.offDayReason ?? "Protected off day" : `Plan respects working window ${plan.constraints.workStart}-${plan.constraints.workEnd}`}</span>
+        <span>-</span>
+        <span>{isOffDay ? "No routine work scheduled" : "Breaks protected"}</span>
+        <span>-</span>
+        <span>Robert decision windows prioritized</span>
       </div>
-    </section>
+    </Card>
   );
 }
 
-function AgendaRow({
+function TimelineRow({
   block,
-  expanded,
   isFocusBlock,
+  index,
   isOffDay,
   running,
   switching,
   busy,
-  onToggle,
   onStart,
   onStop,
   onDone,
   onSkip,
 }: {
   block: DailyPlanBlock;
-  expanded: boolean;
   isFocusBlock: boolean;
+  index: number;
   isOffDay: boolean;
   running: boolean;
   switching: boolean;
   busy: boolean;
-  onToggle: () => void;
   onStart: (block: DailyPlanBlock) => void;
   onStop: (block: DailyPlanBlock) => void;
   onDone: (block: DailyPlanBlock) => void;
   onSkip: (block: DailyPlanBlock) => void;
 }) {
   const hasCard = Boolean(block.cardId);
+  const gridColumns = isOffDay
+    ? "grid-cols-[64px_minmax(145px,200px)_minmax(0,1fr)_76px]"
+    : "grid-cols-[72px_220px_minmax(260px,1fr)_92px_172px_72px]";
   return (
-    <div className={running ? "bg-primary/10" : isFocusBlock ? "bg-primary/[0.04]" : "bg-card"}>
-      <button
-        type="button"
-        className="grid w-full grid-cols-[58px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/30 md:grid-cols-[72px_minmax(0,1fr)_auto_70px_20px]"
-        aria-expanded={expanded}
-        aria-controls={`agenda-block-${block.id}`}
-        onClick={onToggle}
-      >
-        <span className="text-sm font-semibold tabular-nums text-foreground">{block.startTime}</span>
-        <span className="flex min-w-0 gap-3">
-          <span className={`h-auto min-h-10 w-1 shrink-0 rounded-full ${accentFor(block)}`} />
-          <span className="min-w-0">
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="break-words text-sm font-semibold text-foreground">{block.cardName}</span>
-              {running && <span className="text-[10px] font-semibold uppercase text-primary">Running</span>}
-              {isFocusBlock && !running && <span className="text-[10px] font-semibold uppercase text-primary">Now</span>}
-            </span>
-            <span className="mt-1 block truncate text-xs text-muted-foreground">{compactAction(block.action)}</span>
-          </span>
-        </span>
-        <Badge variant="outline" className={`hidden rounded-md border px-2 py-1 text-xs sm:inline-flex ${priorityTone(block.priority)}`}>{block.priority}</Badge>
-        <span className="hidden text-right text-xs tabular-nums text-muted-foreground md:block">{formatDuration(durationMinutes(block))}</span>
-        {expanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
-      </button>
-
-      {expanded && (
-        <div id={`agenda-block-${block.id}`} className="border-t border-border/70 bg-muted/15 px-4 py-3 md:pl-[103px]">
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-            <div className="min-w-0 space-y-2">
-              <div>
-                <p className="text-[10px] font-semibold uppercase text-muted-foreground">Next action</p>
-                <p className="mt-1 text-sm font-medium leading-relaxed text-foreground">{block.action}</p>
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span>{block.startTime}-{block.endTime} EAT</span>
-                <span>{block.boardName} / {block.listName}</span>
-                <span>Status: {block.status}</span>
-              </div>
-              {block.notes && <p className="text-xs leading-relaxed text-muted-foreground">{block.notes}</p>}
-              {block.flags.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {block.flags.map((flag) => <Badge key={flag} variant="outline" className="h-5 rounded-md border-border bg-background px-1.5 text-[10px]">{flag}</Badge>)}
-                </div>
-              )}
-            </div>
-            {!isOffDay && (
-              <div className="flex flex-wrap gap-2">
-                {isFocusBlock ? (
-                  <span className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs text-muted-foreground">Use the Now controls above</span>
-                ) : (
-                  <>
-                    <Button
-                      variant={running ? "default" : "outline"}
-                      size="sm"
-                      className={running ? "h-8 bg-foreground text-white hover:bg-foreground/90" : "h-8 border-border"}
-                      onClick={() => running ? onStop(block) : onStart(block)}
-                      disabled={!hasCard || busy}
-                    >
-                      {running ? <StopCircle className="mr-1.5 h-3.5 w-3.5" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
-                      {running ? "Stop timer" : switching ? "Switch timer" : "Start timer"}
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-8 border-border" onClick={() => onDone(block)} disabled={block.status === "done"}>
-                      <Check className="mr-1.5 h-3.5 w-3.5" />{doneLabel(block)}
-                    </Button>
-                    <Button variant="ghost" size="sm" className="h-8" onClick={() => onSkip(block)} disabled={block.status === "skipped"}>Skip</Button>
-                  </>
-                )}
-                {block.cardUrl && (
-                  <Button variant="outline" size="icon" className="h-8 w-8 border-border" asChild>
-                    <a href={block.cardUrl} target="_blank" rel="noreferrer" aria-label={`Open ${block.cardName} in Trello`}><ExternalLink className="h-3.5 w-3.5" /></a>
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
+    <div className={`grid ${gridColumns} border-b border-border text-sm ${running ? "bg-primary/10" : "bg-card"}`}>
+      <div className="relative px-4 py-4 text-xs font-medium tabular-nums text-muted-foreground">
+        <span>{block.startTime}</span>
+        <span className={`absolute right-0 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-card ${running ? "bg-primary" : index % 2 ? "bg-muted-foreground/50" : "bg-muted-foreground/70"}`} />
+      </div>
+      <div className="flex gap-3 px-4 py-4">
+        <span className={`mt-0.5 h-12 w-1 rounded-full ${accentFor(block)}`} />
+        <div className="min-w-0">
+          <div className={`truncate font-semibold ${block.priority === "Robert" ? "text-violet-700 dark:text-violet-300" : "text-foreground"}`}>{block.cardName}</div>
+          <div className="mt-1 text-xs tabular-nums text-muted-foreground">{block.startTime} - {block.endTime}</div>
         </div>
-      )}
+      </div>
+      <div className="flex min-w-0 gap-3 px-4 py-4">
+        {hasCard && <ClipboardList className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
+        <div className="min-w-0">
+          <div className="truncate font-semibold text-foreground">{compactAction(block.action)}</div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">{block.notes || `${block.boardName} - ${block.listName}`}</div>
+          {block.flags.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              {block.flags.slice(0, 3).map((flag) => <Badge key={flag} variant="outline" className="h-5 rounded-md border-border bg-muted/40 px-1.5 text-[10px]">{flag}</Badge>)}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="px-4 py-4">
+        <Badge variant="outline" className={`rounded-md border px-2 py-1 text-xs ${priorityTone(block.priority)}`}>{block.priority}</Badge>
+      </div>
+      {!isOffDay && (isFocusBlock ? <div className="px-4 py-4"><Badge variant="outline">Use Now controls</Badge></div> : <div className="flex items-start gap-2 px-4 py-3">
+        <Button
+          variant={running ? "default" : "outline"}
+          size="icon"
+          className={`h-8 w-8 rounded-full ${running ? "bg-foreground text-white hover:bg-foreground/90" : "border-border"}`}
+          onClick={() => running ? onStop(block) : onStart(block)}
+          disabled={!hasCard || busy}
+          title={running ? "Stop timer" : switching ? "Switch timer" : "Start timer"}
+          aria-label={running ? `Stop timer for ${block.cardName}` : switching ? `Switch timer to ${block.cardName}` : `Start timer for ${block.cardName}`}
+        >
+          {running ? <StopCircle className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 rounded-full border-border"
+          onClick={() => onDone(block)}
+          disabled={block.status === "done"}
+          title={doneLabel(block)}
+          aria-label={`${doneLabel(block)}: ${block.cardName}`}
+        >
+          <Check className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 rounded-full border-border"
+          onClick={() => onSkip(block)}
+          disabled={block.status === "skipped"}
+          title="Skip block"
+          aria-label={`Skip ${block.cardName}`}
+        >
+          <CheckCircle2 className="h-3.5 w-3.5" />
+        </Button>
+        {block.cardUrl && (
+          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full border-border" asChild>
+            <a href={block.cardUrl} target="_blank" rel="noreferrer" aria-label={`Open ${block.cardName} in Trello`}><ExternalLink className="h-3.5 w-3.5" /></a>
+          </Button>
+        )}
+      </div>)}
+      {!isOffDay && <div className="px-4 py-4 text-right text-sm tabular-nums text-muted-foreground">{formatDuration(durationMinutes(block))}</div>}
     </div>
   );
 }
@@ -830,86 +1037,59 @@ function CommandRail({
     { id: "close_browser_tabs", label: "Save needed references and close work tabs", done: false },
     { id: "prepare_tomorrow", label: "Prepare tomorrow's plan", done: false },
   ];
-  const focusBlocks = plan.blocks.filter((block) => block.cardId && !block.flags.includes("Protected"));
-  const highMinutes = plan.blocks
-    .filter((block) => block.priority.toLowerCase().includes("high"))
-    .reduce((sum, block) => sum + durationMinutes(block), 0);
-  const protectedMinutes = plan.blocks
-    .filter((block) => block.flags.includes("Protected"))
-    .reduce((sum, block) => sum + durationMinutes(block), 0);
 
   return (
-    <aside>
-      <Accordion type="multiple" defaultValue={["health"]} className="space-y-2">
-        <PlanDetailSection value="health" icon={<Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />} label="Plan health">
-          <div className="grid grid-cols-2 gap-x-5 gap-y-3">
-            <DetailMetric label="Confidence" value={`${plan.planHealth.confidence}%`} />
-            <DetailMetric label="Status" value={plan.planHealth.status === "blocked" ? "Blocked" : plan.planHealth.status === "warning" ? "Needs review" : "Good"} />
-            <DetailMetric label="Focus work" value={formatDuration(plan.planHealth.focusMinutes)} />
-            <DetailMetric label="Buffer" value={formatDuration(plan.planHealth.bufferMinutes)} />
-            <DetailMetric label="Overlaps" value={String(plan.planHealth.overlaps)} />
-            <DetailMetric label="Schedule gaps" value={String(plan.planHealth.gaps)} />
+    <aside className="space-y-3">
+      <div className="grid grid-cols-1 gap-3">
+        <RailCard>
+          <RailHeading icon={<AlertCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />} label="RISKS & BLOCKERS" count={risks.length} />
+          <div className="mt-3 space-y-3">
+            {risks.length ? risks.map((block) => (
+              <MiniItem key={block.id} color={block.priority === "Robert" ? "bg-violet-500" : "bg-amber-500"} title={block.cardName} subtitle={block.action} />
+            )) : <EmptyLine text="No current blockers" />}
           </div>
-          {(plan.planHealth.warnings?.length ?? 0) > 0 && (
-            <ul className="mt-3 space-y-1 border-t border-border pt-3 text-xs text-amber-700 dark:text-amber-300">
-              {plan.planHealth.warnings?.map((warning) => <li key={warning}>{warning}</li>)}
-            </ul>
-          )}
-        </PlanDetailSection>
+          <RailLink label="View all risks" />
+        </RailCard>
 
-        <PlanDetailSection
-          value="exceptions"
-          icon={<AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />}
-          label="Risks and Robert decisions"
-          count={risks.length + plan.robertItems.length}
-        >
-          <div className="space-y-3">
-            {risks.map((block) => <MiniItem key={block.id} color="bg-amber-500" title={block.cardName} subtitle={block.action} />)}
-            {plan.robertItems.map((item) => <MiniItem key={`${item.cardId}-${item.decision}`} color="bg-violet-500" title={item.cardName} subtitle={item.decision} />)}
-            {!risks.length && !plan.robertItems.length && <EmptyLine text="No current risks or Robert decisions" />}
+        <RailCard>
+          <RailHeading icon={<Target className="h-3.5 w-3.5 text-violet-700 dark:text-violet-300" />} label="ROBERT DECISIONS" count={plan.robertItems.length} />
+          <div className="mt-3 space-y-3">
+            {plan.robertItems.length ? plan.robertItems.slice(0, 4).map((item) => (
+              <MiniItem key={`${item.cardId}-${item.decision}`} color="bg-violet-500" title={item.cardName} subtitle={item.due ?? item.decision} />
+            )) : <EmptyLine text="No Robert decisions open" />}
           </div>
-        </PlanDetailSection>
+          <RailLink label="Open all" />
+        </RailCard>
+      </div>
 
-        <PlanDetailSection value="unscheduled" icon={<ClipboardList className="h-4 w-4 text-primary" />} label="Unscheduled cards" count={plan.unscheduledCards.length}>
-          <div className="space-y-3">
-            {plan.unscheduledCards.map((card) => (
-              <div key={card.cardId} className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-xs font-semibold text-foreground">{card.cardName}</p>
-                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{card.reason}</p>
-                </div>
-                <Badge className={`shrink-0 border-0 ${priorityTone(card.priority ?? "Medium")}`}>{card.priority ?? "Medium"}</Badge>
-              </div>
-            ))}
-            {!plan.unscheduledCards.length && <EmptyLine text="All candidate cards are scheduled" />}
-          </div>
-        </PlanDetailSection>
+      <RailCard>
+        <RailHeading icon={<ClipboardList className="h-3.5 w-3.5 text-primary" />} label="UNSCHEDULED CARDS" count={plan.unscheduledCards.length} />
+        <div className="mt-3 space-y-2">
+          {plan.unscheduledCards.length ? plan.unscheduledCards.slice(0, 6).map((card) => (
+            <div key={card.cardId} className="flex items-center justify-between gap-3 text-sm">
+              <span className="min-w-0 truncate font-medium text-foreground">{card.cardName}</span>
+              <Badge className={`shrink-0 border-0 ${priorityTone(card.priority ?? "Medium")}`}>{card.priority ?? "Medium"}</Badge>
+            </div>
+          )) : <EmptyLine text="All candidate cards are scheduled" />}
+        </div>
+        <RailLink label="View all unscheduled" />
+      </RailCard>
 
-        <PlanDetailSection value="workload" icon={<Target className="h-4 w-4 text-blue-600 dark:text-blue-400" />} label="Workload evidence">
-          <div className="space-y-2 text-xs leading-relaxed text-muted-foreground">
-            <p><span className="font-semibold text-foreground">{formatDuration(plan.planHealth.focusMinutes)}</span> of focused work is scheduled across {focusBlocks.length} card blocks.</p>
-            <p><span className="font-semibold text-foreground">{formatDuration(highMinutes)}</span> is allocated to high-priority work.</p>
-            <p><span className="font-semibold text-foreground">{formatDuration(protectedMinutes)}</span> is reserved as protected time.</p>
-            <p>{plan.unscheduledCards.length} candidate {plan.unscheduledCards.length === 1 ? "card remains" : "cards remain"} outside the agenda.</p>
-          </div>
-        </PlanDetailSection>
+      <RailCard>
+        <RailHeading icon={<Activity className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-300" />} label="PLAN HEALTH" />
+        <div className="mt-3 grid grid-cols-5 divide-x divide-border text-xs">
+          <HealthMetric label="Workload" value={formatDuration(plan.planHealth.workloadMinutes)} state={plan.planHealth.status === "blocked" ? "Blocked" : "On track"} />
+          <HealthMetric label="Focus Time" value={formatDuration(plan.planHealth.focusMinutes)} state="Good" />
+          <HealthMetric label="Buffer" value={formatDuration(plan.planHealth.bufferMinutes)} state={plan.planHealth.bufferMinutes >= 60 ? "Ok" : "Tight"} />
+          <HealthMetric label="Overlaps" value={String(plan.planHealth.overlaps)} state="Good" />
+          <HealthMetric label="Gaps" value={String(plan.planHealth.gaps)} state="Good" />
+        </div>
+      </RailCard>
 
-        <PlanDetailSection value="history" icon={<Clock className="h-4 w-4 text-muted-foreground" />} label="Plan history" count={plan.audit.length}>
-          <div className="space-y-3">
-            {plan.audit.length ? [...plan.audit].reverse().map((event, index) => (
-              <div key={`${event.at}-${index}`} className="border-l border-border pl-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-medium text-foreground">{event.action}</span>
-                  <span className="text-[10px] tabular-nums text-muted-foreground">{formatGeneratedAt(event.at)} EAT</span>
-                </div>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{event.detail}</p>
-              </div>
-            )) : <EmptyLine text="No audit events saved for this plan" />}
-          </div>
-        </PlanDetailSection>
-
-        <PlanDetailSection value="handoff" icon={<CheckCircle2 className="h-4 w-4 text-muted-foreground" />} label="End-of-day handoff">
-          <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-3">
+        <RailCard>
+          <RailHeading icon={<CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground" />} label="END-OF-DAY HANDOFF" />
+          <div className="mt-3 space-y-3">
             {handoffItems.map((item) => (
               <label key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Checkbox
@@ -922,12 +1102,13 @@ function CommandRail({
             ))}
           </div>
           {!handoff && <p className="mt-3 text-[11px] text-muted-foreground">Draft the handoff before recording checklist evidence.</p>}
-          {!handoff && <Button variant="outline" className="mt-3 h-8" onClick={onDraft} disabled={isPreview || busy}>Draft handoff</Button>}
+          {!handoff && <Button variant="ghost" className="mt-3 h-8 px-0 text-primary" onClick={onDraft} disabled={isPreview || busy}>Draft handoff<ChevronRight className="ml-1 h-3.5 w-3.5" /></Button>}
           {handoff && <Textarea className="mt-3 min-h-36 text-xs" value={handoff.draft} readOnly />}
-        </PlanDetailSection>
+        </RailCard>
 
-        <PlanDetailSection value="actions" icon={<ShieldCheck className="h-4 w-4 text-muted-foreground" />} label="Approval-gated actions">
-          <div className="space-y-2">
+        <RailCard>
+          <RailHeading icon={<ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />} label="APPROVAL-GATED ACTIONS" />
+          <div className="mt-3 space-y-2">
             <ActionButton
               icon={<Check className="h-4 w-4" />}
               label={isApplied ? "Plan Applied" : "Apply Plan"}
@@ -936,49 +1117,28 @@ function CommandRail({
               disabled={isPreview || isApplied || busy}
             />
             <ActionButton icon={<RefreshCw className="h-4 w-4" />} label="Replan Remaining Day" helper="Adjust with current context" onClick={onReplan} disabled={isPreview || busy} />
+            <ActionButton icon={<ExternalLink className="h-4 w-4" />} label="Draft Trello Updates" helper="Create comments & moves" onClick={onDraft} disabled={isPreview || busy} />
           </div>
-          <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-xs">
-            <span>External side effects</span>
+          <div className="mt-4 flex items-center justify-between border-t border-border pt-3 text-sm">
+            <span>Autopilot Level</span>
             <span className="inline-flex items-center gap-1 text-muted-foreground"><Lock className="h-3.5 w-3.5" />Approval gated</span>
           </div>
-        </PlanDetailSection>
-      </Accordion>
+        </RailCard>
+      </div>
     </aside>
   );
 }
 
-function PlanDetailSection({
-  value,
-  icon,
-  label,
-  count,
-  children,
-}: {
-  value: string;
-  icon: React.ReactNode;
-  label: string;
-  count?: number;
-  children: React.ReactNode;
-}) {
-  return (
-    <AccordionItem value={value} className="rounded-md border border-border bg-card px-3">
-      <AccordionTrigger className="py-3 text-sm hover:no-underline">
-        <span className="flex items-center gap-2">
-          {icon}
-          <span>{label}</span>
-          {typeof count === "number" && count > 0 && <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{count}</Badge>}
-        </span>
-      </AccordionTrigger>
-      <AccordionContent className="pb-4 pt-1">{children}</AccordionContent>
-    </AccordionItem>
-  );
+function RailCard({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <Card className={`rounded-md border-border bg-card py-0 text-foreground shadow-none ${className}`}><CardContent className="p-4">{children}</CardContent></Card>;
 }
 
-function DetailMetric({ label, value }: { label: string; value: string }) {
+function RailHeading({ icon, label, count }: { icon: React.ReactNode; label: string; count?: number }) {
   return (
-    <div>
-      <p className="text-[11px] text-muted-foreground">{label}</p>
-      <p className="mt-0.5 text-sm font-semibold tabular-nums text-foreground">{value}</p>
+    <div className="flex items-center gap-2 text-xs font-bold tracking-normal text-foreground">
+      {icon}
+      <span>{label}</span>
+      {typeof count === "number" && count > 0 && <Badge className="h-5 border-0 bg-red-500/10 px-1.5 text-[10px] text-red-700 dark:text-red-300">{count}</Badge>}
     </div>
   );
 }
@@ -997,6 +1157,20 @@ function MiniItem({ color, title, subtitle }: { color: string; title: string; su
 
 function EmptyLine({ text }: { text: string }) {
   return <p className="text-xs text-muted-foreground">{text}</p>;
+}
+
+function RailLink({ label }: { label: string }) {
+  return <button type="button" className="mt-3 flex w-full items-center justify-between text-xs font-medium text-primary">{label}<ChevronRight className="h-3.5 w-3.5" /></button>;
+}
+
+function HealthMetric({ label, value, state }: { label: string; value: string; state: string }) {
+  return (
+    <div className="px-2 first:pl-0 last:pr-0">
+      <p className="text-muted-foreground">{label}</p>
+      <p className="mt-1 font-semibold tabular-nums text-foreground">{value}</p>
+      <p className={state === "Tight" || state === "Ok" ? "text-amber-600 dark:text-amber-300" : state === "Blocked" ? "text-red-600 dark:text-red-400" : "text-emerald-700 dark:text-emerald-300"}>{state}</p>
+    </div>
+  );
 }
 
 function ActionButton({ icon, label, helper, onClick, disabled }: { icon: React.ReactNode; label: string; helper: string; onClick: () => void; disabled?: boolean }) {

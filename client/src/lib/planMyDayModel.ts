@@ -1,4 +1,5 @@
 export type BlockStatus = "planned" | "active" | "done" | "skipped";
+export type PlanView = "Day Plan" | "Board View" | "Timeline (Compact)" | "Workload" | "Plan History";
 
 export type DailyPlanBlock = {
   id: string;
@@ -61,6 +62,8 @@ export type HandoffDraft = {
   recordId: number;
   version: number;
 };
+
+export const planViews: PlanView[] = ["Day Plan", "Board View", "Timeline (Compact)", "Workload", "Plan History"];
 
 export function todayInEat(now = Date.now()) {
   return new Date(now + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
