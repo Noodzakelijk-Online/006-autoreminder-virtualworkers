@@ -1,4 +1,4 @@
-import { dayOfWeekInEat, timeKeyInEat } from "./eatTime";
+import { dayOfWeekInTimeZone, timeKeyInTimeZone } from "./workerTime";
 
 export interface BrowserTabPolicy {
   enabled: boolean;
@@ -40,8 +40,13 @@ export function normalizeBrowserTabPolicy(value?: Partial<BrowserTabPolicy> | nu
   };
 }
 
-export function isBrowserTabWarningWindow(now: Date, workEnd: string, warningMinutesBeforeEnd: number) {
-  const currentMinute = minuteOfDay(timeKeyInEat(now));
+export function isBrowserTabWarningWindow(
+  now: Date,
+  workEnd: string,
+  warningMinutesBeforeEnd: number,
+  timeZone = "Africa/Nairobi",
+) {
+  const currentMinute = minuteOfDay(timeKeyInTimeZone(now, timeZone));
   const endMinute = minuteOfDay(workEnd);
   return currentMinute >= Math.max(0, endMinute - warningMinutesBeforeEnd);
 }
@@ -53,10 +58,12 @@ export function evaluateBrowserTabHygiene(input: {
   totalTabs?: number | null;
   actionableTabs?: number | null;
   capturedAt?: Date | null;
+  timeZone?: string;
 }) {
   const policy = normalizeBrowserTabPolicy(input.policy);
-  const warningWindow = isBrowserTabWarningWindow(input.now, input.workEnd, policy.warningMinutesBeforeEnd);
-  const protectedDay = dayOfWeekInEat(input.now) === 0;
+  const timeZone = input.timeZone ?? "Africa/Nairobi";
+  const warningWindow = isBrowserTabWarningWindow(input.now, input.workEnd, policy.warningMinutesBeforeEnd, timeZone);
+  const protectedDay = dayOfWeekInTimeZone(input.now, timeZone) === 0;
   const ageMinutes = input.capturedAt
     ? Math.max(0, Math.floor((input.now.getTime() - input.capturedAt.getTime()) / 60_000))
     : null;

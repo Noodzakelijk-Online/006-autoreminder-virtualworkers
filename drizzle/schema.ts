@@ -2032,6 +2032,7 @@ export const aptlssAssessmentFeedback = mysqlTable("aptlss_assessment_feedback",
 
 export const aptlssWaitingReasons = mysqlTable("aptlss_waiting_reasons", {
   id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
   cardId: varchar("cardId", { length: 64 }).notNull(),
   cardName: varchar("cardName", { length: 512 }).notNull().default(""),
   cardUrl: varchar("cardUrl", { length: 1024 }).notNull().default(""),
@@ -2058,12 +2059,14 @@ export const aptlssWaitingReasons = mysqlTable("aptlss_waiting_reasons", {
   resolvedAt: timestamp("resolvedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [
+  index("aptlss_waiting_reasons_va_status_idx").on(table.vaId, table.status, table.createdAt),
   index("aptlss_waiting_reasons_card_status_idx").on(table.cardId, table.status, table.createdAt),
   index("aptlss_waiting_reasons_follow_up_idx").on(table.status, table.followUpAt),
 ]);
 
 export const decisionOutcomes = mysqlTable("decision_outcomes", {
   id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
   stepId: int("stepId").notNull().unique(),
   cardId: varchar("cardId", { length: 64 }).notNull(),
   cardName: varchar("cardName", { length: 512 }).notNull().default(""),
@@ -2076,7 +2079,9 @@ export const decisionOutcomes = mysqlTable("decision_outcomes", {
   resolvedBy: varchar("resolvedBy", { length: 64 }).notNull(),
   resolvedAt: timestamp("resolvedAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (table) => [
+  index("decision_outcomes_va_resolved_idx").on(table.vaId, table.resolvedAt),
+]);
 
 export const workspaceEvidenceItems = mysqlTable("workspace_evidence_items", {
   id: int("id").autoincrement().primaryKey(),
@@ -2302,8 +2307,9 @@ export const scheduledJobLeases = mysqlTable("scheduled_job_leases", {
 
 export const browserTabStates = mysqlTable("browser_tab_states", {
   id: int("id").autoincrement().primaryKey(),
+  vaId: int("vaId").notNull(),
   collectorId: varchar("collectorId", { length: 128 }).notNull().unique(),
-  collectorLabel: varchar("collectorLabel", { length: 128 }).notNull().default("Joyce Chrome"),
+  collectorLabel: varchar("collectorLabel", { length: 128 }).notNull().default("Worker browser"),
   totalTabs: int("totalTabs").notNull().default(0),
   pinnedTabs: int("pinnedTabs").notNull().default(0),
   windowCount: int("windowCount").notNull().default(0),
@@ -2312,12 +2318,14 @@ export const browserTabStates = mysqlTable("browser_tab_states", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
+  index("browser_tab_states_va_captured_idx").on(table.vaId, table.capturedAt),
   index("browser_tab_states_captured_idx").on(table.capturedAt),
 ]);
 
 export const browserTabDailyEvidence = mysqlTable("browser_tab_daily_evidence", {
   id: int("id").autoincrement().primaryKey(),
-  snapshotDate: date("snapshotDate").notNull().unique(),
+  vaId: int("vaId").notNull(),
+  snapshotDate: date("snapshotDate").notNull(),
   status: varchar("status", { length: 32 }).notNull(),
   totalTabs: int("totalTabs").notNull().default(0),
   actionableTabs: int("actionableTabs").notNull().default(0),
@@ -2330,6 +2338,7 @@ export const browserTabDailyEvidence = mysqlTable("browser_tab_daily_evidence", 
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => [
+  uniqueIndex("browser_tab_daily_va_date_idx").on(table.vaId, table.snapshotDate),
   index("browser_tab_daily_status_date_idx").on(table.status, table.snapshotDate),
 ]);
 

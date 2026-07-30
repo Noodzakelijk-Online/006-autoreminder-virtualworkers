@@ -10,6 +10,10 @@ describe("operator migration contract", () => {
     new URL("../drizzle/0030_restore_schema_parity.sql", import.meta.url),
     "utf8",
   );
+  const workerScopeMigration = readFileSync(
+    new URL("../drizzle/0031_worker_operator_scope.sql", import.meta.url),
+    "utf8",
+  );
   const journal = JSON.parse(
     readFileSync(new URL("../drizzle/meta/_journal.json", import.meta.url), "utf8"),
   ) as { entries: Array<{ idx: number; tag: string }> };
@@ -17,20 +21,34 @@ describe("operator migration contract", () => {
   it("is appended after the developer migration lineage", () => {
     const entries = journal.entries.slice(-4);
     expect(entries.map((entry) => entry.tag)).toEqual([
-      "0027_glorious_epoch",
       "0028_add_task_assignment_schedule",
       "0029_operator_evidence_foundation",
       "0030_restore_schema_parity",
+      "0031_worker_operator_scope",
     ]);
-    expect(entries.map((entry) => entry.idx)).toEqual([27, 28, 29, 30]);
+    expect(entries.map((entry) => entry.idx)).toEqual([28, 29, 30, 31]);
   });
 
   it("does not drop or rename developer data", () => {
-    for (const sql of [migration, parityMigration]) {
+    for (const sql of [migration, parityMigration, workerScopeMigration]) {
       expect(sql).not.toMatch(/\bDROP\s+(?:TABLE|COLUMN)\b/i);
       expect(sql).not.toMatch(/\bRENAME\s+TABLE\b/i);
       expect(sql).not.toMatch(/\bTRUNCATE\b/i);
     }
+  });
+
+  it("backfills operator records before enforcing worker scope", () => {
+    for (const table of [
+      "aptlss_waiting_reasons",
+      "decision_outcomes",
+      "browser_tab_states",
+      "browser_tab_daily_evidence",
+    ]) {
+      expect(workerScopeMigration).toContain(`ALTER TABLE \`${table}\``);
+      expect(workerScopeMigration).toMatch(new RegExp(`UPDATE \\\`${table}\\\`|UPDATE \\\`${table}\\\` AS`));
+    }
+    expect(workerScopeMigration).toContain("browser_tab_daily_va_date_idx");
+    expect(workerScopeMigration).toContain("browserTabCollectorToken");
   });
 
   it("creates the required operator evidence domains", () => {

@@ -1,9 +1,11 @@
 import { randomBytes, timingSafeEqual } from "crypto";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import {
   browserTabDailyEvidence,
   browserTabStates,
   appSettings,
+  users,
+  vaProfiles,
 } from "../drizzle/schema";
 import {
   DEFAULT_BROWSER_TAB_POLICY,
@@ -11,8 +13,9 @@ import {
   normalizeBrowserTabPolicy,
   type BrowserTabPolicy,
 } from "../shared/browserTabPolicy";
-import { dateKeyInEat } from "../shared/eatTime";
+import { dateKeyInTimeZone } from "../shared/workerTime";
 import { getDb } from "./db";
+import { resolveWorkerOperatorContextById } from "./workerOperatorContext";
 
 const POLICY_KEY = "browserTabPolicy";
 const COLLECTOR_TOKEN_KEY = "browserTabCollectorToken";
@@ -33,6 +36,10 @@ export interface BrowserTabInventoryInput {
   tabs: BrowserTabInventoryItem[];
 }
 
+function scopedSettingKey(key: string, vaId: number) {
+  return `${key}:${vaId}`;
+}
+
 async function readSetting(key: string): Promise<string | null> {
   const db = await getDb();
   if (!db) return null;
@@ -40,33 +47,37 @@ async function readSetting(key: string): Promise<string | null> {
   return rows[0]?.value ?? null;
 }
 
-async function writeSetting(key: string, value: string) {
+async function writeSetting(key: string, value: string, vaId: number | null = null) {
   const db = await getDb();
   if (!db) throw new Error("Database is required to persist browser-tab settings");
-  await db.insert(appSettings).values({ key, value }).onDuplicateKeyUpdate({ set: { value } });
+  await db.insert(appSettings).values({ vaId, key, value }).onDuplicateKeyUpdate({ set: { value, vaId } });
 }
 
-async function getWorkEndTime() {
+async function readWorkerSetting(key: string, vaId: number) {
+  return readSetting(scopedSettingKey(key, vaId));
+}
+
+async function getWorkEndTime(vaId: number) {
   const db = await getDb();
-  if (!db) return "23:00";
+  if (!db) return "18:00";
   const rows = await db
     .select({ value: appSettings.value })
     .from(appSettings)
-    .where(eq(appSettings.key, "daily_schedule"))
+    .where(and(eq(appSettings.vaId, vaId), eq(appSettings.key, "daily_schedule")))
     .orderBy(desc(appSettings.updatedAt))
     .limit(1);
   try {
     const parsed = JSON.parse(rows[0]?.value ?? "{}") as { endTime?: unknown };
     return typeof parsed.endTime === "string" && /^\d{2}:\d{2}$/.test(parsed.endTime)
       ? parsed.endTime
-      : "23:00";
+      : (await resolveWorkerOperatorContextById(vaId)).workEndTime;
   } catch {
-    return "23:00";
+    return (await resolveWorkerOperatorContextById(vaId)).workEndTime;
   }
 }
 
-export async function getBrowserTabPolicy(): Promise<BrowserTabPolicy> {
-  const raw = await readSetting(POLICY_KEY);
+export async function getBrowserTabPolicy(vaId: number): Promise<BrowserTabPolicy> {
+  const raw = await readWorkerSetting(POLICY_KEY, vaId);
   if (!raw) return DEFAULT_BROWSER_TAB_POLICY;
   try {
     return normalizeBrowserTabPolicy(JSON.parse(raw) as Partial<BrowserTabPolicy>);
@@ -75,30 +86,63 @@ export async function getBrowserTabPolicy(): Promise<BrowserTabPolicy> {
   }
 }
 
-export async function setBrowserTabPolicy(input: Partial<BrowserTabPolicy>) {
+export async function setBrowserTabPolicy(vaId: number, input: Partial<BrowserTabPolicy>) {
   const policy = normalizeBrowserTabPolicy(input);
-  await writeSetting(POLICY_KEY, JSON.stringify(policy));
+  await writeSetting(scopedSettingKey(POLICY_KEY, vaId), JSON.stringify(policy), vaId);
   return policy;
 }
 
-export async function ensureBrowserTabCollectorToken() {
-  const existing = await readSetting(COLLECTOR_TOKEN_KEY);
+export async function ensureBrowserTabCollectorToken(vaId: number) {
+  const existing = await readWorkerSetting(COLLECTOR_TOKEN_KEY, vaId);
   if (existing?.trim()) return existing.trim();
   const token = randomBytes(32).toString("base64url");
-  await writeSetting(COLLECTOR_TOKEN_KEY, token);
+  await writeSetting(scopedSettingKey(COLLECTOR_TOKEN_KEY, vaId), token, vaId);
   return token;
 }
 
-export async function hasBrowserTabCollectorToken() {
-  return Boolean((await readSetting(COLLECTOR_TOKEN_KEY))?.trim());
+export async function hasBrowserTabCollectorToken(vaId: number) {
+  return Boolean((await readWorkerSetting(COLLECTOR_TOKEN_KEY, vaId))?.trim());
 }
 
-export async function verifyBrowserTabCollectorToken(candidate: string | null | undefined) {
-  const expected = await readSetting(COLLECTOR_TOKEN_KEY);
+function tokenMatches(expected: string | null | undefined, candidate: string | null | undefined) {
   if (!expected || !candidate) return false;
   const expectedBuffer = Buffer.from(expected);
   const candidateBuffer = Buffer.from(candidate);
   return expectedBuffer.length === candidateBuffer.length && timingSafeEqual(expectedBuffer, candidateBuffer);
+}
+
+async function legacyCollectorOwnerId() {
+  const db = await getDb();
+  if (!db) return null;
+  const [profile] = await db.select({ userId: vaProfiles.userId }).from(vaProfiles)
+    .where(eq(vaProfiles.status, "active"))
+    .orderBy(vaProfiles.id)
+    .limit(1)
+    .catch((error: unknown) => {
+      if (typeof error === "object" && error !== null && "code" in error
+        && (error as { code?: string }).code === "ER_NO_SUCH_TABLE") return [];
+      throw error;
+    });
+  if (profile) return profile.userId;
+  const [worker] = await db.select({ id: users.id }).from(users)
+    .where(eq(users.role, "worker"))
+    .orderBy(users.id)
+    .limit(1);
+  return worker?.id ?? null;
+}
+
+export async function resolveBrowserTabCollectorWorker(candidate: string | null | undefined) {
+  if (!candidate) return null;
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ vaId: appSettings.vaId, value: appSettings.value })
+    .from(appSettings)
+    .where(like(appSettings.key, `${COLLECTOR_TOKEN_KEY}:%`));
+  for (const row of rows) {
+    if (row.vaId && tokenMatches(row.value, candidate)) return row.vaId;
+  }
+  const legacy = await readSetting(COLLECTOR_TOKEN_KEY);
+  return tokenMatches(legacy, candidate) ? legacyCollectorOwnerId() : null;
 }
 
 function sanitizeUrl(raw: string) {
@@ -128,15 +172,17 @@ function actionableTabs(tabs: BrowserTabInventoryItem[], policy: BrowserTabPolic
   return tabs.filter((tab) => policy.includePinnedTabs || !tab.pinned);
 }
 
-export async function ingestBrowserTabInventory(input: BrowserTabInventoryInput, now = new Date()) {
+export async function ingestBrowserTabInventory(vaId: number, input: BrowserTabInventoryInput, now = new Date()) {
   const db = await getDb();
   if (!db) throw new Error("Database is required to ingest browser-tab state");
   const tabs = input.tabs.slice(0, MAX_STORED_TABS).map(sanitizeTab);
   const collectorId = input.collectorId.trim().slice(0, 128);
-  const collectorLabel = input.collectorLabel?.trim().slice(0, 128) || "Joyce Chrome";
+  const worker = await resolveWorkerOperatorContextById(vaId);
+  const collectorLabel = input.collectorLabel?.trim().slice(0, 128) || `${worker.displayName} browser`;
   if (!collectorId) throw new Error("collectorId is required");
 
   const values = {
+    vaId,
     collectorId,
     collectorLabel,
     totalTabs: tabs.length,
@@ -147,8 +193,8 @@ export async function ingestBrowserTabInventory(input: BrowserTabInventoryInput,
   };
   await db.insert(browserTabStates).values(values).onDuplicateKeyUpdate({ set: values });
 
-  const status = await getBrowserTabStatus(now);
-  if (status.warningWindow) await recordBrowserTabEodEvidence(now, "collector");
+  const status = await getBrowserTabStatus(vaId, now);
+  if (status.warningWindow) await recordBrowserTabEodEvidence(vaId, now, "collector");
   return status;
 }
 
@@ -161,20 +207,24 @@ function parseTabs(raw: string): BrowserTabInventoryItem[] {
   }
 }
 
-export async function getLatestBrowserTabState() {
+export async function getLatestBrowserTabState(vaId: number) {
   const db = await getDb();
   if (!db) return null;
-  const rows = await db.select().from(browserTabStates).orderBy(desc(browserTabStates.capturedAt)).limit(1);
+  const rows = await db.select().from(browserTabStates)
+    .where(eq(browserTabStates.vaId, vaId))
+    .orderBy(desc(browserTabStates.capturedAt))
+    .limit(1);
   const row = rows[0];
   return row ? { ...row, tabs: parseTabs(row.tabsJson) } : null;
 }
 
-export async function getBrowserTabStatus(now = new Date()) {
+export async function getBrowserTabStatus(vaId: number, now = new Date()) {
+  const worker = await resolveWorkerOperatorContextById(vaId);
   const [policy, workEnd, latest, collectorConfigured] = await Promise.all([
-    getBrowserTabPolicy(),
-    getWorkEndTime(),
-    getLatestBrowserTabState(),
-    hasBrowserTabCollectorToken(),
+    getBrowserTabPolicy(vaId),
+    getWorkEndTime(vaId),
+    getLatestBrowserTabState(vaId),
+    hasBrowserTabCollectorToken(vaId),
   ]);
   const tabs = latest?.tabs ?? [];
   const actionable = actionableTabs(tabs, policy);
@@ -185,6 +235,7 @@ export async function getBrowserTabStatus(now = new Date()) {
     totalTabs: latest?.totalTabs ?? 0,
     actionableTabs: actionable.length,
     capturedAt: latest?.capturedAt ?? null,
+    timeZone: worker.timezone,
   });
   return {
     ...evaluation,
@@ -201,12 +252,14 @@ export async function getBrowserTabStatus(now = new Date()) {
   };
 }
 
-export async function recordBrowserTabEodEvidence(now = new Date(), source = "auto") {
+export async function recordBrowserTabEodEvidence(vaId: number, now = new Date(), source = "auto") {
   const db = await getDb();
   if (!db) throw new Error("Database is required to record browser-tab evidence");
-  const status = await getBrowserTabStatus(now);
-  const snapshotDate = dateKeyInEat(now);
+  const worker = await resolveWorkerOperatorContextById(vaId);
+  const status = await getBrowserTabStatus(vaId, now);
+  const snapshotDate = dateKeyInTimeZone(now, worker.timezone);
   const values = {
+    vaId,
     snapshotDate: snapshotDate as unknown as Date,
     status: status.status,
     totalTabs: status.totalTabs,
@@ -231,17 +284,23 @@ export async function recordBrowserTabEodEvidence(now = new Date(), source = "au
   return { ...status, snapshotDate };
 }
 
-export async function getBrowserTabEvidenceHistory(limit = 30) {
+export async function getBrowserTabEvidenceHistory(vaId: number, limit = 30) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(browserTabDailyEvidence).orderBy(desc(browserTabDailyEvidence.snapshotDate)).limit(Math.min(366, Math.max(1, limit)));
+  return db.select().from(browserTabDailyEvidence)
+    .where(eq(browserTabDailyEvidence.vaId, vaId))
+    .orderBy(desc(browserTabDailyEvidence.snapshotDate))
+    .limit(Math.min(366, Math.max(1, limit)));
 }
 
-export async function getBrowserTabEvidenceByDate(dateKey: string) {
+export async function getBrowserTabEvidenceByDate(vaId: number, dateKey: string) {
   const db = await getDb();
   if (!db) return null;
   const rows = await db.select().from(browserTabDailyEvidence)
-    .where(eq(browserTabDailyEvidence.snapshotDate, dateKey as unknown as Date))
+    .where(and(
+      eq(browserTabDailyEvidence.vaId, vaId),
+      eq(browserTabDailyEvidence.snapshotDate, dateKey as unknown as Date),
+    ))
     .limit(1);
   const row = rows[0];
   if (!row) return null;

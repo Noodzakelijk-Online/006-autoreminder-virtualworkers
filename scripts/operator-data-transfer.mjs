@@ -30,7 +30,7 @@ const TABLES = [
   { name: "scheduled_job_runs", keys: ["id"] },
   { name: "scheduled_job_leases", keys: ["jobKey"] },
   { name: "browser_tab_states", keys: ["collectorId"] },
-  { name: "browser_tab_daily_evidence", keys: ["snapshotDate"] },
+  { name: "browser_tab_daily_evidence", keys: ["vaId", "snapshotDate"] },
 ];
 
 function option(name, fallback) {

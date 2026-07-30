@@ -9,7 +9,6 @@ import {
   priorityScores,
 } from "../drizzle/schema";
 import { getActiveWaitingReason, getActiveWaitingReasons, getWaitingReasonHistory, recordAptlssWaitingReason, resolveAptlssWaitingReason } from "./aptlssWaitingReasonDb";
-import { interpretWaitingReason } from "./aptlssWaitingReason";
 import { selectWorkQueueNextAction } from "./aptlssWorkQueue";
 import {
   ensureBrowserTabCollectorToken,
@@ -22,10 +21,12 @@ import { getDb } from "./db";
 import { DecisionOutcomeError, getDecisionHistory, recordDecisionOutcome } from "./decisionOutcomesDb";
 import { generateOperatorDailyPlan, getOperatorDailyPlan, updateOperatorDailyPlan, type OperatorDailyPlanPayload } from "./operatorDailyPlan";
 import { protectedProcedure, router } from "./_core/trpc";
+import { resolveWorkerOperatorContext } from "./workerOperatorContext";
+import { interpretWaitingReasonForWorker } from "./workerWaitingReason";
 
 const operatorProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-  if (ctx.user.role !== "worker" && ctx.user.role !== "admin") {
-    throw new TRPCError({ code: "FORBIDDEN", message: "Operator access requires a worker or admin role" });
+  if (ctx.user.role !== "worker") {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Operator access requires a worker role" });
   }
   return next({ ctx });
 });
@@ -103,6 +104,8 @@ const dailyPlanPayloadSchema = z.object({
 });
 
 export const operatorRouter = router({
+  getContext: operatorProcedure.query(async ({ ctx }) => resolveWorkerOperatorContext(ctx.user)),
+
   getWorkQueueContext: operatorProcedure.query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Database unavailable" });
@@ -112,7 +115,7 @@ export const operatorRouter = router({
       db.select().from(cardStates).where(eq(cardStates.vaId, vaId)),
       db.select().from(priorityScores).where(eq(priorityScores.vaId, vaId)),
       db.select().from(aptlssSteps).where(eq(aptlssSteps.vaId, vaId)),
-      getActiveWaitingReasons(),
+      getActiveWaitingReasons(vaId),
     ]);
     const cardIds = plans.map((plan) => plan.cardId);
     const assessments = cardIds.length
@@ -188,7 +191,14 @@ export const operatorRouter = router({
       listName: z.string().optional(),
       due: z.string().nullable().optional(),
     }))
-    .mutation(({ input }) => interpretWaitingReason(input.reason, input)),
+    .mutation(async ({ input, ctx }) => {
+      const worker = await resolveWorkerOperatorContext(ctx.user);
+      return interpretWaitingReasonForWorker(input.reason, input, {
+        workerName: worker.displayName,
+        founderName: worker.founderName,
+        timeZone: worker.timezone,
+      });
+    }),
 
   recordWaitingReason: workerMutation
     .input(z.object({
@@ -201,30 +211,40 @@ export const operatorRouter = router({
       due: z.string().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const interpretation = interpretWaitingReason(input.reason, input);
+      const worker = await resolveWorkerOperatorContext(ctx.user);
+      const interpretation = interpretWaitingReasonForWorker(input.reason, input, {
+        workerName: worker.displayName,
+        founderName: worker.founderName,
+        timeZone: worker.timezone,
+      });
       return recordAptlssWaitingReason({
         ...input,
+        vaId: worker.userId,
         interpretation,
         recordedBy: String(ctx.user.openId),
       });
     }),
 
-  getWaitingReasons: operatorProcedure.query(() => getActiveWaitingReasons()),
+  getWaitingReasons: operatorProcedure.query(({ ctx }) => getActiveWaitingReasons(ctx.user.id)),
   getWaitingReason: operatorProcedure
     .input(z.object({ cardId: z.string() }))
-    .query(({ input }) => getActiveWaitingReason(input.cardId)),
+    .query(({ input, ctx }) => getActiveWaitingReason(ctx.user.id, input.cardId)),
   getWaitingReasonHistory: operatorProcedure
     .input(z.object({ cardId: z.string(), limit: z.number().int().min(1).max(100).default(20) }))
-    .query(({ input }) => getWaitingReasonHistory(input.cardId, input.limit)),
+    .query(({ input, ctx }) => getWaitingReasonHistory(ctx.user.id, input.cardId, input.limit)),
   resolveWaitingReason: workerMutation
     .input(z.object({ cardId: z.string() }))
-    .mutation(({ input }) => resolveAptlssWaitingReason(input.cardId)),
+    .mutation(({ input, ctx }) => resolveAptlssWaitingReason(ctx.user.id, input.cardId)),
 
   recordDecisionOutcome: workerMutation
     .input(z.object({ stepId: z.number().int().positive(), outcome: z.string().trim().min(3).max(5_000) }))
     .mutation(async ({ input, ctx }) => {
       try {
-        return await recordDecisionOutcome({ ...input, resolvedBy: String(ctx.user.openId) });
+        return await recordDecisionOutcome({
+          ...input,
+          vaId: ctx.user.id,
+          resolvedBy: String(ctx.user.openId),
+        });
       } catch (error) {
         if (error instanceof DecisionOutcomeError) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -234,23 +254,29 @@ export const operatorRouter = router({
     }),
   getDecisionHistory: operatorProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }).optional())
-    .query(({ input }) => getDecisionHistory(input?.limit ?? 30)),
+    .query(({ input, ctx }) => getDecisionHistory(ctx.user.id, input?.limit ?? 30)),
 
   getDailyPlan: operatorProcedure
     .input(z.object({ dateKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).optional())
-    .query(({ input, ctx }) => getOperatorDailyPlan(Number(ctx.user.id), input?.dateKey)),
+    .query(async ({ input, ctx }) => {
+      const worker = await resolveWorkerOperatorContext(ctx.user);
+      return getOperatorDailyPlan(worker.userId, input?.dateKey, worker);
+    }),
   generateDailyPlan: workerMutation
     .input(z.object({
       dateKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
       force: z.boolean().default(false),
     }).optional())
-    .mutation(({ input, ctx }) => generateOperatorDailyPlan(Number(ctx.user.id), input?.dateKey, input?.force ?? false)),
+    .mutation(async ({ input, ctx }) => {
+      const worker = await resolveWorkerOperatorContext(ctx.user);
+      return generateOperatorDailyPlan(worker.userId, input?.dateKey, input?.force ?? false, worker);
+    }),
   updateDailyPlan: workerMutation
     .input(dailyPlanPayloadSchema)
     .mutation(({ input, ctx }) => updateOperatorDailyPlan(Number(ctx.user.id), input as OperatorDailyPlanPayload)),
 
-  getBrowserTabStatus: operatorProcedure.query(() => getBrowserTabStatus()),
-  getBrowserTabPolicy: operatorProcedure.query(() => getBrowserTabPolicy()),
+  getBrowserTabStatus: operatorProcedure.query(({ ctx }) => getBrowserTabStatus(ctx.user.id)),
+  getBrowserTabPolicy: operatorProcedure.query(({ ctx }) => getBrowserTabPolicy(ctx.user.id)),
   setBrowserTabPolicy: workerMutation
     .input(z.object({
       enabled: z.boolean().optional(),
@@ -259,11 +285,11 @@ export const operatorRouter = router({
       staleAfterMinutes: z.number().int().min(2).max(120).optional(),
       includePinnedTabs: z.boolean().optional(),
     }))
-    .mutation(({ input }) => setBrowserTabPolicy(input)),
-  getBrowserCollectorToken: workerMutation.mutation(async () => ({
-    token: await ensureBrowserTabCollectorToken(),
+    .mutation(({ input, ctx }) => setBrowserTabPolicy(ctx.user.id, input)),
+  getBrowserCollectorToken: workerMutation.mutation(async ({ ctx }) => ({
+    token: await ensureBrowserTabCollectorToken(ctx.user.id),
   })),
   getBrowserTabEvidenceHistory: operatorProcedure
     .input(z.object({ limit: z.number().int().min(1).max(366).default(30) }).optional())
-    .query(({ input }) => getBrowserTabEvidenceHistory(input?.limit ?? 30)),
+    .query(({ input, ctx }) => getBrowserTabEvidenceHistory(ctx.user.id, input?.limit ?? 30)),
 });

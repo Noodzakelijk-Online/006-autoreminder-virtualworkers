@@ -42,7 +42,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getWorkLaneRank } from "@shared/workLanePriority";
-import { dateKeyInEat } from "@shared/eatTime";
+import { formatWorkerDate } from "@shared/workerTime";
 import { toast } from "sonner";
 
 type OperatorCard = {
@@ -95,20 +95,29 @@ function priorityTone(tier: string) {
   return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
 }
 
-export default function JoyceWorkControl({ view = "today" }: { view?: "today" | "plan" | "decisions" | "evidence" }) {
+function initials(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)?.[0]}` : parts[0]?.slice(0, 2) || "W").toUpperCase();
+}
+
+export default function WorkerOperator({ view = "today" }: { view?: "today" | "plan" | "decisions" | "evidence" }) {
   const [, navigate] = useLocation();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const context = trpc.operator.getContext.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const workerName = context.data?.displayName || user?.name || "Worker";
+  const founderName = context.data?.founderName || "Founder";
+  const timeZone = context.data?.timezone || "UTC";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <aside className={`fixed inset-y-0 left-0 z-50 flex border-r bg-background transition-[width,transform] duration-200 ${collapsed ? "w-16" : "w-60"} ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}>
         <div className="flex w-full flex-col">
           <div className="flex h-16 items-center gap-3 border-b px-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-blue-600 font-semibold text-white">J</div>
-            {!collapsed && <div className="min-w-0"><div className="font-semibold">Joyce</div><div className="truncate text-xs text-muted-foreground">Work control room</div></div>}
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-blue-600 font-semibold text-white">{initials(workerName)}</div>
+            {!collapsed && <div className="min-w-0"><div className="truncate font-semibold">{workerName}</div><div className="truncate text-xs text-muted-foreground">Worker operator</div></div>}
           </div>
           <nav className="flex-1 space-y-1 p-2">
             {NAVIGATION.map((item) => {
@@ -151,14 +160,14 @@ export default function JoyceWorkControl({ view = "today" }: { view?: "today" | 
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b bg-background/95 px-4 backdrop-blur md:px-6">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileOpen(true)} aria-label="Open navigation"><Menu className="size-4" /></Button>
-            <div><div className="text-sm font-semibold">Joyce Work Control</div><div className="text-xs text-muted-foreground">{user?.name ?? "Worker"} · {new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "2-digit", month: "short", timeZone: "Africa/Nairobi" }).format(new Date())}</div></div>
+            <div><div className="text-sm font-semibold">Worker Operator</div><div className="text-xs text-muted-foreground">{workerName} · {formatWorkerDate(new Date(), timeZone)}</div></div>
           </div>
           <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle theme">{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</Button>
         </header>
         <main className="mx-auto w-full max-w-[1280px] p-4 md:p-6">
           {view === "today" && <TodayView onOpenPlan={() => navigate("/worker/plan")} onOpenDecisions={() => navigate("/worker/decisions")} />}
-          {view === "plan" && <PlanView />}
-          {view === "decisions" && <DecisionsView />}
+          {view === "plan" && <PlanView founderName={founderName} timeZone={timeZone} />}
+          {view === "decisions" && <DecisionsView founderName={founderName} />}
           {view === "evidence" && <EvidenceView />}
         </main>
       </div>
@@ -336,7 +345,7 @@ function CardInspector({ card, onClose, onStart }: { card: OperatorCard | null; 
   );
 }
 
-function PlanView() {
+function PlanView({ founderName, timeZone }: { founderName: string; timeZone: string }) {
   const utils = trpc.useUtils();
   const query = trpc.operator.getDailyPlan.useQuery(undefined, { staleTime: 60_000 });
   const mutation = trpc.operator.generateDailyPlan.useMutation({
@@ -359,7 +368,7 @@ function PlanView() {
       {query.isLoading ? <QueueSkeleton /> : !plan ? <Alert><Inbox className="size-4" /><AlertTitle>No saved plan</AlertTitle><AlertDescription>Generate from the current APTLSS plans, states, priorities, and configured schedule.</AlertDescription></Alert> : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
           <Card className="gap-0 rounded-lg py-0">
-            <CardHeader className="border-b py-4"><CardTitle className="text-sm">Today’s agenda</CardTitle><CardDescription>{plan.constraints.startTime}–{plan.constraints.endTime} EAT · configured breaks protected</CardDescription></CardHeader>
+            <CardHeader className="border-b py-4"><CardTitle className="text-sm">Today’s agenda</CardTitle><CardDescription>{plan.constraints.startTime}–{plan.constraints.endTime} · {timeZone} · configured breaks protected</CardDescription></CardHeader>
             <CardContent className="p-0">
               {plan.blocks.length ? plan.blocks.map((block) => (
                 <div key={block.id} className="grid gap-3 border-b p-4 last:border-b-0 sm:grid-cols-[72px_minmax(0,1fr)_auto]">
@@ -373,7 +382,7 @@ function PlanView() {
           <div className="space-y-3">
             <ContextMetric icon={Gauge} label="Confidence" value={`${plan.planHealth.confidence}%`} detail="Evidence-backed, capped below certainty" />
             <ContextMetric icon={Clock3} label="Scheduled" value={`${Math.round(plan.planHealth.scheduledMinutes / 60 * 10) / 10}h`} detail={`${plan.planHealth.gaps} min remains available`} />
-            <ContextMetric icon={BrainCircuit} label="Robert items" value={`${plan.robertItems.length}`} detail="Visible even when unscheduled" />
+            <ContextMetric icon={BrainCircuit} label={`${founderName} items`} value={`${plan.robertItems.length}`} detail="Visible even when unscheduled" />
             <ContextMetric icon={ListTodo} label="Unscheduled" value={`${plan.unscheduledCards.length}`} detail="Retained for replanning" />
           </div>
         </div>
@@ -382,7 +391,7 @@ function PlanView() {
   );
 }
 
-function DecisionsView() {
+function DecisionsView({ founderName }: { founderName: string }) {
   const utils = trpc.useUtils();
   const queue = trpc.aptlss.getDecisionQueue.useQuery(undefined, { staleTime: 30_000 });
   const history = trpc.operator.getDecisionHistory.useQuery({ limit: 20 }, { staleTime: 30_000 });
@@ -413,7 +422,7 @@ function DecisionsView() {
                   <span className="min-w-0"><span className="block truncate text-sm font-medium">{item.cardName}</span><span className="block truncate text-xs text-muted-foreground">{item.stepTitle}</span></span>
                   <Badge variant="outline" className={priorityTone(item.tier)}>{item.tier}</Badge>
                 </button>
-              )) : <EmptyState title="Decision inbox is clear" detail="New Robert-required APTLSS steps will appear here." />}
+              )) : <EmptyState title="Decision inbox is clear" detail={`New ${founderName}-required APTLSS steps will appear here.`} />}
             </CardContent>
           </Card>
           <RecentOutcomes rows={history.data ?? []} />

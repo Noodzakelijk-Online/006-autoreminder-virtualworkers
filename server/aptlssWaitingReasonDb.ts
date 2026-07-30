@@ -31,6 +31,7 @@ export function toAptlssWaitingSignal(row: HydratedWaitingReason): AptlssWaiting
 }
 
 export async function recordAptlssWaitingReason({
+  vaId,
   cardId,
   cardName,
   cardUrl,
@@ -39,6 +40,7 @@ export async function recordAptlssWaitingReason({
   interpretation,
   recordedBy,
 }: {
+  vaId: number;
   cardId: string;
   cardName: string;
   cardUrl: string;
@@ -57,11 +59,16 @@ export async function recordAptlssWaitingReason({
     await tx
       .update(aptlssWaitingReasons)
       .set({ status: "superseded", resolvedAt: createdAt })
-      .where(and(eq(aptlssWaitingReasons.cardId, cardId), eq(aptlssWaitingReasons.status, "active")));
+      .where(and(
+        eq(aptlssWaitingReasons.vaId, vaId),
+        eq(aptlssWaitingReasons.cardId, cardId),
+        eq(aptlssWaitingReasons.status, "active"),
+      ));
 
     const [created] = await tx
       .insert(aptlssWaitingReasons)
       .values({
+        vaId,
         cardId,
         cardName,
         cardUrl,
@@ -92,6 +99,7 @@ export async function recordAptlssWaitingReason({
 
     return {
       id: created.id,
+      vaId,
       cardId,
       cardName,
       cardUrl,
@@ -122,25 +130,29 @@ export async function recordAptlssWaitingReason({
   });
 }
 
-export async function getActiveWaitingReason(cardId: string) {
+export async function getActiveWaitingReason(vaId: number, cardId: string) {
   const db = await getDb();
   if (!db) return null;
   const rows = await db
     .select()
     .from(aptlssWaitingReasons)
-    .where(and(eq(aptlssWaitingReasons.cardId, cardId), eq(aptlssWaitingReasons.status, "active")))
+    .where(and(
+      eq(aptlssWaitingReasons.vaId, vaId),
+      eq(aptlssWaitingReasons.cardId, cardId),
+      eq(aptlssWaitingReasons.status, "active"),
+    ))
     .orderBy(desc(aptlssWaitingReasons.createdAt), desc(aptlssWaitingReasons.id))
     .limit(1);
   return rows[0] ? hydrateWaitingReason(rows[0]) : null;
 }
 
-export async function getActiveWaitingReasons() {
+export async function getActiveWaitingReasons(vaId: number) {
   const db = await getDb();
   if (!db) return [];
   const rows = await db
     .select()
     .from(aptlssWaitingReasons)
-    .where(eq(aptlssWaitingReasons.status, "active"))
+    .where(and(eq(aptlssWaitingReasons.vaId, vaId), eq(aptlssWaitingReasons.status, "active")))
     .orderBy(desc(aptlssWaitingReasons.createdAt), desc(aptlssWaitingReasons.id));
   const latest = new Map<string, HydratedWaitingReason>();
   for (const row of rows) {
@@ -151,13 +163,13 @@ export async function getActiveWaitingReasons() {
   return Array.from(latest.values());
 }
 
-export async function getWaitingReasonHistory(cardId: string, limit = 20) {
+export async function getWaitingReasonHistory(vaId: number, cardId: string, limit = 20) {
   const db = await getDb();
   if (!db) return [];
   const rows = await db
     .select()
     .from(aptlssWaitingReasons)
-    .where(eq(aptlssWaitingReasons.cardId, cardId))
+    .where(and(eq(aptlssWaitingReasons.vaId, vaId), eq(aptlssWaitingReasons.cardId, cardId)))
     .orderBy(desc(aptlssWaitingReasons.createdAt), desc(aptlssWaitingReasons.id))
     .limit(Math.max(1, Math.min(100, limit)));
   return rows.flatMap((row) => {
@@ -166,13 +178,17 @@ export async function getWaitingReasonHistory(cardId: string, limit = 20) {
   });
 }
 
-export async function resolveAptlssWaitingReason(cardId: string) {
+export async function resolveAptlssWaitingReason(vaId: number, cardId: string) {
   const db = await getDb();
   if (!db) throw new WaitingReasonError("Database unavailable");
   const resolvedAt = new Date();
   await db
     .update(aptlssWaitingReasons)
     .set({ status: "resolved", resolvedAt })
-    .where(and(eq(aptlssWaitingReasons.cardId, cardId), eq(aptlssWaitingReasons.status, "active")));
+    .where(and(
+      eq(aptlssWaitingReasons.vaId, vaId),
+      eq(aptlssWaitingReasons.cardId, cardId),
+      eq(aptlssWaitingReasons.status, "active"),
+    ));
   return { cardId, resolvedAt };
 }

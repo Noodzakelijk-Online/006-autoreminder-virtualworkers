@@ -218,6 +218,13 @@
       "when": 1785361200000,
       "tag": "0030_restore_schema_parity",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1785436400753,
+      "tag": "0031_worker_operator_scope",
+      "breakpoints": true
     }
   ]
 }

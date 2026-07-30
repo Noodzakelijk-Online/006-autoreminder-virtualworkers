@@ -1,6 +1,6 @@
-# Joyce Work Schedule Platform
+# Virtual Worker Operations Platform
 
-This repository combines the developer platform with the Joyce operator workspace while preserving the developer architecture, authentication, RBAC, database lineage, and deployment services.
+This repository combines the developer platform with a reusable worker operator while preserving the developer architecture, authentication, RBAC, database lineage, and deployment services. Joyce is the first configured worker profile; her identity, schedule, timezone, evidence, and integrations are profile data rather than application-wide assumptions.
 
 ## Application Surfaces
 
@@ -16,7 +16,7 @@ This repository combines the developer platform with the Joyce operator workspac
 | `/robert` | admin | Robert oversight |
 | `/command-center` | admin | Priority command center |
 | `/admin` | admin | System monitor |
-| `/worker` | worker | Joyce work queue |
+| `/worker` | worker | Profile-scoped worker queue |
 | `/worker/plan` | worker | Persisted Plan My Day |
 | `/worker/decisions` | worker | Decision inbox and recorded outcomes |
 | `/worker/evidence` | worker | Evidence and integration state |
@@ -56,12 +56,15 @@ The canonical migration lineage is the developer sequence through `0027_glorious
 - `0028_add_task_assignment_schedule`
 - `0029_operator_evidence_foundation`
 - `0030_restore_schema_parity`
+- `0031_worker_operator_scope`
 
 `0029` adds evidence-backed assessments, waiting reasons, decision outcomes, cross-source evidence, communication and compliance evidence, time reconciliation, maintenance run history, and browser-tab evidence. It does not drop or rename developer tables.
 
 `0030` repairs three schema/migration parity gaps found during the fresh-database rehearsal. It adds the Trello member identifier, backfills generic reply-thread columns while retaining their legacy Joyce-named sources, and creates the unsigned-message table expected by the restored application.
 
-Use the transfer utility before importing a Joyce database:
+`0031` scopes waiting reasons, decision outcomes, browser inventories, browser policies, collector tokens, and daily browser evidence to the authenticated worker. Existing operator rows are backfilled to the matching worker account before the new constraints are enforced.
+
+Use the transfer utility before importing an operator database:
 
 ```powershell
 node scripts/operator-data-transfer.mjs export --out .local/operator-export.json

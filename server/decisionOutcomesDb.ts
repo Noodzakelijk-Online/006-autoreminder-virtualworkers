@@ -5,10 +5,12 @@ import { getDb } from "./db";
 export class DecisionOutcomeError extends Error {}
 
 export async function recordDecisionOutcome({
+  vaId,
   stepId,
   outcome,
   resolvedBy,
 }: {
+  vaId: number;
   stepId: number;
   outcome: string;
   resolvedBy: string;
@@ -23,6 +25,7 @@ export async function recordDecisionOutcome({
       .where(
         and(
           eq(aptlssSteps.id, stepId),
+          eq(aptlssSteps.vaId, vaId),
           eq(aptlssSteps.requiresRobert, true),
           eq(aptlssSteps.status, "open"),
         ),
@@ -36,7 +39,7 @@ export async function recordDecisionOutcome({
     const [plan] = await tx
       .select()
       .from(aptlssPlans)
-      .where(eq(aptlssPlans.cardId, step.cardId))
+      .where(and(eq(aptlssPlans.vaId, vaId), eq(aptlssPlans.cardId, step.cardId)))
       .orderBy(desc(aptlssPlans.generatedAt))
       .limit(1);
 
@@ -44,6 +47,7 @@ export async function recordDecisionOutcome({
     const [created] = await tx
       .insert(decisionOutcomes)
       .values({
+        vaId,
         stepId: step.id,
         cardId: step.cardId,
         cardName: plan?.cardName ?? step.cardId,
@@ -71,13 +75,14 @@ export async function recordDecisionOutcome({
   });
 }
 
-export async function getDecisionHistory(limit = 30) {
+export async function getDecisionHistory(vaId: number, limit = 30) {
   const db = await getDb();
   if (!db) return [];
 
   return db
     .select()
     .from(decisionOutcomes)
+    .where(eq(decisionOutcomes.vaId, vaId))
     .orderBy(desc(decisionOutcomes.resolvedAt))
     .limit(limit);
 }

@@ -1,10 +1,11 @@
 import { and, desc, eq } from "drizzle-orm";
 import { appSettings, dailyPlans } from "../drizzle/schema";
-import { dateKeyInEat, dayOfWeekInEat } from "../shared/eatTime";
+import { dateKeyInTimeZone } from "../shared/workerTime";
 import { getWorkLaneRank } from "../shared/workLanePriority";
 import { getAllAptlssPlans } from "./aptlssDb";
 import { getDb } from "./db";
 import { getAllCardStates, getAllPriorityScores, getOpenStepsForCard } from "./aptlssStepsDb";
+import type { WorkerOperatorContext } from "./workerOperatorContext";
 
 type ScheduleSettings = {
   startTime: string;
@@ -50,13 +51,9 @@ export type OperatorDailyPlanPayload = {
 };
 
 const DEFAULT_SCHEDULE: ScheduleSettings = {
-  startTime: "08:00",
-  endTime: "23:00",
-  breaks: [
-    { name: "Breakfast", startTime: "09:00", durationMinutes: 30 },
-    { name: "Lunch", startTime: "14:30", durationMinutes: 45 },
-    { name: "Dinner", startTime: "19:15", durationMinutes: 90 },
-  ],
+  startTime: "09:00",
+  endTime: "18:00",
+  breaks: [],
 };
 
 function toMinutes(value: string) {
@@ -70,9 +67,18 @@ function toTime(value: number) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-async function getScheduleSettings(vaId: number): Promise<ScheduleSettings> {
+function profileSchedule(worker?: WorkerOperatorContext): ScheduleSettings {
+  return worker ? {
+    startTime: worker.workStartTime,
+    endTime: worker.workEndTime,
+    breaks: worker.breaks,
+  } : DEFAULT_SCHEDULE;
+}
+
+async function getScheduleSettings(vaId: number, worker?: WorkerOperatorContext): Promise<ScheduleSettings> {
+  const fallback = profileSchedule(worker);
   const db = await getDb();
-  if (!db) return DEFAULT_SCHEDULE;
+  if (!db) return fallback;
   const rows = await db
     .select({ value: appSettings.value })
     .from(appSettings)
@@ -81,8 +87,8 @@ async function getScheduleSettings(vaId: number): Promise<ScheduleSettings> {
   try {
     const parsed = JSON.parse(rows[0]?.value ?? "{}") as Partial<ScheduleSettings>;
     return {
-      startTime: parsed.startTime && /^\d{2}:\d{2}$/.test(parsed.startTime) ? parsed.startTime : DEFAULT_SCHEDULE.startTime,
-      endTime: parsed.endTime && /^\d{2}:\d{2}$/.test(parsed.endTime) ? parsed.endTime : DEFAULT_SCHEDULE.endTime,
+      startTime: parsed.startTime && /^\d{2}:\d{2}$/.test(parsed.startTime) ? parsed.startTime : fallback.startTime,
+      endTime: parsed.endTime && /^\d{2}:\d{2}$/.test(parsed.endTime) ? parsed.endTime : fallback.endTime,
       breaks: Array.isArray(parsed.breaks)
         ? parsed.breaks
             .filter((item) => /^\d{2}:\d{2}$/.test(item.startTime) && item.durationMinutes >= 5)
@@ -91,10 +97,10 @@ async function getScheduleSettings(vaId: number): Promise<ScheduleSettings> {
               startTime: item.startTime,
               durationMinutes: Math.min(240, Math.round(item.durationMinutes)),
             }))
-        : DEFAULT_SCHEDULE.breaks,
+        : fallback.breaks,
     };
   } catch {
-    return DEFAULT_SCHEDULE;
+    return fallback;
   }
 }
 
@@ -133,13 +139,18 @@ function parsePlan(planJson: string) {
   }
 }
 
-export async function getOperatorDailyPlan(vaId: number, dateKey = dateKeyInEat()) {
+export async function getOperatorDailyPlan(
+  vaId: number,
+  dateKey?: string,
+  worker?: WorkerOperatorContext,
+) {
+  const effectiveDateKey = dateKey ?? dateKeyInTimeZone(Date.now(), worker?.timezone);
   const db = await getDb();
   if (!db) return null;
   const rows = await db
     .select()
     .from(dailyPlans)
-    .where(and(eq(dailyPlans.vaId, vaId), eq(dailyPlans.dateKey, dateKey)))
+    .where(and(eq(dailyPlans.vaId, vaId), eq(dailyPlans.dateKey, effectiveDateKey)))
     .orderBy(desc(dailyPlans.generatedAt))
     .limit(1);
   if (!rows[0]) return null;
@@ -152,36 +163,45 @@ export async function getOperatorDailyPlan(vaId: number, dateKey = dateKeyInEat(
   }
 }
 
-export async function generateOperatorDailyPlan(vaId: number, dateKey = dateKeyInEat(), force = false) {
-  const existing = await getOperatorDailyPlan(vaId, dateKey);
+export async function generateOperatorDailyPlan(
+  vaId: number,
+  dateKey: string | undefined,
+  force = false,
+  worker?: WorkerOperatorContext,
+) {
+  const effectiveDateKey = dateKey ?? dateKeyInTimeZone(Date.now(), worker?.timezone);
+  const existing = await getOperatorDailyPlan(vaId, effectiveDateKey, worker);
   if (existing && !force) return existing;
 
   const [plans, states, scores, schedule] = await Promise.all([
     getAllAptlssPlans(vaId),
     getAllCardStates(vaId),
     getAllPriorityScores(vaId),
-    getScheduleSettings(vaId),
+    getScheduleSettings(vaId, worker),
   ]);
   const generatedAt = new Date();
   const { windows, breaks, availableMinutes } = buildAvailableWindows(schedule);
   const stateMap = new Map(states.map((item) => [item.cardId, item]));
   const scoreMap = new Map(scores.map((item) => [item.cardId, item]));
 
-  if (dayOfWeekInEat(new Date(`${dateKey}T12:00:00+03:00`)) === 0) {
+  const localDay = new Date(`${effectiveDateKey}T12:00:00Z`).getUTCDay();
+  if (worker && !worker.workingDays.includes(localDay)) {
+    const dayName = new Intl.DateTimeFormat("en-GB", { weekday: "long", timeZone: "UTC" })
+      .format(new Date(`${effectiveDateKey}T12:00:00Z`));
     const payload: OperatorDailyPlanPayload = {
       version: 2,
-      dateKey,
+      dateKey: effectiveDateKey,
       generatedAt: generatedAt.toISOString(),
       blocks: [],
       robertItems: [],
       unscheduledCards: plans.map((plan) => ({
         cardId: plan.cardId,
         cardName: plan.cardName,
-        reason: "Sunday is protected time.",
+        reason: `${dayName} is protected time for this worker.`,
       })),
       planHealth: { confidence: 100, scheduledMinutes: 0, availableMinutes: 0, overlaps: 0, gaps: 0 },
       constraints: schedule,
-      auditTrail: [{ at: generatedAt.toISOString(), action: "generated", detail: "Protected Sunday plan created." }],
+      auditTrail: [{ at: generatedAt.toISOString(), action: "generated", detail: `Protected ${dayName} plan created.` }],
     };
     return persistOperatorPlan(vaId, payload);
   }
@@ -251,7 +271,7 @@ export async function generateOperatorDailyPlan(vaId: number, dateKey = dateKeyI
 
     const end = cursor + duration;
     blocks.push({
-      id: `${dateKey}:${candidate.plan.cardId}:${cursor}`,
+      id: `${effectiveDateKey}:${candidate.plan.cardId}:${cursor}`,
       startTime: toTime(cursor),
       endTime: toTime(end),
       cardId: candidate.plan.cardId,
@@ -283,7 +303,7 @@ export async function generateOperatorDailyPlan(vaId: number, dateKey = dateKeyI
   const confidence = Math.max(20, Math.min(98, evidenceConfidence - unscheduledCards.length * 2));
   const payload: OperatorDailyPlanPayload = {
     version: 2,
-    dateKey,
+    dateKey: effectiveDateKey,
     generatedAt: generatedAt.toISOString(),
     blocks,
     robertItems,

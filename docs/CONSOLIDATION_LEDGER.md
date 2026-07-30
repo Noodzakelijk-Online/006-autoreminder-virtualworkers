@@ -54,9 +54,9 @@ The previous worker dashboard remains available at `/worker/operations`.
 | Free-flow waiting reason | Joyce archive | Deterministic interpreter plus durable history | Local evidence only; no external side effects |
 | Decision outcomes | Joyce archive | Transactional operator mutation | Requires free-text outcome; resolves only the linked open step |
 | Browser hygiene | Joyce archive | Token-authenticated collector and daily evidence | Uses developer `app_settings`, Socket.IO, and work schedule |
-| Plan My Day | Adapted for recovered schema | Versioned deterministic `daily_plans` payload | Protects configured breaks and preserves unscheduled/Robert items |
+| Plan My Day | Adapted for recovered schema | Versioned deterministic `daily_plans` payload | Protects configured breaks and preserves unscheduled/founder-decision items |
 | Operator evidence model | Joyce archive, adapted | New migration `0029` | Additive tables and columns only |
-| Joyce work control UI | Joyce archive design direction, reimplemented | Authenticated `/worker` routes | Does not replace founder/admin layouts |
+| Worker operator UI | Joyce archive design direction, reimplemented generically | Authenticated `/worker` routes | Joyce is profile data; founder/admin layouts remain separate |
 | Local auth bypass | Recovery requirement | Loopback-only worker resolution | Startup rejects production and non-loopback usage |
 | Advanced scheduling contract | Developer baseline, repaired on recovery branch | Canonical batch adapter, owner-scoped history, shortcuts, metrics, and one Socket.IO subscription | Retains the developer queue and schema while removing invalid raw-column writes and dynamic React hook calls |
 

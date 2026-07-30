@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { ingestBrowserTabInventory, verifyBrowserTabCollectorToken } from "./browserTabHygiene";
+import { ingestBrowserTabInventory, resolveBrowserTabCollectorWorker } from "./browserTabHygiene";
 import { websocketService } from "./services/websocket";
 
 const inventorySchema = z.object({
@@ -38,13 +38,15 @@ export function registerBrowserTabRoutes(app: Express) {
     try {
       const authorization = req.header("authorization") ?? "";
       const token = authorization.startsWith("Bearer ") ? authorization.slice(7).trim() : null;
-      if (!(await verifyBrowserTabCollectorToken(token))) {
+      const vaId = await resolveBrowserTabCollectorWorker(token);
+      if (!vaId) {
         res.status(401).json({ success: false, error: "Browser collector authorization failed" });
         return;
       }
       const input = inventorySchema.parse(req.body);
-      const status = await ingestBrowserTabInventory(input);
+      const status = await ingestBrowserTabInventory(vaId, input);
       websocketService.emitToAll("browser-tabs:invalidate", {
+        vaId,
         capturedAt: new Date().toISOString(),
       });
       res.json({
