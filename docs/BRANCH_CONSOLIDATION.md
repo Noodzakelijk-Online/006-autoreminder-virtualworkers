@@ -5,7 +5,7 @@
 - Exact Kamal delivery: `5a04e6a`
 - Immutable delivery tag: `delivery/kamal-platform-2026-07-28`
 - Checkout-ready delivery archive: `archive/kamal-platform-delivery-2026-07-28`
-- Consolidated product: `recovery/restore-developer-platform`
+- Consolidated product: `main`
 - Joyce-only rollback: `backup/joyce-overwrite-2026-07-29`
 
 Kamal authored `5a04e6a` on 28 July 2026. Its tree object is
@@ -45,7 +45,12 @@ For that reason:
 
 ## Main Cutover
 
-`main` may advance only to a commit that:
+On 30 July 2026, `main` advanced by a normal fast-forward from `549b932` to
+`2a675cd`. GitHub records recovery pull request #1 as merged. The temporary
+`recovery/restore-developer-platform`, `consolidation/joyce-operator`, and
+`auto-reminder-structured` remote branches were then removed.
+
+Future work starts from `main`. It may advance only to a commit that:
 
 - descends from the preserved Joyce snapshot;
 - contains the exact Kamal delivery in history;

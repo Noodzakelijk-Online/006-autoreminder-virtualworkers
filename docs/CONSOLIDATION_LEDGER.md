@@ -9,7 +9,7 @@
 | Kamal delivery archive | `archive/kamal-platform-delivery-2026-07-28` | Checkout-ready recovery branch for the exact paid delivery |
 | Overwritten `main` snapshot | `549b932` | Preserved as tag `backup/joyce-overwrite-2026-07-29` and branch `archive/joyce-operator-current-2026-07-29` |
 | Developer source commit | `917a9af45692718796f2bc3a875ee16453a24c67` by Kamal Uddin | Capability source inspected; code adapted only where additive |
-| Recovery branch | `recovery/restore-developer-platform` | All consolidation work remains isolated until verification |
+| Consolidated branch | `main` at `2a675cd` | Canonical forward branch after verified fast-forward cutover |
 | Developer migration boundary | `0027_glorious_epoch` | Canonical; no journal entries were reused or rewritten |
 
 The recovery branch was reverted to a tree that exactly matched `5a04e6a` before any integration work began.
@@ -22,12 +22,13 @@ remains byte-for-byte recoverable independently of later consolidation work.
 
 | Branch | Disposition |
 | --- | --- |
-| `recovery/restore-developer-platform` | Verified consolidated product; advances `main` after all repository gates pass |
-| `consolidation/joyce-operator` | Fully contained in recovery history; remove after cutover |
+| `main` | Canonical consolidated product; contains the verified recovery history |
+| `recovery/restore-developer-platform` | Fully contained in `main`; removed after cutover |
+| `consolidation/joyce-operator` | Fully contained in `main`; removed after cutover |
 | `archive/joyce-operator-current-2026-07-29` | Retain as rollback snapshot of the overwritten Joyce-only application |
 | `archive/kamal-platform-delivery-2026-07-28` | Retain as the exact paid Kamal delivery |
 | `codex/port-joyce-operator` | Local source worktree; its commits are fully contained in recovery history |
-| `auto-reminder-structured` | Do not merge. This unrelated 2025 MongoDB/React split application tracks populated credentials and performs automatic Trello, email, SMS, and WhatsApp actions. Its relevant reminder concepts are superseded by the approval-gated platform. Remove the remote branch after cutover and rotate every credential that appeared in its tracked `.env`. |
+| `auto-reminder-structured` | Not merged. This unrelated 2025 MongoDB/React split application tracked populated credentials and performed automatic Trello, email, SMS, and WhatsApp actions. Its relevant reminder concepts are superseded by the approval-gated platform. The remote branch was removed after cutover; rotate every credential that appeared in its tracked `.env`. |
 
 ## Retained Developer Capabilities
 
