@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./envBootstrap";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
@@ -8,7 +8,7 @@ import localAuthRoutes from "../routes/local-auth.js";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { sdk } from "./sdk";
-import { serveStatic, setupVite } from "./vite";
+import { serveStatic } from "./static";
 import aptlssRoutes from "../routes/aptlss.js";
 import workingHoursRoutes from "../routes/working-hours.js";
 import holidaysRoutes from "../routes/holidays.js";
@@ -44,6 +44,7 @@ import { apiRateLimiter, authRateLimiter, aptlssGenerationRateLimiter } from "..
 import { log } from "../utils/logger.js";
 import { registerBrowserTabRoutes } from "../browserTabRoutes.js";
 import { assertLocalAuthBypassConfiguration } from "./localAuthBypass.js";
+import { assertProductionConfiguration } from "./productionConfig.js";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -134,6 +135,7 @@ function concurrencyLimiter(
 }
 
 async function startServer() {
+  assertProductionConfiguration();
   assertLocalAuthBypassConfiguration();
   const app = express();
   app.set("trust proxy", true);
@@ -236,6 +238,7 @@ async function startServer() {
   
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
+    const { setupVite } = await import("./vite.js");
     await setupVite(app, server);
   } else {
     serveStatic(app);

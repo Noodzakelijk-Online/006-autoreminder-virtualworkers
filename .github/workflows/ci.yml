@@ -61,6 +61,8 @@ jobs:
         run: pnpm db:verify-parity
       - run: pnpm test
       - run: pnpm build
+      - name: Build the production container
+        run: docker build --tag va-dashboard:ci .
       - name: Verify migration metadata matches the schema
         shell: bash
         run: |

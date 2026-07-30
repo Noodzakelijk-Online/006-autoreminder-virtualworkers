@@ -32,6 +32,17 @@ This repository combines the developer platform with the Joyce operator workspac
 
 The server binds to `127.0.0.1` by default. Set `HOST` explicitly for a deployed environment.
 
+## Production Deployment
+
+The complete application needs a persistent container runtime with MySQL,
+Redis, HTTPS, and WebSocket support. `docker-compose.yml` applies the canonical
+Drizzle migrations before starting the application and refuses insecure or
+incomplete production configuration.
+
+See [docs/PRODUCTION_CUTOVER.md](docs/PRODUCTION_CUTOVER.md) for the required
+secret contract, verification gate, rollback requirements, and the boundary
+for retiring the old Vercel projects.
+
 ## Authentication
 
 Production uses the restored user table, signed sessions, and role checks. Admin and worker routes are independent.
