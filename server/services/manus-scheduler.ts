@@ -1,12 +1,14 @@
 import { getDb } from "../db";
 import {
   dailyComplianceSnapshots,
+  emailTasks,
   onHoldDailyChecks,
+  replyThreads,
   timeEntries,
   users,
   vaProfiles,
 } from "../../drizzle/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import {
   getWorkerCards,
   getWorkerCommentedCardIdsToday,
@@ -15,6 +17,9 @@ import {
 } from "./trello-manus";
 import { notifyOwner } from "../_core/notification";
 import { parseDateKey } from "../utils/date-only";
+import { dateKeyInTimeZone, dateWindowInTimeZone, dayOfWeekInTimeZone } from "../../shared/workerTime";
+import { calculateScheduledTargetSeconds } from "../complianceMetrics";
+import { resolveWorkerOperatorContextById } from "../workerOperatorContext";
 
 let schedulerInterval: NodeJS.Timeout | null = null;
 
@@ -122,7 +127,7 @@ async function runAutoStopForWorker(worker: typeof vaProfiles.$inferSelect) {
 }
 
 async function runComplianceSnapshotForWorker(worker: typeof vaProfiles.$inferSelect) {
-  if (new Date().getDay() === 0) return;
+  if (dayOfWeekInTimeZone(new Date(), worker.timezone) === 0) return;
   try {
     await collectComplianceSnapshot(worker, "auto");
   } catch (error) {
@@ -134,8 +139,9 @@ export async function collectComplianceSnapshot(
   worker: typeof vaProfiles.$inferSelect,
   source: "auto" | "manual",
 ) {
-  const todayEAT = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  console.log(`[ManusScheduler] Collecting compliance for ${worker.name} on ${todayEAT}`);
+  const now = new Date();
+  const dateKey = dateKeyInTimeZone(now, worker.timezone);
+  console.log(`[ManusScheduler] Collecting compliance for ${worker.name} on ${dateKey}`);
 
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -145,16 +151,36 @@ export async function collectComplianceSnapshot(
   if (!apiKey || !apiToken) throw new Error("Trello API credentials not configured");
 
   const trelloMemberId = worker.trelloMemberId || "me";
-  const [allCards, commentedCardIds] = await Promise.all([
+  const window = dateWindowInTimeZone(dateKey, worker.timezone);
+  const endInclusive = new Date(window.endExclusive.getTime() - 1);
+  const [allCards, commentedCardIds, messages, emails, trackedEntries, operatorContext] = await Promise.all([
     getWorkerCards(apiKey, apiToken, trelloMemberId),
-    getWorkerCommentedCardIdsToday(apiKey, apiToken, trelloMemberId),
+    getWorkerCommentedCardIdsToday(apiKey, apiToken, trelloMemberId, undefined, undefined, worker.timezone),
+    db.select().from(replyThreads).where(and(
+      eq(replyThreads.vaId, worker.userId),
+      gte(replyThreads.lastNonWorkerMsgAt, window.start),
+      lte(replyThreads.lastNonWorkerMsgAt, endInclusive),
+    )),
+    db.select().from(emailTasks).where(and(
+      eq(emailTasks.vaId, worker.userId),
+      gte(emailTasks.receivedAt, window.start),
+      lte(emailTasks.receivedAt, endInclusive),
+    )),
+    db.select().from(timeEntries).where(and(
+      eq(timeEntries.vaId, worker.userId),
+      eq(timeEntries.isVoided, false),
+      isNotNull(timeEntries.endTime),
+      gte(timeEntries.startTime, window.start),
+      lte(timeEntries.startTime, endInclusive),
+    )),
+    resolveWorkerOperatorContextById(worker.userId),
   ]);
   const doingCards = allCards.filter(card => card.list && isDoingList(card.list.name));
   const onHoldCards = allCards.filter(card => card.list && isOnHoldList(card.list.name));
   const doingUpdated = doingCards.filter(card => commentedCardIds.has(card.id));
   const doingMissed = doingCards.filter(card => !commentedCardIds.has(card.id));
 
-  const snapshotDate = parseDateKey(todayEAT);
+  const snapshotDate = parseDateKey(dateKey);
   const checkedOnHold = await db.select().from(onHoldDailyChecks).where(and(
     eq(onHoldDailyChecks.vaId, worker.userId),
     eq(onHoldDailyChecks.date, snapshotDate),
@@ -163,6 +189,22 @@ export async function collectComplianceSnapshot(
   const checkedOnHoldIds = new Set(checkedOnHold.map(check => check.cardId));
   const onHoldReviewed = onHoldCards.filter(card => checkedOnHoldIds.has(card.id)).length;
   const d1Instances = doingMissed.length;
+  const messageReplied = messages.filter(message =>
+    message.lastWorkerReplyAt && message.lastWorkerReplyAt >= message.lastNonWorkerMsgAt
+  ).length;
+  const messageNeedsClarification = messages.filter(message =>
+    !message.lastWorkerReplyAt && !message.lastNonWorkerText?.trim()
+  ).length;
+  const messageMissed = Math.max(0, messages.length - messageReplied);
+  const emailCompleted = emails.filter(email => email.status === "processed" || email.status === "archived").length;
+  const emailNeedsClarification = emails.filter(email =>
+    email.status === "pending" && !email.suggestedNextAction?.trim() && !email.llmSummary?.trim()
+  ).length;
+  const emailMissed = Math.max(0, emails.length - emailCompleted);
+  const trackedSeconds = trackedEntries.reduce((total, entry) => total + (entry.durationSeconds ?? 0), 0);
+  const scheduledTargetSeconds = calculateScheduledTargetSeconds(operatorContext, dateKey);
+  const clarificationOpen = messageNeedsClarification + emailNeedsClarification;
+  const evidenceCount = allCards.length + messages.length + emails.length + trackedEntries.length;
 
   const values = {
     vaId: worker.userId,
@@ -180,9 +222,27 @@ export async function collectComplianceSnapshot(
     doingMissedCards: JSON.stringify(
       doingMissed.map(card => ({ id: card.id, name: card.name, url: card.url })),
     ),
+    messageTotal: messages.length,
+    messageReplied,
+    messageMissed,
+    messageNeedsClarification,
+    emailTotal: emails.length,
+    emailCompleted,
+    emailMissed,
+    emailNeedsClarification,
+    clarificationOpen,
+    trackedSeconds,
+    scheduledTargetSeconds,
+    overtimeSeconds: Math.max(0, trackedSeconds - scheduledTargetSeconds),
+    timeEntryCount: trackedEntries.length,
     d1Instances,
     estimatedPenalty: String(d1Instances * 5),
     source,
+    verificationStatus: clarificationOpen > 0 ? "needs_clarification" : "verified",
+    verificationMethod: "trello+reply_monitor+gmail+time_entries",
+    verificationCutoffAt: now,
+    verifiedAt: now,
+    evidenceCount,
   };
 
   await db.insert(dailyComplianceSnapshots).values(values).onDuplicateKeyUpdate({

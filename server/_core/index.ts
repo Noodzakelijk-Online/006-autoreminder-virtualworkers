@@ -72,8 +72,13 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 // them and process them as slots free up.  Requests that wait longer than
 // QUEUE_TIMEOUT_MS are rejected with 503 so the queue never grows unbounded.
 // ---------------------------------------------------------------------------
-const MAX_CONCURRENT = parseInt(process.env.MAX_CONCURRENT_REQUESTS ?? '100', 10);
-const QUEUE_TIMEOUT_MS = parseInt(process.env.REQUEST_QUEUE_TIMEOUT_MS ?? '30000', 10);
+function positiveInteger(value: string | undefined, fallback: number, maximum: number) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback;
+}
+
+const MAX_CONCURRENT = positiveInteger(process.env.MAX_CONCURRENT_REQUESTS, 100, 10_000);
+const QUEUE_TIMEOUT_MS = positiveInteger(process.env.REQUEST_QUEUE_TIMEOUT_MS, 30_000, 300_000);
 
 let activeRequests = 0;
 const waitQueue: Array<() => void> = [];
@@ -109,7 +114,7 @@ function acquireSlot(): Promise<void> {
 }
 
 function releaseSlot(): void {
-  activeRequests--;
+  activeRequests = Math.max(0, activeRequests - 1);
   const next = waitQueue.shift();
   if (next) next();
 }
@@ -121,8 +126,14 @@ function concurrencyLimiter(
 ): void {
   acquireSlot()
     .then(() => {
-      res.on('finish', releaseSlot);
-      res.on('close', releaseSlot);   // handles aborted connections
+      let released = false;
+      const releaseOnce = () => {
+        if (released) return;
+        released = true;
+        releaseSlot();
+      };
+      res.once('finish', releaseOnce);
+      res.once('close', releaseOnce);
       next();
     })
     .catch(() => {

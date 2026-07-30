@@ -87,6 +87,19 @@ import {
 } from "../aptlssPoliciesDb";
 import { appSettings, timeEntries } from "../../drizzle/schema";
 import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { resolveWorkerOperatorContext } from "../workerOperatorContext";
+import { dateKeyInTimeZone, dateWindowInTimeZone, weekDateKeys } from "../../shared/workerTime";
+
+async function resolveTrelloWorker(ctx: { user: Parameters<typeof resolveWorkerOperatorContext>[0] }) {
+  if (ctx.user.role !== "worker") {
+    return { memberId: "me", timezone: "UTC" };
+  }
+  const worker = await resolveWorkerOperatorContext(ctx.user);
+  return {
+    memberId: worker.trelloMemberId || "me",
+    timezone: worker.timezone,
+  };
+}
 
 export const trelloRouter = router({
   weeklyHours: protectedProcedure.query(async ({ ctx }) => {
@@ -95,28 +108,25 @@ export const trelloRouter = router({
     const apiToken = process.env.TRELLO_TOKEN || process.env.TrelloAPIToken;
     if (!apiKey || !apiToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Trello API credentials not configured" });
     
-    const base = await getWeeklyHours(apiKey, apiToken, String(ctx.user.openId));
+    const worker = await resolveTrelloWorker(ctx);
+    const base = await getWeeklyHours(apiKey, apiToken, worker.memberId);
 
     // Get tracked seconds from DB
-    const eatNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
-    const dayOfWeek = eatNow.getUTCDay(); // 0=Sun
-    const monday = new Date(eatNow);
-    monday.setUTCDate(eatNow.getUTCDate() - ((dayOfWeek + 6) % 7));
-    const sunday = new Date(monday);
-    sunday.setUTCDate(monday.getUTCDate() + 6);
-    const startDate = monday.toISOString().slice(0, 10);
-    const endDate = sunday.toISOString().slice(0, 10);
+    const dateKey = dateKeyInTimeZone(new Date(), worker.timezone);
+    const { startDateKey, endDateKey } = weekDateKeys(dateKey);
+    const weekStart = dateWindowInTimeZone(startDateKey, worker.timezone).start;
+    const weekEndExclusive = dateWindowInTimeZone(endDateKey, worker.timezone).endExclusive;
 
     const db = await getDb();
-    if (!db) return { ...base, totalHours: 0, weekStart: monday.toISOString(), weekEnd: sunday.toISOString() };
+    if (!db) return { ...base, totalHours: 0, weekStart: weekStart.toISOString(), weekEnd: weekEndExclusive.toISOString() };
 
     const tracked = await db.select({
       total: sql<number>`sum(durationSeconds)`
     }).from(timeEntries).where(
       and(
         eq(timeEntries.vaId, vaId),
-        gte(timeEntries.startTime, new Date(startDate)),
-        lte(timeEntries.startTime, new Date(endDate + 'T23:59:59.999Z'))
+        gte(timeEntries.startTime, weekStart),
+        lte(timeEntries.startTime, new Date(weekEndExclusive.getTime() - 1))
       )
     );
     const trackedSeconds = Number(tracked[0]?.total ?? 0);
@@ -124,8 +134,8 @@ export const trelloRouter = router({
     return {
       ...base,
       totalHours: trackedHours,
-      weekStart: monday.toISOString(),
-      weekEnd: sunday.toISOString(),
+      weekStart: weekStart.toISOString(),
+      weekEnd: weekEndExclusive.toISOString(),
     };
   }),
 
@@ -134,9 +144,10 @@ export const trelloRouter = router({
     const apiToken = process.env.TRELLO_TOKEN || process.env.TrelloAPIToken;
     if (!apiKey || !apiToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Trello API credentials not configured" });
     
+    const worker = await resolveTrelloWorker(ctx);
     const [cards, actions] = await Promise.all([
-      getWorkerCards(apiKey, apiToken, String(ctx.user.openId)),
-      getWorkerRecentActions(apiKey, apiToken, String(ctx.user.openId), 15),
+      getWorkerCards(apiKey, apiToken, worker.memberId),
+      getWorkerRecentActions(apiKey, apiToken, worker.memberId, 15),
     ]);
 
     const cardBoardMap = new Map<string, string>();
@@ -163,15 +174,16 @@ export const trelloRouter = router({
     const apiToken = process.env.TRELLO_TOKEN || process.env.TrelloAPIToken;
     if (!apiKey || !apiToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Trello API credentials not configured" });
     
-    const trelloMemberId = String(ctx.user.openId);
+    const worker = await resolveTrelloWorker(ctx);
+    const trelloMemberId = worker.memberId;
     const [cards, recentActions, commentedCardIds] = await Promise.all([
       getWorkerCards(apiKey, apiToken, trelloMemberId),
       getWorkerRecentActions(apiKey, apiToken, trelloMemberId, 50),
-      getWorkerCommentedCardIdsToday(apiKey, apiToken, trelloMemberId),
+      getWorkerCommentedCardIdsToday(apiKey, apiToken, trelloMemberId, undefined, undefined, worker.timezone),
     ]);
 
     const noDueDate = cards.filter(c => !c.due);
-    const dueToday = await getCardsDueToday(apiKey, apiToken, trelloMemberId);
+    const dueToday = await getCardsDueToday(apiKey, apiToken, trelloMemberId, worker.timezone);
     const overdue = await getOverdueCards(apiKey, apiToken, trelloMemberId);
     const onHold = cards.filter(c => c.list && c.list.name.toLowerCase().includes("hold"));
     const doingCards = cards.filter(c => c.list && isDoingList(c.list.name));

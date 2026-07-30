@@ -1,4 +1,5 @@
 import axios from "axios";
+import { dateKeyInTimeZone } from "../../shared/workerTime";
 
 const TRELLO_API_BASE = "https://api.trello.com/1";
 const WORKER_CARDS_CACHE_TTL_MS = 10_000;
@@ -66,6 +67,10 @@ export interface TrelloAction {
     fullName: string;
     username: string;
   };
+}
+
+export function getTrelloMemberCardsPath(trelloMemberId: string) {
+  return `/members/${encodeURIComponent(trelloMemberId.trim() || "me")}/cards`;
 }
 
 interface BoardListCacheEntry {
@@ -145,7 +150,7 @@ export async function getWorkerCards(apiKey: string, apiToken: string, trelloMem
   const request = (async () => {
     try {
     const response = await axios.get(
-      `${TRELLO_API_BASE}/members/me/cards`,
+      `${TRELLO_API_BASE}${getTrelloMemberCardsPath(trelloMemberId)}`,
       {
         params: {
           key: apiKey,
@@ -286,19 +291,13 @@ export async function getWorkerCommentedCardIdsToday(
   apiToken: string,
   trelloMemberId: string,
   boardOwnerMemberId?: string,
-  personalToken?: string | null
+  personalToken?: string | null,
+  timeZone = "Africa/Nairobi",
 ): Promise<Set<string>> {
   try {
-    const nowUtcMs = Date.now();
-    const eatOffsetMs = 3 * 60 * 60 * 1000;
-    const todayEAT = new Date(nowUtcMs + eatOffsetMs).toISOString().slice(0, 10);
+    const today = dateKeyInTimeZone(Date.now(), timeZone);
 
-    const isToday = (dateStr: string) => {
-      const actionDateEAT = new Date(new Date(dateStr).getTime() + eatOffsetMs)
-        .toISOString()
-        .slice(0, 10);
-      return actionDateEAT === todayEAT;
-    };
+    const isToday = (dateStr: string) => dateKeyInTimeZone(new Date(dateStr), timeZone) === today;
 
     const requests: Promise<any>[] = [
       axios.get(`${TRELLO_API_BASE}/members/${trelloMemberId}/actions`, {
@@ -362,21 +361,22 @@ export async function getWorkerCommentedCardIdsToday(
     return commentedCardIds;
   } catch (error) {
     logTrelloFailure("Failed to fetch commented cards", error);
-    return new Set();
+    throw new Error("Failed to verify Trello comments");
   }
 }
 
-export async function getCardsDueToday(apiKey: string, apiToken: string, trelloMemberId: string): Promise<TrelloCard[]> {
+export async function getCardsDueToday(
+  apiKey: string,
+  apiToken: string,
+  trelloMemberId: string,
+  timeZone = "Africa/Nairobi",
+): Promise<TrelloCard[]> {
   try {
     const allCards = await getWorkerCards(apiKey, apiToken, trelloMemberId);
-    const eatOffsetMs = 3 * 60 * 60 * 1000;
-    const todayEAT = new Date(Date.now() + eatOffsetMs).toISOString().slice(0, 10);
+    const today = dateKeyInTimeZone(Date.now(), timeZone);
     return allCards.filter(card => {
       if (!card.due) return false;
-      const dueDateEAT = new Date(new Date(card.due).getTime() + eatOffsetMs)
-        .toISOString()
-        .slice(0, 10);
-      return dueDateEAT === todayEAT;
+      return dateKeyInTimeZone(new Date(card.due), timeZone) === today;
     });
   } catch (error) {
     logTrelloFailure("Failed to fetch cards due today", error);

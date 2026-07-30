@@ -23,6 +23,9 @@ import {
 import { eq, and, desc, asc, gte, lte, sql, isNull, isNotNull } from "drizzle-orm";
 import { collectComplianceSnapshot } from "../services/manus-scheduler";
 import { parseDateKey } from "../utils/date-only";
+import { calculateCompliancePercentage } from "../complianceMetrics";
+import { dateKeyInTimeZone, dateWindowInTimeZone } from "../../shared/workerTime";
+import { resolveWorkerOperatorContext } from "../workerOperatorContext";
 
 // ─── Payment Cycles Router ──────────────────────────────────────────────────
 export const paymentRouter = router({
@@ -582,14 +585,15 @@ export const timerRouter = router({
       const db = await getDb();
       if (!db) return [];
       const vaId = Number(ctx.user.id);
-      const startUTC = new Date(input.date + "T00:00:00+03:00");
-      const endUTC = new Date(input.date + "T23:59:59+03:00");
+      const worker = await resolveWorkerOperatorContext(ctx.user);
+      const window = dateWindowInTimeZone(input.date, worker.timezone);
+      const endUTC = new Date(window.endExclusive.getTime() - 1);
 
       const rows = await db.select().from(timeEntries).where(
         and(
           eq(timeEntries.vaId, vaId),
           isNotNull(timeEntries.endTime),
-          gte(timeEntries.startTime, startUTC),
+          gte(timeEntries.startTime, window.start),
           lte(timeEntries.startTime, endUTC)
         )
       ).orderBy(desc(timeEntries.startTime));
@@ -623,8 +627,9 @@ export const timerRouter = router({
       const db = await getDb();
       if (!db) return { totalSeconds: 0, totalMinutes: 0, totalHours: 0 };
       const vaId = Number(ctx.user.id);
-      const startUTC = new Date(input.startDate + "T00:00:00+03:00");
-      const endUTC = new Date(input.endDate + "T23:59:59+03:00");
+      const worker = await resolveWorkerOperatorContext(ctx.user);
+      const startUTC = dateWindowInTimeZone(input.startDate, worker.timezone).start;
+      const endUTC = new Date(dateWindowInTimeZone(input.endDate, worker.timezone).endExclusive.getTime() - 1);
 
       const rows = await db.select({ durationSeconds: timeEntries.durationSeconds }).from(timeEntries).where(
         and(
@@ -686,15 +691,16 @@ export const timerRouter = router({
       const db = await getDb();
       if (!db) return [];
       const vaId = Number(ctx.user.id);
-      const startUTC = new Date(input.date + "T00:00:00+03:00");
-      const endUTC = new Date(input.date + "T23:59:59+03:00");
+      const worker = await resolveWorkerOperatorContext(ctx.user);
+      const window = dateWindowInTimeZone(input.date, worker.timezone);
+      const endUTC = new Date(window.endExclusive.getTime() - 1);
 
       const rows = await db.select().from(timeEntries).where(
         and(
           eq(timeEntries.cardId, input.cardId),
           eq(timeEntries.vaId, vaId),
           isNotNull(timeEntries.endTime),
-          gte(timeEntries.startTime, startUTC),
+          gte(timeEntries.startTime, window.start),
           lte(timeEntries.startTime, endUTC)
         )
       ).orderBy(desc(timeEntries.startTime));
@@ -714,6 +720,7 @@ export const timerRouter = router({
       const db = await getDb();
       if (!db) return [];
       const vaId = Number(ctx.user.id);
+      const worker = await resolveWorkerOperatorContext(ctx.user);
 
       const days: any[] = [];
       const start = new Date(input.startDate + "T00:00:00Z");
@@ -730,16 +737,14 @@ export const timerRouter = router({
         and(
           eq(timeEntries.vaId, vaId),
           isNotNull(timeEntries.endTime),
-          gte(timeEntries.startTime, new Date(input.startDate + "T00:00:00Z")),
-          lte(timeEntries.startTime, new Date(input.endDate + "T23:59:59Z"))
+          gte(timeEntries.startTime, dateWindowInTimeZone(input.startDate, worker.timezone).start),
+          lte(timeEntries.startTime, new Date(dateWindowInTimeZone(input.endDate, worker.timezone).endExclusive.getTime() - 1))
         )
       );
 
       for (const row of rows) {
-        const eatDate = new Date(row.startTime.getTime() + 3 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10);
-        const slot = days.find(d => d.date === eatDate);
+        const localDate = dateKeyInTimeZone(row.startTime, worker.timezone);
+        const slot = days.find(d => d.date === localDate);
         if (slot) slot.totalSeconds += row.durationSeconds ?? 0;
       }
       return days;
@@ -767,10 +772,7 @@ function parseComplianceCards(value: string | null): Array<{ id: string; name: s
 }
 
 function compliancePercentage(row: ComplianceSnapshot): number {
-  const total = row.onHoldTotal + row.doingTotal;
-  return total === 0
-    ? 100
-    : Math.round(((row.onHoldReviewed + row.doingUpdated) / total) * 100);
+  return calculateCompliancePercentage(row);
 }
 
 function normalizeComplianceSnapshot(row: ComplianceSnapshot) {

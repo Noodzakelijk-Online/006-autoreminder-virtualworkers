@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import {
   Activity,
@@ -9,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  Copy,
   ExternalLink,
   FileCheck2,
   Gauge,
@@ -19,6 +20,7 @@ import {
   Loader2,
   LogOut,
   Menu,
+  Monitor,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
@@ -40,6 +42,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getWorkLaneRank } from "@shared/workLanePriority";
 import { formatWorkerDate } from "@shared/workerTime";
@@ -100,7 +105,7 @@ function initials(value: string) {
   return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)?.[0]}` : parts[0]?.slice(0, 2) || "W").toUpperCase();
 }
 
-export default function WorkerOperator({ view = "today" }: { view?: "today" | "plan" | "decisions" | "evidence" }) {
+export default function WorkerOperator({ view = "today" }: { view?: "today" | "plan" | "decisions" | "evidence" | "settings" }) {
   const [, navigate] = useLocation();
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
@@ -137,7 +142,11 @@ export default function WorkerOperator({ view = "today" }: { view?: "today" | "p
             })}
           </nav>
           <div className="border-t p-2">
-            <button type="button" onClick={() => navigate("/settings")} className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
+            <button
+              type="button"
+              onClick={() => navigate("/worker/settings")}
+              className={`flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm hover:bg-accent hover:text-foreground ${view === "settings" ? "bg-accent text-foreground" : "text-muted-foreground"}`}
+            >
               <Settings className="size-4" />{!collapsed && "Settings"}
             </button>
             <button type="button" onClick={logout} className="flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm text-muted-foreground hover:bg-accent hover:text-foreground">
@@ -169,6 +178,7 @@ export default function WorkerOperator({ view = "today" }: { view?: "today" | "p
           {view === "plan" && <PlanView founderName={founderName} timeZone={timeZone} />}
           {view === "decisions" && <DecisionsView founderName={founderName} />}
           {view === "evidence" && <EvidenceView />}
+          {view === "settings" && <WorkerSettingsView />}
         </main>
       </div>
     </div>
@@ -451,6 +461,9 @@ function EvidenceView() {
   const history = trpc.operator.getBrowserTabEvidenceHistory.useQuery({ limit: 30 }, { retry: false, staleTime: 60_000 });
   const waiting = trpc.operator.getWaitingReasons.useQuery(undefined, { retry: false, staleTime: 60_000 });
   const intelligence = trpc.operator.getWorkQueueContext.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const compliance = trpc.compliance.getHistory.useQuery({ limit: 7 }, { retry: false, staleTime: 60_000 });
+  const email = trpc.emailInbox.getPendingCount.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const latest = compliance.data?.[0] ?? null;
   return (
     <div className="space-y-5">
       <PageHeading title="Evidence" description="Connected facts are visible here; execution actions remain in Today and Decisions." />
@@ -458,7 +471,7 @@ function EvidenceView() {
         <ContextMetric icon={ShieldCheck} label="APTLSS cards" value={`${intelligence.data?.cards.length ?? 0}`} detail="Plans joined to states and scores" />
         <ContextMetric icon={Clock3} label="Waiting reasons" value={`${waiting.data?.length ?? 0}`} detail="Free-flow reasons interpreted" />
         <ContextMetric icon={Archive} label="Browser collector" value={status.data?.connected ? "Connected" : "Disconnected"} detail={status.data?.capturedAt ? `Last seen ${new Date(status.data.capturedAt).toLocaleTimeString()}` : "No inventory received"} />
-        <ContextMetric icon={History} label="Tab evidence" value={`${history.data?.length ?? 0} days`} detail="End-of-day snapshots retained" />
+        <ContextMetric icon={History} label="Daily compliance" value={latest ? `${latest.compliancePct}%` : "No snapshot"} detail={latest ? `${latest.evidenceCount} source facts checked` : "Record a verified snapshot"} />
       </div>
       <Card className="gap-0 rounded-lg py-0">
         <CardHeader className="border-b py-4"><CardTitle className="text-sm">Evidence boundaries</CardTitle><CardDescription>What the consolidated layer knows and what it still needs.</CardDescription></CardHeader>
@@ -466,11 +479,144 @@ function EvidenceView() {
           <EvidenceRow label="Trello and APTLSS" status={intelligence.error ? "Needs attention" : "Connected"} detail={intelligence.error?.message ?? "Plans, card state, priority and open steps are joined by card ID."} />
           <EvidenceRow label="Waiting reasons" status="Operational" detail="Free-text is classified into actor, missing item, follow-up and next action with confidence and missing-information flags." />
           <EvidenceRow label="Browser tabs" status={status.data?.connected ? "Connected" : "Setup required"} detail={status.data?.connected ? `${status.data.actionableTabs} actionable tabs are currently visible.` : "Install and authorize the local collector before tab compliance can be trusted."} />
-          <EvidenceRow label="Gmail and Drive" status="Preserved" detail="Developer integrations remain authoritative; cross-source evidence tables are additive and do not mutate external data." />
+          <EvidenceRow label="Communication" status={latest?.verificationStatus ?? "No snapshot"} detail={latest ? `${latest.messageReplied}/${latest.messageTotal} messages answered; ${latest.messageNeedsClarification} need clarification.` : "No verified communication snapshot is available yet."} />
+          <EvidenceRow label="Gmail processing" status={email.error ? "Needs attention" : `${email.data?.count ?? 0} pending`} detail={latest ? `${latest.emailCompleted}/${latest.emailTotal} retained emails were processed or archived for the latest snapshot.` : "Inbox tasks are retained without changing Gmail automatically."} />
+          <EvidenceRow label="Time accountability" status={latest ? `${Math.round(latest.trackedSeconds / 360) / 10}h tracked` : "No snapshot"} detail={latest ? `${Math.round(latest.overtimeSeconds / 360) / 10}h overtime against the configured worker schedule.` : "Completed timer entries are included in the next snapshot."} />
+          <EvidenceRow label="Browser history" status={`${history.data?.length ?? 0} days`} detail="End-of-day browser snapshots are retained separately from task and communication evidence." />
         </CardContent>
       </Card>
     </div>
   );
+}
+
+function WorkerSettingsView() {
+  const utils = trpc.useUtils();
+  const context = trpc.operator.getContext.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const policy = trpc.operator.getBrowserTabPolicy.useQuery(undefined, { staleTime: 60_000 });
+  const browser = trpc.operator.getBrowserTabStatus.useQuery(undefined, { retry: false, staleTime: 30_000 });
+  const email = trpc.emailInbox.getPendingCount.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const [enabled, setEnabled] = useState(true);
+  const [maxOpenTabs, setMaxOpenTabs] = useState(5);
+  const [warningMinutes, setWarningMinutes] = useState(30);
+  const [staleMinutes, setStaleMinutes] = useState(10);
+  const [includePinnedTabs, setIncludePinnedTabs] = useState(false);
+
+  useEffect(() => {
+    if (!policy.data) return;
+    setEnabled(policy.data.enabled);
+    setMaxOpenTabs(policy.data.maxOpenTabs);
+    setWarningMinutes(policy.data.warningMinutesBeforeEnd);
+    setStaleMinutes(policy.data.staleAfterMinutes);
+    setIncludePinnedTabs(policy.data.includePinnedTabs);
+  }, [policy.data]);
+
+  const savePolicy = trpc.operator.setBrowserTabPolicy.useMutation({
+    onSuccess: () => {
+      void utils.operator.getBrowserTabPolicy.invalidate();
+      void utils.operator.getBrowserTabStatus.invalidate();
+      toast.success("Browser policy saved");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const collectorToken = trpc.operator.getBrowserCollectorToken.useMutation({
+    onSuccess: async ({ token }) => {
+      try {
+        await navigator.clipboard.writeText(token);
+        toast.success("Collector token copied");
+      } catch {
+        toast.error("Clipboard access was blocked");
+      }
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const worker = context.data;
+  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  return (
+    <div className="space-y-5">
+      <PageHeading title="Settings" description="Personal operating controls for this worker profile. Founder and system administration remain separate." />
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <Card className="gap-0 rounded-lg py-0">
+          <CardHeader className="border-b py-4">
+            <CardTitle className="text-sm">Browser organization</CardTitle>
+            <CardDescription>Warn near the end of the working day when the connected browser exceeds the agreed limit.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5 p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div><Label htmlFor="browser-policy-enabled">End-of-day checks</Label><p className="mt-1 text-xs text-muted-foreground">Keep tab hygiene evidence active for this profile.</p></div>
+              <Switch id="browser-policy-enabled" checked={enabled} onCheckedChange={setEnabled} />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <NumberSetting id="max-open-tabs" label="Allowed tabs" value={maxOpenTabs} min={0} max={50} onChange={setMaxOpenTabs} />
+              <NumberSetting id="warning-minutes" label="Warn before end" value={warningMinutes} min={0} max={240} suffix="min" onChange={setWarningMinutes} />
+              <NumberSetting id="stale-minutes" label="Collector stale after" value={staleMinutes} min={2} max={120} suffix="min" onChange={setStaleMinutes} />
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+              <div><Label htmlFor="include-pinned">Count pinned tabs</Label><p className="mt-1 text-xs text-muted-foreground">Pinned reference tabs are excluded by default.</p></div>
+              <Switch id="include-pinned" checked={includePinnedTabs} onCheckedChange={setIncludePinnedTabs} />
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="outline" onClick={() => collectorToken.mutate()} disabled={collectorToken.isPending}>
+                {collectorToken.isPending ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />}Copy collector token
+              </Button>
+              <Button
+                onClick={() => savePolicy.mutate({
+                  enabled,
+                  maxOpenTabs,
+                  warningMinutesBeforeEnd: warningMinutes,
+                  staleAfterMinutes: staleMinutes,
+                  includePinnedTabs,
+                })}
+                disabled={savePolicy.isPending}
+              >
+                {savePolicy.isPending && <Loader2 className="size-4 animate-spin" />}Save policy
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-4">
+          <Card className="gap-0 rounded-lg py-0">
+            <CardHeader className="border-b py-4"><CardTitle className="text-sm">Working schedule</CardTitle></CardHeader>
+            <CardContent className="space-y-3 p-4 text-sm">
+              <SettingSummary label="Timezone" value={worker?.timezone ?? "Loading"} />
+              <SettingSummary label="Working window" value={worker ? `${worker.workStartTime}-${worker.workEndTime}` : "Loading"} />
+              <SettingSummary label="Working days" value={worker?.workingDays.map((day) => dayLabels[day]).join(", ") || "Loading"} />
+              <SettingSummary label="Protected breaks" value={worker ? `${worker.breaks.length}` : "Loading"} />
+            </CardContent>
+          </Card>
+          <Card className="gap-0 rounded-lg py-0">
+            <CardHeader className="border-b py-4"><CardTitle className="text-sm">Evidence connections</CardTitle></CardHeader>
+            <CardContent className="divide-y p-0">
+              <ConnectionRow label="Trello identity" value={worker?.trelloMemberId ? "Configured" : "Uses token owner"} healthy={Boolean(worker?.trelloMemberId)} />
+              <ConnectionRow label="Gmail queue" value={`${email.data?.count ?? 0} pending`} healthy={!email.error} />
+              <ConnectionRow label="Browser collector" value={browser.data?.connected ? "Connected" : browser.data?.collectorConfigured ? "Waiting for data" : "Setup required"} healthy={Boolean(browser.data?.connected)} />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NumberSetting({ id, label, value, min, max, suffix, onChange }: {
+  id: string;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  suffix?: string;
+  onChange: (value: number) => void;
+}) {
+  return <div className="space-y-2"><Label htmlFor={id}>{label}</Label><div className="relative"><Input id={id} type="number" min={min} max={max} value={value} onChange={(event) => onChange(Math.min(max, Math.max(min, Number(event.target.value) || min)))} className={suffix ? "pr-12" : ""} />{suffix && <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-muted-foreground">{suffix}</span>}</div></div>;
+}
+
+function SettingSummary({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-center justify-between gap-4"><span className="text-muted-foreground">{label}</span><span className="text-right font-medium">{value}</span></div>;
+}
+
+function ConnectionRow({ label, value, healthy }: { label: string; value: string; healthy: boolean }) {
+  return <div className="flex items-center justify-between gap-4 p-4"><span className="flex items-center gap-2 text-sm"><Monitor className="size-4 text-muted-foreground" />{label}</span><Badge variant="outline" className={healthy ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-300" : "border-amber-500/30 text-amber-600 dark:text-amber-300"}>{value}</Badge></div>;
 }
 
 function EvidenceRow({ label, status, detail }: { label: string; status: string; detail: string }) {

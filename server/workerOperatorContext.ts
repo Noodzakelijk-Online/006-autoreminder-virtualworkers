@@ -12,6 +12,7 @@ export type WorkerOperatorContext = {
   userId: number;
   profileId: number | null;
   founderId: number | null;
+  trelloMemberId: string | null;
   displayName: string;
   founderName: string;
   timezone: string;
@@ -58,6 +59,7 @@ export async function resolveWorkerOperatorContext(user: User): Promise<WorkerOp
       userId: user.id,
       profileId: null,
       founderId: null,
+      trelloMemberId: null,
       displayName: fallbackName,
       founderName: "Founder",
       timezone: "UTC",
@@ -101,6 +103,7 @@ export async function resolveWorkerOperatorContext(user: User): Promise<WorkerOp
     userId: user.id,
     profileId: profile?.id ?? null,
     founderId: profile?.founderId ?? null,
+    trelloMemberId: profile?.trelloMemberId?.trim() || null,
     displayName: profile?.name?.trim() || fallbackName,
     founderName: founder?.name?.trim() || "Founder",
     timezone: hours?.timezone || profile?.timezone || "UTC",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeTrelloError } from "./services/trello-manus";
+import { getTrelloMemberCardsPath, summarizeTrelloError } from "./services/trello-manus";
 
 describe("Trello error summaries", () => {
   it("retains operational rate-limit facts without leaking request credentials", () => {
@@ -30,5 +30,12 @@ describe("Trello error summaries", () => {
     });
     expect(JSON.stringify(summary)).not.toContain("secret-key");
     expect(JSON.stringify(summary)).not.toContain("secret-token");
+  });
+});
+
+describe("Trello worker scope", () => {
+  it("uses the configured member instead of the API token owner", () => {
+    expect(getTrelloMemberCardsPath("member-123")).toBe("/members/member-123/cards");
+    expect(getTrelloMemberCardsPath("")).toBe("/members/me/cards");
   });
 });

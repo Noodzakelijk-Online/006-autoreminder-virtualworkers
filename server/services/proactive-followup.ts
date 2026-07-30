@@ -268,7 +268,7 @@ export async function scheduleEndOfDayFollowUps(): Promise<void> {
         .from(timeEntries)
         .where(
           and(
-            eq(timeEntries.vaId, worker.id),
+            eq(timeEntries.vaId, worker.userId),
             gte(timeEntries.startTime, today)
           )
         )

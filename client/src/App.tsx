@@ -42,6 +42,7 @@ function Router() {
         <Route path={"/worker/plan"} component={() => <ProtectedRoute component={() => <WorkerOperator view="plan" />} allowedRoles={["worker"]} />} />
         <Route path={"/worker/decisions"} component={() => <ProtectedRoute component={() => <WorkerOperator view="decisions" />} allowedRoles={["worker"]} />} />
         <Route path={"/worker/evidence"} component={() => <ProtectedRoute component={() => <WorkerOperator view="evidence" />} allowedRoles={["worker"]} />} />
+        <Route path={"/worker/settings"} component={() => <ProtectedRoute component={() => <WorkerOperator view="settings" />} allowedRoles={["worker"]} />} />
         <Route path={"/worker"} component={() => <ProtectedRoute component={WorkerOperator} allowedRoles={["worker"]} />} />
         <Route path={"/404"} component={NotFound} />
         {/* Final fallback route */}
