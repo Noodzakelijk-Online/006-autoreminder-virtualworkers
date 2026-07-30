@@ -74,3 +74,5 @@ npx.cmd pnpm@10.4.1 test:e2e
 ```
 
 See [docs/CONSOLIDATION_LEDGER.md](docs/CONSOLIDATION_LEDGER.md) for source ownership and compatibility decisions.
+See [docs/BRANCH_CONSOLIDATION.md](docs/BRANCH_CONSOLIDATION.md) for the
+preserved Kamal delivery, branch dispositions, and main cutover rules.
