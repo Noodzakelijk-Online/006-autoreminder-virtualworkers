@@ -1,12 +1,17 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   aptlssAssessments,
   aptlssPlans,
   aptlssSteps,
   cardStates,
+  communicationEvidence,
+  emailTasks,
   priorityScores,
+  timeEntries,
+  workspaceEvidenceItems,
+  workspaceEvidenceLinks,
 } from "../drizzle/schema";
 import { getActiveWaitingReason, getActiveWaitingReasons, getWaitingReasonHistory, recordAptlssWaitingReason, resolveAptlssWaitingReason } from "./aptlssWaitingReasonDb";
 import { selectWorkQueueNextAction } from "./aptlssWorkQueue";
@@ -20,6 +25,12 @@ import {
 import { getDb } from "./db";
 import { DecisionOutcomeError, getDecisionHistory, recordDecisionOutcome } from "./decisionOutcomesDb";
 import { generateOperatorDailyPlan, getOperatorDailyPlan, updateOperatorDailyPlan, type OperatorDailyPlanPayload } from "./operatorDailyPlan";
+import {
+  buildOperatorEvidenceSummary,
+  type OperatorAssessmentEvidence,
+  type OperatorEvidenceSourceKey,
+  type OperatorIntelligenceSnapshot,
+} from "./operatorEvidence";
 import { protectedProcedure, router } from "./_core/trpc";
 import { resolveWorkerOperatorContext } from "./workerOperatorContext";
 import { interpretWaitingReasonForWorker } from "./workerWaitingReason";
@@ -118,11 +129,39 @@ export const operatorRouter = router({
       getActiveWaitingReasons(vaId),
     ]);
     const cardIds = plans.map((plan) => plan.cardId);
-    const assessments = cardIds.length
-      ? await db.select().from(aptlssAssessments)
-          .where(inArray(aptlssAssessments.cardId, cardIds))
-          .orderBy(desc(aptlssAssessments.assessedAt))
-      : [];
+    const [assessments, linkedEvidence, linkedCommunication, linkedEmails, completedTimeEntries] = cardIds.length
+      ? await Promise.all([
+          db.select().from(aptlssAssessments)
+            .where(inArray(aptlssAssessments.cardId, cardIds))
+            .orderBy(desc(aptlssAssessments.assessedAt)),
+          db.select({
+            cardId: workspaceEvidenceLinks.cardId,
+            source: workspaceEvidenceItems.source,
+          }).from(workspaceEvidenceLinks)
+            .innerJoin(workspaceEvidenceItems, eq(workspaceEvidenceItems.id, workspaceEvidenceLinks.evidenceId))
+            .where(and(
+              inArray(workspaceEvidenceLinks.cardId, cardIds),
+              eq(workspaceEvidenceItems.active, true),
+            )),
+          db.select({ cardId: communicationEvidence.linkedCardId })
+            .from(communicationEvidence)
+            .where(inArray(communicationEvidence.linkedCardId, cardIds)),
+          db.select({ cardId: emailTasks.trelloCardId })
+            .from(emailTasks)
+            .where(and(
+              eq(emailTasks.vaId, vaId),
+              inArray(emailTasks.trelloCardId, cardIds),
+            )),
+          db.select({ cardId: timeEntries.cardId })
+            .from(timeEntries)
+            .where(and(
+              eq(timeEntries.vaId, vaId),
+              eq(timeEntries.isVoided, false),
+              isNotNull(timeEntries.endTime),
+              inArray(timeEntries.cardId, cardIds),
+            )),
+        ])
+      : [[], [], [], [], []];
     const latestAssessment = new Map<string, typeof assessments[number]>();
     assessments.forEach((assessment) => {
       if (!latestAssessment.has(assessment.cardId)) latestAssessment.set(assessment.cardId, assessment);
@@ -130,6 +169,24 @@ export const operatorRouter = router({
     const stateMap = new Map(states.map((item) => [item.cardId, item]));
     const scoreMap = new Map(scores.map((item) => [item.cardId, item]));
     const waitingMap = new Map(waitingReasons.map((item) => [item.cardId, item]));
+    const sourceCounts = new Map<string, Partial<Record<Exclude<OperatorEvidenceSourceKey, "time">, number>>>();
+    const completedTimeSamples = new Map<string, number>();
+    const addSource = (
+      cardId: string | null,
+      source: Exclude<OperatorEvidenceSourceKey, "time">,
+    ) => {
+      if (!cardId) return;
+      const counts = sourceCounts.get(cardId) ?? {};
+      counts[source] = (counts[source] ?? 0) + 1;
+      sourceCounts.set(cardId, counts);
+    };
+    linkedEvidence.forEach((row) => addSource(row.cardId, row.source));
+    linkedCommunication.forEach((row) => addSource(row.cardId, "communication"));
+    linkedEmails.forEach((row) => addSource(row.cardId, "gmail"));
+    completedTimeEntries.forEach((row) => {
+      if (!row.cardId) return;
+      completedTimeSamples.set(row.cardId, (completedTimeSamples.get(row.cardId) ?? 0) + 1);
+    });
 
     return {
       cards: plans.map((plan) => {
@@ -138,6 +195,15 @@ export const operatorRouter = router({
         const score = scoreMap.get(plan.cardId);
         const assessment = latestAssessment.get(plan.cardId);
         const cardSteps = steps.filter((step) => step.cardId === plan.cardId);
+        const assessmentEvidence = assessment
+          ? parseJson<OperatorAssessmentEvidence[]>(assessment.evidenceJson, [])
+          : [];
+        const intelligence = assessment
+          ? parseJson<OperatorIntelligenceSnapshot>(assessment.intelligenceJson, {})
+          : {};
+        const rawUncertainties = assessment
+          ? parseJson<string[]>(assessment.uncertaintiesJson, [])
+          : [];
         const openRobertStep = cardSteps.find((step) => step.requiresRobert && step.status !== "complete") ?? null;
         const recommendations = assessment
           ? parseJson<string[]>(assessment.recommendationsJson, [])
@@ -165,7 +231,14 @@ export const operatorRouter = router({
           confidenceScore: assessment?.confidenceScore ?? (typeof planValue.confidenceScore === "number" ? planValue.confidenceScore : null),
           confidenceReason: assessment?.confidenceReason ?? (typeof planValue.confidenceReason === "string" ? planValue.confidenceReason : null),
           recommendations,
-          uncertainties: assessment ? parseJson<string[]>(assessment.uncertaintiesJson, []) : [],
+          uncertainties: rawUncertainties,
+          evidenceSummary: buildOperatorEvidenceSummary({
+            rawUncertainties,
+            assessmentEvidence,
+            intelligence,
+            linkedSourceCounts: sourceCounts.get(plan.cardId) ?? {},
+            completedTimeSamples: completedTimeSamples.get(plan.cardId) ?? 0,
+          }),
           waitingReason: waitingMap.get(plan.cardId) ?? null,
           steps: cardSteps.map((step) => ({
             id: step.id,

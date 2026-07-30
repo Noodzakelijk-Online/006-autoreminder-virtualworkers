@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import {
   Activity,
+  AlertTriangle,
   Archive,
   BrainCircuit,
   CalendarDays,
@@ -13,6 +14,7 @@ import {
   ExternalLink,
   FileCheck2,
   Gauge,
+  GripVertical,
   History,
   Inbox,
   LayoutDashboard,
@@ -67,6 +69,35 @@ type OperatorCard = {
   confidenceReason: string | null;
   recommendations: string[];
   uncertainties: string[];
+  evidenceSummary: {
+    sources: Array<{
+      key: "trello" | "communication" | "gmail" | "google_drive" | "time";
+      label: string;
+      count: number;
+      status: "linked" | "live" | "missing";
+      detail: string;
+    }>;
+    issues: Array<{
+      id: string;
+      title: string;
+      detail: string;
+      resolution: string;
+      severity: "high" | "medium" | "low";
+    }>;
+    forecast: {
+      p50Minutes: number | null;
+      p90Minutes: number | null;
+      sampleSize: number;
+      uncertainty: string | null;
+    } | null;
+    confidenceProfile: {
+      targetScore: number | null;
+      ceiling: number | null;
+      gapToTarget: number | null;
+      dimensions: Partial<Record<"evidence" | "forecast" | "humanValidation" | "consistency", number>>;
+      blockers: string[];
+    } | null;
+  };
   waitingReason: {
     waitingOn: string;
     nextAction: string;
@@ -103,6 +134,26 @@ function priorityTone(tier: string) {
 function initials(value: string) {
   const parts = value.trim().split(/\s+/).filter(Boolean);
   return (parts.length > 1 ? `${parts[0][0]}${parts.at(-1)?.[0]}` : parts[0]?.slice(0, 2) || "W").toUpperCase();
+}
+
+function evidenceTone(status: "linked" | "live" | "missing") {
+  if (status === "linked") return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (status === "live") return "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300";
+  return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+}
+
+function uncertaintyTone(severity: "high" | "medium" | "low") {
+  if (severity === "high") return "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300";
+  if (severity === "medium") return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  return "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300";
+}
+
+function formatDuration(minutes: number | null) {
+  if (minutes === null) return "Unknown";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
 }
 
 export default function WorkerOperator({ view = "today" }: { view?: "today" | "plan" | "decisions" | "evidence" | "settings" }) {
@@ -219,6 +270,11 @@ function TodayView({ onOpenPlan, onOpenDecisions }: { onOpenPlan: () => void; on
         return lane || right.priorityScore - left.priorityScore;
       });
   }, [actionQuery.data, intelligenceQuery.data]);
+  useEffect(() => {
+    if (!selected) return;
+    const refreshed = cards.find((card) => card.cardId === selected.cardId);
+    if (refreshed && refreshed !== selected) setSelected(refreshed);
+  }, [cards, selected]);
   const now = cards[0] ?? null;
   const next = cards.slice(1, 4);
   const openDecisions = cards.reduce((total, card) => total + card.steps.filter((step) => step.requiresRobert && step.status !== "complete").length, 0);
@@ -231,6 +287,17 @@ function TodayView({ onOpenPlan, onOpenDecisions }: { onOpenPlan: () => void; on
     boardName: card.boardName,
     listName: card.listName,
   });
+  const refreshEvidence = async () => {
+    const [intelligenceResult, actionResult] = await Promise.all([
+      intelligenceQuery.refetch(),
+      actionQuery.refetch(),
+    ]);
+    if (intelligenceResult.error || actionResult.error) {
+      toast.error(intelligenceResult.error?.message ?? actionResult.error?.message ?? "Evidence refresh failed");
+      return;
+    }
+    toast.success("Card evidence refreshed");
+  };
 
   return (
     <div className="space-y-5">
@@ -294,7 +361,13 @@ function TodayView({ onOpenPlan, onOpenDecisions }: { onOpenPlan: () => void; on
           <ContextMetric icon={Archive} label="Browser hygiene" value={browserQuery.data?.connected ? `${browserQuery.data.actionableTabs} tabs` : "Disconnected"} detail={browserQuery.data?.connected ? `Limit ${browserQuery.data.allowedTabs}` : "Collector has not reported"} />
         </aside>
       </div>
-      <CardInspector card={selected} onClose={() => setSelected(null)} onStart={begin} />
+      <CardInspector
+        card={selected}
+        onClose={() => setSelected(null)}
+        onStart={begin}
+        onRefresh={refreshEvidence}
+        refreshing={intelligenceQuery.isFetching || actionQuery.isFetching}
+      />
     </div>
   );
 }
@@ -333,21 +406,276 @@ function Lane({ label, cards, onSelect }: { label: string; cards: OperatorCard[]
   );
 }
 
-function CardInspector({ card, onClose, onStart }: { card: OperatorCard | null; onClose: () => void; onStart: (card: OperatorCard) => void }) {
+const INSPECTOR_WIDTH_KEY = "worker-operator-inspector-width-v1";
+const INSPECTOR_DEFAULT_WIDTH = 640;
+const INSPECTOR_MIN_WIDTH = 440;
+const INSPECTOR_MAX_WIDTH = 1_040;
+
+function CardInspector({
+  card,
+  onClose,
+  onStart,
+  onRefresh,
+  refreshing,
+}: {
+  card: OperatorCard | null;
+  onClose: () => void;
+  onStart: (card: OperatorCard) => void;
+  onRefresh: () => Promise<void>;
+  refreshing: boolean;
+}) {
+  const [preferredWidth, setPreferredWidth] = useState(INSPECTOR_DEFAULT_WIDTH);
+  const [viewportWidth, setViewportWidth] = useState(() => typeof window === "undefined" ? 1_280 : window.innerWidth);
+  const resizeState = useRef<{ startX: number; startWidth: number; nextWidth: number } | null>(null);
+
+  useEffect(() => {
+    const storedValue = window.localStorage.getItem(INSPECTOR_WIDTH_KEY);
+    const stored = storedValue === null ? Number.NaN : Number(storedValue);
+    if (Number.isFinite(stored)) {
+      setPreferredWidth(Math.max(INSPECTOR_MIN_WIDTH, Math.min(INSPECTOR_MAX_WIDTH, stored)));
+    }
+    const updateViewport = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
+
+  const desktopMax = Math.max(INSPECTOR_MIN_WIDTH, Math.min(INSPECTOR_MAX_WIDTH, viewportWidth - 64));
+  const panelWidth = viewportWidth < 768
+    ? Math.max(0, viewportWidth - 8)
+    : Math.max(INSPECTOR_MIN_WIDTH, Math.min(preferredWidth, desktopMax));
+  const wide = panelWidth >= 720;
+  const evidenceSummary = card?.evidenceSummary ?? {
+    sources: [
+      { key: "trello" as const, label: "Trello", count: 0, status: "missing" as const, detail: "Refresh to check current evidence" },
+      { key: "communication" as const, label: "Messages", count: 0, status: "missing" as const, detail: "Refresh to check current evidence" },
+      { key: "gmail" as const, label: "Gmail", count: 0, status: "missing" as const, detail: "Refresh to check current evidence" },
+      { key: "google_drive" as const, label: "Drive", count: 0, status: "missing" as const, detail: "Refresh to check current evidence" },
+      { key: "time" as const, label: "Time", count: 0, status: "missing" as const, detail: "Refresh to check current evidence" },
+    ],
+    issues: (card?.uncertainties ?? []).map((detail, index) => ({
+      id: `legacy-uncertainty-${index}`,
+      title: "Assessment gap",
+      detail,
+      resolution: "Refresh the evidence check before relying on this assessment.",
+      severity: "medium" as const,
+    })),
+    forecast: null,
+    confidenceProfile: null,
+  };
+
+  const saveWidth = (value: number) => {
+    const width = Math.max(INSPECTOR_MIN_WIDTH, Math.min(desktopMax, value));
+    setPreferredWidth(width);
+    window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(Math.round(width)));
+  };
+
+  const beginResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (viewportWidth < 768) return;
+    event.preventDefault();
+    resizeState.current = {
+      startX: event.clientX,
+      startWidth: panelWidth,
+      nextWidth: panelWidth,
+    };
+    const previousCursor = document.body.style.cursor;
+    const previousSelection = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const move = (moveEvent: PointerEvent) => {
+      const state = resizeState.current;
+      if (!state) return;
+      state.nextWidth = Math.max(
+        INSPECTOR_MIN_WIDTH,
+        Math.min(desktopMax, state.startWidth + state.startX - moveEvent.clientX),
+      );
+      setPreferredWidth(state.nextWidth);
+    };
+    const stop = () => {
+      const state = resizeState.current;
+      resizeState.current = null;
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousSelection;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      if (state) saveWidth(state.nextWidth);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+  };
+
+  const resizeWithKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      saveWidth(panelWidth + 40);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      saveWidth(panelWidth - 40);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      saveWidth(INSPECTOR_MIN_WIDTH);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      saveWidth(desktopMax);
+    }
+  };
+
   return (
     <Sheet open={Boolean(card)} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent className="w-[min(440px,calc(100vw-1rem))] overflow-y-auto sm:max-w-[440px]">
+      <SheetContent
+        className="gap-0 overflow-hidden border-l p-0 shadow-2xl sm:max-w-none"
+        style={{ width: panelWidth, maxWidth: "none" }}
+      >
+        <div
+          role="separator"
+          aria-label="Resize card details"
+          aria-orientation="vertical"
+          aria-valuemin={INSPECTOR_MIN_WIDTH}
+          aria-valuemax={desktopMax}
+          aria-valuenow={Math.round(panelWidth)}
+          tabIndex={0}
+          title="Drag to resize. Double-click to reset."
+          onPointerDown={beginResize}
+          onKeyDown={resizeWithKeyboard}
+          onDoubleClick={() => saveWidth(INSPECTOR_DEFAULT_WIDTH)}
+          className="group absolute inset-y-0 left-0 z-20 hidden w-4 -translate-x-1/2 cursor-col-resize items-center justify-center outline-none md:flex"
+        >
+          <span className="flex h-14 w-3 items-center justify-center rounded-sm border bg-background text-muted-foreground shadow-sm transition-colors group-hover:border-blue-500 group-hover:text-blue-500 group-focus-visible:ring-2 group-focus-visible:ring-blue-500">
+            <GripVertical className="size-3" />
+          </span>
+        </div>
         {card && <>
-          <SheetHeader>
-            <SheetTitle className="pr-8">{card.cardName}</SheetTitle>
-            <SheetDescription>{card.boardName} · {card.listName}</SheetDescription>
-          </SheetHeader>
-          <div className="space-y-5 px-4 pb-6">
-            <section><InspectorLabel>Next action</InspectorLabel><p className="text-sm font-medium">{card.nextBestAction ?? "No next action recorded."}</p></section>
-            <section><InspectorLabel>Assessment</InspectorLabel><p className="text-sm">{card.stateReason ?? card.planSummary ?? "No assessment context available."}</p><div className="mt-2 flex flex-wrap gap-2"><Badge variant="outline">{card.primaryState ?? "Unknown state"}</Badge><Badge variant="outline" className={priorityTone(card.priorityTier)}>{card.priorityTier} · {card.priorityScore}</Badge>{card.confidenceScore !== null && <Badge variant="outline">{card.confidenceScore}% confidence</Badge>}</div></section>
-            {card.uncertainties.length > 0 && <section><InspectorLabel>Uncertainties</InspectorLabel><ul className="space-y-1 text-sm text-muted-foreground">{card.uncertainties.map((item) => <li key={item}>· {item}</li>)}</ul></section>}
-            <section><InspectorLabel>APTLSS steps</InspectorLabel><div className="space-y-2">{card.steps.length ? card.steps.map((step) => <div key={step.id} className="flex gap-2 rounded-md border p-3 text-sm"><span className="text-muted-foreground">{step.stepNumber}.</span><span className="flex-1">{step.title}</span>{step.requiresRobert && <Badge variant="outline">Decision</Badge>}</div>) : <p className="text-sm text-muted-foreground">No structured steps recorded.</p>}</div></section>
-            <div className="grid gap-2 sm:grid-cols-2"><Button onClick={() => onStart(card)}><Play className="size-4" />Start timer</Button><Button variant="outline" asChild><a href={card.cardUrl} target="_blank" rel="noreferrer">Open Trello <ExternalLink className="size-4" /></a></Button></div>
+          <div className="border-b bg-background px-5 py-4">
+            <SheetHeader className="gap-2 p-0 pr-10">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className={priorityTone(card.priorityTier)}>{card.priorityTier}</Badge>
+                <Badge variant="outline">{card.primaryState ?? "Unknown state"}</Badge>
+              </div>
+              <SheetTitle className="text-lg leading-snug">{card.cardName}</SheetTitle>
+              <SheetDescription>{card.boardName} / {card.listName}</SheetDescription>
+            </SheetHeader>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="space-y-6 px-5 py-5">
+              <section className="border-l-2 border-blue-500 pl-4">
+                <InspectorLabel>Exactly next</InspectorLabel>
+                <p className="text-sm font-medium">{card.nextBestAction ?? "No next action recorded."}</p>
+              </section>
+
+              <div className={wide ? "grid grid-cols-2 gap-6" : "space-y-6"}>
+                <section>
+                  <InspectorLabel>Assessment</InspectorLabel>
+                  <p className="text-sm leading-relaxed">{card.stateReason ?? card.planSummary ?? "No assessment context available."}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Badge variant="outline" className={priorityTone(card.priorityTier)}>{card.priorityTier} / {card.priorityScore}</Badge>
+                    {card.confidenceScore !== null && <Badge variant="outline">{card.confidenceScore}% confidence</Badge>}
+                  </div>
+                </section>
+
+                <section>
+                  <div className="flex items-center justify-between gap-3">
+                    <InspectorLabel>Confidence</InspectorLabel>
+                    {evidenceSummary.confidenceProfile?.targetScore && (
+                      <span className="text-xs text-muted-foreground">Target {evidenceSummary.confidenceProfile.targetScore}%</span>
+                    )}
+                  </div>
+                  <Progress value={card.confidenceScore ?? 0} className="mt-2 h-2" />
+                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                    {card.confidenceReason ?? "No confidence explanation recorded."}
+                  </p>
+                  {evidenceSummary.confidenceProfile?.blockers.length ? (
+                    <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                      {evidenceSummary.confidenceProfile.blockers.slice(0, 3).map((blocker) => <li key={blocker}>- {blocker}</li>)}
+                    </ul>
+                  ) : null}
+                </section>
+              </div>
+
+              <section>
+                <div className="flex items-center justify-between gap-3">
+                  <InspectorLabel>Evidence coverage</InspectorLabel>
+                  <Button variant="ghost" size="sm" onClick={() => void onRefresh()} disabled={refreshing}>
+                    <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} />
+                    Refresh
+                  </Button>
+                </div>
+                <div className={`mt-2 grid gap-2 ${wide ? "grid-cols-5" : "grid-cols-2"}`}>
+                  {evidenceSummary.sources.map((source) => (
+                    <div key={source.key} className="min-w-0 rounded-md border bg-muted/20 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-semibold">{source.label}</span>
+                        <Badge variant="outline" className={`px-1.5 py-0 text-[10px] ${evidenceTone(source.status)}`}>
+                          {source.status}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{source.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <div className="flex items-center justify-between gap-3">
+                  <InspectorLabel>Uncertainty controls</InspectorLabel>
+                  <Badge variant="outline">{evidenceSummary.issues.length} open</Badge>
+                </div>
+                {evidenceSummary.issues.length ? (
+                  <div className={`mt-2 grid gap-3 ${wide ? "grid-cols-2" : "grid-cols-1"}`}>
+                    {evidenceSummary.issues.map((issue) => (
+                      <div key={issue.id} className="rounded-md border p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-2">
+                            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                            <h3 className="text-sm font-semibold">{issue.title}</h3>
+                          </div>
+                          <Badge variant="outline" className={uncertaintyTone(issue.severity)}>{issue.severity}</Badge>
+                        </div>
+                        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{issue.detail}</p>
+                        <div className="mt-3 border-t pt-3">
+                          <div className="text-[11px] font-semibold uppercase text-muted-foreground">How to resolve</div>
+                          <p className="mt-1 text-sm leading-relaxed">{issue.resolution}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-2 flex items-center gap-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm">
+                    <ShieldCheck className="size-4 text-emerald-500" />
+                    No material uncertainty remains in the currently connected evidence.
+                  </div>
+                )}
+              </section>
+
+              {evidenceSummary.forecast && (
+                <section>
+                  <InspectorLabel>Remaining-time range</InspectorLabel>
+                  <div className="mt-2 grid grid-cols-3 divide-x rounded-md border">
+                    <MetricCell label="P50" value={formatDuration(evidenceSummary.forecast.p50Minutes)} />
+                    <MetricCell label="P90" value={formatDuration(evidenceSummary.forecast.p90Minutes)} />
+                    <MetricCell label="Samples" value={String(evidenceSummary.forecast.sampleSize)} />
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">Use P90 for commitments while uncertainty is medium or high.</p>
+                </section>
+              )}
+
+              <section>
+                <InspectorLabel>APTLSS steps</InspectorLabel>
+                <div className={`mt-2 grid gap-2 ${wide ? "grid-cols-2" : "grid-cols-1"}`}>
+                  {card.steps.length ? card.steps.map((step) => (
+                    <div key={step.id} className="flex gap-2 rounded-md border p-3 text-sm">
+                      <span className="text-muted-foreground">{step.stepNumber}.</span>
+                      <span className="min-w-0 flex-1">{step.title}</span>
+                      {step.requiresRobert && <Badge variant="outline">Decision</Badge>}
+                    </div>
+                  )) : <p className="text-sm text-muted-foreground">No structured steps recorded.</p>}
+                </div>
+              </section>
+            </div>
+          </div>
+          <div className="grid shrink-0 gap-2 border-t bg-background p-4 sm:grid-cols-2">
+            <Button onClick={() => onStart(card)}><Play className="size-4" />Start timer</Button>
+            <Button variant="outline" asChild><a href={card.cardUrl} target="_blank" rel="noreferrer">Open Trello <ExternalLink className="size-4" /></a></Button>
           </div>
         </>}
       </SheetContent>
@@ -630,6 +958,10 @@ function PageHeading({ title, description, actions }: { title: string; descripti
 function ContextMetric({ icon: Icon, label, value, detail, onClick }: { icon: typeof Activity; label: string; value: string; detail: string; onClick?: () => void }) {
   const content = <><div className="flex items-center justify-between text-xs font-semibold uppercase text-muted-foreground"><span>{label}</span><Icon className="size-4" /></div><div className="mt-2 text-lg font-semibold">{value}</div><div className="mt-1 text-xs text-muted-foreground">{detail}</div></>;
   return onClick ? <button type="button" onClick={onClick} className="w-full rounded-lg border bg-card p-4 text-left hover:border-blue-500/40 hover:bg-accent/20">{content}</button> : <div className="rounded-lg border bg-card p-4">{content}</div>;
+}
+
+function MetricCell({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0 p-3 text-center"><div className="text-[11px] font-semibold uppercase text-muted-foreground">{label}</div><div className="mt-1 truncate text-sm font-semibold">{value}</div></div>;
 }
 
 function InspectorLabel({ children }: { children: React.ReactNode }) {
