@@ -102,8 +102,13 @@ Invoke-Checked $upArguments
 $localHealth = "http://127.0.0.1:$($env:PORT)/api/health"
 Wait-Http $localHealth | Out-Null
 
-$inspectUrl = "http://127.0.0.1:$($env:NGROK_INSPECT_PORT)/api/tunnels"
-$publicUrl = Wait-NgrokTunnel $inspectUrl
+$configuredPublicUrl = [Environment]::GetEnvironmentVariable("NGROK_URL", "Process")
+if ($configuredPublicUrl) {
+  $publicUrl = $configuredPublicUrl.Trim().TrimEnd("/")
+} else {
+  $inspectUrl = "http://127.0.0.1:$($env:NGROK_INSPECT_PORT)/api/tunnels"
+  $publicUrl = Wait-NgrokTunnel $inspectUrl
+}
 
 $env:PUBLIC_URL = $publicUrl
 $env:WEBHOOK_BASE_URL = $publicUrl

@@ -104,10 +104,12 @@ services:
     command:
       - >-
         if [ -n "$$NGROK_URL" ]; then
-          exec ngrok http app:3000 --url "$$NGROK_URL" --log stdout --name joyce-dashboard;
+          exec ngrok http app:3000 --url "$$NGROK_URL" --config /etc/ngrok.yml --log stdout --name joyce-dashboard;
         else
-          exec ngrok http app:3000 --log stdout --name joyce-dashboard;
+          exec ngrok http app:3000 --config /etc/ngrok.yml --log stdout --name joyce-dashboard;
         fi
+    volumes:
+      - ./deployment/ngrok.yml:/etc/ngrok.yml:ro
     ports:
       - "127.0.0.1:${NGROK_INSPECT_PORT:-4041}:4040"
     depends_on:
