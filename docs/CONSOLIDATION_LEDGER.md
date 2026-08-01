@@ -43,10 +43,17 @@ remains byte-for-byte recoverable independently of later consolidation work.
 - Existing APTLSS plans, steps, card states, scores, audit log, daily plans, policies, follow-ups, and weekly analysis
 - Existing time, payment, compliance, triage, reply monitor, email inbox, and Sunday workflows
 
-The previous worker dashboard source remains preserved in the developer
-delivery and repository history, but it is no longer mounted inside the worker
-operator. Historical `/worker/operations` links redirect to `/worker` so the
-product has one worker shell and one approval model.
+The previous worker dashboard remains preserved in the developer delivery and
+repository history, but its dead compatibility component has been removed from
+the consolidated tree and it is not mounted inside the worker operator.
+Historical `/worker/operations` links redirect to `/worker` so the product has
+one worker shell and one approval model.
+
+The consolidated runtime uses one same-origin `/api` contract. Local and Trello
+sessions use the stable `SESSION_APP_ID` audience (default `va-dashboard`) and
+do not depend on a legacy Manus `VITE_APP_ID`. This prevents a successful login
+from producing a JWT that the protected REST and tRPC procedures immediately
+reject.
 
 ## Imported Joyce Capabilities
 

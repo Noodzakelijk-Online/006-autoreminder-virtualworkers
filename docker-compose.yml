@@ -1,7 +1,7 @@
 services:
   # MySQL Database
   mysql:
-    image: mysql:8.0
+    image: mysql:8.4
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
@@ -9,7 +9,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
     ports:
-      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+      - "127.0.0.1:${MYSQL_PORT:-3307}:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     networks:
@@ -62,7 +62,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "${PORT:-3000}:3000"
+      - "127.0.0.1:${PORT:-3025}:3000"
     env_file:
       - path: .env
         required: true
@@ -71,8 +71,12 @@ services:
       PORT: 3000
       HOST: 0.0.0.0
       LOCAL_AUTH_BYPASS: "false"
+      SESSION_APP_ID: ${SESSION_APP_ID:-va-dashboard}
       DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL:-}
+      TRELLO_WEBHOOK_CALLBACK_URL: ${TRELLO_WEBHOOK_CALLBACK_URL:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -87,12 +91,38 @@ services:
       retries: 3
       start_period: 40s
 
+  # Optional public ingress. The public profile is started by
+  # scripts/start-public-dashboard.ps1 after the application is healthy.
+  ngrok:
+    image: ngrok/ngrok:latest
+    profiles: ["public"]
+    restart: unless-stopped
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+      NGROK_URL: ${NGROK_URL:-}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        if [ -n "$$NGROK_URL" ]; then
+          exec ngrok http app:3000 --url "$$NGROK_URL" --log stdout --name joyce-dashboard;
+        else
+          exec ngrok http app:3000 --log stdout --name joyce-dashboard;
+        fi
+    ports:
+      - "127.0.0.1:${NGROK_INSPECT_PORT:-4041}:4040"
+    depends_on:
+      app:
+        condition: service_healthy
+    networks:
+      - va-network
+
 networks:
   va-network:
     driver: bridge
 
 volumes:
   mysql_data:
+    name: ${MYSQL_VOLUME_NAME:-joyce-work-schedule_joyce_mysql_data}
     driver: local
   redis_data:
     driver: local

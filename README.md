@@ -49,6 +49,19 @@ and serves the frontend and API from one Node process. Do not repoint the old
 `Frontend` or `Backend` Vercel projects at the repository root; deploy the
 provided Docker image to a persistent container host instead.
 
+For the approved local Docker + ngrok deployment, keep the ignored `.env` for
+application credentials and `.env.db.local` for Docker-only credentials, then
+run:
+
+```powershell
+pnpm docker:public
+```
+
+The command builds the unified app, starts MySQL, Redis, the application and
+ngrok, discovers the assigned HTTPS URL, injects it back into the backend for
+webhook generation, and verifies both local and public health endpoints. The
+current URL is written to ignored `.local/public-dashboard.json`.
+
 See [docs/PRODUCTION_CUTOVER.md](docs/PRODUCTION_CUTOVER.md) for the required
 secret contract, verification gate, rollback requirements, and the boundary
 for retiring the old Vercel projects.

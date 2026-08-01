@@ -8,6 +8,7 @@ import { COOKIE_NAME, ONE_YEAR_MS } from '@shared/const';
 import { sdk } from '../_core/sdk';
 import { getSessionCookieOptions } from '../_core/cookies';
 import * as db from '../db';
+import { isLocalRegistrationAllowed } from '../_core/localRegistration';
 
 const router = express.Router();
 
@@ -18,8 +19,10 @@ const router = express.Router();
  */
 router.post('/register', async (req: Request, res: Response) => {
   try {
+    if (!isLocalRegistrationAllowed()) {
+      return res.status(403).json({ error: 'Public account registration is disabled.' });
+    }
     console.log('[LocalAuth] Register request received:', {
-      body: req.body,
       hasUsername: !!req.body?.username,
       hasPassword: !!req.body?.password,
       hasName: !!req.body?.name,

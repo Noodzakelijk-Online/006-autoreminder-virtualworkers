@@ -517,7 +517,7 @@ function LocalLoginForm({ onSuccess }: { onSuccess: () => void }) {
           )}
         </form>
 
-        <p className="text-center text-sm text-muted-foreground">
+        {import.meta.env.DEV && <p className="text-center text-sm text-muted-foreground">
           {mode === 'login' ? (
             <>
               No account?{' '}
@@ -539,7 +539,7 @@ function LocalLoginForm({ onSuccess }: { onSuccess: () => void }) {
               </button>
             </>
           )}
-        </p>
+        </p>}
       </div>
     </div>
   );

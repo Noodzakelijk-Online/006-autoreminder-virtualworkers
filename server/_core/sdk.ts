@@ -15,6 +15,7 @@ import type {
   GetUserInfoWithJwtResponse,
 } from "./types/manusTypes";
 import { resolveLocalBypassUser } from "./localAuthBypass";
+import { getSessionAudience } from "./sessionIdentity";
 // Utility function
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
@@ -31,11 +32,10 @@ const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserI
 
 class OAuthService {
   constructor(private client: ReturnType<typeof axios.create>) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: OAUTH_SERVER_URL is not configured! Set OAUTH_SERVER_URL environment variable."
-      );
+    if (ENV.oAuthServerUrl) {
+      console.log("[OAuth] External OAuth compatibility enabled");
+    } else {
+      console.log("[OAuth] External OAuth disabled; local and Trello sessions remain available");
     }
   }
 
@@ -172,7 +172,7 @@ class SDKServer {
     return this.signSession(
       {
         openId,
-        appId: ENV.appId,
+        appId: getSessionAudience(),
         name: options.name || "",
       },
       options
@@ -216,7 +216,8 @@ class SDKServer {
       if (
         !isNonEmptyString(openId) ||
         !isNonEmptyString(appId) ||
-        !isNonEmptyString(name)
+        !isNonEmptyString(name) ||
+        appId !== getSessionAudience()
       ) {
         console.warn("[Auth] Session payload missing required fields");
         return null;

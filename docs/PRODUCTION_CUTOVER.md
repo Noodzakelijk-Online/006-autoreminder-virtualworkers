@@ -12,6 +12,18 @@ the same services to a managed container platform. Keep one application
 instance active until scheduled-job locking has been verified on the target
 platform.
 
+The supported single-host public entrypoint is `pnpm docker:public`. It runs
+the application and ngrok in the same Compose network, binds the app and
+database ports to loopback only, and records the current public endpoint in
+`.local/public-dashboard.json`. Because an automatically assigned ngrok URL
+can change after a restart, rerun the command after reboot so the backend and
+Trello callback use the current URL.
+
+Set `NGROK_URL` in `.env.db.local` when the account has more than one endpoint
+or another application already uses the account's default developer domain.
+Public password registration is disabled; existing workers authenticate with
+their registered Trello identity or a separately provisioned local password.
+
 Do not point either obsolete Vercel project at the repository root. A Vercel
 deployment would omit the persistent process, scheduled work, and WebSocket
 runtime required by the platform. Production startup rejects the Vercel
@@ -64,6 +76,10 @@ Before traffic is moved:
    occurs during smoke testing.
 7. Point the public domain and Trello webhook callback at the new runtime.
 8. Retain the prior build and database snapshot through the rollback window.
+
+Before reusing an existing database volume, create a logical SQL backup and
+keep the previous stopped database container until the public verification
+gate passes. `MYSQL_VOLUME_NAME` selects the preserved volume explicitly.
 
 Only disconnect or delete the obsolete Vercel projects after this gate passes
 against the public replacement.
