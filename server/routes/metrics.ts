@@ -150,21 +150,16 @@ router.get('/metrics/history', async (req: Request, res: Response) => {
       ? ((cacheStats.hits + (queueMetrics.totalRequests - queueMetrics.deduplicatedRequests)) / cacheStats.totalRequests) * 100
       : 0;
 
-    const now = Date.now();
-    const hourInMs = 60 * 60 * 1000;
-    
-    const history = Array.from({ length: 24 }, (_, i) => {
-      const timestamp = now - (23 - i) * hourInMs;
-      const trend = 0.8 + (i / 23) * 0.2;
-      return {
-        timestamp: new Date(timestamp).toISOString(),
-        cacheHitRate: Math.max(0, Math.min(100, Math.round(currentCacheHitRate * trend * 10) / 10)),
-        apiCallReduction: Math.max(0, Math.min(100, Math.round(currentApiReduction * trend * 10) / 10)),
-        activeConnections: Math.max(0, Math.round(wsConnectedClients * trend)),
-      };
+    res.json({
+      history: [{
+        timestamp: new Date().toISOString(),
+        cacheHitRate: Math.round(currentCacheHitRate * 10) / 10,
+        apiCallReduction: Math.round(currentApiReduction * 10) / 10,
+        activeConnections: wsConnectedClients,
+      }],
+      historical: false,
+      note: 'Durable metric snapshots are not configured; this contains the current measured snapshot only.',
     });
-
-    res.json({ history });
   } catch (error) {
     console.error('Error fetching metrics history:', error);
     res.status(500).json({ error: 'Failed to fetch metrics history' });
@@ -177,12 +172,11 @@ router.get('/metrics/history', async (req: Request, res: Response) => {
 router.post('/metrics/reset', async (req: Request, res: Response) => {
   try {
     const user = (req as any).user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden - admin only' });
     }
 
-    // Reset queue stats (if method exists)
-    // requestQueue.resetStats(); // Not implemented yet
+    requestQueue.resetMetrics();
 
     res.json({ success: true, message: 'Metrics reset successfully' });
   } catch (error) {

@@ -44,9 +44,9 @@ export function getSessionCookieOptions(
   return {
     httpOnly: true,
     path: "/",
-    // sameSite:"none" requires secure:true — browsers silently drop the cookie
-    // on plain HTTP (localhost). Use "lax" for HTTP and "none" for HTTPS.
-    sameSite: secure ? "none" : "lax",
+    // The dashboard and API share an origin. Lax still permits top-level
+    // OAuth/Trello redirects while reducing cross-site request forgery risk.
+    sameSite: "lax",
     secure,
   };
 }

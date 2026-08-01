@@ -10,12 +10,15 @@ import {
   executeBatchOperation,
   getBatchOperationStatus,
   cancelBatchOperation,
+  SUPPORTED_BATCH_OPERATION_TYPES,
   type BatchOperationParams,
 } from '../services/batch-operations-service';
 import { log } from '../utils/logger';
 import { expensiveOperationRateLimiter } from '../middleware/rate-limiter';
+import { requireAuthenticated, requestUser } from '../middleware/auth';
 
 const router = Router();
+router.use(requireAuthenticated);
 
 /**
  * POST /api/batch-operations/start
@@ -23,10 +26,7 @@ const router = Router();
  */
 router.post('/start', expensiveOperationRateLimiter, async (req: any, res: Response) => {
   try {
-    const user = req.user;
-    if (!user) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    const user = requestUser(req)!;
 
     const { operationType, taskIds, description, parameters } = req.body;
 
@@ -34,8 +34,15 @@ router.post('/start', expensiveOperationRateLimiter, async (req: any, res: Respo
       return res.status(400).json({ error: 'Operation type is required' });
     }
 
-    if (!Array.isArray(taskIds) || taskIds.length === 0) {
+    if (!Array.isArray(taskIds) || taskIds.length === 0 || taskIds.length > 250) {
       return res.status(400).json({ error: 'Task IDs array is required and must not be empty' });
+    }
+
+    const normalizedTaskIds = [...new Set(taskIds.map((value: unknown) =>
+      typeof value === 'string' ? value.trim() : ''
+    ).filter((value: string) => value.length > 0 && value.length <= 128))];
+    if (normalizedTaskIds.length !== taskIds.length) {
+      return res.status(400).json({ error: 'Every task ID must be a unique non-empty string of at most 128 characters' });
     }
 
     const validOperationTypes = ['re_analyze', 'reschedule', 'conflict_resolution', 'optimization'];
@@ -44,12 +51,18 @@ router.post('/start', expensiveOperationRateLimiter, async (req: any, res: Respo
         error: `Invalid operation type. Must be one of: ${validOperationTypes.join(', ')}`,
       });
     }
+    if (!SUPPORTED_BATCH_OPERATION_TYPES.includes(operationType)) {
+      return res.status(501).json({
+        error: `${operationType} is not implemented and will not be reported as completed`,
+        supportedOperationTypes: SUPPORTED_BATCH_OPERATION_TYPES,
+      });
+    }
 
     const params: BatchOperationParams = {
       userId: String(user.id),
       userOpenId: user.openId,
       operationType,
-      taskIds,
+      taskIds: normalizedTaskIds,
       description,
       parameters,
     };
@@ -91,7 +104,8 @@ router.get('/:operationId/status', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Operation ID is required' });
     }
 
-    const status = await getBatchOperationStatus(operationId);
+    const user = requestUser(req)!;
+    const status = await getBatchOperationStatus(operationId, user.openId);
 
     if (!status) {
       return res.status(404).json({ error: 'Batch operation not found' });
@@ -121,7 +135,11 @@ router.post('/:operationId/cancel', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Operation ID is required' });
     }
 
-    await cancelBatchOperation(operationId);
+    const user = requestUser(req)!;
+    const cancelled = await cancelBatchOperation(operationId, user.openId);
+    if (!cancelled) {
+      return res.status(404).json({ error: 'Running batch operation not found' });
+    }
 
     res.json({
       success: true,

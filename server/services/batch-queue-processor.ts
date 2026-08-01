@@ -55,6 +55,10 @@ class BatchQueueProcessor extends EventEmitter {
   private cancelledJobs: Set<string> = new Set();
   private pausedJobs: Set<string> = new Set();
 
+  private getJobOwner(jobId: string): string | undefined {
+    return this.activeJobs.get(jobId)?.userId ?? this.queue.find(job => job.jobId === jobId)?.userId;
+  }
+
   constructor() {
     super();
   }
@@ -120,7 +124,8 @@ class BatchQueueProcessor extends EventEmitter {
     progress.isPaused = true;
     progress.pausedAt = new Date();
     await this.persistProgress(jobId, progress);
-    websocketService.emitToAll('batch:paused', {
+    const owner = this.getJobOwner(jobId);
+    if (owner) websocketService.emitToUser(owner, 'batch:paused', {
       ...progress,
       jobId,
     });
@@ -137,7 +142,8 @@ class BatchQueueProcessor extends EventEmitter {
     progress.isPaused = false;
     progress.pausedAt = undefined;
     await this.persistProgress(jobId, progress);
-    websocketService.emitToAll('batch:resumed', {
+    const owner = this.getJobOwner(jobId);
+    if (owner) websocketService.emitToUser(owner, 'batch:resumed', {
       ...progress,
       jobId,
     });
@@ -231,11 +237,8 @@ class BatchQueueProcessor extends EventEmitter {
               result = await this.rescheduleTask(taskId, job.parameters);
               break;
             case 'conflict_resolution':
-              result = await this.resolveConflicts(taskId, job.parameters);
-              break;
             case 'optimization':
-              result = await this.optimizeSchedule(taskId, job.parameters);
-              break;
+              throw new Error(`${job.operationType} is not implemented`);
           }
 
           progress.completedTasks++;
@@ -261,7 +264,7 @@ class BatchQueueProcessor extends EventEmitter {
 
         // Emit progress update
         this.emit('progress', progress);
-        websocketService.emitToAll('batch:progress', {
+        websocketService.emitToUser(job.userId, 'batch:progress', {
           ...progress,
           jobId: job.jobId,
         });
@@ -356,45 +359,6 @@ class BatchQueueProcessor extends EventEmitter {
   }
 
   /**
-   * Resolve conflicts for a task
-   */
-  private async resolveConflicts(taskId: string, parameters?: Record<string, any>): Promise<Record<string, any>> {
-    try {
-      // Conflict resolution logic
-      const resolutionStrategy = parameters?.strategy || 'reschedule';
-
-      return {
-        taskId,
-        conflictResolved: true,
-        strategy: resolutionStrategy,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      console.error(`[Batch] Error resolving conflicts for task ${taskId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Optimize schedule for a task
-   */
-  private async optimizeSchedule(taskId: string, parameters?: Record<string, any>): Promise<Record<string, any>> {
-    try {
-      const optimizationScore = Math.random() * 100;
-
-      return {
-        taskId,
-        optimized: true,
-        optimizationScore,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      console.error(`[Batch] Error optimizing schedule for task ${taskId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
    * Cancel a job
    */
   public async cancelJob(jobId: string): Promise<void> {
@@ -405,7 +369,8 @@ class BatchQueueProcessor extends EventEmitter {
       this.cancelledJobs.add(jobId);
       this.pausedJobs.delete(jobId);
       this.emit('cancelled', progress);
-      websocketService.emitToAll('batch:cancelled', {
+      const owner = this.getJobOwner(jobId);
+      if (owner) websocketService.emitToUser(owner, 'batch:cancelled', {
         ...progress,
         jobId,
       });

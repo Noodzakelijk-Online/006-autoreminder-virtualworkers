@@ -146,10 +146,10 @@ describe('Scheduling Settings', () => {
 
       const updated = {
         ...config,
-        defaultOperationType: 'conflict_resolution' as const,
+        defaultOperationType: 'reschedule' as const,
       };
 
-      expect(updated.defaultOperationType).toBe('conflict_resolution');
+      expect(updated.defaultOperationType).toBe('reschedule');
     });
   });
 

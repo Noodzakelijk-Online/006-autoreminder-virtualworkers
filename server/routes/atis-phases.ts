@@ -17,8 +17,21 @@ import {
   runAllPhases,
 } from '../services/atis-phases-service';
 import * as atisDb from '../db/atis-phases';
+import { requireAuthenticated, requestUser } from '../middleware/auth';
 
 const router = express.Router();
+router.use(requireAuthenticated);
+
+function ownsSession(user: NonNullable<ReturnType<typeof requestUser>>, session: { userId: string }) {
+  return user.role === 'admin' || session.userId === user.openId || session.userId === String(user.id);
+}
+
+async function canAccessTask(req: Request, taskId: string) {
+  const user = requestUser(req)!;
+  if (user.role === 'admin') return true;
+  const sessions = await atisDb.getAnalysisSessionByTask(taskId);
+  return sessions.some(session => ownsSession(user, session));
+}
 
 /**
  * POST /api/atis/phases/start
@@ -284,6 +297,10 @@ router.get('/session/:sessionId', async (req: Request, res: Response) => {
       });
     }
 
+    if (!ownsSession(requestUser(req)!, session[0])) {
+      return res.status(403).json({ success: false, error: 'Session access denied' });
+    }
+
     res.json({
       success: true,
       data: session[0],
@@ -304,6 +321,9 @@ router.get('/session/:sessionId', async (req: Request, res: Response) => {
 router.get('/task/:taskId', async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
+    if (!(await canAccessTask(req, taskId))) {
+      return res.status(403).json({ success: false, error: 'Task access denied' });
+    }
     const data = await atisDb.getAllAnalysisData(taskId);
 
     res.json({
@@ -326,6 +346,9 @@ router.get('/task/:taskId', async (req: Request, res: Response) => {
 router.get('/subtasks/:taskId', async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
+    if (!(await canAccessTask(req, taskId))) {
+      return res.status(403).json({ success: false, error: 'Task access denied' });
+    }
     const subtasks = await atisDb.getSubtasks(taskId);
 
     res.json({
@@ -348,6 +371,9 @@ router.get('/subtasks/:taskId', async (req: Request, res: Response) => {
 router.get('/risks/:taskId', async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
+    if (!(await canAccessTask(req, taskId))) {
+      return res.status(403).json({ success: false, error: 'Task access denied' });
+    }
     const risks = await atisDb.getRisks(taskId);
 
     res.json({
@@ -370,6 +396,9 @@ router.get('/risks/:taskId', async (req: Request, res: Response) => {
 router.get('/resources/:taskId', async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
+    if (!(await canAccessTask(req, taskId))) {
+      return res.status(403).json({ success: false, error: 'Task access denied' });
+    }
     const resources = await atisDb.getResourceRequirements(taskId);
 
     res.json({

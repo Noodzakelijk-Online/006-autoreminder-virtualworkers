@@ -16,6 +16,7 @@ interface WebSocketStatus {
 
 export function useWebSocket(options: UseWebSocketOptions = {}) {
   const { user } = useAuth();
+  const isAuthenticated = Boolean(user?.openId);
   const socketRef = useRef<Socket | null>(null);
   const [status, setStatus] = useState<WebSocketStatus>({
     connected: false,
@@ -30,7 +31,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   optionsRef.current = options;
 
   useEffect(() => {
-    if (!user?.id || !user?.openId) {
+    if (!isAuthenticated) {
       return;
     }
 
@@ -53,11 +54,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       console.log('[WebSocket] Connected');
       setStatus(prev => ({ ...prev, connected: true }));
 
-      // Authenticate with server
-      socket.emit('authenticate', {
-        userId: user.id,
-        userOpenId: user.openId,
-      });
+    });
+
+    socket.on('connect_error', (error: Error) => {
+      console.error('[WebSocket] Connection error:', error);
+      setStatus({ connected: false, connectedClients: 0 });
     });
 
     socket.on('disconnect', () => {
@@ -110,7 +111,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       console.log('[WebSocket] Disconnecting');
       socket.disconnect();
     };
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
 
   // Helper functions to emit events
   const emitTaskComplete = (data: { taskId: string; isCompleted: boolean }) => {

@@ -36,6 +36,7 @@ import atisPhasesRoutes from "../routes/atis-phases.js";
 import batchOperationsRoutes from "../routes/batch-operations.js";
 import healthRoutes from "../routes/health.js";
 import { websocketService } from "../services/websocket.js";
+import { getRequestBodyLimit, securityHeaders } from "../middleware/security.js";
 import { warmUpCache, scheduleCacheRefresh } from "../services/cache-warming.js";
 import { initializeRedis, closeRedis } from "../services/redis.js";
 import { startBriefingScheduler } from "../services/briefing-scheduler.js";
@@ -151,20 +152,19 @@ async function startServer() {
   const app = express();
   app.set("trust proxy", true);
   const server = createServer(app);
+
+  app.use(securityHeaders);
   
   // Concurrency limiter — queues excess requests instead of hard-rejecting them
   app.use(concurrencyLimiter);
   
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  const requestBodyLimit = getRequestBodyLimit();
+  app.use(express.json({ limit: requestBodyLimit }));
+  app.use(express.urlencoded({ limit: requestBodyLimit, extended: true }));
 
   // Health probes must remain public and must not consume the UI/API rate budget.
   app.use("/api/health", healthRoutes);
 
-  // Global rate limiting for all API routes
-  app.use('/api', apiRateLimiter);
-  
   // Authentication middleware for all /api routes
   app.use('/api', async (req: any, res, next) => {
     try {
@@ -175,6 +175,9 @@ async function startServer() {
     }
     next();
   });
+
+  // Authenticated users receive independent API budgets even behind one proxy.
+  app.use('/api', apiRateLimiter);
   
   // OAuth callback under /api/oauth/callback (Manus OAuth - kept for compatibility)
   registerOAuthRoutes(app);

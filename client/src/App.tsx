@@ -1,23 +1,34 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
 import { Redirect, Route, Switch } from "wouter";
+import { LoaderCircle } from "lucide-react";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { LoadingQueueProvider } from "./contexts/LoadingQueueContext";
 import DashboardLayout from "./components/DashboardLayout";
-import Home from "./pages/Home";
-import APTLSSManagement from "./pages/APTLSSManagement";
-import Settings from "./pages/Settings";
-import Calendar from "./pages/Calendar";
-import FounderDashboard from "./pages/FounderDashboard";
-import AdvancedScheduling from "./pages/AdvancedScheduling";
-import ATISPhasesAnalysisDashboard from "./pages/ATISPhasesAnalysisDashboard";
-import RobertDashboard from "./pages/manus/RobertDashboard";
-import PriorityCommandCenter from "./pages/manus/PriorityCommandCenter";
-import AdminMonitor from "./pages/manus/AdminMonitor";
 import { ProtectedRoute } from "./components/ProtectedRoute";
-import WorkerOperator from "./pages/worker/WorkerOperator";
+
+const NotFound = lazy(() => import("./pages/NotFound"));
+const Home = lazy(() => import("./pages/Home"));
+const APTLSSManagement = lazy(() => import("./pages/APTLSSManagement"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Calendar = lazy(() => import("./pages/Calendar"));
+const FounderDashboard = lazy(() => import("./pages/FounderDashboard"));
+const AdvancedScheduling = lazy(() => import("./pages/AdvancedScheduling"));
+const ATISPhasesAnalysisDashboard = lazy(() => import("./pages/ATISPhasesAnalysisDashboard"));
+const RobertDashboard = lazy(() => import("./pages/manus/RobertDashboard"));
+const PriorityCommandCenter = lazy(() => import("./pages/manus/PriorityCommandCenter"));
+const AdminMonitor = lazy(() => import("./pages/manus/AdminMonitor"));
+const WorkerOperator = lazy(() => import("./pages/worker/WorkerOperator"));
+
+function RouteLoading() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center" role="status" aria-label="Loading page">
+      <LoaderCircle className="h-6 w-6 animate-spin text-muted-foreground" aria-hidden="true" />
+    </div>
+  );
+}
 
 
 function Router() {
@@ -25,7 +36,8 @@ function Router() {
   // and shows the login form when user is not authenticated
   return (
     <DashboardLayout>
-      <Switch>
+      <Suspense fallback={<RouteLoading />}>
+        <Switch>
         <Route path={"/"} component={() => <ProtectedRoute component={Home} allowedRoles={["admin"]} />} />
         <Route path={"/aptlss"} component={() => <ProtectedRoute component={APTLSSManagement} allowedRoles={["admin"]} />} />
         <Route path={"/settings"} component={() => <ProtectedRoute component={Settings} allowedRoles={["admin"]} />} />
@@ -46,7 +58,8 @@ function Router() {
         <Route path={"/404"} component={NotFound} />
         {/* Final fallback route */}
         <Route component={NotFound} />
-      </Switch>
+        </Switch>
+      </Suspense>
     </DashboardLayout>
   );
 }

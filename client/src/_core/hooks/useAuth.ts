@@ -1,6 +1,6 @@
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 type UseAuthOptions = {
   redirectOnUnauthenticated?: boolean;
@@ -54,14 +54,6 @@ export function useAuth(options?: UseAuthOptions) {
     logoutMutation.error,
     logoutMutation.isPending,
   ]);
-
-  useEffect(() => {
-    if (meQuery.data) {
-      localStorage.setItem('manus-runtime-user-info', JSON.stringify(meQuery.data));
-    } else if (meQuery.data === null) {
-      localStorage.removeItem('manus-runtime-user-info');
-    }
-  }, [meQuery.data]);
 
   return {
     ...state,

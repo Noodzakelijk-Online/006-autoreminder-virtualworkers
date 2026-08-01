@@ -35,7 +35,7 @@ function cleanupMemoryStore(): void {
 }
 
 // Run cleanup every 5 minutes
-setInterval(cleanupMemoryStore, 5 * 60 * 1000);
+setInterval(cleanupMemoryStore, 5 * 60 * 1000).unref();
 
 /**
  * Get rate limit info from Redis or memory

@@ -1,217 +1,223 @@
-import { Server as HTTPServer } from 'http';
-import { Server as SocketIOServer, Socket } from 'socket.io';
-import { createAdapter } from '@socket.io/redis-adapter';
-import { getRedisPubClient, getRedisSubClient, isRedisAvailable } from './redis';
+import type { Request } from "express";
+import type { Server as HTTPServer } from "http";
+import { and, eq, or } from "drizzle-orm";
+import { Server as SocketIOServer, type Socket } from "socket.io";
+import { createAdapter } from "@socket.io/redis-adapter";
+import { atisAnalysisSessions, type User } from "../../drizzle/schema";
+import { sdk } from "../_core/sdk";
+import { getDb } from "../db";
+import { getRedisPubClient, getRedisSubClient, isRedisAvailable } from "./redis";
+
+type SocketUser = Pick<User, "id" | "openId" | "name" | "role">;
+type SocketAuthenticator = (socket: Socket) => Promise<SocketUser>;
+type SessionAuthorizer = (user: SocketUser, sessionId: string) => Promise<boolean>;
+
+export interface WebSocketServiceOptions {
+  authenticate?: SocketAuthenticator;
+  authorizeSession?: SessionAuthorizer;
+  allowedOrigins?: string[];
+}
 
 interface ConnectedClient {
   socket: Socket;
-  userId: number;
-  userOpenId: string;
+  user: SocketUser;
   connectedAt: Date;
 }
 
-class WebSocketService {
-  private io: SocketIOServer | null = null;
-  private clients: Map<string, ConnectedClient> = new Map();
+function configuredOrigins() {
+  return [
+    process.env.PUBLIC_URL,
+    process.env.WEBHOOK_BASE_URL,
+    process.env.APP_URL,
+    process.env.VITE_FRONTEND_URL,
+  ].filter((value): value is string => Boolean(value?.trim()));
+}
 
-  /**
-   * Get the Socket.IO server instance (for shutdown)
-   */
+export function isAllowedWebSocketOrigin(origin: string | undefined, allowedOrigins = configuredOrigins()) {
+  if (!origin) return true;
+
+  try {
+    const url = new URL(origin);
+    if (process.env.NODE_ENV !== "production" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname)) {
+      return true;
+    }
+
+    return allowedOrigins.some(candidate => {
+      try {
+        return new URL(candidate).origin === url.origin;
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function authenticateSocket(socket: Socket): Promise<SocketUser> {
+  return sdk.authenticateRequest(socket.request as unknown as Request);
+}
+
+async function authorizeATISSession(user: SocketUser, sessionId: string) {
+  if (user.role === "admin") return true;
+
+  const db = await getDb();
+  if (!db) return false;
+
+  const [session] = await db
+    .select({ id: atisAnalysisSessions.id })
+    .from(atisAnalysisSessions)
+    .where(and(
+      eq(atisAnalysisSessions.id, sessionId),
+      or(
+        eq(atisAnalysisSessions.userId, String(user.id)),
+        eq(atisAnalysisSessions.userId, user.openId),
+      ),
+    ))
+    .limit(1);
+
+  return Boolean(session);
+}
+
+export class WebSocketService {
+  private io: SocketIOServer | null = null;
+  private clients = new Map<string, ConnectedClient>();
+  private readonly authenticate: SocketAuthenticator;
+  private readonly authorizeSession: SessionAuthorizer;
+  private readonly allowedOrigins: string[];
+
+  constructor(options: WebSocketServiceOptions = {}) {
+    this.authenticate = options.authenticate ?? authenticateSocket;
+    this.authorizeSession = options.authorizeSession ?? authorizeATISSession;
+    this.allowedOrigins = options.allowedOrigins ?? configuredOrigins();
+  }
+
   getIO(): SocketIOServer | null {
     return this.io;
   }
 
-  /**
-   * Initialize WebSocket server
-   */
   initialize(httpServer: HTTPServer): void {
     this.io = new SocketIOServer(httpServer, {
       cors: {
-        origin: '*', // In production, restrict to specific origins
-        methods: ['GET', 'POST'],
+        origin: (origin, callback) => {
+          if (isAllowedWebSocketOrigin(origin, this.allowedOrigins)) callback(null, true);
+          else callback(new Error("Origin not allowed"));
+        },
+        methods: ["GET", "POST"],
+        credentials: true,
       },
-      path: '/ws',
+      path: "/ws",
     });
 
-    // Attach Redis adapter when available so events are shared across
-    // all server instances (horizontal scaling / multi-process).
+    this.io.use(async (socket, next) => {
+      try {
+        socket.data.user = await this.authenticate(socket);
+        next();
+      } catch {
+        next(new Error("Authentication required"));
+      }
+    });
+
     if (isRedisAvailable()) {
       const pubClient = getRedisPubClient()!;
       const subClient = getRedisSubClient()!;
       this.io.adapter(createAdapter(pubClient, subClient));
-      console.log('[WebSocket] Redis adapter attached — multi-instance mode enabled');
+      console.log("[WebSocket] Redis adapter attached - multi-instance mode enabled");
     } else {
-      console.log('[WebSocket] Redis not available — running in single-instance mode');
+      console.log("[WebSocket] Redis not available - running in single-instance mode");
     }
 
-    this.io.on('connection', (socket: Socket) => {
-      console.log(`[WebSocket] Client connected: ${socket.id}`);
+    this.io.on("connection", socket => {
+      const user = socket.data.user as SocketUser;
+      this.clients.set(socket.id, { socket, user, connectedAt: new Date() });
+      void socket.join(this.userRoom(user.openId));
 
-      // Handle authentication
-      socket.on('authenticate', (data: { userId: number; userOpenId: string }) => {
-        this.handleAuthentication(socket, data);
+      socket.emit("authenticated", {
+        success: true,
+        connectedClients: this.getConnectedClientsCount(),
       });
 
-      // ATIS session management
-      socket.on('join-session', (sessionId: string) => {
-        if (!sessionId) return;
-        socket.join(`session:${sessionId}`);
-        socket.emit('session-joined', {
-          sessionId,
-          socketId: socket.id,
-        });
+      socket.on("join-session", async (sessionId: unknown) => {
+        if (typeof sessionId !== "string" || !sessionId.trim()) return;
+
+        try {
+          if (!(await this.authorizeSession(user, sessionId))) {
+            socket.emit("session-error", { sessionId, error: "Session access denied" });
+            return;
+          }
+
+          await socket.join(this.sessionRoom(sessionId));
+          socket.emit("session-joined", { sessionId, socketId: socket.id });
+        } catch {
+          socket.emit("session-error", { sessionId, error: "Unable to verify session access" });
+        }
       });
 
-      socket.on('leave-session', (sessionId: string) => {
-        if (!sessionId) return;
-        socket.leave(`session:${sessionId}`);
+      socket.on("leave-session", (sessionId: unknown) => {
+        if (typeof sessionId === "string" && sessionId.trim()) {
+          void socket.leave(this.sessionRoom(sessionId));
+        }
       });
 
-      // Handle disconnection
-      socket.on('disconnect', () => {
-        this.handleDisconnection(socket);
-      });
-
-      // Handle task completion
-      socket.on('task:complete', (data: { taskId: string; isCompleted: boolean }) => {
-        this.broadcastTaskUpdate(socket, 'task:completed', data);
-      });
-
-      // Handle task reschedule
-      socket.on('task:reschedule', (data: any) => {
-        this.broadcastTaskUpdate(socket, 'task:rescheduled', data);
-      });
-
-      // Handle cache invalidation
-      socket.on('cache:invalidate', () => {
-        this.broadcastCacheInvalidation(socket);
-      });
+      socket.on("disconnect", () => this.clients.delete(socket.id));
+      socket.on("task:complete", data => this.broadcastTaskUpdate(socket, "task:completed", data));
+      socket.on("task:reschedule", data => this.broadcastTaskUpdate(socket, "task:rescheduled", data));
+      socket.on("cache:invalidate", () => this.broadcastCacheInvalidation(socket));
     });
 
-    console.log('[WebSocket] Server initialized');
+    console.log("[WebSocket] Server initialized");
   }
 
-  /**
-   * Handle client authentication
-   */
-  private handleAuthentication(socket: Socket, data: { userId: number; userOpenId: string }): void {
-    const client: ConnectedClient = {
-      socket,
-      userId: data.userId,
-      userOpenId: data.userOpenId,
-      connectedAt: new Date(),
-    };
-
-    this.clients.set(socket.id, client);
-    console.log(`[WebSocket] Client authenticated: ${socket.id} (user: ${data.userOpenId})`);
-
-    // Send authentication success
-    socket.emit('authenticated', {
-      success: true,
-      connectedClients: this.getConnectedClientsCount(),
-    });
+  private userRoom(userOpenId: string) {
+    return `user:${userOpenId}`;
   }
 
-  /**
-   * Handle client disconnection
-   */
-  private handleDisconnection(socket: Socket): void {
+  private sessionRoom(sessionId: string) {
+    return `session:${sessionId}`;
+  }
+
+  private broadcastTaskUpdate(socket: Socket, event: string, data: unknown): void {
     const client = this.clients.get(socket.id);
-    if (client) {
-      console.log(`[WebSocket] Client disconnected: ${socket.id} (user: ${client.userOpenId})`);
-      this.clients.delete(socket.id);
-    } else {
-      console.log(`[WebSocket] Client disconnected: ${socket.id}`);
-    }
-  }
+    if (!client) return;
 
-  /**
-   * Broadcast task update to all clients except sender
-   */
-  private broadcastTaskUpdate(socket: Socket, event: string, data: any): void {
-    const client = this.clients.get(socket.id);
-    if (!client) {
-      console.warn(`[WebSocket] Cannot broadcast - client not authenticated: ${socket.id}`);
-      return;
-    }
-
-    console.log(`[WebSocket] Broadcasting ${event} from user ${client.userOpenId}`);
-    
-    // Broadcast to all clients of the same user
-    this.clients.forEach((otherClient, socketId) => {
-      if (otherClient.userOpenId === client.userOpenId && socketId !== socket.id) {
-        otherClient.socket.emit(event, {
-          ...data,
-          timestamp: new Date().toISOString(),
-          sourceSocketId: socket.id,
-        });
-      }
+    socket.to(this.userRoom(client.user.openId)).emit(event, {
+      ...(typeof data === "object" && data ? data : {}),
+      timestamp: new Date().toISOString(),
+      sourceSocketId: socket.id,
     });
   }
 
-  /**
-   * Broadcast cache invalidation to all clients of the same user
-   */
   private broadcastCacheInvalidation(socket: Socket): void {
     const client = this.clients.get(socket.id);
     if (!client) return;
 
-    console.log(`[WebSocket] Broadcasting cache invalidation for user ${client.userOpenId}`);
-    
-    this.clients.forEach((otherClient, socketId) => {
-      if (otherClient.userOpenId === client.userOpenId && socketId !== socket.id) {
-        otherClient.socket.emit('cache:invalidated', {
-          timestamp: new Date().toISOString(),
-        });
-      }
+    socket.to(this.userRoom(client.user.openId)).emit("cache:invalidated", {
+      timestamp: new Date().toISOString(),
     });
   }
 
-  /**
-   * Emit event to all clients of a specific user
-   */
-  emitToUser(userOpenId: string, event: string, data: any): void {
-    let count = 0;
-    this.clients.forEach((client) => {
-      if (client.userOpenId === userOpenId) {
-        client.socket.emit(event, data);
-        count++;
-      }
-    });
-    console.log(`[WebSocket] Emitted ${event} to ${count} clients of user ${userOpenId}`);
+  emitToUser(userOpenId: string, event: string, data: unknown): void {
+    this.io?.to(this.userRoom(userOpenId)).emit(event, data);
   }
 
-  /**
-   * Emit event to all connected clients
-   */
-  emitToAll(event: string, data: any): void {
-    if (!this.io) return;
-    this.io.emit(event, data);
-    console.log(`[WebSocket] Emitted ${event} to all clients`);
+  emitToAll(event: string, data: unknown): void {
+    this.io?.emit(event, data);
   }
 
-  /**
-   * Emit event to a specific ATIS session room
-   */
-  emitToSession(sessionId: string, event: string, data: any): void {
-    if (!this.io) return;
-    this.io.to(`session:${sessionId}`).emit(event, data);
-    console.log(`[WebSocket] Emitted ${event} to session ${sessionId}`);
+  emitToSession(sessionId: string, event: string, data: unknown): void {
+    this.io?.to(this.sessionRoom(sessionId)).emit(event, data);
   }
 
-  /**
-   * Emit ATIS progress update
-   */
   emitATISProgress(
     sessionId: string,
     taskId: string,
     phase: number,
-    status: 'started' | 'in_progress' | 'completed' | 'failed',
+    status: "started" | "in_progress" | "completed" | "failed",
     confidence?: number,
     error?: string,
-    progress?: number
+    progress?: number,
   ): void {
-    this.emitToSession(sessionId, 'progress-update', {
+    this.emitToSession(sessionId, "progress-update", {
       sessionId,
       taskId,
       phase,
@@ -223,16 +229,8 @@ class WebSocketService {
     });
   }
 
-  /**
-   * Emit phase completion event
-   */
-  emitPhaseCompleted(
-    sessionId: string,
-    phase: number,
-    duration: number,
-    confidence: number
-  ): void {
-    this.emitToSession(sessionId, 'phase-completed', {
+  emitPhaseCompleted(sessionId: string, phase: number, duration: number, confidence: number): void {
+    this.emitToSession(sessionId, "phase-completed", {
       sessionId,
       phase,
       duration,
@@ -241,18 +239,15 @@ class WebSocketService {
     });
   }
 
-  /**
-   * Emit final analysis completion event
-   */
   emitAnalysisComplete(
     sessionId: string,
     taskId: string,
     overallConfidence: number,
     completedPhases: number,
     totalPhases: number,
-    totalDuration: number
+    totalDuration: number,
   ): void {
-    this.emitToSession(sessionId, 'analysis-complete', {
+    this.emitToSession(sessionId, "analysis-complete", {
       sessionId,
       taskId,
       overallConfidence,
@@ -263,71 +258,30 @@ class WebSocketService {
     });
   }
 
-  /**
-   * Emit ATIS analysis error
-   */
   emitAnalysisError(sessionId: string, phase: number, error: string): void {
-    this.emitToSession(sessionId, 'analysis-error', {
-      sessionId,
-      phase,
-      error,
-      timestamp: Date.now(),
-    });
+    this.emitToSession(sessionId, "analysis-error", { sessionId, phase, error, timestamp: Date.now() });
   }
 
-  /**
-   * Emit confidence update for a phase
-   */
   emitConfidenceUpdate(sessionId: string, phase: number, confidence: number): void {
-    this.emitToSession(sessionId, 'confidence-update', {
-      phase,
-      confidence,
-      timestamp: Date.now(),
-    });
+    this.emitToSession(sessionId, "confidence-update", { phase, confidence, timestamp: Date.now() });
   }
 
-  /**
-   * Get number of connected clients
-   */
   getConnectedClientsCount(): number {
     return this.clients.size;
   }
 
-  /**
-   * Get connected clients for a specific user
-   */
   getUserClientsCount(userOpenId: string): number {
-    let count = 0;
-    this.clients.forEach((client) => {
-      if (client.userOpenId === userOpenId) count++;
-    });
-    return count;
+    return Array.from(this.clients.values()).filter(client => client.user.openId === userOpenId).length;
   }
 
-  /**
-   * Get all connected users
-   */
   getConnectedUsers(): string[] {
-    const users = new Set<string>();
-    this.clients.forEach((client) => {
-      users.add(client.userOpenId);
-    });
-    return Array.from(users);
+    return Array.from(new Set(Array.from(this.clients.values()).map(client => client.user.openId)));
   }
 
-  /**
-   * Disconnect all clients (for cleanup)
-   */
   disconnectAll(): void {
-    this.clients.forEach((client) => {
-      client.socket.disconnect(true);
-    });
+    for (const client of this.clients.values()) client.socket.disconnect(true);
     this.clients.clear();
-    console.log('[WebSocket] All clients disconnected');
   }
 }
 
-// Singleton instance
-const websocketService = new WebSocketService();
-
-export { websocketService, WebSocketService };
+export const websocketService = new WebSocketService();

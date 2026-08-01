@@ -140,11 +140,12 @@ export default function TasksTab() {
   const handleSaveHandoff = async (taskId: string, notes: string) => {
     if (!workerProfile) return;
     try {
-      await fetch('/api/handoff/notes', {
+      const response = await fetch('/api/handoff/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId, workerId: workerProfile.id, notes })
       });
+      if (!response.ok) throw new Error(`Handoff request failed (${response.status})`);
       toast.success('Handoff notes saved');
     } catch (e) {
       toast.error('Failed to save handoff notes');
@@ -154,11 +155,12 @@ export default function TasksTab() {
   const handleAskFounder = async (taskId: string, question: string) => {
     if (!workerProfile) return;
     try {
-      await fetch('/api/communication/ask-founder', {
+      const response = await fetch('/api/communication/ask-founder', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId, workerId: workerProfile.id, question })
       });
+      if (!response.ok) throw new Error(`Founder question failed (${response.status})`);
       toast.success('Question sent to Founder');
     } catch (e) {
       toast.error('Failed to send question');

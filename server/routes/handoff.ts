@@ -1,12 +1,15 @@
 import { Router } from 'express';
 import { saveHandoffNote, getHandoffContext, generateShiftSummary } from '../services/handoff-service';
+import { requireAuthenticated, requestUser, resolveWorkerProfileId } from '../middleware/auth';
 
 const router = Router();
+router.use(requireAuthenticated);
 
 // POST /api/handoff/notes
 router.post('/notes', async (req, res) => {
-  const { taskId, workerId, notes } = req.body;
-  if (!taskId || !workerId || typeof notes !== 'string') {
+  const { taskId, notes } = req.body;
+  const workerId = await resolveWorkerProfileId(req, req.body.workerId);
+  if (!taskId || !workerId || typeof notes !== 'string' || !notes.trim()) {
     return res.status(400).json({ error: 'Invalid payload' });
   }
 
@@ -21,7 +24,10 @@ router.post('/notes', async (req, res) => {
 // GET /api/handoff/:taskId
 router.get('/:taskId', async (req, res) => {
   const { taskId } = req.params;
-  const context = await getHandoffContext(taskId);
+  const user = requestUser(req)!;
+  const workerId = user.role === 'admin' ? undefined : await resolveWorkerProfileId(req);
+  if (user.role !== 'admin' && !workerId) return res.status(403).json({ error: 'Worker profile not found' });
+  const context = await getHandoffContext(taskId, workerId ?? undefined);
   if (context) {
     res.json(context);
   } else {
@@ -31,7 +37,7 @@ router.get('/:taskId', async (req, res) => {
 
 // POST /api/handoff/shift-summary
 router.post('/shift-summary', async (req, res) => {
-  const { workerId } = req.body;
+  const workerId = await resolveWorkerProfileId(req, req.body.workerId);
   if (!workerId) {
     return res.status(400).json({ error: 'Missing workerId' });
   }

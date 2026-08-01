@@ -5,14 +5,15 @@
 
 import { nanoid } from 'nanoid';
 import { getDb } from '../db';
-import { batchOperations, taskAssignments } from '../../drizzle/schema';
-import { eq, inArray, and } from 'drizzle-orm';
+import { batchOperations } from '../../drizzle/schema';
+import { and, eq, inArray } from 'drizzle-orm';
 import { websocketService } from './websocket';
 import { invalidateCache } from './trello-cache';
 import { log } from '../utils/logger';
 
 export type BatchOperationType = 're_analyze' | 'reschedule' | 'conflict_resolution' | 'optimization';
 export type BatchOperationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export const SUPPORTED_BATCH_OPERATION_TYPES = ['re_analyze', 'reschedule'] as const;
 
 export interface BatchOperationParams {
   userId: string;
@@ -38,6 +39,10 @@ export interface BatchOperationResult {
  * Create a new batch operation
  */
 export async function createBatchOperation(params: BatchOperationParams): Promise<string> {
+  if (!SUPPORTED_BATCH_OPERATION_TYPES.includes(params.operationType as (typeof SUPPORTED_BATCH_OPERATION_TYPES)[number])) {
+    throw new Error(`Batch operation ${params.operationType} is not implemented`);
+  }
+
   const db = await getDb();
   if (!db) {
     throw new Error('Database not available');
@@ -240,96 +245,6 @@ async function executeBatchReschedule(
 }
 
 /**
- * Execute batch conflict resolution operation
- */
-async function executeBatchConflictResolution(
-  operationId: string,
-  taskIds: string[],
-  userId: number,
-  userOpenId: string,
-  parameters: Record<string, any>
-): Promise<void> {
-  const db = await getDb();
-  if (!db) {
-    throw new Error('Database not available');
-  }
-
-  const results: any[] = [];
-  const errors: string[] = [];
-  let completed = 0;
-  let failed = 0;
-
-  // Get all task assignments
-  const assignments = await db
-    .select()
-    .from(taskAssignments)
-    .where(
-      and(
-        eq(taskAssignments.founderId, userId),
-        inArray(taskAssignments.taskId, taskIds)
-      )
-    );
-
-  // TODO: Implement actual conflict resolution logic
-  // For now, just mark as completed
-  for (let i = 0; i < assignments.length; i++) {
-    const assignment = assignments[i];
-
-    try {
-      await updateBatchProgress(operationId, {
-        currentTaskIndex: i,
-        currentTaskName: assignment.taskId,
-      });
-
-      // Placeholder: Actual conflict resolution would go here
-      results.push({
-        taskId: assignment.taskId,
-        success: true,
-        message: 'Conflict resolution placeholder',
-      });
-      completed++;
-
-      await updateBatchProgress(operationId, {
-        completedTasks: completed,
-        failedTasks: failed,
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      errors.push(`Task ${assignment.taskId}: ${errorMessage}`);
-      failed++;
-
-      await updateBatchProgress(operationId, {
-        completedTasks: completed,
-        failedTasks: failed,
-      });
-    }
-  }
-
-  await updateBatchProgress(operationId, {
-    status: failed === assignments.length ? 'failed' : 'completed',
-    results,
-    errorLog: errors,
-  });
-}
-
-/**
- * Execute batch optimization operation
- */
-async function executeBatchOptimization(
-  operationId: string,
-  taskIds: string[],
-  userId: number,
-  userOpenId: string
-): Promise<void> {
-  // TODO: Implement optimization logic
-  await updateBatchProgress(operationId, {
-    status: 'completed',
-    completedTasks: taskIds.length,
-    results: { message: 'Optimization placeholder' },
-  });
-}
-
-/**
  * Execute a batch operation
  */
 export async function executeBatchOperation(
@@ -363,18 +278,8 @@ export async function executeBatchOperation(
         break;
 
       case 'conflict_resolution':
-        await executeBatchConflictResolution(
-          operationId,
-          params.taskIds,
-          userId,
-          params.userOpenId,
-          params.parameters || {}
-        );
-        break;
-
       case 'optimization':
-        await executeBatchOptimization(operationId, params.taskIds, userId, params.userOpenId);
-        break;
+        throw new Error(`Batch operation ${params.operationType} is not implemented`);
 
       default:
         throw new Error(`Unknown operation type: ${params.operationType}`);
@@ -402,16 +307,22 @@ export async function executeBatchOperation(
 /**
  * Get batch operation status
  */
-export async function getBatchOperationStatus(operationId: string): Promise<BatchOperationResult | null> {
+export async function getBatchOperationStatus(
+  operationId: string,
+  ownerOpenId?: string
+): Promise<BatchOperationResult | null> {
   const db = await getDb();
   if (!db) {
     throw new Error('Database not available');
   }
 
+  const ownerFilter = ownerOpenId
+    ? and(eq(batchOperations.id, operationId), eq(batchOperations.userId, ownerOpenId))
+    : eq(batchOperations.id, operationId);
   const operations = await db
     .select()
     .from(batchOperations)
-    .where(eq(batchOperations.id, operationId))
+    .where(ownerFilter)
     .limit(1);
 
   if (operations.length === 0) {
@@ -435,19 +346,25 @@ export async function getBatchOperationStatus(operationId: string): Promise<Batc
 /**
  * Cancel a batch operation
  */
-export async function cancelBatchOperation(operationId: string): Promise<void> {
+export async function cancelBatchOperation(operationId: string, ownerOpenId?: string): Promise<boolean> {
   const db = await getDb();
   if (!db) {
     throw new Error('Database not available');
   }
 
-  await db
+  const filters = [eq(batchOperations.id, operationId)];
+  if (ownerOpenId) filters.push(eq(batchOperations.userId, ownerOpenId));
+  filters.push(inArray(batchOperations.status, ['pending', 'running']));
+
+  const result = await db
     .update(batchOperations)
     .set({
       status: 'cancelled',
       updatedAt: new Date(),
     })
-    .where(eq(batchOperations.id, operationId));
+    .where(and(...filters));
 
-  log.info('Batch operation cancelled', { operationId });
+  const changed = Number((result as any)[0]?.affectedRows ?? 0) > 0;
+  if (changed) log.info('Batch operation cancelled', { operationId, ownerOpenId });
+  return changed;
 }

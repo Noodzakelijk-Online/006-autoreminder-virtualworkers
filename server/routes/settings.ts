@@ -20,7 +20,7 @@ const conflictDetectionSettingsSchema = z.object({
 });
 
 const batchOperationSettingsSchema = z.object({
-  defaultOperationType: z.enum(['re_analyze', 'reschedule', 'conflict_resolution']),
+  defaultOperationType: z.enum(['re_analyze', 'reschedule']),
   defaultPriority: z.enum(['low', 'normal', 'high', 'critical']),
   autoStartOnQueue: z.boolean(),
   maxConcurrentOperations: z.number().min(1).max(10),

@@ -1,100 +1,125 @@
-import { Router } from 'express';
-import { getDb } from '../db';
-import { taskAssignments, vaProfiles } from '../../drizzle/schema';
-import { eq } from 'drizzle-orm';
-import { sendEmail } from '../services/email';
-import { postTrelloComment } from '../services/trello-chatbot';
-import { storeConversation } from '../services/chatbot-history';
+import { Router } from "express";
+import { and, eq } from "drizzle-orm";
+import { taskAssignments, vaProfiles } from "../../drizzle/schema";
+import { getDb } from "../db";
+import { requireAuthenticated, requestUser, resolveWorkerProfileId } from "../middleware/auth";
+import { storeConversation } from "../services/chatbot-history";
+import { postTrelloComment } from "../services/trello-chatbot";
 
 const router = Router();
+router.use(requireAuthenticated);
 
-// POST /api/communication/ask-founder
-router.post('/ask-founder', async (req, res) => {
-  const { taskId, workerId, question } = req.body;
-  if (!taskId || !workerId || !question) {
-    return res.status(400).json({ error: 'Missing required fields' });
+router.post("/ask-founder", async (req, res) => {
+  const { taskId, question } = req.body;
+  const workerId = await resolveWorkerProfileId(req, req.body.workerId);
+  if (!taskId || !workerId || typeof question !== "string" || !question.trim()) {
+    return res.status(400).json({ error: "Missing required fields" });
   }
 
   const db = await getDb();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  if (!db) return res.status(503).json({ error: "Database unavailable" });
 
   try {
-    // 1. Get worker profile name
-    const worker = await db.select().from(vaProfiles).where(eq(vaProfiles.id, Number(workerId))).limit(1);
-    const workerName = worker[0]?.name || 'Worker';
+    const [worker] = await db.select().from(vaProfiles).where(eq(vaProfiles.id, workerId)).limit(1);
+    if (!worker) return res.status(404).json({ error: "Worker profile not found" });
 
-    // 2. Post comment to Trello card
-    const commentText = `❓ **[Worker Question]**\n${workerName} asked:\n"${question}"`;
+    const normalizedQuestion = question.trim();
+    const commentText = `**[Worker Question]**\n${worker.name} asked:\n"${normalizedQuestion}"`;
     const posted = await postTrelloComment(taskId, commentText);
 
-    if (!posted) {
-      console.warn(`[Communication] Failed to post worker question to Trello card ${taskId}`);
-    }
-
-    // 3. Save to chatbot_conversations table
     await storeConversation({
       cardTrelloId: taskId,
-      command: 'ask_founder',
-      responseText: question,
-      authorName: workerName,
-      responseStatus: posted ? 'success' : 'failed',
+      command: "ask_founder",
+      responseText: normalizedQuestion,
+      authorName: worker.name,
+      responseStatus: posted ? "success" : "failed",
       receivedAt: new Date(),
       respondedAt: new Date(),
     });
 
-    res.json({ success: true });
-  } catch (error: any) {
-    console.error('[Communication] Error processing ask-founder:', error);
-    res.status(500).json({ error: 'Failed to process question' });
+    if (!posted) {
+      return res.status(502).json({ success: false, error: "Trello did not accept the question" });
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    console.error("[Communication] Error processing ask-founder:", error);
+    return res.status(500).json({ error: "Failed to process question" });
   }
 });
 
-// POST /api/communication/decision-log
-router.post('/decision-log', async (req, res) => {
-  const { taskId, decision, reasoning, author } = req.body;
+router.post("/decision-log", async (req, res) => {
+  const { taskId, decision, reasoning } = req.body;
+  if (!taskId || typeof decision !== "string" || !decision.trim()) {
+    return res.status(400).json({ error: "Task and decision are required" });
+  }
+
   const db = await getDb();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  if (!db) return res.status(503).json({ error: "Database unavailable" });
 
   try {
-    const task = await db.select().from(taskAssignments).where(eq(taskAssignments.taskId, taskId)).limit(1);
-    if (task.length === 0) return res.status(404).json({ error: 'Task not found' });
+    const user = requestUser(req)!;
+    const workerId = user.role === "admin" ? null : await resolveWorkerProfileId(req);
+    if (user.role !== "admin" && !workerId) {
+      return res.status(403).json({ error: "Worker profile not found" });
+    }
 
-    let logs = [];
+    const [task] = await db.select().from(taskAssignments).where(workerId
+      ? and(eq(taskAssignments.taskId, taskId), eq(taskAssignments.vaId, workerId))
+      : eq(taskAssignments.taskId, taskId)).limit(1);
+    if (!task) return res.status(404).json({ error: "Task not found" });
+
+    let logs: Array<Record<string, unknown>> = [];
     try {
-      logs = task[0].decisionLog ? JSON.parse(task[0].decisionLog) : [];
-    } catch (e) {}
+      logs = task.decisionLog ? JSON.parse(task.decisionLog) : [];
+      if (!Array.isArray(logs)) logs = [];
+    } catch {
+      logs = [];
+    }
 
-    logs.push({ decision, reasoning, author, timestamp: new Date().toISOString() });
+    logs.push({
+      decision: decision.trim(),
+      reasoning: typeof reasoning === "string" ? reasoning.trim() : "",
+      author: user.name || user.openId,
+      timestamp: new Date().toISOString(),
+    });
 
     await db.update(taskAssignments)
       .set({ decisionLog: JSON.stringify(logs) })
-      .where(eq(taskAssignments.taskId, taskId));
+      .where(eq(taskAssignments.id, task.id));
 
-    res.json({ success: true, logs });
+    return res.json({ success: true, logs });
   } catch (error) {
-    console.error('Failed to save decision log:', error);
-    res.status(500).json({ error: 'Failed to save decision log' });
+    console.error("Failed to save decision log:", error);
+    return res.status(500).json({ error: "Failed to save decision log" });
   }
 });
 
-// GET /api/communication/decision-log/:taskId
-router.get('/decision-log/:taskId', async (req, res) => {
-  const { taskId } = req.params;
+router.get("/decision-log/:taskId", async (req, res) => {
   const db = await getDb();
-  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  if (!db) return res.status(503).json({ error: "Database unavailable" });
 
   try {
-    const task = await db.select().from(taskAssignments).where(eq(taskAssignments.taskId, taskId)).limit(1);
-    if (task.length === 0) return res.status(404).json({ error: 'Task not found' });
+    const user = requestUser(req)!;
+    const workerId = user.role === "admin" ? null : await resolveWorkerProfileId(req);
+    if (user.role !== "admin" && !workerId) {
+      return res.status(403).json({ error: "Worker profile not found" });
+    }
 
-    let logs = [];
+    const [task] = await db.select().from(taskAssignments).where(workerId
+      ? and(eq(taskAssignments.taskId, req.params.taskId), eq(taskAssignments.vaId, workerId))
+      : eq(taskAssignments.taskId, req.params.taskId)).limit(1);
+    if (!task) return res.status(404).json({ error: "Task not found" });
+
+    let logs: unknown[] = [];
     try {
-      logs = task[0].decisionLog ? JSON.parse(task[0].decisionLog) : [];
-    } catch (e) {}
-
-    res.json({ logs });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get decision log' });
+      const parsed = task.decisionLog ? JSON.parse(task.decisionLog) : [];
+      logs = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      logs = [];
+    }
+    return res.json({ logs });
+  } catch {
+    return res.status(500).json({ error: "Failed to get decision log" });
   }
 });
 

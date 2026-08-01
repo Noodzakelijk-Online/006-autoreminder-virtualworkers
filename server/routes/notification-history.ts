@@ -8,8 +8,10 @@ import { Router, Request, Response } from 'express';
 import { getDb } from '../db';
 import { notificationHistory, digestJobs } from '../../drizzle/schema';
 import { eq, and, desc, sql } from 'drizzle-orm';
+import { requireAuthenticated } from '../middleware/auth';
 
 const router = Router();
+router.use(requireAuthenticated);
 
 /**
  * GET /api/notifications

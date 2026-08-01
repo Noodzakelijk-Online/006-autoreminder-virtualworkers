@@ -8,8 +8,10 @@ import {
   toBatchOperationResponse,
   toShortcutMap,
 } from '../schedulingApi.js';
+import { requireAuthenticated } from '../middleware/auth';
 
 const router = Router();
+router.use(requireAuthenticated);
 
 /**
  * Advanced Scheduling Routes
@@ -357,6 +359,12 @@ router.post('/batch-start', async (req: Request, res: Response) => {
     const validOperationTypes = ['re_analyze', 'reschedule', 'conflict_resolution', 'optimization'];
     if (!validOperationTypes.includes(operationType)) {
       return res.status(400).json({ error: 'Invalid operation type' });
+    }
+    if (operationType === 'conflict_resolution' || operationType === 'optimization') {
+      return res.status(501).json({
+        error: `${operationType} is not implemented and will not be reported as completed`,
+        supportedOperationTypes: ['re_analyze', 'reschedule'],
+      });
     }
 
     // Create batch operation record

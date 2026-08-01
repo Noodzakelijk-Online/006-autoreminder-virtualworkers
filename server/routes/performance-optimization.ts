@@ -9,8 +9,10 @@ import { warmUpCache, getCacheWarmingStats, scheduleCacheRefresh } from '../serv
 import { getCacheStats } from '../services/trello-cache';
 import { requestQueue } from '../services/request-queue';
 import { websocketService } from '../services/websocket';
+import { requireAuthenticated } from '../middleware/auth';
 
 const router = Router();
+router.use(requireAuthenticated);
 
 /**
  * POST /api/performance/cache-warm

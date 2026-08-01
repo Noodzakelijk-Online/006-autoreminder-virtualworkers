@@ -11,7 +11,7 @@ import { useDebounce } from '@/hooks/useDebounce';
 import { AutoSaveIndicator, type AutoSaveStatus } from './AutoSaveIndicator';
 
 export interface BatchOperationDefaultsConfig {
-  defaultOperationType: 're_analyze' | 'reschedule' | 'conflict_resolution' | 'optimization';
+  defaultOperationType: 're_analyze' | 'reschedule';
   defaultPriority: 'low' | 'normal' | 'high';
   autoStartOnQueue: boolean;
   maxConcurrentOperations: number;
@@ -50,7 +50,7 @@ export function BatchOperationDefaults({
   useEffect(() => {
     if (defaults) {
       setConfig({
-        defaultOperationType: (defaults.defaultOperationType as any) || 're_analyze',
+        defaultOperationType: defaults.defaultOperationType === 'reschedule' ? 'reschedule' : 're_analyze',
         defaultPriority: (defaults.defaultPriority as any) || 'normal',
         autoStartOnQueue: Boolean(defaults.autoStartOnQueue),
         maxConcurrentOperations: Number(defaults.maxConcurrentOperations),
@@ -125,8 +125,6 @@ export function BatchOperationDefaults({
                 <SelectContent>
                   <SelectItem value="re_analyze">Re-analyze Tasks</SelectItem>
                   <SelectItem value="reschedule">Reschedule Tasks</SelectItem>
-                  <SelectItem value="conflict_resolution">Conflict Resolution</SelectItem>
-                  <SelectItem value="optimization">Optimization</SelectItem>
                 </SelectContent>
               </Select>
             </CardContent>

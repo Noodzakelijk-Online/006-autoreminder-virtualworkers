@@ -128,13 +128,27 @@ export function useATISWebSocket(options: UseATISWebSocketOptions = {}): UseATIS
         // Connection handlers
         socket.on('connect', () => {
           console.log('[ATIS WebSocket] Connected:', socket.id);
-          socket.emit('join-session', sessionId);
           setIsConnected(true);
           setIsConnecting(false);
         });
 
+        socket.on('authenticated', () => {
+          socket.emit('join-session', sessionId);
+        });
+
         socket.on('session-joined', (data) => {
           console.log('[ATIS WebSocket] Session joined:', data);
+        });
+
+        socket.on('session-error', (data: { error?: string }) => {
+          const sessionError = new Error(data.error || 'Unable to join analysis session');
+          setError(sessionError);
+          callbacksRef.current.onError?.({
+            sessionId,
+            phase: 0,
+            error: sessionError.message,
+            timestamp: Date.now(),
+          });
         });
 
         socket.on('disconnect', () => {

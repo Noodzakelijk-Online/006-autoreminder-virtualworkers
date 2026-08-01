@@ -1,422 +1,142 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { WebSocketService } from './services/websocket';
-import { createServer } from 'http';
-import { io as ioClient, Socket as ClientSocket } from 'socket.io-client';
+import { createServer } from "http";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { io as ioClient, type Socket as ClientSocket } from "socket.io-client";
+import { isAllowedWebSocketOrigin, WebSocketService } from "./services/websocket";
 
-describe('WebSocket Service', () => {
+function waitForEvent<T>(socket: ClientSocket, event: string, timeoutMs = 2_000) {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`Timed out waiting for ${event}`)), timeoutMs);
+    socket.once(event, data => {
+      clearTimeout(timeout);
+      resolve(data as T);
+    });
+  });
+}
+
+describe("WebSocket Service", () => {
   let wsService: WebSocketService;
-  let httpServer: any;
-  let clientSocket: ClientSocket;
+  let httpServer: ReturnType<typeof createServer>;
   let port: number;
+  let clients: ClientSocket[];
 
   beforeEach(async () => {
-    // Create HTTP server
+    clients = [];
     httpServer = createServer();
-    
-    // Find available port
-    port = 3100 + Math.floor(Math.random() * 100);
-    
-    // Initialize WebSocket service
-    wsService = new WebSocketService();
-    wsService.initialize(httpServer);
-    
-    // Start server
-    await new Promise<void>((resolve) => {
-      httpServer.listen(port, () => resolve());
+    wsService = new WebSocketService({
+      allowedOrigins: ["http://localhost"],
+      authenticate: async socket => {
+        const openId = socket.handshake.auth.openId as string | undefined;
+        if (!openId) throw new Error("Unauthenticated");
+        return {
+          id: Number(socket.handshake.auth.userId || 1),
+          openId,
+          name: openId,
+          role: socket.handshake.auth.role === "admin" ? "admin" : "worker",
+        };
+      },
+      authorizeSession: async (user, sessionId) => user.role === "admin" || sessionId === `session-${user.id}`,
     });
+    wsService.initialize(httpServer);
+
+    await new Promise<void>(resolve => httpServer.listen(0, "127.0.0.1", resolve));
+    const address = httpServer.address();
+    if (!address || typeof address === "string") throw new Error("Test server did not bind");
+    port = address.port;
   });
 
   afterEach(async () => {
-    // Cleanup
-    if (clientSocket) {
-      clientSocket.disconnect();
-    }
+    for (const client of clients) client.disconnect();
     wsService.disconnectAll();
-    
-    await new Promise<void>((resolve) => {
-      httpServer.close(() => resolve());
-    });
+    await new Promise<void>(resolve => httpServer.close(() => resolve()));
   });
 
-  describe('Connection management', () => {
-    it('should accept client connections', (done) => {
-      clientSocket = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
-
-      clientSocket.on('connect', () => {
-        expect(clientSocket.connected).toBe(true);
-        done();
-      });
+  function connect(openId?: string, userId = 1, role: "worker" | "admin" = "worker") {
+    const client = ioClient(`http://127.0.0.1:${port}`, {
+      path: "/ws",
+      transports: ["websocket"],
+      autoConnect: false,
+      auth: { openId, userId, role },
     });
+    clients.push(client);
+    return client;
+  }
 
-    it('should authenticate clients', (done) => {
-      clientSocket = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
+  it("rejects connections without an authenticated session", async () => {
+    const client = connect();
+    const errorPromise = waitForEvent<Error>(client, "connect_error");
+    client.connect();
 
-      clientSocket.on('connect', () => {
-        clientSocket.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
-
-      clientSocket.on('authenticated', (data) => {
-        expect(data.success).toBe(true);
-        expect(data.connectedClients).toBeGreaterThan(0);
-        done();
-      });
-    });
-
-    it('should track connected clients', (done) => {
-      clientSocket = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
-
-      clientSocket.on('connect', () => {
-        clientSocket.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
-
-      clientSocket.on('authenticated', () => {
-        const count = wsService.getConnectedClientsCount();
-        expect(count).toBe(1);
-        done();
-      });
-    });
-
-    it('should handle disconnections', (done) => {
-      clientSocket = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
-
-      clientSocket.on('connect', () => {
-        clientSocket.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
-
-      clientSocket.on('authenticated', () => {
-        expect(wsService.getConnectedClientsCount()).toBe(1);
-        
-        clientSocket.disconnect();
-        
-        // Wait for disconnection to be processed
-        setTimeout(() => {
-          expect(wsService.getConnectedClientsCount()).toBe(0);
-          done();
-        }, 100);
-      });
-    });
+    await expect(errorPromise).resolves.toMatchObject({ message: "Authentication required" });
+    expect(wsService.getConnectedClientsCount()).toBe(0);
   });
 
-  describe('Event broadcasting', () => {
-    it('should broadcast task completion events', (done) => {
-      const client1 = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
+  it("authenticates and tracks the server-verified identity", async () => {
+    const client = connect("worker-1");
+    const authenticated = waitForEvent<{ success: boolean }>(client, "authenticated");
+    client.connect();
 
-      const client2 = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
-
-      let authenticatedCount = 0;
-
-      const checkBothAuthenticated = () => {
-        authenticatedCount++;
-        if (authenticatedCount === 2) {
-          // Both clients authenticated, emit event from client1
-          client1.emit('task:complete', {
-            taskId: 'test-task-1',
-            isCompleted: true,
-          });
-        }
-      };
-
-      client1.on('connect', () => {
-        client1.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
-
-      client2.on('connect', () => {
-        client2.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
-
-      client1.on('authenticated', checkBothAuthenticated);
-      client2.on('authenticated', checkBothAuthenticated);
-
-      // Client2 should receive the event from client1
-      client2.on('task:completed', (data) => {
-        expect(data.taskId).toBe('test-task-1');
-        expect(data.isCompleted).toBe(true);
-        expect(data.timestamp).toBeDefined();
-        
-        client1.disconnect();
-        client2.disconnect();
-        done();
-      });
-    });
-
-    it('should not broadcast to sender', (done) => {
-      clientSocket = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
-
-      clientSocket.on('connect', () => {
-        clientSocket.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
-
-      clientSocket.on('authenticated', () => {
-        clientSocket.emit('task:complete', {
-          taskId: 'test-task-1',
-          isCompleted: true,
-        });
-
-        // Wait to ensure no event is received
-        setTimeout(() => {
-          done();
-        }, 200);
-      });
-
-      // Should not receive own event
-      clientSocket.on('task:completed', () => {
-        done(new Error('Should not receive own event'));
-      });
-    });
-
-    it('should broadcast cache invalidation', (done) => {
-      const client1 = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
-
-      const client2 = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
-
-      let authenticatedCount = 0;
-
-      const checkBothAuthenticated = () => {
-        authenticatedCount++;
-        if (authenticatedCount === 2) {
-          client1.emit('cache:invalidate');
-        }
-      };
-
-      client1.on('connect', () => {
-        client1.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
-
-      client2.on('connect', () => {
-        client2.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
-
-      client1.on('authenticated', checkBothAuthenticated);
-      client2.on('authenticated', checkBothAuthenticated);
-
-      client2.on('cache:invalidated', (data) => {
-        expect(data.timestamp).toBeDefined();
-        
-        client1.disconnect();
-        client2.disconnect();
-        done();
-      });
-    });
+    await expect(authenticated).resolves.toMatchObject({ success: true });
+    expect(wsService.getConnectedClientsCount()).toBe(1);
+    expect(wsService.getConnectedUsers()).toEqual(["worker-1"]);
   });
 
-  describe('User isolation', () => {
-    it('should only broadcast to same user', (done) => {
-      const user1Client1 = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
+  it("broadcasts task events only to other clients for the same user", async () => {
+    const sender = connect("worker-1");
+    const recipient = connect("worker-1");
+    const otherUser = connect("worker-2", 2);
 
-      const user1Client2 = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
+    const authenticated = [sender, recipient, otherUser].map(client => waitForEvent(client, "authenticated"));
+    for (const client of [sender, recipient, otherUser]) client.connect();
+    await Promise.all(authenticated);
 
-      const user2Client = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
+    const received = waitForEvent<{ taskId: string }>(recipient, "task:completed");
+    let leaked = false;
+    otherUser.once("task:completed", () => { leaked = true; });
+    sender.emit("task:complete", { taskId: "task-1", isCompleted: true });
 
-      let authenticatedCount = 0;
-
-      const checkAllAuthenticated = () => {
-        authenticatedCount++;
-        if (authenticatedCount === 3) {
-          // All authenticated, emit from user1
-          user1Client1.emit('task:complete', {
-            taskId: 'test-task-1',
-            isCompleted: true,
-          });
-        }
-      };
-
-      user1Client1.on('connect', () => {
-        user1Client1.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'user-1',
-        });
-      });
-
-      user1Client2.on('connect', () => {
-        user1Client2.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'user-1',
-        });
-      });
-
-      user2Client.on('connect', () => {
-        user2Client.emit('authenticate', {
-          userId: 2,
-          userOpenId: 'user-2',
-        });
-      });
-
-      user1Client1.on('authenticated', checkAllAuthenticated);
-      user1Client2.on('authenticated', checkAllAuthenticated);
-      user2Client.on('authenticated', checkAllAuthenticated);
-
-      // User1's second client should receive
-      user1Client2.on('task:completed', (data) => {
-        expect(data.taskId).toBe('test-task-1');
-        
-        user1Client1.disconnect();
-        user1Client2.disconnect();
-        user2Client.disconnect();
-        done();
-      });
-
-      // User2's client should NOT receive
-      user2Client.on('task:completed', () => {
-        done(new Error('User2 should not receive User1 events'));
-      });
-    });
-
-    it('should track user-specific client counts', (done) => {
-      const user1Client = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
-
-      const user2Client = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
-
-      let authenticatedCount = 0;
-
-      const checkBothAuthenticated = () => {
-        authenticatedCount++;
-        if (authenticatedCount === 2) {
-          expect(wsService.getUserClientsCount('user-1')).toBe(1);
-          expect(wsService.getUserClientsCount('user-2')).toBe(1);
-          expect(wsService.getConnectedUsers()).toContain('user-1');
-          expect(wsService.getConnectedUsers()).toContain('user-2');
-          
-          user1Client.disconnect();
-          user2Client.disconnect();
-          done();
-        }
-      };
-
-      user1Client.on('connect', () => {
-        user1Client.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'user-1',
-        });
-      });
-
-      user2Client.on('connect', () => {
-        user2Client.emit('authenticate', {
-          userId: 2,
-          userOpenId: 'user-2',
-        });
-      });
-
-      user1Client.on('authenticated', checkBothAuthenticated);
-      user2Client.on('authenticated', checkBothAuthenticated);
-    });
+    await expect(received).resolves.toMatchObject({ taskId: "task-1" });
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(leaked).toBe(false);
   });
 
-  describe('Server-side emit', () => {
-    it('should emit to specific user', (done) => {
-      clientSocket = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
+  it("denies ATIS session rooms that the worker does not own", async () => {
+    const client = connect("worker-1", 1);
+    const authenticated = waitForEvent(client, "authenticated");
+    client.connect();
+    await authenticated;
 
-      clientSocket.on('connect', () => {
-        clientSocket.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
+    const denied = waitForEvent<{ sessionId: string; error: string }>(client, "session-error");
+    client.emit("join-session", "session-2");
+    await expect(denied).resolves.toEqual({ sessionId: "session-2", error: "Session access denied" });
+  });
 
-      clientSocket.on('authenticated', () => {
-        // Emit from server side
-        wsService.emitToUser('test-user', 'custom:event', {
-          message: 'Hello from server',
-        });
-      });
+  it("allows an owner to join an ATIS session room", async () => {
+    const client = connect("worker-1", 1);
+    const authenticated = waitForEvent(client, "authenticated");
+    client.connect();
+    await authenticated;
 
-      clientSocket.on('custom:event', (data) => {
-        expect(data.message).toBe('Hello from server');
-        done();
-      });
-    });
+    const joined = waitForEvent<{ sessionId: string }>(client, "session-joined");
+    client.emit("join-session", "session-1");
+    await expect(joined).resolves.toMatchObject({ sessionId: "session-1" });
+  });
 
-    it('should emit to all clients', (done) => {
-      clientSocket = ioClient(`http://localhost:${port}`, {
-        path: '/ws',
-        transports: ['websocket'],
-      });
+  it("emits server-side events through the user room", async () => {
+    const client = connect("worker-1");
+    const authenticated = waitForEvent(client, "authenticated");
+    client.connect();
+    await authenticated;
 
-      clientSocket.on('connect', () => {
-        clientSocket.emit('authenticate', {
-          userId: 1,
-          userOpenId: 'test-user',
-        });
-      });
+    const message = waitForEvent<{ message: string }>(client, "custom:event");
+    wsService.emitToUser("worker-1", "custom:event", { message: "hello" });
+    await expect(message).resolves.toEqual({ message: "hello" });
+  });
+});
 
-      clientSocket.on('authenticated', () => {
-        wsService.emitToAll('broadcast:event', {
-          message: 'Broadcast message',
-        });
-      });
-
-      clientSocket.on('broadcast:event', (data) => {
-        expect(data.message).toBe('Broadcast message');
-        done();
-      });
-    });
+describe("WebSocket origin policy", () => {
+  it("accepts configured origins and rejects untrusted browser origins", () => {
+    expect(isAllowedWebSocketOrigin("https://dashboard.example", ["https://dashboard.example/app"])).toBe(true);
+    expect(isAllowedWebSocketOrigin("https://attacker.example", ["https://dashboard.example"])).toBe(false);
+    expect(isAllowedWebSocketOrigin(undefined, [])).toBe(true);
   });
 });

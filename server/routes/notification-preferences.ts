@@ -11,8 +11,10 @@ import { Router, Request, Response } from 'express';
 import { getDb } from '../db';
 import { userNotificationPreferences } from '../../drizzle/schema';
 import { eq } from 'drizzle-orm';
+import { requireAuthenticated, requestUser } from '../middleware/auth';
 
 const router = Router();
+router.use(requireAuthenticated);
 
 interface NotificationPreferencesInput {
   notificationMode: 'disabled' | 'daily_digest' | 'priority_only';
@@ -152,11 +154,10 @@ router.put('/', async (req: Request, res: Response) => {
  */
 router.get('/should-notify', async (req: Request, res: Response) => {
   try {
-    const { userOpenId, dueDate, notificationType } = req.query;
-
-    if (!userOpenId) {
-      return res.status(400).json({ error: 'userOpenId required' });
-    }
+    const { dueDate } = req.query;
+    const user = requestUser(req)!;
+    const requestedUserOpenId = typeof req.query.userOpenId === 'string' ? req.query.userOpenId : '';
+    const userOpenId = user.role === 'admin' && requestedUserOpenId ? requestedUserOpenId : user.openId;
 
     const db = await getDb();
     if (!db) {
@@ -165,7 +166,7 @@ router.get('/should-notify', async (req: Request, res: Response) => {
 
     const [prefs] = await db.select()
       .from(userNotificationPreferences)
-      .where(eq(userNotificationPreferences.userOpenId, userOpenId as string))
+      .where(eq(userNotificationPreferences.userOpenId, userOpenId))
       .limit(1);
 
     // Default to priority_only if no preferences set

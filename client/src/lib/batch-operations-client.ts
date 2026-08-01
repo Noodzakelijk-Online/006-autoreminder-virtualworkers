@@ -4,7 +4,7 @@
  */
 
 export interface BatchOperationRequest {
-  operationType: 're_analyze' | 'reschedule' | 'conflict_resolution' | 'optimization';
+  operationType: 're_analyze' | 'reschedule';
   taskIds?: string[];
   options?: Record<string, any>;
   priority?: 'low' | 'normal' | 'high';
@@ -61,7 +61,7 @@ class BatchOperationsClient {
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         const error = await response.json();
-        throw new Error(error.message || 'Failed to start batch operation');
+        throw new Error(error.error || error.message || 'Failed to start batch operation');
       } else {
         throw new Error(`Failed to start batch operation (HTTP ${response.status})`);
       }

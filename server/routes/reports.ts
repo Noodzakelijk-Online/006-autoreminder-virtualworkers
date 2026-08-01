@@ -1,42 +1,68 @@
 import { Router } from 'express';
+import { eq, inArray } from 'drizzle-orm';
 import { getDb } from '../db';
-import { timeEntries, taskAssignments } from '../../drizzle/schema';
-import { eq } from 'drizzle-orm';
+import { timeEntries, taskAssignments, vaProfiles } from '../../drizzle/schema';
+import { requireAuthenticated, requestUser } from '../middleware/auth';
 
 const router = Router();
+router.use(requireAuthenticated);
 
-// GET /api/reports/export
+function csvCell(value: unknown) {
+  const text = value == null ? '' : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
 router.get('/export', async (req, res) => {
-  const { format, type } = req.query;
+  const format = typeof req.query.format === 'string' ? req.query.format : '';
+  const type = typeof req.query.type === 'string' ? req.query.type : '';
+  if (format !== 'csv' || !['time-entries', 'task-summary'].includes(type)) {
+    return res.status(400).json({
+      error: 'Unsupported export format or type',
+      supported: ['csv/time-entries', 'csv/task-summary'],
+    });
+  }
+
   const db = await getDb();
   if (!db) return res.status(503).json({ error: 'Database unavailable' });
 
   try {
-    if (format === 'csv' && type === 'time-entries') {
-      const times = await db.select().from(timeEntries);
-      const csv = ['id,userId,taskId,durationMinutes,date,source'].concat(
-        times.map((t: any) => `${t.id},${t.userId},${t.taskId},${t.durationMinutes},${t.createdAt.toISOString()},${t.source}`)
-      ).join('\n');
-      
-      res.header('Content-Type', 'text/csv');
-      res.attachment('time-entries.csv');
-      return res.send(csv);
+    const user = requestUser(req)!;
+    const profiles = user.role === 'admin'
+      ? await db.select({ id: vaProfiles.id }).from(vaProfiles)
+      : user.role === 'worker'
+        ? await db.select({ id: vaProfiles.id }).from(vaProfiles).where(eq(vaProfiles.userId, user.id))
+        : await db.select({ id: vaProfiles.id }).from(vaProfiles).where(eq(vaProfiles.founderId, user.id));
+    const profileIds = profiles.map(profile => profile.id);
+
+    if (type === 'time-entries') {
+      const times = user.role === 'admin'
+        ? await db.select().from(timeEntries)
+        : profileIds.length > 0
+          ? await db.select().from(timeEntries).where(inArray(timeEntries.vaId, profileIds))
+          : [];
+      const rows = [
+        ['id', 'vaId', 'founderId', 'taskId', 'durationMinutes', 'startTime', 'endTime', 'source'],
+        ...times.map(entry => [entry.id, entry.vaId, entry.founderId, entry.taskId, entry.durationMinutes,
+          entry.startTime.toISOString(), entry.endTime?.toISOString(), entry.source]),
+      ];
+      res.type('text/csv').attachment('time-entries.csv');
+      return res.send(rows.map(row => row.map(csvCell).join(',')).join('\r\n'));
     }
-    
-    if (format === 'csv' && type === 'task-summary') {
-      const tasks = await db.select().from(taskAssignments);
-      const csv = ['id,taskId,vaId,status,createdAt,completedAt'].concat(
-        tasks.map((t: any) => `${t.id},${t.taskId},${t.vaId},${t.status},${t.createdAt.toISOString()},${t.updatedAt.toISOString()}`)
-      ).join('\n');
-      
-      res.header('Content-Type', 'text/csv');
-      res.attachment('task-summary.csv');
-      return res.send(csv);
-    }
-    
-    // PDF or other formats mocked for now
-    res.status(400).json({ error: 'Unsupported export format or type' });
+
+    const tasks = user.role === 'admin'
+      ? await db.select().from(taskAssignments)
+      : profileIds.length > 0
+        ? await db.select().from(taskAssignments).where(inArray(taskAssignments.vaId, profileIds))
+        : [];
+    const rows = [
+      ['id', 'taskId', 'vaId', 'founderId', 'status', 'assignedAt', 'updatedAt'],
+      ...tasks.map(task => [task.id, task.taskId, task.vaId, task.founderId, task.status,
+        task.assignedAt.toISOString(), task.updatedAt.toISOString()]),
+    ];
+    res.type('text/csv').attachment('task-summary.csv');
+    return res.send(rows.map(row => row.map(csvCell).join(',')).join('\r\n'));
   } catch (error) {
+    console.error('[Reports] Failed to generate report', error);
     res.status(500).json({ error: 'Failed to generate report' });
   }
 });
