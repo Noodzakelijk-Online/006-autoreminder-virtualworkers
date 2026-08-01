@@ -4,7 +4,7 @@
  * Endpoints for the Adaptive Task Intelligence System
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { getDb } from '../db';
 import { 
   atisWorkspaces,
@@ -25,6 +25,27 @@ import { atisRateLimiter } from '../middleware/rate-limiter';
 
 const router = Router();
 const INACTIVE_LIST_KEYWORDS = ['done', 'completed', 'complete', 'archive', 'archived', 'info'];
+
+type AuthenticatedAtisRequest = Request & {
+  user?: {
+    id: number;
+    role: string;
+  };
+};
+
+// ATIS powers the retained administrator portal and can trigger Trello and AI work.
+// Keep it behind the same authenticated-admin boundary as the portal itself.
+function requireAtisAdmin(req: AuthenticatedAtisRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Forbidden - admin only' });
+  }
+  next();
+}
+
+router.use(requireAtisAdmin);
 
 function isInactiveListName(listName?: string | null) {
   if (!listName) return false;
@@ -1259,17 +1280,19 @@ router.get('/timeline-tasks', async (req: Request, res: Response) => {
  * POST /api/atis/checklist/toggle
  * Toggle completion status of a checklist step
  */
-router.post('/checklist/toggle', async (req: Request, res: Response) => {
+router.post('/checklist/toggle', async (req: AuthenticatedAtisRequest, res: Response) => {
   try {
+    const cardId = Number(req.body?.cardId);
+    const stepIndex = Number(req.body?.stepIndex);
+    const userId = req.user!.id;
+
+    if (!Number.isInteger(cardId) || cardId <= 0 || !Number.isInteger(stepIndex) || stepIndex < 0) {
+      return res.status(400).json({ error: 'cardId and stepIndex must be valid non-negative integers' });
+    }
+
     const db = await getDb();
     if (!db) {
       return res.status(500).json({ error: 'Database not available' });
-    }
-
-    const { cardId, stepIndex, userId } = req.body;
-
-    if (!cardId || stepIndex === undefined || !userId) {
-      return res.status(400).json({ error: 'Missing required fields: cardId, stepIndex, userId' });
     }
 
     // Check if already completed
@@ -1301,22 +1324,25 @@ router.post('/checklist/toggle', async (req: Request, res: Response) => {
  * GET /api/atis/checklist/status/:cardId
  * Get completion status for all steps of a card
  */
-router.get('/checklist/status/:cardId', async (req: Request, res: Response) => {
+router.get('/checklist/status/:cardId', async (req: AuthenticatedAtisRequest, res: Response) => {
   try {
     const db = await getDb();
     if (!db) {
       return res.status(500).json({ error: 'Database not available' });
     }
 
-    const cardId = parseInt(req.params.cardId);
-    const userId = req.query.userId ? parseInt(req.query.userId as string) : undefined;
+    const cardId = Number(req.params.cardId);
+    const userId = req.user!.id;
 
-    let query = sql`SELECT step_index, user_id, completed_at FROM atis_checklist_completion WHERE card_id = ${cardId}`;
-    if (userId) {
-      query = sql`SELECT step_index, user_id, completed_at FROM atis_checklist_completion WHERE card_id = ${cardId} AND user_id = ${userId}`;
+    if (!Number.isInteger(cardId) || cardId <= 0) {
+      return res.status(400).json({ error: 'Invalid card ID' });
     }
 
-    const result = await db.execute(query);
+    const result = await db.execute(sql`
+      SELECT step_index, user_id, completed_at
+      FROM atis_checklist_completion
+      WHERE card_id = ${cardId} AND user_id = ${userId}
+    `);
     const rows = (result as any)[0] || [];
     const completedSteps = rows.map((r: any) => ({
       stepIndex: r.step_index,
@@ -1335,10 +1361,15 @@ router.get('/checklist/status/:cardId', async (req: Request, res: Response) => {
  * POST /api/atis/checklist/sync-completion/:cardId
  * Sync completion status to Trello when a step is completed in dashboard
  */
-router.post('/checklist/sync-completion/:cardId', async (req: Request, res: Response) => {
+router.post('/checklist/sync-completion/:cardId', async (req: AuthenticatedAtisRequest, res: Response) => {
   try {
-    const cardId = parseInt(req.params.cardId);
-    const { stepIndex, completed } = req.body;
+    const cardId = Number(req.params.cardId);
+    const stepIndex = Number(req.body?.stepIndex);
+    const completed = req.body?.completed;
+
+    if (!Number.isInteger(cardId) || cardId <= 0 || !Number.isInteger(stepIndex) || stepIndex < 0 || typeof completed !== 'boolean') {
+      return res.status(400).json({ error: 'cardId, stepIndex, and completed are required' });
+    }
 
     const db = await getDb();
     if (!db) {

@@ -173,36 +173,10 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
         }
       }
 
-      // If no understanding, or it's a fallback 1-step checklist, trigger an immediate high-priority analysis
+      // Keep analysis explicit. Expanding a card must not spend AI quota or mutate
+      // the card's planning state in the background.
       if (!uResponse.ok || currentChecklist.length <= 1) {
         setLocalHasUnderstanding(false);
-        console.log(`[TaskCard] Card ${task.atisCardId} has no detailed checklist. Triggering immediate analysis...`);
-        const analyzeResponse = await fetch(`/api/atis/understanding/reprocess/${task.atisCardId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-        });
-        if (analyzeResponse.ok) {
-          const result = await analyzeResponse.json();
-          if (result.understanding?.aptlssChecklist) {
-            try {
-              const parsed = JSON.parse(result.understanding.aptlssChecklist);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                currentChecklist = parsed.map((item: any, index: number) => ({
-                  id: `${task.atisCardId}-step-${index}`,
-                  step: item.name || item.step || item.description || 'Step',
-                  timeMinutes: item.estimatedMinutes || item.timeMinutes || item.time || 15,
-                  aptlssType: item.priority || item.aptlssType || item.type || 'T',
-                  completed: false,
-                }));
-                setLocalChecklist(currentChecklist);
-                setLocalHasUnderstanding(true);
-              }
-            } catch (e) {
-              console.error('Failed to parse checklist after immediate analysis:', e);
-            }
-          }
-        }
       }
 
       // 2. Fetch completion status and apply to currentChecklist
@@ -420,7 +394,6 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
         body: JSON.stringify({
           cardId: task.atisCardId,
           stepIndex: stepIndex,
-          userId: 1, // TODO: Get actual user ID from auth context
         }),
       });
 
@@ -433,16 +406,17 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
       // Also sync to Trello if we have the checklist info
       if (task.trelloChecklistId) {
         try {
-          await fetch('/api/atis/checklist/sync-step', {
+          const syncResponse = await fetch(`/api/atis/checklist/sync-completion/${task.atisCardId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              cardId: task.atisCardId,
-              checklistId: task.trelloChecklistId,
               stepIndex: stepIndex,
               completed: newValue,
             }),
           });
+          if (!syncResponse.ok) {
+            throw new Error('Failed to sync checklist step to Trello');
+          }
         } catch (syncError) {
           // Don't fail the whole operation if Trello sync fails
           console.warn('Trello sync failed:', syncError);
@@ -815,10 +789,10 @@ export function TaskCard({ task, onToggle, isExpanded, onExpandChange, onStartIn
               <div className="ml-10">
                 {!localHasUnderstanding ? (
                   <div className="flex items-center gap-2 py-4 text-amber-600">
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Brain className="h-4 w-4" />
                     <div>
-                      <p className="text-sm font-medium">AI is analyzing this card...</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">The full checklist will appear shortly. You can also click Re-analyze to trigger it immediately.</p>
+                      <p className="text-sm font-medium">No detailed AI checklist yet</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Use Re-analyze when you are ready to create or refresh the card plan.</p>
                     </div>
                   </div>
                 ) : task.description ? (
