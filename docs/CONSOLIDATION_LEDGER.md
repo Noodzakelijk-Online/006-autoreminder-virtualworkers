@@ -43,7 +43,10 @@ remains byte-for-byte recoverable independently of later consolidation work.
 - Existing APTLSS plans, steps, card states, scores, audit log, daily plans, policies, follow-ups, and weekly analysis
 - Existing time, payment, compliance, triage, reply monitor, email inbox, and Sunday workflows
 
-The previous worker dashboard remains available at `/worker/operations`.
+The previous worker dashboard source remains preserved in the developer
+delivery and repository history, but it is no longer mounted inside the worker
+operator. Historical `/worker/operations` links redirect to `/worker` so the
+product has one worker shell and one approval model.
 
 ## Imported Joyce Capabilities
 
@@ -94,3 +97,8 @@ secret scan, TypeScript, canonical MySQL migrations, schema parity, 564 tests,
 production build, and migration-drift detection. The two failing Vercel checks
 are obsolete project configurations that still point to removed `Frontend` and
 `Backend` directories; they are not application test failures.
+
+Those projects must not be repointed to the repository root. The consolidated
+server requires a persistent container runtime for Express, tRPC, scheduled
+work, Redis, and WebSockets. Retire the obsolete Vercel Git integrations only
+after the public container replacement passes the production cutover gate.

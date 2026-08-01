@@ -44,4 +44,13 @@ describe("production configuration", () => {
       "LOCAL_AUTH_BYPASS cannot be enabled in production",
     ]);
   });
+
+  it("rejects a Vercel request-only production runtime", () => {
+    expect(getProductionConfigurationErrors({
+      ...validProductionEnvironment,
+      VERCEL: "1",
+    })).toEqual([
+      "Vercel request-only runtime is unsupported; deploy the unified Docker container",
+    ]);
+  });
 });

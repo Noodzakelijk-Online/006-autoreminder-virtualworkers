@@ -121,7 +121,6 @@ const NAVIGATION = [
   { path: "/worker/plan", label: "Plan My Day", description: "Time blocks", icon: CalendarDays },
   { path: "/worker/decisions", label: "Decisions", description: "Required outcomes", icon: BrainCircuit },
   { path: "/worker/evidence", label: "Evidence", description: "Connected facts", icon: FileCheck2 },
-  { path: "/worker/operations", label: "Operations", description: "Full legacy tools", icon: Archive },
 ] as const;
 
 function priorityTone(tier: string) {
@@ -163,6 +162,10 @@ export default function WorkerOperator({ view = "today" }: { view?: "today" | "p
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const context = trpc.operator.getContext.useQuery(undefined, { staleTime: 5 * 60_000 });
+  const apiHealth = trpc.system.health.useQuery(
+    { timestamp: 0 },
+    { retry: 1, staleTime: 30_000, refetchInterval: 60_000 },
+  );
   const workerName = context.data?.displayName || user?.name || "Worker";
   const founderName = context.data?.founderName || "Founder";
   const timeZone = context.data?.timezone || "UTC";
@@ -225,6 +228,15 @@ export default function WorkerOperator({ view = "today" }: { view?: "today" | "p
           <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle theme">{theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}</Button>
         </header>
         <main className="mx-auto w-full max-w-[1280px] p-4 md:p-6">
+          {(apiHealth.error || (apiHealth.data && apiHealth.data.runtime !== "unified-node")) && (
+            <Alert variant="destructive" className="mb-5">
+              <AlertTriangle className="size-4" />
+              <AlertTitle>Backend connection unavailable</AlertTitle>
+              <AlertDescription>
+                This portal must be served by the unified Node application. Requests are not reaching the expected backend; check the container deployment and API domain before using operational actions.
+              </AlertDescription>
+            </Alert>
+          )}
           {view === "today" && <TodayView onOpenPlan={() => navigate("/worker/plan")} onOpenDecisions={() => navigate("/worker/decisions")} />}
           {view === "plan" && <PlanView founderName={founderName} timeZone={timeZone} />}
           {view === "decisions" && <DecisionsView founderName={founderName} />}
@@ -823,6 +835,10 @@ function WorkerSettingsView() {
   const policy = trpc.operator.getBrowserTabPolicy.useQuery(undefined, { staleTime: 60_000 });
   const browser = trpc.operator.getBrowserTabStatus.useQuery(undefined, { retry: false, staleTime: 30_000 });
   const email = trpc.emailInbox.getPendingCount.useQuery(undefined, { retry: false, staleTime: 60_000 });
+  const apiHealth = trpc.system.health.useQuery(
+    { timestamp: 0 },
+    { retry: 1, staleTime: 30_000, refetchInterval: 60_000 },
+  );
   const [enabled, setEnabled] = useState(true);
   const [maxOpenTabs, setMaxOpenTabs] = useState(5);
   const [warningMinutes, setWarningMinutes] = useState(30);
@@ -916,6 +932,11 @@ function WorkerSettingsView() {
           <Card className="gap-0 rounded-lg py-0">
             <CardHeader className="border-b py-4"><CardTitle className="text-sm">Evidence connections</CardTitle></CardHeader>
             <CardContent className="divide-y p-0">
+              <ConnectionRow
+                label="Backend API"
+                value={apiHealth.data?.runtime === "unified-node" ? "Connected" : apiHealth.isLoading ? "Checking" : "Unavailable"}
+                healthy={apiHealth.data?.runtime === "unified-node"}
+              />
               <ConnectionRow label="Trello identity" value={worker?.trelloMemberId ? "Configured" : "Uses token owner"} healthy={Boolean(worker?.trelloMemberId)} />
               <ConnectionRow label="Gmail queue" value={`${email.data?.count ?? 0} pending`} healthy={!email.error} />
               <ConnectionRow label="Browser collector" value={browser.data?.connected ? "Connected" : browser.data?.collectorConfigured ? "Waiting for data" : "Setup required"} healthy={Boolean(browser.data?.connected)} />

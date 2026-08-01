@@ -20,7 +20,11 @@ This repository combines the developer platform with a reusable worker operator 
 | `/worker/plan` | worker | Persisted Plan My Day |
 | `/worker/decisions` | worker | Decision inbox and recorded outcomes |
 | `/worker/evidence` | worker | Evidence and integration state |
-| `/worker/operations` | worker | Preserved full worker operations dashboard |
+
+The worker experience has one canonical application shell. Historical
+`/worker/operations` bookmarks redirect to `/worker`; the recovered worker
+dashboard source remains preserved in Git history and the Kamal delivery
+archive, but it is not mounted as a second portal.
 
 ## Local Setup
 
@@ -38,6 +42,12 @@ The complete application needs a persistent container runtime with MySQL,
 Redis, HTTPS, and WebSocket support. `docker-compose.yml` applies the canonical
 Drizzle migrations before starting the application and refuses insecure or
 incomplete production configuration.
+
+Vercel's request-only runtime is not a supported deployment target for this
+application. The server performs scheduled work, maintains WebSocket state,
+and serves the frontend and API from one Node process. Do not repoint the old
+`Frontend` or `Backend` Vercel projects at the repository root; deploy the
+provided Docker image to a persistent container host instead.
 
 See [docs/PRODUCTION_CUTOVER.md](docs/PRODUCTION_CUTOVER.md) for the required
 secret contract, verification gate, rollback requirements, and the boundary

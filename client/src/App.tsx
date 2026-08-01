@@ -1,7 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { LoadingQueueProvider } from "./contexts/LoadingQueueContext";
@@ -11,7 +11,6 @@ import APTLSSManagement from "./pages/APTLSSManagement";
 import Settings from "./pages/Settings";
 import Calendar from "./pages/Calendar";
 import FounderDashboard from "./pages/FounderDashboard";
-import WorkerDashboard from "./pages/WorkerDashboard";
 import AdvancedScheduling from "./pages/AdvancedScheduling";
 import ATISPhasesAnalysisDashboard from "./pages/ATISPhasesAnalysisDashboard";
 import RobertDashboard from "./pages/manus/RobertDashboard";
@@ -38,7 +37,7 @@ function Router() {
         <Route path={"/robert"} component={() => <ProtectedRoute component={RobertDashboard} allowedRoles={["admin"]} />} />
         <Route path={"/command-center"} component={() => <ProtectedRoute component={PriorityCommandCenter} allowedRoles={["admin"]} />} />
         <Route path={"/admin"} component={() => <ProtectedRoute component={AdminMonitor} allowedRoles={["admin"]} />} />
-        <Route path={"/worker/operations"} component={() => <ProtectedRoute component={WorkerDashboard} allowedRoles={["worker"]} />} />
+        <Route path={"/worker/operations"} component={() => <Redirect to="/worker" replace />} />
         <Route path={"/worker/plan"} component={() => <ProtectedRoute component={() => <WorkerOperator view="plan" />} allowedRoles={["worker"]} />} />
         <Route path={"/worker/decisions"} component={() => <ProtectedRoute component={() => <WorkerOperator view="decisions" />} allowedRoles={["worker"]} />} />
         <Route path={"/worker/evidence"} component={() => <ProtectedRoute component={() => <WorkerOperator view="evidence" />} allowedRoles={["worker"]} />} />

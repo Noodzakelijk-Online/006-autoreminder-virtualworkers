@@ -11,6 +11,8 @@ export const systemRouter = router({
     )
     .query(() => ({
       ok: true,
+      runtime: "unified-node" as const,
+      apiVersion: 1 as const,
     })),
 
   notifyOwner: adminProcedure

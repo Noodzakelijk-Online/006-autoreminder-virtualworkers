@@ -12,6 +12,12 @@ the same services to a managed container platform. Keep one application
 instance active until scheduled-job locking has been verified on the target
 platform.
 
+Do not point either obsolete Vercel project at the repository root. A Vercel
+deployment would omit the persistent process, scheduled work, and WebSocket
+runtime required by the platform. Production startup rejects the Vercel
+runtime explicitly so an incomplete frontend cannot be mistaken for an
+operational deployment.
+
 ## Required Secrets
 
 Configure these values in the deployment platform's secret store:
