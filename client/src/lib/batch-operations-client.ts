@@ -156,8 +156,9 @@ class BatchOperationsClient {
    */
   async rescheduleSingleTask(
     taskId: string,
-    newScheduledDate: Date,
-    newScheduledTime: string
+    newStartTime: Date,
+    newEndTime: Date,
+    reason = 'Manual reschedule',
   ): Promise<{ success: boolean; conflictDetected: boolean; message: string }> {
     const response = await fetch(`${this.baseUrl}/reschedule`, {
       method: 'POST',
@@ -167,8 +168,9 @@ class BatchOperationsClient {
       credentials: 'include',
       body: JSON.stringify({
         taskId,
-        newScheduledDate: newScheduledDate.toISOString().split('T')[0],
-        newScheduledTime,
+        newStartTime: newStartTime.toISOString(),
+        newEndTime: newEndTime.toISOString(),
+        reason,
       }),
     });
 
@@ -177,14 +179,19 @@ class BatchOperationsClient {
       throw new Error(error.message || 'Failed to reschedule task');
     }
 
-    return response.json();
+    const result = await response.json();
+    return {
+      success: Boolean(result.success),
+      conflictDetected: Boolean(result.hadConflicts),
+      message: result.message || 'Task rescheduled',
+    };
   }
 
   /**
    * Undo a task reschedule
    */
   async undoReschedule(taskId: string): Promise<{ success: boolean; message: string }> {
-    const response = await fetch(`${this.baseUrl}/undo/${taskId}`, {
+    const response = await fetch(`${this.baseUrl}/undo/${encodeURIComponent(taskId)}`, {
       method: 'POST',
       credentials: 'include',
     });
@@ -200,7 +207,7 @@ class BatchOperationsClient {
    * Get schedule history for a task
    */
   async getScheduleHistory(taskId: string): Promise<any[]> {
-    const response = await fetch(`${this.baseUrl}/history/${taskId}`, {
+    const response = await fetch(`${this.baseUrl}/history/${encodeURIComponent(taskId)}`, {
       credentials: 'include',
     });
 
@@ -208,7 +215,8 @@ class BatchOperationsClient {
       throw new Error('Failed to get schedule history');
     }
 
-    return response.json();
+    const result = await response.json();
+    return Array.isArray(result) ? result : (result.history || []);
   }
 
   /**

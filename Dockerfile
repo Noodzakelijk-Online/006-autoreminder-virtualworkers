@@ -9,7 +9,7 @@ RUN npm install -g pnpm@10.4.1
 WORKDIR /app
 
 # Copy package files
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches ./patches
 
 # Install dependencies
@@ -35,7 +35,7 @@ RUN addgroup -g 1001 -S nodejs && \
 WORKDIR /app
 
 # Copy package files
-COPY --chown=nodejs:nodejs package.json pnpm-lock.yaml ./
+COPY --chown=nodejs:nodejs package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --chown=nodejs:nodejs patches ./patches
 
 # Install production dependencies only

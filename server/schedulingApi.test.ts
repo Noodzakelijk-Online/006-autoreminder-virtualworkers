@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSchedulingMetrics,
   normalizeHistoryLimit,
+  resolveBatchSchedule,
   toBatchOperationResponse,
   toShortcutMap,
 } from "./schedulingApi";
@@ -28,6 +29,23 @@ const operation = (
 });
 
 describe("advanced scheduling API normalization", () => {
+  it("requires explicit and bounded batch reschedule timing", () => {
+    expect(resolveBatchSchedule(undefined, "task-1")).toBeNull();
+    expect(resolveBatchSchedule({ preferredDate: "invalid", duration: 2 }, "task-1")).toBeNull();
+    expect(resolveBatchSchedule({ preferredDate: "2026-08-03T08:00:00.000Z", duration: 48 }, "task-1")).toBeNull();
+    expect(resolveBatchSchedule({
+      schedules: {
+        "task-1": {
+          startTime: "2026-08-03T08:00:00.000Z",
+          endTime: "2026-08-03T09:30:00.000Z",
+        },
+      },
+    }, "task-1")).toEqual({
+      startTime: new Date("2026-08-03T08:00:00.000Z"),
+      endTime: new Date("2026-08-03T09:30:00.000Z"),
+    });
+  });
+
   it("clamps history limits", () => {
     expect(normalizeHistoryLimit(undefined)).toBe(50);
     expect(normalizeHistoryLimit("0")).toBe(1);

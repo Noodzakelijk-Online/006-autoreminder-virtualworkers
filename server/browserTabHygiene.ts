@@ -145,6 +145,16 @@ export async function resolveBrowserTabCollectorWorker(candidate: string | null 
   return tokenMatches(legacy, candidate) ? legacyCollectorOwnerId() : null;
 }
 
+export async function resolveBrowserTabCollectorUserOpenId(vaId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select({ openId: users.openId })
+    .from(users)
+    .where(eq(users.id, vaId))
+    .limit(1);
+  return row?.openId ?? null;
+}
+
 function sanitizeUrl(raw: string) {
   try {
     const parsed = new URL(raw);

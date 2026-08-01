@@ -5,13 +5,28 @@ import { batchQueueProcessor } from '../services/batch-queue-processor.js';
 import {
   buildSchedulingMetrics,
   normalizeHistoryLimit,
+  resolveBatchSchedule,
   toBatchOperationResponse,
   toShortcutMap,
 } from '../schedulingApi.js';
-import { requireAuthenticated } from '../middleware/auth';
+import { requestUser, requireAuthenticated } from '../middleware/auth';
 
 const router = Router();
 router.use(requireAuthenticated);
+
+function getScheduleActor(req: Request): schedulingDb.ScheduleActor | null {
+  const user = requestUser(req);
+  if (!user) return null;
+  return { id: user.id, openId: user.openId, role: user.role };
+}
+
+function parseScheduleRange(startValue: unknown, endValue: unknown) {
+  const startTime = new Date(String(startValue));
+  const endTime = new Date(String(endValue));
+  if (!Number.isFinite(startTime.getTime()) || !Number.isFinite(endTime.getTime())) return null;
+  if (startTime >= endTime) return null;
+  return { startTime, endTime };
+}
 
 /**
  * Advanced Scheduling Routes
@@ -29,31 +44,17 @@ async function detectTimeConflicts(
   taskId: string,
   newStartTime: Date,
   newEndTime: Date,
-  userId: string
+  actor: schedulingDb.ScheduleActor,
 ) {
-  try {
-    // Get all tasks for the user
-    const userTasks: any[] = await (schedulingDb as any).getUserTasks?.(userId) || [];
-    
-    const conflicts = userTasks.filter((task: any) => {
-      // Skip the task being rescheduled
-      if (task.id === taskId) return false;
-      
-      // Skip tasks without schedule
-      if (!task.startTime || !task.endTime) return false;
-      
-      const taskStart = new Date(task.startTime);
-      const taskEnd = new Date(task.endTime);
-      
-      // Check for time overlap
-      return newStartTime < taskEnd && newEndTime > taskStart;
-    });
-    
-    return conflicts;
-  } catch (error) {
-    console.error('[ConflictDetection] Error detecting time conflicts:', error);
-    return [];
-  }
+  const userTasks = await schedulingDb.getUserTasks(actor);
+  return userTasks.filter((task) => {
+    if (task.taskId === taskId) return false;
+    if (!task.startTime || !task.endTime) return false;
+
+    const taskStart = new Date(task.startTime);
+    const taskEnd = new Date(task.endTime);
+    return newStartTime < taskEnd && newEndTime > taskStart;
+  });
 }
 
 /**
@@ -61,33 +62,24 @@ async function detectTimeConflicts(
  */
 async function detectResourceConflicts(
   taskId: string,
-  assignedTo: string,
+  assignedTo: number,
   newStartTime: Date,
-  newEndTime: Date
+  newEndTime: Date,
+  actor: schedulingDb.ScheduleActor,
 ) {
-  try {
-    // Get all tasks assigned to this person
-    const assignedTasks: any[] = await (schedulingDb as any).getTasksByAssignee?.(assignedTo) || [];
-    
-    const conflicts = assignedTasks.filter((task: any) => {
-      // Skip the task being rescheduled
-      if (task.id === taskId) return false;
-      
-      // Skip tasks without schedule
-      if (!task.startTime || !task.endTime) return false;
-      
-      const taskStart = new Date(task.startTime);
-      const taskEnd = new Date(task.endTime);
-      
-      // Check for time overlap
-      return newStartTime < taskEnd && newEndTime > taskStart;
-    });
-    
-    return conflicts;
-  } catch (error) {
-    console.error('[ConflictDetection] Error detecting resource conflicts:', error);
-    return [];
-  }
+  const assignedTasks = await schedulingDb.getTasksByAssignee(actor, assignedTo);
+  return assignedTasks.filter((task) => {
+    if (task.taskId === taskId) return false;
+    if (!task.startTime || !task.endTime) return false;
+
+    const taskStart = new Date(task.startTime);
+    const taskEnd = new Date(task.endTime);
+    return newStartTime < taskEnd && newEndTime > taskStart;
+  });
+}
+
+function uniqueConflicts(conflicts: schedulingDb.ScheduledTaskRecord[]) {
+  return Array.from(new Map(conflicts.map((conflict) => [conflict.id, conflict])).values());
 }
 
 /**
@@ -142,10 +134,9 @@ function generateResolutionSuggestions(
  */
 router.post('/reschedule', async (req: Request, res: Response) => {
   try {
-    const { taskId, cardTrelloId, newStartTime, newEndTime, reason, assignedTo } = req.body;
-    const userOpenId = (req as any).user?.openId;
-
-    if (!userOpenId) {
+    const { taskId, cardTrelloId, newStartTime, newEndTime, reason } = req.body;
+    const actor = getScheduleActor(req);
+    if (!actor) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -154,51 +145,53 @@ router.post('/reschedule', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const startTime = new Date(newStartTime);
-    const endTime = new Date(newEndTime);
+    const range = parseScheduleRange(newStartTime, newEndTime);
+    if (!range) {
+      return res.status(400).json({ error: 'Valid start and end times are required, with start before end' });
+    }
+    const { startTime, endTime } = range;
 
-    if (startTime >= endTime) {
-      return res.status(400).json({ error: 'Start time must be before end time' });
+    const ownedTask = await schedulingDb.getScheduledTaskForActor(taskId, actor);
+    if (!ownedTask) {
+      return res.status(404).json({ error: 'Task assignment not found' });
     }
 
     // Detect conflicts
-    const timeConflicts = await detectTimeConflicts(taskId, startTime, endTime, userOpenId);
-    const resourceConflicts = assignedTo 
-      ? await detectResourceConflicts(taskId, assignedTo, startTime, endTime)
-      : [];
-    
-    const allConflicts = [...timeConflicts, ...resourceConflicts];
+    const timeConflicts = await detectTimeConflicts(taskId, startTime, endTime, actor);
+    const resourceConflicts = await detectResourceConflicts(taskId, ownedTask.vaId, startTime, endTime, actor);
+    const allConflicts = uniqueConflicts([...timeConflicts, ...resourceConflicts]);
     const hadConflicts = allConflicts.length > 0;
     
     // Generate resolution suggestions if conflicts exist
     const suggestions = hadConflicts ? generateResolutionSuggestions(allConflicts, startTime, endTime) : [];
 
-    // Record the reschedule event
-    const historyId = await schedulingDb.insertScheduleHistory({
-      taskId,
+    const result = await schedulingDb.rescheduleTaskForActor(actor, taskId, startTime, endTime, {
       cardTrelloId,
-      newStartTime: startTime,
-      newEndTime: endTime,
-      changedBy: userOpenId,
       reason: reason || 'Manual reschedule',
       source: 'manual',
-      hadConflicts
+      hadConflicts,
+      conflictDetails: hadConflicts ? JSON.stringify(allConflicts) : undefined,
     });
+    if (!result) {
+      return res.status(404).json({ error: 'Task assignment not found' });
+    }
 
     res.json({
       success: true,
       taskId,
-      historyId,
+      historyId: result.historyId,
+      previousStartTime: result.previousStartTime,
+      previousEndTime: result.previousEndTime,
       newStartTime: startTime,
       newEndTime: endTime,
       hadConflicts,
       conflictCount: allConflicts.length,
       conflicts: hadConflicts ? allConflicts.map((c: any) => ({
         id: c.id,
-        title: c.title || c.name,
+        title: c.taskId,
         startTime: c.startTime,
         endTime: c.endTime,
-        type: c.assignedTo === assignedTo ? 'resource' : 'time'
+        type: c.vaId === ownedTask.vaId ? 'resource' : 'time'
       })) : [],
       suggestions,
       message: hadConflicts 
@@ -218,38 +211,22 @@ router.post('/reschedule', async (req: Request, res: Response) => {
 router.post('/undo/:taskId', async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
-    const userOpenId = (req as any).user?.openId;
-
-    if (!userOpenId) {
+    const actor = getScheduleActor(req);
+    if (!actor) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Get the last reschedule event
-    const history = await schedulingDb.getScheduleHistory(taskId, 1);
-    const lastReschedule = history[0];
-
-    if (!lastReschedule || !lastReschedule.previousStartTime || !lastReschedule.previousEndTime) {
+    const result = await schedulingDb.undoLastRescheduleForActor(actor, taskId);
+    if (!result) {
       return res.status(404).json({ error: 'No previous schedule found' });
     }
-
-    // Create a new reschedule record to restore the previous schedule
-    const historyId = await schedulingDb.insertScheduleHistory({
-      taskId,
-      cardTrelloId: lastReschedule.cardTrelloId,
-      newStartTime: lastReschedule.previousStartTime,
-      newEndTime: lastReschedule.previousEndTime,
-      changedBy: userOpenId,
-      reason: 'Undo reschedule',
-      source: 'manual',
-      hadConflicts: false
-    });
 
     res.json({
       success: true,
       taskId,
-      historyId,
-      restoredStartTime: lastReschedule.previousStartTime,
-      restoredEndTime: lastReschedule.previousEndTime,
+      historyId: result.historyId,
+      restoredStartTime: result.newStartTime,
+      restoredEndTime: result.newEndTime,
       message: 'Previous schedule restored'
     });
   } catch (error) {
@@ -265,12 +242,15 @@ router.post('/undo/:taskId', async (req: Request, res: Response) => {
 router.get('/history/:taskId', async (req: Request, res: Response) => {
   try {
     const { taskId } = req.params;
-    const userOpenId = (req as any).user?.openId;
-    if (!userOpenId) {
+    const actor = getScheduleActor(req);
+    if (!actor) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const history = await schedulingDb.getScheduleHistory(taskId);
+    const history = await schedulingDb.getScheduleHistoryForActor(taskId, actor);
+    if (!history) {
+      return res.status(404).json({ error: 'Task assignment not found' });
+    }
 
     res.json({
       success: true,
@@ -290,10 +270,9 @@ router.get('/history/:taskId', async (req: Request, res: Response) => {
  */
 router.post('/detect-conflicts', async (req: Request, res: Response) => {
   try {
-    const { taskId, newStartTime, newEndTime, assignedTo } = req.body;
-    const userOpenId = (req as any).user?.openId;
-
-    if (!userOpenId) {
+    const { taskId, newStartTime, newEndTime } = req.body;
+    const actor = getScheduleActor(req);
+    if (!actor) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -301,16 +280,21 @@ router.post('/detect-conflicts', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const startTime = new Date(newStartTime);
-    const endTime = new Date(newEndTime);
+    const range = parseScheduleRange(newStartTime, newEndTime);
+    if (!range) {
+      return res.status(400).json({ error: 'Valid start and end times are required, with start before end' });
+    }
+    const { startTime, endTime } = range;
+
+    const ownedTask = await schedulingDb.getScheduledTaskForActor(taskId, actor);
+    if (!ownedTask) {
+      return res.status(404).json({ error: 'Task assignment not found' });
+    }
 
     // Detect conflicts
-    const timeConflicts = await detectTimeConflicts(taskId, startTime, endTime, userOpenId);
-    const resourceConflicts = assignedTo
-      ? await detectResourceConflicts(taskId, assignedTo, startTime, endTime)
-      : [];
-
-    const allConflicts = [...timeConflicts, ...resourceConflicts];
+    const timeConflicts = await detectTimeConflicts(taskId, startTime, endTime, actor);
+    const resourceConflicts = await detectResourceConflicts(taskId, ownedTask.vaId, startTime, endTime, actor);
+    const allConflicts = uniqueConflicts([...timeConflicts, ...resourceConflicts]);
     const suggestions = allConflicts.length > 0 
       ? generateResolutionSuggestions(allConflicts, startTime, endTime)
       : [];
@@ -322,10 +306,10 @@ router.post('/detect-conflicts', async (req: Request, res: Response) => {
       conflictCount: allConflicts.length,
       conflicts: allConflicts.map((c: any) => ({
         id: c.id,
-        title: c.title || c.name,
+        title: c.taskId,
         startTime: c.startTime,
         endTime: c.endTime,
-        type: c.assignedTo === assignedTo ? 'resource' : 'time'
+        type: c.vaId === ownedTask.vaId ? 'resource' : 'time'
       })),
       suggestions
     });
@@ -345,15 +329,22 @@ router.post('/detect-conflicts', async (req: Request, res: Response) => {
  */
 router.post('/batch-start', async (req: Request, res: Response) => {
   try {
-    const { operationType, taskIds, description, parameters } = req.body;
+    const { operationType, taskIds, description } = req.body;
+    const parameters = req.body?.parameters ?? req.body?.options;
     const userOpenId = (req as any).user?.openId;
 
     if (!userOpenId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!operationType || !Array.isArray(taskIds) || taskIds.length === 0) {
+    if (!operationType || !Array.isArray(taskIds) || taskIds.length === 0 || taskIds.length > 250) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+    const normalizedTaskIds = [...new Set(taskIds.map((value: unknown) =>
+      typeof value === 'string' ? value.trim() : ''
+    ).filter((value: string) => value.length > 0 && value.length <= 128))];
+    if (normalizedTaskIds.length !== taskIds.length) {
+      return res.status(400).json({ error: 'Every task ID must be a unique non-empty string of at most 128 characters' });
     }
 
     const validOperationTypes = ['re_analyze', 'reschedule', 'conflict_resolution', 'optimization'];
@@ -366,19 +357,24 @@ router.post('/batch-start', async (req: Request, res: Response) => {
         supportedOperationTypes: ['re_analyze', 'reschedule'],
       });
     }
+    if (operationType === 'reschedule' && normalizedTaskIds.some((taskId) => !resolveBatchSchedule(parameters, taskId))) {
+      return res.status(400).json({
+        error: 'Batch reschedule requires a valid schedule per task or a preferredDate with a duration between 0.25 and 24 hours',
+      });
+    }
 
     // Create batch operation record
     const jobId = await schedulingDb.createBatchOperation({
       userId: userOpenId,
       operationType,
-      taskIds,
+      taskIds: normalizedTaskIds,
       description,
     });
 
-    void batchQueueProcessor.enqueueJob(jobId, userOpenId, operationType, taskIds, {
-      description,
-      parameters,
-    });
+    const jobParameters = parameters && typeof parameters === 'object'
+      ? { ...parameters, description }
+      : { description };
+    void batchQueueProcessor.enqueueJob(jobId, userOpenId, operationType, normalizedTaskIds, jobParameters);
 
     const createdAt = new Date();
     res.json({
@@ -387,7 +383,7 @@ router.post('/batch-start', async (req: Request, res: Response) => {
       operationType,
       status: 'pending',
       progress: 0,
-      totalTasks: taskIds.length,
+      totalTasks: normalizedTaskIds.length,
       completedTasks: 0,
       failedTasks: 0,
       createdAt,

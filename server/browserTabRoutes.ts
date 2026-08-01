@@ -1,6 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
-import { ingestBrowserTabInventory, resolveBrowserTabCollectorWorker } from "./browserTabHygiene";
+import {
+  ingestBrowserTabInventory,
+  resolveBrowserTabCollectorUserOpenId,
+  resolveBrowserTabCollectorWorker,
+} from "./browserTabHygiene";
 import { websocketService } from "./services/websocket";
 
 const inventorySchema = z.object({
@@ -45,10 +49,13 @@ export function registerBrowserTabRoutes(app: Express) {
       }
       const input = inventorySchema.parse(req.body);
       const status = await ingestBrowserTabInventory(vaId, input);
-      websocketService.emitToAll("browser-tabs:invalidate", {
-        vaId,
-        capturedAt: new Date().toISOString(),
-      });
+      const workerOpenId = await resolveBrowserTabCollectorUserOpenId(vaId);
+      if (workerOpenId) {
+        websocketService.emitToUser(workerOpenId, "browser-tabs:invalidate", {
+          vaId,
+          capturedAt: new Date().toISOString(),
+        });
+      }
       res.json({
         success: true,
         status: status.status,

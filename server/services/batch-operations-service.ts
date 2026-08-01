@@ -10,6 +10,8 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { websocketService } from './websocket';
 import { invalidateCache } from './trello-cache';
 import { log } from '../utils/logger';
+import * as schedulingDb from '../db/scheduling';
+import { resolveBatchSchedule } from '../schedulingApi';
 
 export type BatchOperationType = 're_analyze' | 'reschedule' | 'conflict_resolution' | 'optimization';
 export type BatchOperationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
@@ -217,31 +219,70 @@ async function executeBatchReschedule(
   operationId: string,
   taskIds: string[],
   userId: number,
-  userOpenId: string
+  userOpenId: string,
+  parameters?: Record<string, any>,
 ): Promise<void> {
-  try {
-    // Invalidate cache to trigger rescheduling
-    await invalidateCache(userId, userOpenId, 'tasks');
+  const results: any[] = [];
+  const errors: string[] = [];
+  let completed = 0;
+  let failed = 0;
+
+  const actor = await schedulingDb.getScheduleActorByOpenId(userOpenId);
+  if (!actor) throw new Error('Batch operation owner not found');
+
+  for (let index = 0; index < taskIds.length; index++) {
+    const taskId = taskIds[index];
+    try {
+      await updateBatchProgress(operationId, {
+        currentTaskIndex: index,
+        currentTaskName: `Task ${taskId}`,
+      });
+
+      const schedule = resolveBatchSchedule(parameters, taskId);
+      if (!schedule) throw new Error('A valid task schedule is required');
+      const result = await schedulingDb.rescheduleTaskForActor(
+        actor,
+        taskId,
+        schedule.startTime,
+        schedule.endTime,
+        { reason: 'Batch reschedule', source: 'batch' },
+      );
+      if (!result) throw new Error('Task assignment not found or not owned by this user');
+
+      results.push({
+        taskId,
+        success: true,
+        historyId: result.historyId,
+        previousStartTime: result.previousStartTime,
+        previousEndTime: result.previousEndTime,
+        newStartTime: result.newStartTime,
+        newEndTime: result.newEndTime,
+      });
+      completed++;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`Task ${taskId}: ${message}`);
+      failed++;
+      log.error('Batch reschedule failed for task', error as Error, { operationId, taskId });
+    }
 
     await updateBatchProgress(operationId, {
-      status: 'completed',
-      completedTasks: taskIds.length,
-      results: { message: 'Cache invalidated, tasks will be rescheduled on next fetch' },
-    });
-
-    log.info('Batch reschedule completed', {
-      operationId,
-      taskCount: taskIds.length,
-    });
-  } catch (error) {
-    log.error('Batch reschedule failed', error as Error, { operationId });
-
-    await updateBatchProgress(operationId, {
-      status: 'failed',
-      failedTasks: taskIds.length,
-      errorLog: { error: error instanceof Error ? error.message : String(error) },
+      completedTasks: completed,
+      failedTasks: failed,
     });
   }
+
+  if (completed > 0) await invalidateCache(userId, userOpenId, 'tasks');
+
+  await updateBatchProgress(operationId, {
+    status: failed === taskIds.length ? 'failed' : 'completed',
+    completedTasks: completed,
+    failedTasks: failed,
+    results,
+    errorLog: errors,
+  });
+
+  log.info('Batch reschedule completed', { operationId, completed, failed });
 }
 
 /**
@@ -274,7 +315,7 @@ export async function executeBatchOperation(
         break;
 
       case 'reschedule':
-        await executeBatchReschedule(operationId, params.taskIds, userId, params.userOpenId);
+        await executeBatchReschedule(operationId, params.taskIds, userId, params.userOpenId, params.parameters);
         break;
 
       case 'conflict_resolution':

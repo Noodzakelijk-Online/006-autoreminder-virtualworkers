@@ -16,6 +16,7 @@ import { EventEmitter } from 'events';
 import * as schedulingDb from '../db/scheduling.js';
 import { websocketService } from './websocket.js';
 import { invokeLLM } from '../_core/llm.js';
+import { resolveBatchSchedule } from '../schedulingApi.js';
 
 interface QueuedJob {
   jobId: string;
@@ -234,7 +235,7 @@ class BatchQueueProcessor extends EventEmitter {
               result = await this.reAnalyzeTask(taskId, job.parameters);
               break;
             case 'reschedule':
-              result = await this.rescheduleTask(taskId, job.parameters);
+              result = await this.rescheduleTask(taskId, job.userId, job.parameters);
               break;
             case 'conflict_resolution':
             case 'optimization':
@@ -288,7 +289,7 @@ class BatchQueueProcessor extends EventEmitter {
             ? 'batch:failed'
             : 'batch:complete';
 
-      websocketService.emitToAll(finalEvent, {
+      websocketService.emitToUser(job.userId, finalEvent, {
         ...progress,
         jobId: job.jobId,
       });
@@ -336,20 +337,35 @@ class BatchQueueProcessor extends EventEmitter {
   /**
    * Reschedule a task
    */
-  private async rescheduleTask(taskId: string, parameters?: Record<string, any>): Promise<Record<string, any>> {
+  private async rescheduleTask(
+    taskId: string,
+    userOpenId: string,
+    parameters?: Record<string, any>,
+  ): Promise<Record<string, any>> {
     try {
-      const duration = parameters?.duration || 2;
-      const preferredDate = parameters?.preferredDate || new Date();
-
-      // Generate new schedule
-      const newStartTime = new Date(preferredDate);
-      const newEndTime = new Date(newStartTime.getTime() + duration * 60 * 60 * 1000);
+      const schedule = resolveBatchSchedule(parameters, taskId);
+      if (!schedule) {
+        throw new Error('A valid start/end time or preferredDate/duration is required');
+      }
+      const actor = await schedulingDb.getScheduleActorByOpenId(userOpenId);
+      if (!actor) throw new Error('Batch operation owner not found');
+      const result = await schedulingDb.rescheduleTaskForActor(
+        actor,
+        taskId,
+        schedule.startTime,
+        schedule.endTime,
+        { reason: 'Batch reschedule', source: 'batch' },
+      );
+      if (!result) throw new Error('Task assignment not found or not owned by this user');
 
       return {
         taskId,
         rescheduled: true,
-        newStartTime,
-        newEndTime,
+        historyId: result.historyId,
+        previousStartTime: result.previousStartTime,
+        previousEndTime: result.previousEndTime,
+        newStartTime: result.newStartTime,
+        newEndTime: result.newEndTime,
         timestamp: new Date().toISOString()
       };
     } catch (error) {

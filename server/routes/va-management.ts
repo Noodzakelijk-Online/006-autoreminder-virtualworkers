@@ -21,8 +21,21 @@ import { sendMorningBriefing, sendEODReport, validateSendGridApiKey } from '../s
 import { websocketService } from '../services/websocket';
 import { invalidateCache } from '../services/trello-cache';
 import { fetchWithRetry } from '../utils/retry';
+import { requestUser, requireAuthenticated } from '../middleware/auth';
 
 const router = Router();
+router.use(requireAuthenticated);
+router.use((req, res, next) => {
+  const user = requestUser(req)!;
+  const isWorkerRoute = req.path === '/worker' || req.path.startsWith('/worker/');
+  if (isWorkerRoute && user.role !== 'worker') {
+    return res.status(403).json({ error: 'Worker access required' });
+  }
+  if (!isWorkerRoute && user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+});
 
 async function fetchTrelloCardSummary(taskId: string) {
   const apiKey = process.env.TRELLO_API_KEY;
@@ -570,7 +583,7 @@ router.post('/priority-override', async (req: any, res) => {
     invalidateCache(user.id, user.openId, 'tasks');
 
     // Notify connected clients about the priority change
-    websocketService.emitToAll('task:priority-changed', {
+    websocketService.emitToUser(user.openId, 'task:priority-changed', {
       taskId,
       priority,
       reason,
@@ -1008,6 +1021,8 @@ router.get('/assignments', async (req: any, res) => {
       vaId: taskAssignments.vaId,
       status: taskAssignments.status,
       notes: taskAssignments.notes,
+      scheduledStart: taskAssignments.startTime,
+      scheduledEnd: taskAssignments.endTime,
     })
       .from(atisCards)
       .innerJoin(atisBoards, eq(atisCards.boardId, atisBoards.id))
@@ -1113,8 +1128,8 @@ router.get('/assignments', async (req: any, res) => {
         isPriorityOverride: overrideMap.has(c.trelloId),
         status: c.status || 'unassigned',
         estimatedMinutes: c.estimatedMinutes || 60,
-        scheduledStart: null,
-        scheduledEnd: null,
+        scheduledStart: c.scheduledStart ? new Date(c.scheduledStart).toISOString() : null,
+        scheduledEnd: c.scheduledEnd ? new Date(c.scheduledEnd).toISOString() : null,
         blockedBy: [],
         clientProject: c.boardName,
         clientName: boardToClientMap.get(c.boardId)?.name,

@@ -16,6 +16,7 @@ import {
 import { log } from '../utils/logger';
 import { expensiveOperationRateLimiter } from '../middleware/rate-limiter';
 import { requireAuthenticated, requestUser } from '../middleware/auth';
+import { resolveBatchSchedule } from '../schedulingApi';
 
 const router = Router();
 router.use(requireAuthenticated);
@@ -55,6 +56,11 @@ router.post('/start', expensiveOperationRateLimiter, async (req: any, res: Respo
       return res.status(501).json({
         error: `${operationType} is not implemented and will not be reported as completed`,
         supportedOperationTypes: SUPPORTED_BATCH_OPERATION_TYPES,
+      });
+    }
+    if (operationType === 'reschedule' && normalizedTaskIds.some((taskId) => !resolveBatchSchedule(parameters, taskId))) {
+      return res.status(400).json({
+        error: 'Batch reschedule requires a valid schedule per task or a preferredDate with a duration between 0.25 and 24 hours',
       });
     }
 

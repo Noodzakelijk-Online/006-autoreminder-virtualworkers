@@ -3,6 +3,37 @@ import type {
   KeyboardShortcutRecord,
 } from "./db/scheduling";
 
+export type ResolvedBatchSchedule = {
+  startTime: Date;
+  endTime: Date;
+};
+
+export function resolveBatchSchedule(
+  parameters: Record<string, any> | undefined,
+  taskId: string,
+): ResolvedBatchSchedule | null {
+  const taskSchedule = parameters?.schedules?.[taskId];
+  const startValue = taskSchedule?.startTime
+    ?? taskSchedule?.newStartTime
+    ?? parameters?.preferredDate
+    ?? parameters?.startTime;
+  const endValue = taskSchedule?.endTime ?? taskSchedule?.newEndTime ?? parameters?.endTime;
+  const durationHours = Number(taskSchedule?.duration ?? parameters?.duration);
+
+  const startTime = new Date(String(startValue ?? ''));
+  if (!Number.isFinite(startTime.getTime())) return null;
+
+  const endTime = endValue
+    ? new Date(String(endValue))
+    : Number.isFinite(durationHours) && durationHours >= 0.25 && durationHours <= 24
+      ? new Date(startTime.getTime() + durationHours * 60 * 60 * 1000)
+      : new Date(Number.NaN);
+
+  if (!Number.isFinite(endTime.getTime()) || startTime >= endTime) return null;
+  if (endTime.getTime() - startTime.getTime() > 24 * 60 * 60 * 1000) return null;
+  return { startTime, endTime };
+}
+
 export function normalizeHistoryLimit(value: unknown, fallback = 50): number {
   const parsed = Number.parseInt(String(value ?? fallback), 10);
   if (!Number.isFinite(parsed)) return fallback;

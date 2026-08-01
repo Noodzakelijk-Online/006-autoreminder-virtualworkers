@@ -6,6 +6,7 @@ import reportsRoutes from './routes/reports';
 import metricsRoutes from './routes/metrics';
 import batchOperationRoutes from './routes/batch-operations';
 import advancedSchedulingRoutes from './routes/advanced-scheduling';
+import vaManagementRoutes from './routes/va-management';
 
 const worker = {
   id: 42,
@@ -25,6 +26,7 @@ function appWithUser(user?: typeof worker | { id: number; openId: string; role: 
   app.use('/metrics-api', metricsRoutes);
   app.use('/batch-operations', batchOperationRoutes);
   app.use('/scheduling', advancedSchedulingRoutes);
+  app.use('/va', vaManagementRoutes);
   return app;
 }
 
@@ -65,5 +67,13 @@ describe('legacy API hardening', () => {
       .get('/reports/export?format=pdf&type=task-summary')
       .expect(400);
     expect(response.body.supported).toEqual(['csv/time-entries', 'csv/task-summary']);
+  });
+
+  it('keeps founder VA APIs separate from worker self-service APIs', async () => {
+    const workerApp = appWithUser(worker);
+    await request(workerApp).get('/va/assignments').expect(403);
+
+    const adminApp = appWithUser({ id: 1, openId: 'admin-1', role: 'admin' });
+    await request(adminApp).get('/va/worker/profile').expect(403);
   });
 });

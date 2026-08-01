@@ -3,7 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { 
+  AlertTriangle,
   Loader2, 
   Calendar, 
   Zap,
@@ -46,6 +48,59 @@ const DEFAULT_SHORTCUTS: (KeyboardShortcut & { isCustom?: boolean })[] = [
   { action: 'settings', keys: 'Ctrl+,', description: 'Open settings', category: 'general' },
 ];
 
+type SchedulingAssignment = {
+  taskId: string;
+  cardName: string;
+  vaId: number | null;
+  priority: string;
+  status: string;
+  complexity?: string | number;
+  scheduledStart: string | null;
+  scheduledEnd: string | null;
+};
+
+type CalendarTask = {
+  id: string;
+  title: string;
+  cardTrelloId?: string;
+  startTime: Date;
+  endTime: Date;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  complexity?: number;
+  status: 'pending' | 'in-progress' | 'completed';
+};
+
+type CalendarHistory = {
+  id: string;
+  taskId: string;
+  previousStartTime?: Date;
+  previousEndTime?: Date;
+  newStartTime: Date;
+  newEndTime: Date;
+  reason?: string;
+  hadConflicts: boolean;
+  createdAt: Date;
+};
+
+async function readApiError(response: Response) {
+  const body = await response.json().catch(() => null);
+  return body?.error || body?.message || `Request failed with status ${response.status}`;
+}
+
+function normalizePriority(priority: string): CalendarTask['priority'] {
+  const value = priority.toLowerCase();
+  if (value === 'critical' || value === 'urgent' || value === 'drop_everything') return 'critical';
+  if (value === 'high') return 'high';
+  if (value === 'low') return 'low';
+  return 'medium';
+}
+
+function normalizeStatus(status: string): CalendarTask['status'] {
+  if (status === 'completed') return 'completed';
+  if (status === 'in_progress') return 'in-progress';
+  return 'pending';
+}
+
 export default function AdvancedScheduling() {
   const [activeTab, setActiveTab] = useState('calendar');
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
@@ -55,6 +110,10 @@ export default function AdvancedScheduling() {
   const [showBatchDefaults, setShowBatchDefaults] = useState(false);
   const [showKeyboardSettings, setShowKeyboardSettings] = useState(false);
   const [showPerformanceMetrics, setShowPerformanceMetrics] = useState(false);
+  const [calendarTasks, setCalendarTasks] = useState<CalendarTask[]>([]);
+  const [scheduleHistory, setScheduleHistory] = useState<CalendarHistory[]>([]);
+  const [isLoadingCalendar, setIsLoadingCalendar] = useState(true);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
 
   const {
     operations,
@@ -67,6 +126,94 @@ export default function AdvancedScheduling() {
   } = useBatchOperations({ autoLoad: true, pollInterval: 5000 });
 
   const client = getBatchOperationsClient();
+
+  const loadCalendarTasks = useCallback(async () => {
+    setIsLoadingCalendar(true);
+    setCalendarError(null);
+    try {
+      const response = await fetch('/api/va/assignments', { credentials: 'include' });
+      if (!response.ok) throw new Error(await readApiError(response));
+      const assignments = await response.json() as SchedulingAssignment[];
+      if (!Array.isArray(assignments)) throw new Error('Scheduling assignments response is invalid');
+
+      const tasks = assignments
+        .filter((assignment) => assignment.vaId && assignment.scheduledStart && assignment.scheduledEnd)
+        .map((assignment): CalendarTask => ({
+          id: assignment.taskId,
+          title: assignment.cardName,
+          cardTrelloId: assignment.taskId.split(':')[0],
+          startTime: new Date(assignment.scheduledStart!),
+          endTime: new Date(assignment.scheduledEnd!),
+          priority: normalizePriority(assignment.priority),
+          complexity: typeof assignment.complexity === 'number' ? assignment.complexity : undefined,
+          status: normalizeStatus(assignment.status),
+        }))
+        .filter((task) => Number.isFinite(task.startTime.getTime()) && Number.isFinite(task.endTime.getTime()));
+      setCalendarTasks(tasks);
+    } catch (error) {
+      setCalendarTasks([]);
+      setCalendarError(error instanceof Error ? error.message : 'Failed to load scheduled assignments');
+    } finally {
+      setIsLoadingCalendar(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void loadCalendarTasks();
+  }, [loadCalendarTasks]);
+
+  const handleTaskReschedule = useCallback(async (
+    taskId: string,
+    newStartTime: Date,
+    newEndTime: Date,
+    reason?: string,
+  ) => {
+    const task = calendarTasks.find((item) => item.id === taskId);
+    const response = await fetch('/api/scheduling/reschedule', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        taskId,
+        cardTrelloId: task?.cardTrelloId,
+        newStartTime: newStartTime.toISOString(),
+        newEndTime: newEndTime.toISOString(),
+        reason,
+      }),
+    });
+    if (!response.ok) throw new Error(await readApiError(response));
+    const result = await response.json();
+
+    setCalendarTasks((current) => current.map((item) => item.id === taskId
+      ? { ...item, startTime: newStartTime, endTime: newEndTime }
+      : item));
+    setScheduleHistory((current) => [{
+      id: result.historyId,
+      taskId,
+      previousStartTime: result.previousStartTime ? new Date(result.previousStartTime) : undefined,
+      previousEndTime: result.previousEndTime ? new Date(result.previousEndTime) : undefined,
+      newStartTime,
+      newEndTime,
+      reason,
+      hadConflicts: Boolean(result.hadConflicts),
+      createdAt: new Date(),
+    }, ...current.filter((entry) => entry.taskId !== taskId)]);
+  }, [calendarTasks]);
+
+  const handleUndoReschedule = useCallback(async (taskId: string) => {
+    const response = await fetch(`/api/scheduling/undo/${encodeURIComponent(taskId)}`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!response.ok) throw new Error(await readApiError(response));
+    const result = await response.json();
+    const restoredStartTime = new Date(result.restoredStartTime);
+    const restoredEndTime = new Date(result.restoredEndTime);
+    setCalendarTasks((current) => current.map((item) => item.id === taskId
+      ? { ...item, startTime: restoredStartTime, endTime: restoredEndTime }
+      : item));
+    setScheduleHistory((current) => current.filter((entry) => entry.taskId !== taskId));
+  }, []);
 
   // Load keyboard shortcuts
   const loadShortcuts = useCallback(async () => {
@@ -182,10 +329,11 @@ export default function AdvancedScheduling() {
             <Button
               variant="outline"
               size="icon"
-              onClick={loadOperations}
-              disabled={isLoadingOps}
+              onClick={() => { loadOperations(); void loadCalendarTasks(); }}
+              disabled={isLoadingOps || isLoadingCalendar}
+              aria-label="Refresh scheduling data"
             >
-              {isLoadingOps ? (
+              {isLoadingOps || isLoadingCalendar ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <RotateCcw className="h-4 w-4" />
@@ -270,10 +418,28 @@ export default function AdvancedScheduling() {
 
         {/* Calendar Tab */}
         <TabsContent value="calendar" className="space-y-4">
+          {calendarError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Scheduling data unavailable</AlertTitle>
+              <AlertDescription>{calendarError}</AlertDescription>
+            </Alert>
+          )}
+          {!calendarError && !isLoadingCalendar && calendarTasks.length === 0 && (
+            <Alert>
+              <Calendar className="h-4 w-4" />
+              <AlertTitle>No scheduled assignments</AlertTitle>
+              <AlertDescription>
+                Assign a worker and set both a start and end time before a task appears on this calendar.
+              </AlertDescription>
+            </Alert>
+          )}
           <AdvancedSchedulingCalendar 
-            tasks={[]} 
-            onTaskReschedule={async () => {}} 
-            onUndo={async () => {}}
+            tasks={calendarTasks}
+            scheduleHistory={scheduleHistory}
+            isLoading={isLoadingCalendar}
+            onTaskReschedule={handleTaskReschedule}
+            onUndo={handleUndoReschedule}
           />
         </TabsContent>
 

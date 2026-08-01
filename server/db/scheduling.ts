@@ -53,6 +53,58 @@ export interface ScheduleHistoryRecord {
   createdAt: Date;
 }
 
+export interface ScheduleActor {
+  id: number;
+  openId: string;
+  role: string;
+}
+
+export interface ScheduledTaskRecord {
+  id: number;
+  taskId: string;
+  vaId: number;
+  founderId: number;
+  startTime?: Date;
+  endTime?: Date;
+  status: string;
+}
+
+export interface RescheduleResult {
+  historyId: string;
+  taskId: string;
+  cardTrelloId?: string;
+  previousStartTime?: Date;
+  previousEndTime?: Date;
+  newStartTime: Date;
+  newEndTime: Date;
+  vaId: number;
+}
+
+function actorScope(actor: ScheduleActor, alias = 'ta') {
+  if (actor.role === 'worker') {
+    return {
+      join: `JOIN va_profiles actor_va ON ${alias}.vaId = actor_va.id`,
+      clause: 'actor_va.userId = ?',
+      value: actor.id,
+    };
+  }
+
+  return {
+    join: '',
+    clause: `${alias}.founderId = ?`,
+    value: actor.id,
+  };
+}
+
+function mapScheduledTask(row: any): ScheduledTaskRecord {
+  return {
+    ...row,
+    id: Number(row.id),
+    vaId: Number(row.vaId),
+    founderId: Number(row.founderId),
+  };
+}
+
 export async function insertScheduleHistory(record: Omit<ScheduleHistoryRecord, 'id' | 'createdAt'>): Promise<string> {
   const pool = await getPool();
   if (!pool) throw new Error('Database not available');
@@ -108,6 +160,260 @@ export async function getScheduleHistory(taskId: string, limit: number = 50): Pr
       ...row,
       hadConflicts: Boolean(row.hadConflicts)
     }));
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getScheduledTaskForActor(
+  taskId: string,
+  actor: ScheduleActor,
+): Promise<ScheduledTaskRecord | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+
+  const scope = actorScope(actor);
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(
+      `SELECT ta.id, ta.taskId, ta.vaId, ta.founderId, ta.startTime, ta.endTime, ta.status
+       FROM task_assignments ta
+       ${scope.join}
+       WHERE ta.taskId = ? AND ${scope.clause}
+       LIMIT 1`,
+      [taskId, scope.value],
+    );
+    const row = (rows as any[])[0];
+    return row ? mapScheduledTask(row) : null;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getScheduleActorByOpenId(openId: string): Promise<ScheduleActor | null> {
+  const pool = await getPool();
+  if (!pool) return null;
+
+  const connection = await pool.getConnection();
+  try {
+    const [rows] = await connection.execute(
+      `SELECT id, openId, role FROM users WHERE openId = ? LIMIT 1`,
+      [openId],
+    );
+    const row = (rows as any[])[0];
+    if (!row) return null;
+    return { id: Number(row.id), openId: String(row.openId), role: String(row.role) };
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getScheduleHistoryForActor(
+  taskId: string,
+  actor: ScheduleActor,
+  limit: number = 50,
+): Promise<ScheduleHistoryRecord[] | null> {
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
+
+  const safeLimit = Math.max(1, Math.min(Number.parseInt(String(limit), 10) || 50, 200));
+  const scope = actorScope(actor);
+  const connection = await pool.getConnection();
+  try {
+    const [ownedRows] = await connection.execute(
+      `SELECT ta.id
+       FROM task_assignments ta
+       ${scope.join}
+       WHERE ta.taskId = ? AND ${scope.clause}
+       LIMIT 1`,
+      [taskId, scope.value],
+    );
+    if (!(ownedRows as any[])[0]) return null;
+
+    const [rows] = await connection.query(
+      `SELECT * FROM task_schedule_history
+       WHERE taskId = ?
+       ORDER BY createdAt DESC
+       LIMIT ${safeLimit}`,
+      [taskId],
+    );
+    return (rows as any[]).map((row) => ({
+      ...row,
+      hadConflicts: Boolean(row.hadConflicts),
+    }));
+  } finally {
+    connection.release();
+  }
+}
+
+export async function rescheduleTaskForActor(
+  actor: ScheduleActor,
+  taskId: string,
+  newStartTime: Date,
+  newEndTime: Date,
+  options: {
+    cardTrelloId?: string;
+    reason?: string;
+    source?: ScheduleHistoryRecord['source'];
+    hadConflicts?: boolean;
+    conflictDetails?: string;
+  } = {},
+): Promise<RescheduleResult | null> {
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
+
+  const scope = actorScope(actor);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT ta.id, ta.taskId, ta.vaId, ta.founderId, ta.startTime, ta.endTime, ta.status
+       FROM task_assignments ta
+       ${scope.join}
+       WHERE ta.taskId = ? AND ${scope.clause}
+       LIMIT 1
+       FOR UPDATE`,
+      [taskId, scope.value],
+    );
+    const row = (rows as any[])[0];
+    if (!row) {
+      await connection.rollback();
+      return null;
+    }
+
+    const assignment = mapScheduledTask(row);
+    await connection.execute(
+      `UPDATE task_assignments
+       SET startTime = ?, endTime = ?, updatedAt = NOW()
+       WHERE id = ?`,
+      [newStartTime, newEndTime, assignment.id],
+    );
+
+    const historyId = uuidv4();
+    await connection.execute(
+      `INSERT INTO task_schedule_history (
+        id, taskId, cardTrelloId, previousStartTime, previousEndTime,
+        newStartTime, newEndTime, changedBy, reason, source,
+        hadConflicts, conflictDetails, createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        historyId,
+        assignment.taskId,
+        options.cardTrelloId || assignment.taskId.split(':')[0] || null,
+        assignment.startTime || null,
+        assignment.endTime || null,
+        newStartTime,
+        newEndTime,
+        actor.openId,
+        options.reason || 'Manual reschedule',
+        options.source || 'manual',
+        options.hadConflicts ? 1 : 0,
+        options.conflictDetails || null,
+      ],
+    );
+    await connection.commit();
+
+    return {
+      historyId,
+      taskId: assignment.taskId,
+      cardTrelloId: options.cardTrelloId || assignment.taskId.split(':')[0],
+      previousStartTime: assignment.startTime,
+      previousEndTime: assignment.endTime,
+      newStartTime,
+      newEndTime,
+      vaId: assignment.vaId,
+    };
+  } catch (error) {
+    await connection.rollback().catch(() => undefined);
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function undoLastRescheduleForActor(
+  actor: ScheduleActor,
+  taskId: string,
+): Promise<RescheduleResult | null> {
+  const pool = await getPool();
+  if (!pool) throw new Error('Database not available');
+
+  const scope = actorScope(actor);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [assignmentRows] = await connection.execute(
+      `SELECT ta.id, ta.taskId, ta.vaId, ta.founderId, ta.startTime, ta.endTime, ta.status
+       FROM task_assignments ta
+       ${scope.join}
+       WHERE ta.taskId = ? AND ${scope.clause}
+       LIMIT 1
+       FOR UPDATE`,
+      [taskId, scope.value],
+    );
+    const assignmentRow = (assignmentRows as any[])[0];
+    if (!assignmentRow) {
+      await connection.rollback();
+      return null;
+    }
+    const assignment = mapScheduledTask(assignmentRow);
+
+    const [historyRows] = await connection.execute(
+      `SELECT * FROM task_schedule_history
+       WHERE taskId = ?
+       ORDER BY createdAt DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [assignment.taskId],
+    );
+    const previous = (historyRows as any[])[0];
+    if (!previous?.previousStartTime || !previous?.previousEndTime) {
+      await connection.rollback();
+      return null;
+    }
+
+    const restoredStartTime = new Date(previous.previousStartTime);
+    const restoredEndTime = new Date(previous.previousEndTime);
+    await connection.execute(
+      `UPDATE task_assignments
+       SET startTime = ?, endTime = ?, updatedAt = NOW()
+       WHERE id = ?`,
+      [restoredStartTime, restoredEndTime, assignment.id],
+    );
+
+    const historyId = uuidv4();
+    await connection.execute(
+      `INSERT INTO task_schedule_history (
+        id, taskId, cardTrelloId, previousStartTime, previousEndTime,
+        newStartTime, newEndTime, changedBy, reason, source,
+        hadConflicts, conflictDetails, createdAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Undo reschedule', 'manual', 0, NULL, NOW())`,
+      [
+        historyId,
+        assignment.taskId,
+        previous.cardTrelloId || assignment.taskId.split(':')[0] || null,
+        assignment.startTime || null,
+        assignment.endTime || null,
+        restoredStartTime,
+        restoredEndTime,
+        actor.openId,
+      ],
+    );
+    await connection.commit();
+
+    return {
+      historyId,
+      taskId: assignment.taskId,
+      cardTrelloId: previous.cardTrelloId || assignment.taskId.split(':')[0],
+      previousStartTime: assignment.startTime,
+      previousEndTime: assignment.endTime,
+      newStartTime: restoredStartTime,
+      newEndTime: restoredEndTime,
+      vaId: assignment.vaId,
+    };
+  } catch (error) {
+    await connection.rollback().catch(() => undefined);
+    throw error;
   } finally {
     connection.release();
   }
@@ -495,43 +801,49 @@ export async function seedDefaultKeyboardShortcuts(userId: string): Promise<void
   }
 }
 
-export async function getUserTasks(userOpenId: string): Promise<any[]> {
+export async function getUserTasks(actor: ScheduleActor): Promise<ScheduledTaskRecord[]> {
   const pool = await getPool();
   if (!pool) return [];
 
+  const scope = actorScope(actor);
   const query = `
-    SELECT ta.id, ta.taskId, ta.startTime, ta.endTime, ta.status
+    SELECT ta.id, ta.taskId, ta.vaId, ta.founderId, ta.startTime, ta.endTime, ta.status
     FROM task_assignments ta
-    JOIN users u ON ta.founderId = u.id
-    WHERE u.openId = ?
+    ${scope.join}
+    WHERE ${scope.clause}
   `;
 
   const connection = await pool.getConnection();
   try {
-    const [rows] = await connection.execute(query, [userOpenId]);
-    return rows as any[];
+    const [rows] = await connection.execute(query, [scope.value]);
+    return (rows as any[]).map(mapScheduledTask);
   } finally {
     connection.release();
   }
 }
 
-export async function getTasksByAssignee(assignedTo: string | number): Promise<any[]> {
+export async function getTasksByAssignee(
+  actor: ScheduleActor,
+  assignedTo: string | number,
+): Promise<ScheduledTaskRecord[]> {
   const pool = await getPool();
   if (!pool) return [];
 
   const vaId = parseInt(String(assignedTo), 10);
   if (isNaN(vaId)) return [];
 
+  const scope = actorScope(actor);
   const query = `
-    SELECT id, taskId, startTime, endTime, status
-    FROM task_assignments
-    WHERE vaId = ?
+    SELECT ta.id, ta.taskId, ta.vaId, ta.founderId, ta.startTime, ta.endTime, ta.status
+    FROM task_assignments ta
+    ${scope.join}
+    WHERE ta.vaId = ? AND ${scope.clause}
   `;
 
   const connection = await pool.getConnection();
   try {
-    const [rows] = await connection.execute(query, [vaId]);
-    return rows as any[];
+    const [rows] = await connection.execute(query, [vaId, scope.value]);
+    return (rows as any[]).map(mapScheduledTask);
   } finally {
     connection.release();
   }
