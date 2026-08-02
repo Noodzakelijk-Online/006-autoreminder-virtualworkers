@@ -6,6 +6,10 @@ import { eq, and, desc, gte, lte, sql } from 'drizzle-orm';
 
 const router = Router();
 
+function nonNegativeDurationMinutes(entry: { durationMinutes?: number | null }) {
+  return Math.max(0, Number(entry.durationMinutes) || 0);
+}
+
 // Get active timer for a task (if any)
 router.get('/time-tracking/active', async (req: any, res: Response) => {
   try {
@@ -128,7 +132,8 @@ router.post('/time-tracking/stop', async (req: any, res: Response) => {
     const entry = activeTimer[0];
     const endTime = new Date();
     const startTime = new Date(entry.startTime);
-    const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
+    // Clock drift or a repaired entry must never create negative tracked time.
+    const durationMinutes = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 60000));
 
     // Update the entry with end time and duration
     await db.update(timeEntries)
@@ -183,7 +188,8 @@ router.post('/time-tracking/pause', async (req: any, res: Response) => {
     const entry = activeTimer[0];
     const endTime = new Date();
     const startTime = new Date(entry.startTime);
-    const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / 60000);
+    // Clock drift or a repaired entry must never create negative tracked time.
+    const durationMinutes = Math.max(0, Math.round((endTime.getTime() - startTime.getTime()) / 60000));
 
     // Update the entry with end time and duration
     await db.update(timeEntries)
@@ -231,7 +237,10 @@ router.get('/time-tracking/task/:taskId', async (req: any, res: Response) => {
       .orderBy(desc(timeEntries.startTime));
 
     // Calculate total time spent
-    const totalMinutes = entries.reduce((sum: number, entry: any) => sum + (entry.durationMinutes || 0), 0);
+    const totalMinutes = entries.reduce(
+      (sum: number, entry: any) => sum + nonNegativeDurationMinutes(entry),
+      0,
+    );
 
     res.json({ 
       entries, 
@@ -281,19 +290,22 @@ router.get('/time-tracking/summary', async (req: any, res: Response) => {
     const entries = await query.orderBy(desc(timeEntries.startTime));
 
     // Calculate totals
-    const totalMinutes = entries.reduce((sum: number, entry: any) => sum + (entry.durationMinutes || 0), 0);
+    const totalMinutes = entries.reduce(
+      (sum: number, entry: any) => sum + nonNegativeDurationMinutes(entry),
+      0,
+    );
     
     // Group by date
     const byDate: Record<string, number> = {};
     entries.forEach((entry: any) => {
       const date = new Date(entry.startTime).toISOString().split('T')[0];
-      byDate[date] = (byDate[date] || 0) + (entry.durationMinutes || 0);
+      byDate[date] = (byDate[date] || 0) + nonNegativeDurationMinutes(entry);
     });
 
     // Group by task
     const byTask: Record<string, number> = {};
     entries.forEach((entry: any) => {
-      byTask[entry.taskId] = (byTask[entry.taskId] || 0) + (entry.durationMinutes || 0);
+      byTask[entry.taskId] = (byTask[entry.taskId] || 0) + nonNegativeDurationMinutes(entry);
     });
 
     res.json({
@@ -343,7 +355,10 @@ router.get('/time-tracking/weekly-progress', async (req: any, res: Response) => 
         lte(timeEntries.startTime, endOfWeek)
       ));
 
-    const actualMinutes = weekEntries.reduce((sum: number, entry: any) => sum + (entry.durationMinutes || 0), 0);
+    const actualMinutes = weekEntries.reduce(
+      (sum: number, entry: any) => sum + nonNegativeDurationMinutes(entry),
+      0,
+    );
     const actualHours = Math.round(actualMinutes / 60 * 10) / 10;
 
     // Get user's weekly hours target from settings
@@ -377,7 +392,7 @@ router.get('/time-tracking/weekly-progress', async (req: any, res: Response) => 
     weekEntries.forEach((entry: any) => {
       const date = new Date(entry.startTime).toISOString().split('T')[0];
       if (dailyBreakdown[date] !== undefined) {
-        dailyBreakdown[date] += entry.durationMinutes || 0;
+        dailyBreakdown[date] += nonNegativeDurationMinutes(entry);
       }
     });
 

@@ -49,7 +49,7 @@ function stopTimer(userId: number, notes?: string): TimeEntry | { error: string 
   }
 
   const endTime = new Date();
-  const durationMinutes = Math.round((endTime.getTime() - activeTimer.startTime.getTime()) / 60000);
+  const durationMinutes = Math.max(0, Math.round((endTime.getTime() - activeTimer.startTime.getTime()) / 60000));
   
   activeTimer.endTime = endTime;
   activeTimer.durationMinutes = durationMinutes;
@@ -65,7 +65,7 @@ function pauseTimer(userId: number): TimeEntry | { error: string } {
   }
 
   const endTime = new Date();
-  const durationMinutes = Math.round((endTime.getTime() - activeTimer.startTime.getTime()) / 60000);
+  const durationMinutes = Math.max(0, Math.round((endTime.getTime() - activeTimer.startTime.getTime()) / 60000));
   
   activeTimer.endTime = endTime;
   activeTimer.durationMinutes = durationMinutes;
